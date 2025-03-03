@@ -5,10 +5,10 @@
 require ducklake
 
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/ducklake.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_files')
+ATTACH 'ducklake:__TEST_DIR__/ducklake.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_files', METADATA_CATALOG 'ducklake_meta')
 
 query I
-SELECT data_path.replace('__TEST_DIR__/', '') FROM __internal_ducklake_metadata_ducklake.ducklake_info
+SELECT data_path.replace('__TEST_DIR__/', '') FROM ducklake_meta.ducklake_info
 ----
 ducklake_files
 
