@@ -1,0 +1,8 @@
+# name: test/sql/ducklake_basic.test
+# description: test ducklake extension
+# group: [quack]
+
+require ducklake
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake.db' AS ducklake
