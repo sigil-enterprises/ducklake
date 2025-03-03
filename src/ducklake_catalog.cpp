@@ -1,17 +1,19 @@
 #include "ducklake_catalog.hpp"
 #include "duckdb/storage/database_size.hpp"
+#include "duckdb/main/attached_database.hpp"
+#include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 
 namespace duckdb {
 
-DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, string metadata_database_p)
-    : Catalog(db_p), metadata_database(std::move(metadata_database_p)) {
+DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, string metadata_database_p, string path_p)
+    : Catalog(db_p), metadata_database(std::move(metadata_database_p)), path(std::move(path_p)) {
 }
 
 DuckLakeCatalog::~DuckLakeCatalog() {
 }
 
 void DuckLakeCatalog::Initialize(bool load_builtin) {
-	throw InternalException("Unsupported DuckLake function");
+
 }
 
 optional_ptr<CatalogEntry> DuckLakeCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {
@@ -55,7 +57,7 @@ DatabaseSize DuckLakeCatalog::GetDatabaseSize(ClientContext &context) {
 }
 
 bool DuckLakeCatalog::InMemory() {
-	throw InternalException("Unsupported DuckLake function");
+	return false;
 }
 
 void DuckLakeCatalog::DropSchema(ClientContext &context, DropInfo &info) {
@@ -63,7 +65,7 @@ void DuckLakeCatalog::DropSchema(ClientContext &context, DropInfo &info) {
 }
 
 string DuckLakeCatalog::GetDBPath() {
-	throw InternalException("Unsupported DuckLake function");
+	return path;
 }
 
 } // namespace duckdb

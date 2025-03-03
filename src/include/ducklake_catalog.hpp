@@ -14,7 +14,7 @@ namespace duckdb {
 
 class DuckLakeCatalog : public Catalog {
 public:
-	explicit DuckLakeCatalog(AttachedDatabase &db_p, string metadata_database);
+	explicit DuckLakeCatalog(AttachedDatabase &db_p, string metadata_database, string path);
 	~DuckLakeCatalog();
 
 public:
@@ -52,6 +52,7 @@ private:
 
 private:
 	string metadata_database;
+	string path;
 };
 
 } // namespace duckdb
