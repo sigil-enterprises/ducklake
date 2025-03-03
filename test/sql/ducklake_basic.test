@@ -7,6 +7,14 @@ require ducklake
 statement ok
 ATTACH 'ducklake:__TEST_DIR__/ducklake.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_files', METADATA_CATALOG 'ducklake_meta')
 
+statement ok
+CREATE TABLE ducklake.test(i INTEGER);
+
+query I
+SELECT * FROM ducklake.test
+----
+
+
 query I
 SELECT data_path.replace('__TEST_DIR__/', '') FROM ducklake_meta.ducklake_info
 ----
