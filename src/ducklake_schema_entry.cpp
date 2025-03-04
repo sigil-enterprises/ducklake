@@ -95,6 +95,11 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::GetEntry(CatalogTransaction tran
     return catalog_set.GetEntry(duck_transaction, name);
 }
 
+void DuckLakeSchemaEntry::AddEntry(CatalogType type, unique_ptr<CatalogEntry> entry) {
+    auto &catalog_set = GetCatalogSet(type);
+    catalog_set.CreateEntry(std::move(entry));
+}
+
 DuckLakeCatalogSet &DuckLakeSchemaEntry::GetCatalogSet(CatalogType type) {
 	switch(type) {
 	case CatalogType::TABLE_ENTRY:

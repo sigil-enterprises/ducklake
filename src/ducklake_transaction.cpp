@@ -54,16 +54,32 @@ void DuckLakeTransaction::FlushChanges() {
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write new snapshot to DuckLake:");
 	}
-	//CREATE TABLE {METADATA_CATALOG}.ducklake_table(table_id BIGINT PRIMARY KEY, table_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, table_name VARCHAR);
 	for(auto &schema_entry : new_tables) {
 		for(auto &entry : schema_entry.second->GetEntries()) {
+			//CREATE TABLE ducklake_table(table_id BIGINT PRIMARY KEY, table_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, table_name VARCHAR);
 			// write any new tables that we created
 			auto &table = entry.second->Cast<DuckLakeTableEntry>();
 			auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
-			auto table_insert_query = StringUtil::Format(R"(INSERT INTO {METADATA_CATALOG}.ducklake_table VALUES (%d, '%s', {SNAPSHOT_ID}, NULL, %d, '%s');)", table.GetTableId(), table.GetTableUUID(), schema.GetSchemaId(), table.name);
+			auto table_id = table.GetTableId();
+			auto table_insert_query = StringUtil::Format(R"(INSERT INTO {METADATA_CATALOG}.ducklake_table VALUES (%d, '%s', {SNAPSHOT_ID}, NULL, %d, '%s');)", table_id, table.GetTableUUID(), schema.GetSchemaId(), table.name);
 			result = Query(commit_snapshot, table_insert_query);
 			if (result->HasError()) {
 				result->GetErrorObject().Throw("Failed to write new table to DuckLake:");
+			}
+			// write the columns
+			// CREATE TABLE ducklake_column(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, column_order BIGINT, column_name VARCHAR, column_type VARCHAR, default_value VARCHAR);
+			string column_insert_query;
+			idx_t column_id = 0;
+			for(auto &col : table.GetColumns().Logical()) {
+				if (!column_insert_query.empty()) {
+					column_insert_query += ", ";
+				}
+				column_insert_query += StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, '%s', '%s', NULL)", column_id, table_id, column_id, col.GetName(), col.GetType().ToString());
+			}
+			column_insert_query = "INSERT INTO {METADATA_CATALOG}.ducklake_column VALUES " + column_insert_query;
+			result = Query(commit_snapshot, column_insert_query);
+			if (result->HasError()) {
+				result->GetErrorObject().Throw("Failed to write column information to DuckLake:");
 			}
 		}
 	}

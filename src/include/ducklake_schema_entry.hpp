@@ -47,6 +47,8 @@ public:
 	void DropEntry(ClientContext &context, DropInfo &info) override;
 	optional_ptr<CatalogEntry> GetEntry(CatalogTransaction transaction, CatalogType type, const string &name) override;
 
+	void AddEntry(CatalogType type, unique_ptr<CatalogEntry> entry);
+
 private:
 	DuckLakeCatalogSet &GetCatalogSet(CatalogType type);
 
