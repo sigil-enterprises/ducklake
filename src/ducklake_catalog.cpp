@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 #include "ducklake_schema_entry.hpp"
+#include "ducklake_transaction.hpp"
 
 namespace duckdb {
 
@@ -75,7 +76,7 @@ WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_s
 		auto schema_entry = make_uniq<DuckLakeSchemaEntry>(*this, schema_info, schema_id, std::move(schema_uuid));
 		schema_map.insert(make_pair(std::move(schema_name), std::move(schema_entry)));
 	}
-	auto schema_set = make_uniq<DuckLakeCatalogSet>(std::move(schema_map));
+	auto schema_set = make_uniq<DuckLakeCatalogSet>(CatalogType::SCHEMA_ENTRY, std::move(schema_map));
 	return schema_set;
 }
 

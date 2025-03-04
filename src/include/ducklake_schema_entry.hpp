@@ -9,6 +9,7 @@
 #pragma once
 
 #include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
+#include "ducklake_catalog_set.hpp"
 
 namespace duckdb {
 class DuckLakeTransaction;
@@ -16,6 +17,14 @@ class DuckLakeTransaction;
 class DuckLakeSchemaEntry : public SchemaCatalogEntry {
 public:
 	DuckLakeSchemaEntry(Catalog &catalog, CreateSchemaInfo &info, idx_t schema_id, string schema_uuid);
+
+public:
+	idx_t GetSchemaId() const {
+		return schema_id;
+	}
+	const string&GetSchemaUUID() const {
+		return schema_uuid;
+	}
 
 public:
 	optional_ptr<CatalogEntry> CreateTable(CatalogTransaction transaction, BoundCreateTableInfo &info) override;
@@ -39,8 +48,12 @@ public:
 	optional_ptr<CatalogEntry> GetEntry(CatalogTransaction transaction, CatalogType type, const string &name) override;
 
 private:
+	DuckLakeCatalogSet &GetCatalogSet(CatalogType type);
+
+private:
 	idx_t schema_id;
 	string schema_uuid;
+	DuckLakeCatalogSet tables;
 };
 
 } // namespace duckdb

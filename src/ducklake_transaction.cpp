@@ -1,6 +1,8 @@
 #include "ducklake_transaction.hpp"
 #include "duckdb/main/database_manager.hpp"
 #include "ducklake_catalog.hpp"
+#include "ducklake_schema_entry.hpp"
+#include "ducklake_table_entry.hpp"
 
 namespace duckdb {
 
@@ -17,6 +19,7 @@ void DuckLakeTransaction::Start() {
 
 void DuckLakeTransaction::Commit() {
 	if (connection) {
+		FlushChanges();
 		connection->Commit();
 		connection.reset();
 	}
@@ -37,6 +40,35 @@ Connection &DuckLakeTransaction::GetConnection() {
 	return *connection;
 }
 
+void DuckLakeTransaction::FlushChanges() {
+	auto commit_snapshot = GetSnapshot();
+
+	commit_snapshot.snapshot_id++;
+	auto changed_schema = !new_tables.empty();
+	if (changed_schema) {
+		// we changed the schema - need to get a new schema version
+		commit_snapshot.schema_version++;
+	}
+	// write the new snapshot
+	auto result = Query(commit_snapshot, R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES ({SNAPSHOT_ID}, NOW(), {SCHEMA_VERSION});)");
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to write new snapshot to DuckLake:");
+	}
+	//CREATE TABLE {METADATA_CATALOG}.ducklake_table(table_id BIGINT PRIMARY KEY, table_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, table_name VARCHAR);
+	for(auto &schema_entry : new_tables) {
+		for(auto &entry : schema_entry.second->GetEntries()) {
+			// write any new tables that we created
+			auto &table = entry.second->Cast<DuckLakeTableEntry>();
+			auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
+			auto table_insert_query = StringUtil::Format(R"(INSERT INTO {METADATA_CATALOG}.ducklake_table VALUES (%d, '%s', {SNAPSHOT_ID}, NULL, %d, '%s');)", table.GetTableId(), table.GetTableUUID(), schema.GetSchemaId(), table.name);
+			result = Query(commit_snapshot, table_insert_query);
+			if (result->HasError()) {
+				result->GetErrorObject().Throw("Failed to write new table to DuckLake:");
+			}
+		}
+	}
+}
+
 unique_ptr<QueryResult> DuckLakeTransaction::Query(string query) {
 	auto &connection = GetConnection();
 	query = StringUtil::Replace(query, "{METADATA_CATALOG}", ducklake_catalog.MetadataDatabaseName());
@@ -47,6 +79,7 @@ unique_ptr<QueryResult> DuckLakeTransaction::Query(string query) {
 
 unique_ptr<QueryResult> DuckLakeTransaction::Query(DuckLakeSnapshot snapshot, string query) {
 	query = StringUtil::Replace(query, "{SNAPSHOT_ID}", to_string(snapshot.snapshot_id));
+	query = StringUtil::Replace(query, "{SCHEMA_VERSION}", to_string(snapshot.schema_version));
 	return Query(std::move(query));
 }
 
@@ -73,5 +106,26 @@ DuckLakeSnapshot DuckLakeTransaction::GetSnapshot() {
 DuckLakeTransaction &DuckLakeTransaction::Get(ClientContext &context, Catalog &catalog) {
 	return Transaction::Get(context, catalog).Cast<DuckLakeTransaction>();
 }
+
+DuckLakeCatalogSet &DuckLakeTransaction::GetOrCreateNewTableElements(const string &schema_name) {
+	auto entry = GetNewTableElements(schema_name);
+	if (entry) {
+		return *entry;
+	}
+	// need to create it
+	auto new_table_list = make_uniq<DuckLakeCatalogSet>(CatalogType::TABLE_ENTRY, schema_name);
+	auto &result = *new_table_list;
+	new_tables.insert(make_pair(schema_name, std::move(new_table_list)));
+	return result;
+}
+
+optional_ptr<DuckLakeCatalogSet> DuckLakeTransaction::GetNewTableElements(const string &schema_name) {
+	auto entry = new_tables.find(schema_name);
+	if (entry == new_tables.end()) {
+		return nullptr;
+	}
+	return entry->second;
+}
+
 
 } // namespace duckdb

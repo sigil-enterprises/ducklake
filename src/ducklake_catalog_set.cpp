@@ -1,6 +1,12 @@
 #include "ducklake_catalog_set.hpp"
 #include "ducklake_transaction.hpp"
+
 namespace duckdb {
+
+void DuckLakeCatalogSet::CreateEntry(unique_ptr<CatalogEntry> entry) {
+	auto name = entry->name;
+	catalog_entries.insert(make_pair(std::move(name), std::move(entry)));
+}
 
 optional_ptr<CatalogEntry> DuckLakeCatalogSet::GetEntry(DuckLakeTransaction &transaction, const string &name) {
 	//! FIXME: search in transaction local storage

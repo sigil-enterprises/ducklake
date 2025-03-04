@@ -12,9 +12,11 @@
 #include "duckdb/common/case_insensitive_map.hpp"
 #include "duckdb/main/connection.hpp"
 #include "ducklake_snapshot.hpp"
+#include "ducklake_catalog_set.hpp"
 
 namespace duckdb {
 class DuckLakeCatalog;
+class DuckLakeCatalogSet;
 
 class DuckLakeTransaction : public Transaction {
 public:
@@ -36,11 +38,18 @@ public:
 
 	static DuckLakeTransaction &Get(ClientContext &context, Catalog &catalog);
 
+	DuckLakeCatalogSet &GetOrCreateNewTableElements(const string &schema_name);
+	optional_ptr<DuckLakeCatalogSet> GetNewTableElements(const string &schema_name);
+
+	void FlushChanges();
+
 private:
 	DuckLakeCatalog &ducklake_catalog;
 	DatabaseInstance &db;
 	unique_ptr<Connection> connection;
 	unique_ptr<DuckLakeSnapshot> snapshot;
+	//! New tables added by this transaction
+	case_insensitive_map_t<unique_ptr<DuckLakeCatalogSet>> new_tables;
 };
 
 } // namespace duckdb

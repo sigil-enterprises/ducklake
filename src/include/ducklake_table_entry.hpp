@@ -1,0 +1,42 @@
+//===----------------------------------------------------------------------===//
+//                         DuckDB
+//
+// ducklake_table_entry.hpp
+//
+//
+//===----------------------------------------------------------------------===//
+
+#pragma once
+
+#include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
+
+namespace duckdb {
+
+class DuckLakeTableEntry : public TableCatalogEntry {
+public:
+	DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info, idx_t table_id, string table_uuid);
+
+public:
+	idx_t GetTableId() const {
+		return table_id;
+	}
+	const string&GetTableUUID() const {
+		return table_uuid;
+	}
+
+public:
+	unique_ptr<BaseStatistics> GetStatistics(ClientContext &context, column_t column_id) override;
+
+	TableFunction GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data) override;
+
+	TableStorageInfo GetStorageInfo(ClientContext &context) override;
+
+	void BindUpdateConstraints(Binder &binder, LogicalGet &get, LogicalProjection &proj, LogicalUpdate &update,
+							   ClientContext &context) override;
+
+private:
+	idx_t table_id;
+	string table_uuid;
+};
+
+} // namespace duckdb
