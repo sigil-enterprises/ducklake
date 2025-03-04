@@ -9,6 +9,7 @@
 #pragma once
 
 #include "duckdb/transaction/transaction_manager.hpp"
+#include "ducklake_transaction.hpp"
 #include "ducklake_catalog.hpp"
 
 namespace duckdb {
@@ -25,6 +26,8 @@ public:
 
 private:
 	DuckLakeCatalog &ducklake_catalog;
+	mutex transaction_lock;
+	reference_map_t<Transaction, unique_ptr<DuckLakeTransaction>> transactions;
 };
 
 } // namespace duckdb

@@ -13,7 +13,6 @@ DuckLakeCatalog::~DuckLakeCatalog() {
 }
 
 void DuckLakeCatalog::Initialize(bool load_builtin) {
-
 }
 
 optional_ptr<CatalogEntry> DuckLakeCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {
@@ -62,6 +61,10 @@ bool DuckLakeCatalog::InMemory() {
 
 void DuckLakeCatalog::DropSchema(ClientContext &context, DropInfo &info) {
 	throw InternalException("Unsupported DuckLake function");
+}
+
+void DuckLakeCatalog::AddSchema(unique_ptr<SchemaCatalogEntry> schema) {
+	schemas.CreateEntry(std::move(schema));
 }
 
 string DuckLakeCatalog::GetDBPath() {

@@ -9,6 +9,7 @@
 #pragma once
 
 #include "duckdb/catalog/catalog.hpp"
+#include "ducklake_catalog_set.hpp"
 
 namespace duckdb {
 
@@ -47,10 +48,13 @@ public:
 	bool InMemory() override;
 	string GetDBPath() override;
 
+	void AddSchema(unique_ptr<SchemaCatalogEntry> schema);
+
 private:
 	void DropSchema(ClientContext &context, DropInfo &info) override;
 
 private:
+	DuckLakeCatalogSet schemas;
 	string metadata_database;
 	string path;
 };

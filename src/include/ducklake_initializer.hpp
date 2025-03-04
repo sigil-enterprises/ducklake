@@ -15,7 +15,8 @@ namespace duckdb {
 
 class DuckLakeInitializer {
 public:
-	DuckLakeInitializer(ClientContext &context, AttachedDatabase &metadata_database, const string &schema, const string &data_path);
+	DuckLakeInitializer(ClientContext &context, DuckLakeCatalog &catalog, AttachedDatabase &metadata_database,
+	                    const string &schema, const string &data_path);
 
 public:
 	void Initialize();
@@ -28,6 +29,7 @@ private:
 
 private:
 	ClientContext &context;
+	DuckLakeCatalog &catalog;
 	AttachedDatabase &metadata_database;
 	const string &schema;
 	const string &data_path;

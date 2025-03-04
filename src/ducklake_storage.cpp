@@ -41,11 +41,13 @@ static unique_ptr<Catalog> DuckLakeAttach(StorageExtensionInfo *storage_info, Cl
 		ErrorData error(ex);
 		error.Throw("Failed to attach DuckLake \"" + name + "\" at path + \"" + info.path + "\"");
 	}
+
+	auto catalog = make_uniq<DuckLakeCatalog>(db, std::move(metadata_catalog_name), info.path);
 	// initialize the metadata database
-	DuckLakeInitializer initializer(context, *metadata_database, schema, data_path);
+	DuckLakeInitializer initializer(context, *catalog, *metadata_database, schema, data_path);
 	initializer.Initialize();
 
-	return make_uniq<DuckLakeCatalog>(db, std::move(metadata_catalog_name), info.path);
+	return std::move(catalog);
 }
 
 static unique_ptr<TransactionManager> DuckLakeCreateTransactionManager(StorageExtensionInfo *storage_info,
