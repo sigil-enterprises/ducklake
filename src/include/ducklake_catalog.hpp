@@ -15,13 +15,23 @@ namespace duckdb {
 
 class DuckLakeCatalog : public Catalog {
 public:
-	explicit DuckLakeCatalog(AttachedDatabase &db_p, string metadata_database, string path);
+	DuckLakeCatalog(AttachedDatabase &db_p, string metadata_database, string metadata_path, string data_path, string metadata_schema);
 	~DuckLakeCatalog();
 
 public:
 	void Initialize(bool load_builtin) override;
+	void Initialize(optional_ptr<ClientContext> context, bool load_builtin) override;
 	string GetCatalogType() override {
 		return "ducklake";
+	}
+	const string &MetadataDatabaseName() const {
+		return metadata_database;
+	}
+	const string &MetadataPath() const {
+		return metadata_path;
+	}
+	const string &DataPath() const {
+		return data_path;
 	}
 
 	optional_ptr<CatalogEntry> CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) override;
@@ -48,15 +58,20 @@ public:
 	bool InMemory() override;
 	string GetDBPath() override;
 
-	void AddSchema(unique_ptr<SchemaCatalogEntry> schema);
-
 private:
 	void DropSchema(ClientContext &context, DropInfo &info) override;
 
+	//! Return the schema for the given snapshot - loading it if it is not yet loaded
+	DuckLakeCatalogSet &GetSchemaForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
+	unique_ptr<DuckLakeCatalogSet> LoadSchemaForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
+
 private:
-	DuckLakeCatalogSet schemas;
+	mutex schemas_lock;
+	unordered_map<idx_t, unique_ptr<DuckLakeCatalogSet>> schemas;
 	string metadata_database;
-	string path;
+	string metadata_path;
+	string data_path;
+	string metadata_schema;
 };
 
 } // namespace duckdb

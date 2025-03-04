@@ -10,27 +10,28 @@
 
 #include "ducklake_catalog.hpp"
 #include "duckdb/common/types/data_chunk.hpp"
+#include "duckdb/main/connection.hpp"
 
 namespace duckdb {
+class DuckLakeTransaction;
 
 class DuckLakeInitializer {
 public:
-	DuckLakeInitializer(ClientContext &context, DuckLakeCatalog &catalog, AttachedDatabase &metadata_database,
-	                    const string &schema, const string &data_path);
+	DuckLakeInitializer(ClientContext &context, DuckLakeCatalog &catalog, const string &metadata_database,
+	                    const string &metadata_path, const string &schema, const string &data_path);
 
 public:
 	void Initialize();
 
 private:
-	void InitializeNewDuckLake();
-	void LoadExistingDuckLake();
-	TableCatalogEntry &CreateTable(string name, vector<string> column_names, vector<LogicalType> column_types);
-	void Insert(TableCatalogEntry &table, DataChunk &data);
+	void InitializeNewDuckLake(DuckLakeTransaction &transaction);
+	void LoadExistingDuckLake(DuckLakeTransaction &transaction);
 
 private:
 	ClientContext &context;
 	DuckLakeCatalog &catalog;
-	AttachedDatabase &metadata_database;
+	const string &metadata_database;
+	const string &metadata_path;
 	const string &schema;
 	const string &data_path;
 };

@@ -15,7 +15,7 @@ class DuckLakeTransaction;
 
 class DuckLakeSchemaEntry : public SchemaCatalogEntry {
 public:
-	DuckLakeSchemaEntry(Catalog &catalog, CreateSchemaInfo &info);
+	DuckLakeSchemaEntry(Catalog &catalog, CreateSchemaInfo &info, idx_t schema_id, string schema_uuid);
 
 public:
 	optional_ptr<CatalogEntry> CreateTable(CatalogTransaction transaction, BoundCreateTableInfo &info) override;
@@ -37,6 +37,10 @@ public:
 	void Scan(CatalogType type, const std::function<void(CatalogEntry &)> &callback) override;
 	void DropEntry(ClientContext &context, DropInfo &info) override;
 	optional_ptr<CatalogEntry> GetEntry(CatalogTransaction transaction, CatalogType type, const string &name) override;
+
+private:
+	idx_t schema_id;
+	string schema_uuid;
 };
 
 } // namespace duckdb

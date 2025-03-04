@@ -1,144 +1,75 @@
 #include "ducklake_initializer.hpp"
 #include "duckdb/main/attached_database.hpp"
-#include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
-#include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
-#include "duckdb/parser/parsed_data/create_schema_info.hpp"
-#include "duckdb/parser/parsed_data/create_table_info.hpp"
 #include "duckdb/transaction/meta_transaction.hpp"
 #include "duckdb/storage/data_table.hpp"
 #include "duckdb/common/types/column/column_data_collection.hpp"
 #include "duckdb/common/types/uuid.hpp"
 #include "ducklake_schema_entry.hpp"
+#include "duckdb/main/connection.hpp"
 #include "ducklake_catalog.hpp"
+#include "ducklake_transaction.hpp"
 
 namespace duckdb {
 
 DuckLakeInitializer::DuckLakeInitializer(ClientContext &context, DuckLakeCatalog &catalog,
-                                         AttachedDatabase &metadata_database, const string &schema,
-                                         const string &data_path)
-    : context(context), catalog(catalog), metadata_database(metadata_database), schema(schema), data_path(data_path) {
+                                         const string &metadata_database,
+	                    const string &metadata_path, const string &schema, const string &data_path)
+    : context(context), catalog(catalog), metadata_database(metadata_database), metadata_path(metadata_path), schema(schema), data_path(data_path) {
 }
 
 void DuckLakeInitializer::Initialize() {
-	auto &catalog = metadata_database.GetCatalog();
-	// check if the tables exist
-	auto ducklake_info =
-	    catalog.GetEntry<TableCatalogEntry>(context, schema, "ducklake_info", OnEntryNotFound::RETURN_NULL);
-	if (!ducklake_info) {
-		auto &meta = MetaTransaction::Get(context);
-		meta.ModifyDatabase(metadata_database);
-		InitializeNewDuckLake();
+	auto &transaction = DuckLakeTransaction::Get(context, catalog);
+	// attach the metadata database
+	auto result = transaction.Query("ATTACH '{METADATA_PATH}' AS \"{METADATA_CATALOG}\"");
+	if (result->HasError()) {
+		auto &error_obj = result->GetErrorObject();
+		error_obj.Throw("Failed to attach DuckLake MetaData \"" + metadata_database + "\" at path + \"" + metadata_path + "\"");
+	}
+	// FIXME: query duckdb_tables() instead?
+	// after the metadata database is attached initialize the ducklake
+	result = transaction.Query("SELECT * FROM {METADATA_CATALOG}.ducklake_info");
+	if (result->HasError()) {
+		InitializeNewDuckLake(transaction);
 	} else {
-		LoadExistingDuckLake();
+		LoadExistingDuckLake(transaction);
 	}
 }
 
-void DuckLakeInitializer::InitializeNewDuckLake() {
+void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction) {
 	if (data_path.empty()) {
 		throw InvalidInputException("Attempting to create a new ducklake instance but data_path is not set - set the "
 		                            "DATA_PATH parameter to the desired location of the data files");
 	}
-	// FIXME: create schema if not exists/check schema
-	// FIXME: if any of the tables exist - fail
-	// initialize the ducklake tables
-	vector<LogicalType> ducklake_info_types = {LogicalType::VARCHAR};
-	auto &ducklake_info = CreateTable("ducklake_info", {"data_path"}, ducklake_info_types);
-
-	vector<LogicalType> snapshot_types = {LogicalType::BIGINT, LogicalType::TIMESTAMP_TZ};
-	auto &snapshot_table = CreateTable("ducklake_snapshot", {"snapshot_id", "snapshot_time"}, snapshot_types);
-
-	vector<LogicalType> schema_types = {LogicalType::BIGINT, LogicalType::UUID, LogicalType::BIGINT,
-	                                    LogicalType::BIGINT, LogicalType::VARCHAR};
-	auto &schema_table = CreateTable(
-	    "ducklake_schema", {"schema_id", "schema_uuid", "begin_snapshot", "end_snapshot", "schema_name"}, schema_types);
-	CreateTable("ducklake_table",
-	            {"table_id", "table_uuid", "begin_snapshot", "end_snapshot", "schema_id", "table_name"},
-	            {LogicalType::BIGINT, LogicalType::UUID, LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::BIGINT,
-	             LogicalType::VARCHAR});
-	CreateTable("ducklake_column",
-	            {"column_id", "begin_snapshot", "end_snapshot", "table_id", "column_order", "column_name",
-	             "column_type", "default_value"},
-	            {LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::BIGINT,
-	             LogicalType::BIGINT, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR});
-	CreateTable("ducklake_data_file",
-	            {"data_file_id", "begin_snapshot", "end_snapshot", "table_id", "file_order", "path", "file_format",
-	             "record_count", "file_size_bytes", "partition_id"},
-	            {LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::BIGINT,
-	             LogicalType::BIGINT, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::BIGINT,
-	             LogicalType::BIGINT, LogicalType::BIGINT});
-	CreateTable(
-	    "ducklake_delete_file",
-	    {"delete_file_id", "begin_snapshot", "end_snapshot", "data_file_id", "path", "delete_count", "file_size_bytes"},
-	    {LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::VARCHAR,
-	     LogicalType::BIGINT, LogicalType::BIGINT});
-	//	CreateTable("ducklake_partition_info", {}, {});
-	//	CreateTable("ducklake_partition_column_info", {}, {});
-	//	CreateTable("ducklake_partition_column_transforms", {}, {});
-	//	CreateTable("ducklake_column_statistics", {}, {});
-	//	CreateTable("ducklake_sorting_info", {}, {});
-	//	CreateTable("ducklake_sorting_column_info", {}, {});
-	//	CreateTable("ducklake_view", {}, {});
-	//	CreateTable("ducklake_macro", {}, {});
-
-	// insert the data path
-	DataChunk data_path_chunk;
-	data_path_chunk.Initialize(context, ducklake_info_types);
-	data_path_chunk.SetValue(0, 0, Value(data_path));
-	data_path_chunk.SetCardinality(1);
-	Insert(ducklake_info, data_path_chunk);
-
-	// insert the first snapshot
-	DataChunk snapshot_chunk;
-	snapshot_chunk.Initialize(context, snapshot_types);
-	snapshot_chunk.SetValue(0, 0, Value::BIGINT(0));
-	snapshot_chunk.SetValue(1, 0, Value::TIMESTAMPTZ(timestamp_tz_t(MetaTransaction::Get(context).start_timestamp)));
-	snapshot_chunk.SetCardinality(1);
-	Insert(snapshot_table, snapshot_chunk);
-
-	// insert the default schema
-	auto default_schema_name = "main";
-	DataChunk schema_chunk;
-	schema_chunk.Initialize(context, schema_types);
-	schema_chunk.SetValue(0, 0, Value::BIGINT(0));
-	schema_chunk.SetValue(1, 0, Value::UUID(UUID::GenerateRandomUUID()));
-	schema_chunk.SetValue(2, 0, Value::BIGINT(0));
-	schema_chunk.SetValue(3, 0, Value());
-	schema_chunk.SetValue(4, 0, Value(default_schema_name));
-	schema_chunk.SetCardinality(1);
-	Insert(schema_table, schema_chunk);
-
-	// create the schema in the catalog
-	CreateSchemaInfo schema_info;
-	schema_info.schema = default_schema_name;
-	auto default_schema = make_uniq<DuckLakeSchemaEntry>(catalog, schema_info);
-	default_schema->timestamp = 0;
-
-	catalog.AddSchema(std::move(default_schema));
-}
-
-void DuckLakeInitializer::LoadExistingDuckLake() {
-}
-
-TableCatalogEntry &DuckLakeInitializer::CreateTable(string name, vector<string> column_names,
-                                                    vector<LogicalType> column_types) {
-	auto &catalog = metadata_database.GetCatalog();
-	auto table_info = make_uniq<CreateTableInfo>(metadata_database.GetName(), schema, std::move(name));
-
-	for (idx_t i = 0; i < column_names.size(); i++) {
-		ColumnDefinition column(std::move(column_names[i]), std::move(column_types[i]));
-		table_info->columns.AddColumn(std::move(column));
+	string initialize_query = R"(
+	CREATE TABLE {METADATA_CATALOG}.ducklake_info(data_path VARCHAR);
+	CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot(snapshot_id BIGINT, snapshot_time TIMESTAMPTZ, schema_version BIGINT);
+	CREATE TABLE {METADATA_CATALOG}.ducklake_schema(schema_id BIGINT, schema_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_name VARCHAR);
+	CREATE TABLE {METADATA_CATALOG}.ducklake_table(table_id BIGINT, table_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, table_name VARCHAR);
+	CREATE TABLE {METADATA_CATALOG}.ducklake_column(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, column_order BIGINT, column_name VARCHAR, column_type VARCHAR, default_value VARCHAR);
+	CREATE TABLE {METADATA_CATALOG}.ducklake_data_file(data_file_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, file_order BIGINT, path VARCHAR, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, partition_id BIGINT);
+	CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file(delete_fle_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, data_file_id BIGINT, path VARCHAR, delete_count BIGINT, file_size_bytes BIGINT);
+	INSERT INTO {METADATA_CATALOG}.ducklake_info VALUES ('{DATA_PATH}');
+	INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0);
+	INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, uuid(), 0, NULL, 'main');
+	)";
+	// TODO: add
+	//	ducklake_partition_info
+	//	ducklake_partition_column_info
+	//	ducklake_partition_column_transforms
+	//	ducklake_column_statistics
+	//	ducklake_sorting_info
+	//	ducklake_sorting_column_info
+	//	ducklake_view
+	//	ducklake_macro
+	// TODO support schema parameter
+	auto result = transaction.Query(initialize_query);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to initialize DuckLake:");
 	}
-	return catalog.CreateTable(context, std::move(table_info))->Cast<TableCatalogEntry>();
 }
 
-void DuckLakeInitializer::Insert(TableCatalogEntry &table_entry, DataChunk &data) {
-	// FIXME - we should have some catalog method for this
-	auto binder = Binder::CreateBinder(context);
-	auto bound_constraints = binder->BindConstraints(table_entry);
-	vector<column_t> column_ids;
-	for (idx_t i = 0; i < data.ColumnCount(); i++) {
-		column_ids.push_back(i);
-	}
-	table_entry.GetStorage().LocalWALAppend(table_entry, context, data, bound_constraints);
+void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction) {
+	throw InternalException("FIXME: load existing duck lake");
 }
+
 } // namespace duckdb
