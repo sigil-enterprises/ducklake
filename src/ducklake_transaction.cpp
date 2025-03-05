@@ -8,7 +8,8 @@ namespace duckdb {
 
 DuckLakeTransaction::DuckLakeTransaction(DuckLakeCatalog &ducklake_catalog, TransactionManager &manager,
                                          ClientContext &context)
-    : Transaction(manager, context), ducklake_catalog(ducklake_catalog), db(*context.db), local_table_id(9223372036854775808ULL) {
+    : Transaction(manager, context), ducklake_catalog(ducklake_catalog), db(*context.db),
+      local_table_id(9223372036854775808ULL) {
 }
 
 DuckLakeTransaction::~DuckLakeTransaction() {
@@ -124,9 +125,9 @@ void DuckLakeTransaction::FlushChanges() {
 		// FIXME: write column statistics
 	}
 	// write the new snapshot
-	result =
-	    Query(commit_snapshot,
-	          R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES ({SNAPSHOT_ID}, NOW(), {SCHEMA_VERSION}, {NEXT_TABLE_ID}, {NEXT_DATA_FILE_ID});)");
+	result = Query(
+	    commit_snapshot,
+	    R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES ({SNAPSHOT_ID}, NOW(), {SCHEMA_VERSION}, {NEXT_TABLE_ID}, {NEXT_DATA_FILE_ID});)");
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write new snapshot to DuckLake:");
 	}

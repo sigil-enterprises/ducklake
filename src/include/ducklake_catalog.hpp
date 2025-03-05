@@ -12,6 +12,7 @@
 #include "ducklake_catalog_set.hpp"
 
 namespace duckdb {
+class ColumnList;
 
 class DuckLakeCatalog : public Catalog {
 public:
@@ -65,6 +66,8 @@ private:
 	//! Return the schema for the given snapshot - loading it if it is not yet loaded
 	DuckLakeCatalogSet &GetSchemaForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
 	unique_ptr<DuckLakeCatalogSet> LoadSchemaForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
+	unique_ptr<PhysicalOperator> PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
+	                                               unique_ptr<PhysicalOperator> plan);
 
 private:
 	mutex schemas_lock;

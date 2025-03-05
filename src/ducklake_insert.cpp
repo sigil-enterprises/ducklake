@@ -84,8 +84,16 @@ SinkFinalizeType DuckLakeInsert::Finalize(Pipeline &pipeline, Event &event, Clie
                                           OperatorSinkFinalizeInput &input) const {
 	auto &global_state = input.global_state.Cast<DuckLakeInsertGlobalState>();
 
-	auto &transaction = DuckLakeTransaction::Get(context, table->catalog);
-	transaction.AppendFiles(table->GetTableId(), global_state.written_files);
+	optional_ptr<DuckLakeTableEntry> table_ptr;
+	if (info) {
+		auto &catalog = schema->catalog;
+		table_ptr = &catalog.CreateTable(catalog.GetCatalogTransaction(context), *schema.get_mutable(), *info)
+		                 ->Cast<DuckLakeTableEntry>();
+	} else {
+		table_ptr = table;
+	}
+	auto &transaction = DuckLakeTransaction::Get(context, table_ptr->catalog);
+	transaction.AppendFiles(table_ptr->GetTableId(), global_state.written_files);
 
 	return SinkFinalizeType::READY;
 }
@@ -118,15 +126,8 @@ static optional_ptr<CopyFunctionCatalogEntry> TryGetCopyFunction(DatabaseInstanc
 	return schema.GetEntry(data, CatalogType::COPY_FUNCTION_ENTRY, name)->Cast<CopyFunctionCatalogEntry>();
 }
 
-unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanInsert(ClientContext &context, LogicalInsert &op,
-                                                         unique_ptr<PhysicalOperator> plan) {
-	if (op.return_chunk) {
-		throw BinderException("RETURNING clause not yet supported for insertion into DuckLake table");
-	}
-	if (op.action_type != OnConflictAction::THROW) {
-		throw BinderException("ON CONFLICT clause not yet supported for insertion into DuckLake table");
-	}
-
+unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
+                                                                unique_ptr<PhysicalOperator> plan) {
 	auto info = make_uniq<CopyInfo>();
 	info->file_path = DataPath();
 	info->format = "parquet";
@@ -145,7 +146,6 @@ unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanInsert(ClientContext &context,
 	}
 
 	// Bind Copy Function
-	auto &columns = op.table.Cast<DuckLakeTableEntry>().GetColumns();
 	CopyFunctionBindInput bind_input(*info);
 
 	auto names_to_write = columns.GetColumnNames();
@@ -153,11 +153,9 @@ unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanInsert(ClientContext &context,
 
 	auto function_data = copy_fun->function.copy_to_bind(context, bind_input, names_to_write, types_to_write);
 
-	auto insert = make_uniq<DuckLakeInsert>(op, op.table.Cast<DuckLakeTableEntry>(), op.column_index_map);
-
 	auto copy_return_types = GetCopyFunctionReturnLogicalTypes(CopyFunctionReturnType::CHANGED_ROWS_AND_FILE_LIST);
-	auto physical_copy = make_uniq<PhysicalCopyToFile>(copy_return_types, copy_fun->function, std::move(function_data),
-	                                                   op.estimated_cardinality);
+	auto physical_copy =
+	    make_uniq<PhysicalCopyToFile>(copy_return_types, copy_fun->function, std::move(function_data), 1);
 
 	auto current_write_uuid = UUID::ToString(UUID::GenerateRandomUUID());
 
@@ -174,17 +172,33 @@ unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanInsert(ClientContext &context,
 	physical_copy->names = names_to_write;
 	physical_copy->expected_types = types_to_write;
 
-	insert->children.push_back(std::move(physical_copy));
+	return std::move(physical_copy);
+}
 
+unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanInsert(ClientContext &context, LogicalInsert &op,
+                                                         unique_ptr<PhysicalOperator> plan) {
+	if (op.return_chunk) {
+		throw BinderException("RETURNING clause not yet supported for insertion into DuckLake table");
+	}
+	if (op.action_type != OnConflictAction::THROW) {
+		throw BinderException("ON CONFLICT clause not yet supported for insertion into DuckLake table");
+	}
+	auto &columns = op.table.GetColumns();
+	auto physical_copy = PlanCopyForInsert(context, columns, std::move(plan));
+	auto insert = make_uniq<DuckLakeInsert>(op, op.table.Cast<DuckLakeTableEntry>(), op.column_index_map);
+	insert->children.push_back(std::move(physical_copy));
 	return std::move(insert);
 }
 
 unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCreateTableAs(ClientContext &context, LogicalCreateTable &op,
                                                                 unique_ptr<PhysicalOperator> plan) {
-	throw NotImplementedException("DuckLakeCatalog::PlanCreateTableAs");
-	// auto insert = make_uniq<DuckLakeInsert>(op, op.schema, std::move(op.info));
-	// insert->children.push_back(std::move(plan));
-	// return std::move(insert);
+	auto &create_info = op.info->Base();
+	auto &columns = create_info.columns;
+	// FIXME: if table already exists and we are doing CREATE IF NOT EXISTS - skip
+	auto physical_copy = PlanCopyForInsert(context, columns, std::move(plan));
+	auto insert = make_uniq<DuckLakeInsert>(op, op.schema, std::move(op.info));
+	insert->children.push_back(std::move(physical_copy));
+	return std::move(insert);
 }
 
 } // namespace duckdb
