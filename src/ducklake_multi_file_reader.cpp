@@ -20,64 +20,35 @@
 namespace duckdb {
 
 unique_ptr<MultiFileReader> DuckLakeMultiFileReader::CreateInstance(const TableFunction &table_function) {
-	throw InternalException("Unimplemented multifilereader");
+	auto result = make_uniq<DuckLakeMultiFileReader>();
+
+//	if (table_function.function_info) {
+//		result->snapshot = table_function.function_info->Cast<DeltaFunctionInfo>().snapshot;
+//	}
+
+	return std::move(result);
 }
 
 shared_ptr<MultiFileList> DuckLakeMultiFileReader::CreateFileList(ClientContext &context, const vector<string> &paths,
                                                                   FileGlobOptions options) {
-	throw InternalException("Unimplemented multifilereader");
+    auto result = make_shared_ptr<DuckLakeMultiFileList>();
+    return std::move(result);
 }
 
 bool DuckLakeMultiFileReader::Bind(MultiFileReaderOptions &options, MultiFileList &files,
                                    vector<LogicalType> &return_types, vector<string> &names,
                                    MultiFileReaderBindData &bind_data) {
-	throw InternalException("Unimplemented multifilereader");
+	auto &delta_snapshot = dynamic_cast<DuckLakeMultiFileList &>(files);
+
+	names = { "i", "j"};
+	return_types = { LogicalType::INTEGER, LogicalType::INTEGER };
+	return true;
 }
 
 //! Override the Options bind
 void DuckLakeMultiFileReader::BindOptions(MultiFileReaderOptions &options, MultiFileList &files,
                                           vector<LogicalType> &return_types, vector<string> &names,
                                           MultiFileReaderBindData &bind_data) {
-	throw InternalException("Unimplemented multifilereader");
-}
-
-void DuckLakeMultiFileReader::CreateColumnMapping(const string &file_name,
-                                                  const vector<MultiFileReaderColumnDefinition> &local_columns,
-                                                  const vector<MultiFileReaderColumnDefinition> &global_columns,
-                                                  const vector<ColumnIndex> &global_column_ids,
-                                                  MultiFileReaderData &reader_data,
-                                                  const MultiFileReaderBindData &bind_data, const string &initial_file,
-                                                  optional_ptr<MultiFileReaderGlobalState> global_state) {
-	throw InternalException("Unimplemented multifilereader");
-}
-
-unique_ptr<MultiFileReaderGlobalState>
-DuckLakeMultiFileReader::InitializeGlobalState(ClientContext &context, const MultiFileReaderOptions &file_options,
-                                               const MultiFileReaderBindData &bind_data, const MultiFileList &file_list,
-                                               const vector<MultiFileReaderColumnDefinition> &global_columns,
-                                               const vector<ColumnIndex> &global_column_ids) {
-	throw InternalException("Unimplemented multifilereader");
-}
-
-void DuckLakeMultiFileReader::FinalizeBind(const MultiFileReaderOptions &file_options,
-                                           const MultiFileReaderBindData &options, const string &filename,
-                                           const vector<MultiFileReaderColumnDefinition> &local_columns,
-                                           const vector<MultiFileReaderColumnDefinition> &global_columns,
-                                           const vector<ColumnIndex> &global_column_ids,
-                                           MultiFileReaderData &reader_data, ClientContext &context,
-                                           optional_ptr<MultiFileReaderGlobalState> global_state) {
-	throw InternalException("Unimplemented multifilereader");
-}
-
-void DuckLakeMultiFileReader::FinalizeChunk(ClientContext &context, const MultiFileReaderBindData &bind_data,
-                                            const MultiFileReaderData &reader_data, DataChunk &chunk,
-                                            optional_ptr<MultiFileReaderGlobalState> global_state) {
-	throw InternalException("Unimplemented multifilereader");
-}
-
-bool DuckLakeMultiFileReader::ParseOption(const string &key, const Value &val, MultiFileReaderOptions &options,
-                                          ClientContext &context) {
-	throw InternalException("Unimplemented multifilereader");
 }
 
 } // namespace duckdb

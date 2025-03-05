@@ -16,35 +16,40 @@
 
 namespace duckdb {
 
+DuckLakeMultiFileList::DuckLakeMultiFileList() : MultiFileList(vector<string>{}, FileGlobOptions::ALLOW_EMPTY) {}
+
 unique_ptr<MultiFileList> DuckLakeMultiFileList::ComplexFilterPushdown(ClientContext &context,
                                                                        const MultiFileReaderOptions &options,
                                                                        MultiFilePushdownInfo &info,
                                                                        vector<unique_ptr<Expression>> &filters) {
-	throw InternalException("Unimplemented multifilelist");
+	return nullptr;
 }
 
 unique_ptr<MultiFileList>
 DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options,
                                              const vector<string> &names, const vector<LogicalType> &types,
                                              const vector<column_t> &column_ids, TableFilterSet &filters) const {
-	throw InternalException("Unimplemented multifilelist");
+	return nullptr;
 }
 
 vector<string> DuckLakeMultiFileList::GetAllFiles() {
-	throw InternalException("Unimplemented multifilelist");
+	return vector<string>  { "file.parquet" };
 }
 FileExpandResult DuckLakeMultiFileList::GetExpandResult() {
-	throw InternalException("Unimplemented multifilelist");
+	return FileExpandResult::MULTIPLE_FILES;
 }
 idx_t DuckLakeMultiFileList::GetTotalFileCount() {
-	throw InternalException("Unimplemented multifilelist");
+	return 1;
 }
 unique_ptr<NodeStatistics> DuckLakeMultiFileList::GetCardinality(ClientContext &context) {
-	throw InternalException("Unimplemented multifilelist");
+	return nullptr;
 }
 
 string DuckLakeMultiFileList::GetFile(idx_t i) {
-	throw InternalException("Unimplemented multifilelist");
+	if (i == 0) {
+		return "file.parquet";
+	}
+	return string();
 }
 
 } // namespace duckdb

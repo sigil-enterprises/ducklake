@@ -27,7 +27,7 @@ TableFunction DuckLakeTableEntry::GetScanFunction(ClientContext &context, unique
 	function_info->table_name = string();
 	function.function_info = std::move(function_info);
 
-	vector<Value> inputs {};
+	vector<Value> inputs {Value("")};
 	named_parameter_map_t param_map;
 	vector<LogicalType> return_types;
 	vector<string> names;

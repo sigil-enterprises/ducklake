@@ -24,6 +24,7 @@ struct DuckLakeFileMetaData {
 //! scan
 class DuckLakeMultiFileList : public MultiFileList {
 public:
+	DuckLakeMultiFileList();
 	unique_ptr<MultiFileList> ComplexFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options,
 	                                                MultiFilePushdownInfo &info,
 	                                                vector<unique_ptr<Expression>> &filters) override;

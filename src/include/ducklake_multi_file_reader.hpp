@@ -39,33 +39,6 @@ struct DuckLakeMultiFileReader : public MultiFileReader {
 	//! Override the Options bind
 	void BindOptions(MultiFileReaderOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
 	                 vector<string> &names, MultiFileReaderBindData &bind_data) override;
-
-	void CreateColumnMapping(const string &file_name, const vector<MultiFileReaderColumnDefinition> &local_columns,
-	                         const vector<MultiFileReaderColumnDefinition> &global_columns,
-	                         const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
-	                         const MultiFileReaderBindData &bind_data, const string &initial_file,
-	                         optional_ptr<MultiFileReaderGlobalState> global_state) override;
-
-	unique_ptr<MultiFileReaderGlobalState>
-	InitializeGlobalState(ClientContext &context, const MultiFileReaderOptions &file_options,
-	                      const MultiFileReaderBindData &bind_data, const MultiFileList &file_list,
-	                      const vector<MultiFileReaderColumnDefinition> &global_columns,
-	                      const vector<ColumnIndex> &global_column_ids) override;
-
-	void FinalizeBind(const MultiFileReaderOptions &file_options, const MultiFileReaderBindData &options,
-	                  const string &filename, const vector<MultiFileReaderColumnDefinition> &local_columns,
-	                  const vector<MultiFileReaderColumnDefinition> &global_columns,
-	                  const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
-	                  ClientContext &context, optional_ptr<MultiFileReaderGlobalState> global_state) override;
-
-	//! Override the FinalizeChunk method
-	void FinalizeChunk(ClientContext &context, const MultiFileReaderBindData &bind_data,
-	                   const MultiFileReaderData &reader_data, DataChunk &chunk,
-	                   optional_ptr<MultiFileReaderGlobalState> global_state) override;
-
-	//! Override the ParseOption call to parse delta_scan specific options
-	bool ParseOption(const string &key, const Value &val, MultiFileReaderOptions &options,
-	                 ClientContext &context) override;
 };
 
 } // namespace duckdb
