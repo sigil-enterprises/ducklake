@@ -22,7 +22,7 @@ public:
 	idx_t GetSchemaId() const {
 		return schema_id;
 	}
-	const string&GetSchemaUUID() const {
+	const string &GetSchemaUUID() const {
 		return schema_uuid;
 	}
 

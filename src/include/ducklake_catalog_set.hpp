@@ -22,15 +22,17 @@ using ducklake_entries_map_t = case_insensitive_map_t<unique_ptr<CatalogEntry>>;
 //! Note that we don't need any locks to access this - the catalog set is constant for a given snapshot
 class DuckLakeCatalogSet {
 public:
-	DuckLakeCatalogSet(CatalogType catalog_type, string schema_name_p) :
-		catalog_type(catalog_type), schema_name(std::move(schema_name_p)) {}
-	DuckLakeCatalogSet(CatalogType catalog_type, ducklake_entries_map_t catalog_entries_p) :
-		catalog_type(catalog_type), catalog_entries(std::move(catalog_entries_p)) {}
+	DuckLakeCatalogSet(CatalogType catalog_type, string schema_name_p)
+	    : catalog_type(catalog_type), schema_name(std::move(schema_name_p)) {
+	}
+	DuckLakeCatalogSet(CatalogType catalog_type, ducklake_entries_map_t catalog_entries_p)
+	    : catalog_type(catalog_type), catalog_entries(std::move(catalog_entries_p)) {
+	}
 
 	void CreateEntry(unique_ptr<CatalogEntry> entry);
 	optional_ptr<CatalogEntry> GetEntry(DuckLakeTransaction &transaction, const string &name);
 
-	template<class T>
+	template <class T>
 	optional_ptr<T> GetEntry(DuckLakeTransaction &transaction, const string &name) {
 		auto entry = GetEntry(transaction, name);
 		if (!entry) {

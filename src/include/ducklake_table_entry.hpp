@@ -14,13 +14,14 @@ namespace duckdb {
 
 class DuckLakeTableEntry : public TableCatalogEntry {
 public:
-	DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info, idx_t table_id, string table_uuid);
+	DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info, idx_t table_id,
+	                   string table_uuid);
 
 public:
 	idx_t GetTableId() const {
 		return table_id;
 	}
-	const string&GetTableUUID() const {
+	const string &GetTableUUID() const {
 		return table_uuid;
 	}
 
@@ -32,7 +33,7 @@ public:
 	TableStorageInfo GetStorageInfo(ClientContext &context) override;
 
 	void BindUpdateConstraints(Binder &binder, LogicalGet &get, LogicalProjection &proj, LogicalUpdate &update,
-							   ClientContext &context) override;
+	                           ClientContext &context) override;
 
 private:
 	idx_t table_id;

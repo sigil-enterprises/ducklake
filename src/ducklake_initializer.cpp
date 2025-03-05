@@ -12,9 +12,10 @@
 namespace duckdb {
 
 DuckLakeInitializer::DuckLakeInitializer(ClientContext &context, DuckLakeCatalog &catalog,
-                                         const string &metadata_database,
-	                    const string &metadata_path, const string &schema, const string &data_path)
-    : context(context), catalog(catalog), metadata_database(metadata_database), metadata_path(metadata_path), schema(schema), data_path(data_path) {
+                                         const string &metadata_database, const string &metadata_path,
+                                         const string &schema, const string &data_path)
+    : context(context), catalog(catalog), metadata_database(metadata_database), metadata_path(metadata_path),
+      schema(schema), data_path(data_path) {
 }
 
 void DuckLakeInitializer::Initialize() {
@@ -23,7 +24,8 @@ void DuckLakeInitializer::Initialize() {
 	auto result = transaction.Query("ATTACH '{METADATA_PATH}' AS \"{METADATA_CATALOG}\"");
 	if (result->HasError()) {
 		auto &error_obj = result->GetErrorObject();
-		error_obj.Throw("Failed to attach DuckLake MetaData \"" + metadata_database + "\" at path + \"" + metadata_path + "\"");
+		error_obj.Throw("Failed to attach DuckLake MetaData \"" + metadata_database + "\" at path + \"" +
+		                metadata_path + "\"");
 	}
 	// after the metadata database is attached initialize the ducklake
 	// check if we are loading an existing DuckLake or creating a new one
@@ -50,7 +52,7 @@ void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction
 	CREATE TABLE {METADATA_CATALOG}.ducklake_info(data_path VARCHAR);
 	CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot(snapshot_id BIGINT PRIMARY KEY, snapshot_time TIMESTAMPTZ, schema_version BIGINT);
 	CREATE TABLE {METADATA_CATALOG}.ducklake_schema(schema_id BIGINT PRIMARY KEY, schema_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_name VARCHAR);
-	CREATE TABLE {METADATA_CATALOG}.ducklake_table(table_id BIGINT PRIMARY KEY, table_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, table_name VARCHAR);
+	CREATE TABLE {METADATA_CATALOG}.ducklake_table(table_id BIGINT, table_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, table_name VARCHAR);
 	CREATE TABLE {METADATA_CATALOG}.ducklake_column(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, column_order BIGINT, column_name VARCHAR, column_type VARCHAR, default_value VARCHAR);
 	CREATE TABLE {METADATA_CATALOG}.ducklake_data_file(data_file_id BIGINT PRIMARY KEY, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, file_order BIGINT, path VARCHAR, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, partition_id BIGINT);
 	CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file(delete_fle_id BIGINT PRIMARY KEY, begin_snapshot BIGINT, end_snapshot BIGINT, data_file_id BIGINT, path VARCHAR, delete_count BIGINT, file_size_bytes BIGINT);

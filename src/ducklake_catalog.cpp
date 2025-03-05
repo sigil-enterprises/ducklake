@@ -12,8 +12,10 @@
 
 namespace duckdb {
 
-DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, string metadata_database_p, string metadata_path_p, string data_path_p, string metadata_schema_p)
-    : Catalog(db_p), metadata_database(std::move(metadata_database_p)), metadata_path(std::move(metadata_path_p)), data_path(std::move(data_path_p)), metadata_schema(std::move(metadata_schema_p)) {
+DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, string metadata_database_p, string metadata_path_p,
+                                 string data_path_p, string metadata_schema_p)
+    : Catalog(db_p), metadata_database(std::move(metadata_database_p)), metadata_path(std::move(metadata_path_p)),
+      data_path(std::move(data_path_p)), metadata_schema(std::move(metadata_schema_p)) {
 }
 
 DuckLakeCatalog::~DuckLakeCatalog() {
@@ -37,7 +39,7 @@ void DuckLakeCatalog::ScanSchemas(ClientContext &context, std::function<void(Sch
 	auto &duck_transaction = DuckLakeTransaction::Get(context, *this);
 	auto snapshot = duck_transaction.GetSnapshot();
 	auto &schemas = GetSchemaForSnapshot(duck_transaction, snapshot);
-	for(auto &schema : schemas.GetEntries()) {
+	for (auto &schema : schemas.GetEntries()) {
 		callback(schema.second->Cast<SchemaCatalogEntry>());
 	}
 }
@@ -56,7 +58,8 @@ DuckLakeCatalogSet &DuckLakeCatalog::GetSchemaForSnapshot(DuckLakeTransaction &t
 	return result;
 }
 
-unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot) {
+unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTransaction &transaction,
+                                                                      DuckLakeSnapshot snapshot) {
 	auto result = transaction.Query(snapshot, R"(
 SELECT schema_id, schema_uuid::VARCHAR, schema_name
 FROM {METADATA_CATALOG}.ducklake_schema
@@ -68,7 +71,7 @@ WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_s
 
 	ducklake_entries_map_t schema_map;
 	unordered_map<idx_t, reference<DuckLakeSchemaEntry>> schema_id_map;
-	for(auto &row : *result) {
+	for (auto &row : *result) {
 		auto schema_id = row.GetValue<uint64_t>(0);
 		auto schema_uuid = row.GetValue<string>(1);
 		auto schema_name = row.GetValue<string>(2);
@@ -99,16 +102,17 @@ ORDER BY table_id, column_order
 	};
 
 	vector<LoadedTableEntry> loaded_tables;
-	for(auto &row : *result) {
+	for (auto &row : *result) {
 		auto table_id = row.GetValue<uint64_t>(1);
 		auto table_name = row.GetValue<string>(3);
 		if (row.GetValue<Value>(4).IsNull()) {
-			throw InvalidInputException("Failed to load DuckLake - Table entry \"%s\" does not have any columns", table_name);
+			throw InvalidInputException("Failed to load DuckLake - Table entry \"%s\" does not have any columns",
+			                            table_name);
 		}
-//		auto column_id = row.GetValue<uint64_t>(4);
+		//		auto column_id = row.GetValue<uint64_t>(4);
 		auto column_name = row.GetValue<string>(5);
 		auto column_type_str = row.GetValue<string>(6);
-//		auto default_value = row.GetValue<string>(7);
+		//		auto default_value = row.GetValue<string>(7);
 
 		// check if this column belongs to the current table or not
 		if (loaded_tables.empty() || loaded_tables.back().table_id != table_id) {
@@ -118,7 +122,9 @@ ORDER BY table_id, column_order
 			// find the schema
 			auto entry = schema_id_map.find(schema_id);
 			if (entry == schema_id_map.end()) {
-				throw InvalidInputException("Failed to load DuckLake - could not find schema that corresponds to the table entry \"%s\"", table_name);
+				throw InvalidInputException(
+				    "Failed to load DuckLake - could not find schema that corresponds to the table entry \"%s\"",
+				    table_name);
 			}
 			LoadedTableEntry new_entry;
 			new_entry.schema_entry = entry->second.get();
@@ -136,9 +142,10 @@ ORDER BY table_id, column_order
 		// FIXME: we need to keep the column id somehow
 	}
 	// flush the tables
-	for(auto &entry : loaded_tables) {
+	for (auto &entry : loaded_tables) {
 		// flush the table
-		auto table_entry = make_uniq<DuckLakeTableEntry>(*this, *entry.schema_entry, *entry.create_table_info, entry.table_id, std::move(entry.table_uuid));
+		auto table_entry = make_uniq<DuckLakeTableEntry>(*this, *entry.schema_entry, *entry.create_table_info,
+		                                                 entry.table_id, std::move(entry.table_uuid));
 		entry.schema_entry->AddEntry(CatalogType::TABLE_ENTRY, std::move(table_entry));
 	}
 
@@ -149,9 +156,9 @@ ORDER BY table_id, column_order
 optional_ptr<SchemaCatalogEntry> DuckLakeCatalog::GetSchema(CatalogTransaction transaction, const string &schema_name,
                                                             OnEntryNotFound if_not_found,
                                                             QueryErrorContext error_context) {
-    auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
-    auto snapshot = duck_transaction.GetSnapshot();
-    auto &schemas = GetSchemaForSnapshot(duck_transaction, snapshot);
+	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
+	auto snapshot = duck_transaction.GetSnapshot();
+	auto &schemas = GetSchemaForSnapshot(duck_transaction, snapshot);
 	auto entry = schemas.GetEntry<SchemaCatalogEntry>(duck_transaction, schema_name);
 	if (!entry && if_not_found == OnEntryNotFound::THROW_EXCEPTION) {
 		throw BinderException("DuckLakeCatalog - schema %s not found", schema_name);
