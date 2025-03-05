@@ -19,13 +19,11 @@
 
 namespace duckdb {
 
+DuckLakeMultiFileReader::DuckLakeMultiFileReader(DuckLakeFunctionInfo &read_info) : read_info(read_info) {}
+
 unique_ptr<MultiFileReader> DuckLakeMultiFileReader::CreateInstance(const TableFunction &table_function) {
-	auto result = make_uniq<DuckLakeMultiFileReader>();
-
-//	if (table_function.function_info) {
-//		result->snapshot = table_function.function_info->Cast<DeltaFunctionInfo>().snapshot;
-//	}
-
+	auto &function_info = table_function.function_info->Cast<DuckLakeFunctionInfo>();
+	auto result = make_uniq<DuckLakeMultiFileReader>(function_info);
 	return std::move(result);
 }
 
@@ -40,8 +38,8 @@ bool DuckLakeMultiFileReader::Bind(MultiFileReaderOptions &options, MultiFileLis
                                    MultiFileReaderBindData &bind_data) {
 	auto &delta_snapshot = dynamic_cast<DuckLakeMultiFileList &>(files);
 
-	names = { "i", "j"};
-	return_types = { LogicalType::INTEGER, LogicalType::INTEGER };
+	names = read_info.column_names;
+	return_types = read_info.column_types;
 	return true;
 }
 

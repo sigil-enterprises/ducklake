@@ -20,9 +20,9 @@ public:
 };
 
 struct DuckLakeFunctionInfo : public TableFunctionInfo {
-	shared_ptr<DuckLakeMultiFileList> snapshot;
-	string expected_path;
 	string table_name;
+	vector<string> column_names;
+	vector<LogicalType> column_types;
 };
 
 } // namespace duckdb

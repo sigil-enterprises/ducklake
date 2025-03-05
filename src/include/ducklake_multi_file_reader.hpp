@@ -9,6 +9,7 @@
 #pragma once
 
 #include "duckdb/common/multi_file_reader.hpp"
+#include "ducklake_scan.hpp"
 
 namespace duckdb {
 
@@ -26,6 +27,8 @@ struct DuckLakeMultiFileReaderGlobalState : public MultiFileReaderGlobalState {
 };
 
 struct DuckLakeMultiFileReader : public MultiFileReader {
+	explicit DuckLakeMultiFileReader(DuckLakeFunctionInfo &read_info);
+
 	static unique_ptr<MultiFileReader> CreateInstance(const TableFunction &table_function);
 	//! Return a DuckLakeMultiFileList
 	shared_ptr<MultiFileList> CreateFileList(ClientContext &context, const vector<string> &paths,
@@ -39,6 +42,9 @@ struct DuckLakeMultiFileReader : public MultiFileReader {
 	//! Override the Options bind
 	void BindOptions(MultiFileReaderOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
 	                 vector<string> &names, MultiFileReaderBindData &bind_data) override;
+
+private:
+	DuckLakeFunctionInfo &read_info;
 };
 
 } // namespace duckdb

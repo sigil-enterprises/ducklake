@@ -20,11 +20,12 @@ unique_ptr<BaseStatistics> DuckLakeTableEntry::GetStatistics(ClientContext &cont
 TableFunction DuckLakeTableEntry::GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data) {
 	auto function = DuckLakeFunctions::GetDuckLakeScanFunction(*context.db);
 
-	// Copy over the internal kernel snapshot
 	auto function_info = make_shared_ptr<DuckLakeFunctionInfo>();
-
-	function_info->snapshot = nullptr;
-	function_info->table_name = string();
+	function_info->table_name = name;
+	for(auto &col : columns.Logical()) {
+		function_info->column_names.push_back(col.Name());
+		function_info->column_types.push_back(col.Type());
+	}
 	function.function_info = std::move(function_info);
 
 	vector<Value> inputs {Value("")};
