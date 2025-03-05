@@ -13,12 +13,14 @@
 namespace duckdb {
 
 struct DuckLakeSnapshot {
-	DuckLakeSnapshot(idx_t snapshot_id, idx_t schema_version)
-	    : snapshot_id(snapshot_id), schema_version(schema_version) {
+	DuckLakeSnapshot(idx_t snapshot_id, idx_t schema_version, idx_t next_table_id, idx_t next_data_file_id)
+	    : snapshot_id(snapshot_id), schema_version(schema_version), next_table_id(next_table_id), next_data_file_id(next_data_file_id) {
 	}
 
 	idx_t snapshot_id;
 	idx_t schema_version;
+	idx_t next_table_id;
+	idx_t next_data_file_id;
 };
 
 } // namespace duckdb

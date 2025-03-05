@@ -44,12 +44,14 @@ public:
 
 	bool ChangesMade();
 	void FlushChanges();
+	idx_t GetLocalTableId();
 
 private:
 	DuckLakeCatalog &ducklake_catalog;
 	DatabaseInstance &db;
 	unique_ptr<Connection> connection;
 	unique_ptr<DuckLakeSnapshot> snapshot;
+	idx_t local_table_id;
 	//! New tables added by this transaction
 	case_insensitive_map_t<unique_ptr<DuckLakeCatalogSet>> new_tables;
 	unordered_map<idx_t, vector<string>> new_data_files;

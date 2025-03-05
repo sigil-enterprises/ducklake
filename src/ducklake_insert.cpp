@@ -154,7 +154,6 @@ unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanInsert(ClientContext &context,
 	auto function_data = copy_fun->function.copy_to_bind(context, bind_input, names_to_write, types_to_write);
 
 	auto insert = make_uniq<DuckLakeInsert>(op, op.table.Cast<DuckLakeTableEntry>(), op.column_index_map);
-	;
 
 	auto copy_return_types = GetCopyFunctionReturnLogicalTypes(CopyFunctionReturnType::CHANGED_ROWS_AND_FILE_LIST);
 	auto physical_copy = make_uniq<PhysicalCopyToFile>(copy_return_types, copy_fun->function, std::move(function_data),
