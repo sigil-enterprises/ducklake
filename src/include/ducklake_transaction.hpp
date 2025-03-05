@@ -40,7 +40,9 @@ public:
 
 	DuckLakeCatalogSet &GetOrCreateNewTableElements(const string &schema_name);
 	optional_ptr<DuckLakeCatalogSet> GetNewTableElements(const string &schema_name);
+	void AppendFiles(idx_t table_id, const vector<string> &files);
 
+	bool ChangesMade();
 	void FlushChanges();
 
 private:
@@ -50,6 +52,7 @@ private:
 	unique_ptr<DuckLakeSnapshot> snapshot;
 	//! New tables added by this transaction
 	case_insensitive_map_t<unique_ptr<DuckLakeCatalogSet>> new_tables;
+	unordered_map<idx_t, vector<string>> new_data_files;
 };
 
 } // namespace duckdb

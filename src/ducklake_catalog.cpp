@@ -166,14 +166,6 @@ optional_ptr<SchemaCatalogEntry> DuckLakeCatalog::GetSchema(CatalogTransaction t
 	return entry;
 }
 
-unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanInsert(ClientContext &context, LogicalInsert &op,
-                                                         unique_ptr<PhysicalOperator> plan) {
-	throw InternalException("Unsupported DuckLake function");
-}
-unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCreateTableAs(ClientContext &context, LogicalCreateTable &op,
-                                                                unique_ptr<PhysicalOperator> plan) {
-	throw InternalException("Unsupported DuckLake function");
-}
 unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanDelete(ClientContext &context, LogicalDelete &op,
                                                          unique_ptr<PhysicalOperator> plan) {
 	throw InternalException("Unsupported DuckLake function");

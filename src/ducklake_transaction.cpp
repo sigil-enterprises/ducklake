@@ -40,7 +40,15 @@ Connection &DuckLakeTransaction::GetConnection() {
 	return *connection;
 }
 
+bool DuckLakeTransaction::ChangesMade() {
+	return !new_tables.empty() || !new_data_files.empty();
+}
+
 void DuckLakeTransaction::FlushChanges() {
+	if (!ChangesMade()) {
+		// read-only transactions don't need to do anything
+		return;
+	}
 	auto commit_snapshot = GetSnapshot();
 
 	commit_snapshot.snapshot_id++;
@@ -56,6 +64,7 @@ void DuckLakeTransaction::FlushChanges() {
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write new snapshot to DuckLake:");
 	}
+	// write new tables
 	for (auto &schema_entry : new_tables) {
 		for (auto &entry : schema_entry.second->GetEntries()) {
 			// CREATE TABLE ducklake_table(table_id BIGINT PRIMARY KEY, table_uuid UUID, begin_snapshot BIGINT,
@@ -90,6 +99,37 @@ void DuckLakeTransaction::FlushChanges() {
 				result->GetErrorObject().Throw("Failed to write column information to DuckLake:");
 			}
 		}
+	}
+	// write new data files
+	if (!new_data_files.empty()) {
+		// FIXME: actually start at the correct data file number
+		idx_t data_file_id = 0;
+		string data_file_insert_query;
+		// 	CREATE TABLE ducklake_data_file(data_file_id BIGINT PRIMARY KEY, begin_snapshot BIGINT, end_snapshot BIGINT,
+		// table_id BIGINT, file_order BIGINT, path VARCHAR, file_format VARCHAR, record_count BIGINT, file_size_bytes
+		// BIGINT, partition_id BIGINT);
+		for (auto &entry : new_data_files) {
+			auto table_id = entry.first;
+			for (auto &file : entry.second) {
+				if (!data_file_insert_query.empty()) {
+					data_file_insert_query += ",";
+				}
+				// FIXME: write file statistics
+				data_file_insert_query +=
+				    StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, NULL, '%s', 'parquet', NULL, NULL, NULL)",
+				                       data_file_id, table_id, file);
+				data_file_id++;
+			}
+		}
+		if (data_file_insert_query.empty()) {
+			throw InternalException("No files found!?");
+		}
+		data_file_insert_query = "INSERT INTO {METADATA_CATALOG}.ducklake_data_file VALUES " + data_file_insert_query;
+		result = Query(commit_snapshot, data_file_insert_query);
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to write data file information to DuckLake:");
+		}
+		// FIXME: write column statistics
 	}
 }
 
@@ -127,6 +167,17 @@ DuckLakeSnapshot DuckLakeTransaction::GetSnapshot() {
 		snapshot = make_uniq<DuckLakeSnapshot>(snapshot_id, schema_version);
 	}
 	return *snapshot;
+}
+
+void DuckLakeTransaction::AppendFiles(idx_t table_id, const vector<string> &files) {
+	auto entry = new_data_files.find(table_id);
+	if (entry != new_data_files.end()) {
+		// already exists - append
+		auto &existing_files = entry->second;
+		existing_files.insert(existing_files.end(), files.begin(), files.end());
+	} else {
+		new_data_files.insert(make_pair(table_id, files));
+	}
 }
 
 DuckLakeTransaction &DuckLakeTransaction::Get(ClientContext &context, Catalog &catalog) {

@@ -62,6 +62,7 @@ string DuckLakeMultiFileList::GetFile(idx_t i) {
 const vector<string> &DuckLakeMultiFileList::GetFiles() {
 	if (!read_file_list) {
 		// we have not read the file list yet - read it
+		// FIXME: we can do pushdown of stats into the file list here to prune it
 		auto query = StringUtil::Format(R"(
 SELECT path
 FROM {METADATA_CATALOG}.ducklake_data_file
