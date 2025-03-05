@@ -16,7 +16,10 @@
 
 namespace duckdb {
 
-DuckLakeMultiFileList::DuckLakeMultiFileList() : MultiFileList(vector<string>{}, FileGlobOptions::ALLOW_EMPTY) {}
+DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info)
+    : MultiFileList(vector<string> {}, FileGlobOptions::ALLOW_EMPTY), transaction(transaction), read_info(read_info),
+      read_file_list(false) {
+}
 
 unique_ptr<MultiFileList> DuckLakeMultiFileList::ComplexFilterPushdown(ClientContext &context,
                                                                        const MultiFileReaderOptions &options,
@@ -33,23 +36,48 @@ DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const Multi
 }
 
 vector<string> DuckLakeMultiFileList::GetAllFiles() {
-	return vector<string>  { "file.parquet" };
+	return GetFiles();
 }
+
 FileExpandResult DuckLakeMultiFileList::GetExpandResult() {
 	return FileExpandResult::MULTIPLE_FILES;
 }
+
 idx_t DuckLakeMultiFileList::GetTotalFileCount() {
-	return 1;
+	return GetFiles().size();
 }
+
 unique_ptr<NodeStatistics> DuckLakeMultiFileList::GetCardinality(ClientContext &context) {
 	return nullptr;
 }
 
 string DuckLakeMultiFileList::GetFile(idx_t i) {
-	if (i == 0) {
-		return "file.parquet";
+	auto &files = GetFiles();
+	if (i < files.size()) {
+		return files[i];
 	}
 	return string();
+}
+
+const vector<string> &DuckLakeMultiFileList::GetFiles() {
+	if (!read_file_list) {
+		// we have not read the file list yet - read it
+		auto query = StringUtil::Format(R"(
+SELECT path
+FROM {METADATA_CATALOG}.ducklake_data_file
+WHERE table_id=%d AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL);
+		)",
+		                                read_info.table_id);
+		auto result = transaction.Query(read_info.snapshot, query);
+
+		for (auto &row : *result) {
+			auto file_path = row.GetValue<string>(0);
+			files.push_back(std::move(file_path));
+		}
+
+		read_file_list = true;
+	}
+	return files;
 }
 
 } // namespace duckdb

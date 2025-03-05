@@ -1,5 +1,6 @@
 #include "ducklake_multi_file_list.hpp"
 #include "ducklake_multi_file_reader.hpp"
+#include "ducklake_table_entry.hpp"
 
 #include "duckdb/common/local_file_system.hpp"
 #include "duckdb/common/types/data_chunk.hpp"
@@ -19,7 +20,8 @@
 
 namespace duckdb {
 
-DuckLakeMultiFileReader::DuckLakeMultiFileReader(DuckLakeFunctionInfo &read_info) : read_info(read_info) {}
+DuckLakeMultiFileReader::DuckLakeMultiFileReader(DuckLakeFunctionInfo &read_info) : read_info(read_info) {
+}
 
 unique_ptr<MultiFileReader> DuckLakeMultiFileReader::CreateInstance(const TableFunction &table_function) {
 	auto &function_info = table_function.function_info->Cast<DuckLakeFunctionInfo>();
@@ -29,15 +31,14 @@ unique_ptr<MultiFileReader> DuckLakeMultiFileReader::CreateInstance(const TableF
 
 shared_ptr<MultiFileList> DuckLakeMultiFileReader::CreateFileList(ClientContext &context, const vector<string> &paths,
                                                                   FileGlobOptions options) {
-    auto result = make_shared_ptr<DuckLakeMultiFileList>();
-    return std::move(result);
+	auto &transaction = DuckLakeTransaction::Get(context, read_info.table.ParentCatalog());
+	auto result = make_shared_ptr<DuckLakeMultiFileList>(transaction, read_info);
+	return std::move(result);
 }
 
 bool DuckLakeMultiFileReader::Bind(MultiFileReaderOptions &options, MultiFileList &files,
                                    vector<LogicalType> &return_types, vector<string> &names,
                                    MultiFileReaderBindData &bind_data) {
-	auto &delta_snapshot = dynamic_cast<DuckLakeMultiFileList &>(files);
-
 	names = read_info.column_names;
 	return_types = read_info.column_types;
 	return true;

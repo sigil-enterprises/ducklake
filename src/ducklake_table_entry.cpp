@@ -5,6 +5,7 @@
 #include "ducklake_scan.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
+#include "ducklake_transaction.hpp"
 
 namespace duckdb {
 
@@ -19,13 +20,15 @@ unique_ptr<BaseStatistics> DuckLakeTableEntry::GetStatistics(ClientContext &cont
 
 TableFunction DuckLakeTableEntry::GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data) {
 	auto function = DuckLakeFunctions::GetDuckLakeScanFunction(*context.db);
+	auto &transaction = DuckLakeTransaction::Get(context, ParentCatalog());
 
-	auto function_info = make_shared_ptr<DuckLakeFunctionInfo>();
+	auto function_info = make_shared_ptr<DuckLakeFunctionInfo>(*this, transaction.GetSnapshot());
 	function_info->table_name = name;
-	for(auto &col : columns.Logical()) {
+	for (auto &col : columns.Logical()) {
 		function_info->column_names.push_back(col.Name());
 		function_info->column_types.push_back(col.Type());
 	}
+	function_info->table_id = GetTableId();
 	function.function_info = std::move(function_info);
 
 	vector<Value> inputs {Value("")};
@@ -34,8 +37,7 @@ TableFunction DuckLakeTableEntry::GetScanFunction(ClientContext &context, unique
 	vector<string> names;
 	TableFunctionRef empty_ref;
 
-	TableFunctionBindInput bind_input(inputs, param_map, return_types, names, nullptr, nullptr, function,
-									  empty_ref);
+	TableFunctionBindInput bind_input(inputs, param_map, return_types, names, nullptr, nullptr, function, empty_ref);
 
 	auto result = function.bind(context, bind_input, return_types, names);
 	bind_data = std::move(result);
@@ -44,12 +46,12 @@ TableFunction DuckLakeTableEntry::GetScanFunction(ClientContext &context, unique
 }
 
 TableStorageInfo DuckLakeTableEntry::GetStorageInfo(ClientContext &context) {
-	throw InternalException("Unsupported function for table entry");
+	return TableStorageInfo();
 }
 
 void DuckLakeTableEntry::BindUpdateConstraints(Binder &binder, LogicalGet &get, LogicalProjection &proj,
                                                LogicalUpdate &update, ClientContext &context) {
-	throw InternalException("Unsupported function for table entry");
+	throw InternalException("Unsupported function BindUpdateConstraints for table entry");
 }
 
 } // namespace duckdb
