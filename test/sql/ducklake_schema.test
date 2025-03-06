@@ -1,0 +1,39 @@
+# name: test/sql/ducklake_schema.test
+# description: Test schema support in DuckLake
+# group: [quack]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_schema.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_schema_files')
+
+# basic multi-schema support
+statement ok
+CREATE SCHEMA ducklake.s1;
+
+statement ok
+CREATE SCHEMA ducklake.s2;
+
+statement ok
+CREATE TABLE ducklake.s1.tbl(i INT);
+
+statement ok
+CREATE TABLE ducklake.s2.tbl(a VARCHAR, b VARCHAR);
+
+statement ok
+INSERT INTO ducklake.s1.tbl VALUES (42);
+
+statement ok
+INSERT INTO ducklake.s2.tbl VALUES ('hello', 'world');
+
+query I
+SELECT * FROM ducklake.s1.tbl
+----
+42
+
+query II
+SELECT * FROM ducklake.s2.tbl
+----
+hello	world

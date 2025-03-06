@@ -50,7 +50,7 @@ void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction
 	}
 	string initialize_query = R"(
 	CREATE TABLE {METADATA_CATALOG}.ducklake_info(data_path VARCHAR);
-	CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot(snapshot_id BIGINT PRIMARY KEY, snapshot_time TIMESTAMPTZ, schema_version BIGINT, next_table_id BIGINT, next_data_file_id BIGINT);
+	CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot(snapshot_id BIGINT PRIMARY KEY, snapshot_time TIMESTAMPTZ, schema_version BIGINT, next_catalog_id BIGINT, next_file_id BIGINT);
 	CREATE TABLE {METADATA_CATALOG}.ducklake_schema(schema_id BIGINT PRIMARY KEY, schema_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_name VARCHAR);
 	CREATE TABLE {METADATA_CATALOG}.ducklake_table(table_id BIGINT, table_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, table_name VARCHAR);
 	CREATE TABLE {METADATA_CATALOG}.ducklake_table_statistics(table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, record_count BIGINT);
@@ -59,8 +59,8 @@ void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction
 	CREATE TABLE {METADATA_CATALOG}.ducklake_data_file(data_file_id BIGINT PRIMARY KEY, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, file_order BIGINT, path VARCHAR, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, partition_id BIGINT);
 	CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file(delete_fle_id BIGINT PRIMARY KEY, begin_snapshot BIGINT, end_snapshot BIGINT, data_file_id BIGINT, path VARCHAR, delete_count BIGINT, file_size_bytes BIGINT);
 	INSERT INTO {METADATA_CATALOG}.ducklake_info VALUES ('{DATA_PATH}');
-	INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 0, 0);
-	INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, uuid(), 0, NULL, 'main');
+	INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
+	INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main');
 	)";
 	// TODO: add
 	//	ducklake_partition_info

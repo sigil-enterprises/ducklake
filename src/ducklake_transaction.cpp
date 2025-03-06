@@ -92,7 +92,7 @@ void DuckLakeTransaction::FlushChanges() {
 			auto &table = entry.second->Cast<DuckLakeTableEntry>();
 			auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
 			auto transaction_local_id = table.GetTableId();
-			auto table_id = commit_snapshot.next_table_id++;
+			auto table_id = commit_snapshot.next_catalog_id++;
 			auto table_insert_query = StringUtil::Format(
 			    R"(INSERT INTO {METADATA_CATALOG}.ducklake_table VALUES (%d, '%s', {SNAPSHOT_ID}, NULL, %d, %s);)",
 			    table_id, table.GetTableUUID(), schema.GetSchemaId(), SQLString(table.name));
@@ -139,8 +139,8 @@ void DuckLakeTransaction::FlushChanges() {
 				// FIXME: write file statistics
 				data_file_insert_query +=
 				    StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, NULL, %s, 'parquet', NULL, NULL, NULL)",
-				                       commit_snapshot.next_data_file_id, table_id, SQLString(file));
-				commit_snapshot.next_data_file_id++;
+				                       commit_snapshot.next_file_id, table_id, SQLString(file));
+				commit_snapshot.next_file_id++;
 			}
 		}
 		if (data_file_insert_query.empty()) {
@@ -156,7 +156,7 @@ void DuckLakeTransaction::FlushChanges() {
 	// write the new snapshot
 	result = Query(
 	    commit_snapshot,
-	    R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES ({SNAPSHOT_ID}, NOW(), {SCHEMA_VERSION}, {NEXT_TABLE_ID}, {NEXT_DATA_FILE_ID});)");
+	    R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES ({SNAPSHOT_ID}, NOW(), {SCHEMA_VERSION}, {NEXT_CATALOG_ID}, {NEXT_FILE_ID});)");
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write new snapshot to DuckLake:");
 	}
@@ -174,8 +174,8 @@ unique_ptr<QueryResult> DuckLakeTransaction::Query(string query) {
 unique_ptr<QueryResult> DuckLakeTransaction::Query(DuckLakeSnapshot snapshot, string query) {
 	query = StringUtil::Replace(query, "{SNAPSHOT_ID}", to_string(snapshot.snapshot_id));
 	query = StringUtil::Replace(query, "{SCHEMA_VERSION}", to_string(snapshot.schema_version));
-	query = StringUtil::Replace(query, "{NEXT_TABLE_ID}", to_string(snapshot.next_table_id));
-	query = StringUtil::Replace(query, "{NEXT_DATA_FILE_ID}", to_string(snapshot.next_data_file_id));
+	query = StringUtil::Replace(query, "{NEXT_CATALOG_ID}", to_string(snapshot.next_catalog_id));
+	query = StringUtil::Replace(query, "{NEXT_FILE_ID}", to_string(snapshot.next_file_id));
 	return Query(std::move(query));
 }
 
@@ -184,7 +184,7 @@ DuckLakeSnapshot DuckLakeTransaction::GetSnapshot() {
 		// no snapshot loaded yet for this transaction
 		// query the snapshot id/schema version
 		auto result = Query(
-		    R"(SELECT snapshot_id, schema_version, next_table_id, next_data_file_id FROM {METADATA_CATALOG}.ducklake_snapshot WHERE snapshot_id = (SELECT MAX(snapshot_id) FROM {METADATA_CATALOG}.ducklake_snapshot);)");
+		    R"(SELECT snapshot_id, schema_version, next_catalog_id, next_file_id FROM {METADATA_CATALOG}.ducklake_snapshot WHERE snapshot_id = (SELECT MAX(snapshot_id) FROM {METADATA_CATALOG}.ducklake_snapshot);)");
 		if (result->HasError()) {
 			result->GetErrorObject().Throw("Failed to query most recent snapshot for DuckLake: ");
 		}
@@ -195,9 +195,9 @@ DuckLakeSnapshot DuckLakeTransaction::GetSnapshot() {
 
 		auto snapshot_id = chunk->GetValue(0, 0).GetValue<idx_t>();
 		auto schema_version = chunk->GetValue(1, 0).GetValue<idx_t>();
-		auto next_table_id = chunk->GetValue(2, 0).GetValue<idx_t>();
-		auto next_data_file_id = chunk->GetValue(3, 0).GetValue<idx_t>();
-		snapshot = make_uniq<DuckLakeSnapshot>(snapshot_id, schema_version, next_table_id, next_data_file_id);
+		auto next_catalog_id = chunk->GetValue(2, 0).GetValue<idx_t>();
+		auto next_file_id = chunk->GetValue(3, 0).GetValue<idx_t>();
+		snapshot = make_uniq<DuckLakeSnapshot>(snapshot_id, schema_version, next_catalog_id, next_file_id);
 	}
 	return *snapshot;
 }
