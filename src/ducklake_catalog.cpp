@@ -66,7 +66,11 @@ void DuckLakeCatalog::ScanSchemas(ClientContext &context, std::function<void(Sch
 	auto snapshot = duck_transaction.GetSnapshot();
 	auto &schemas = GetSchemaForSnapshot(duck_transaction, snapshot);
 	for (auto &schema : schemas.GetEntries()) {
-		callback(schema.second->Cast<SchemaCatalogEntry>());
+		auto &schema_entry = schema.second->Cast<SchemaCatalogEntry>();
+		if (duck_transaction.IsDeleted(schema_entry)) {
+			continue;
+		}
+		callback(schema_entry);
 	}
 }
 
@@ -196,6 +200,9 @@ optional_ptr<SchemaCatalogEntry> DuckLakeCatalog::GetSchema(CatalogTransaction t
 	auto entry = schemas.GetEntry<SchemaCatalogEntry>(schema_name);
 	if (!entry && if_not_found == OnEntryNotFound::THROW_EXCEPTION) {
 		throw BinderException("Schema \"%s\" not found in DuckLakeCatalog \"%s\"", schema_name, GetName());
+	}
+	if (duck_transaction.IsDeleted(*entry)) {
+		return nullptr;
 	}
 	return entry;
 }

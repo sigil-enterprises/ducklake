@@ -122,8 +122,37 @@ SELECT * FROM ducklake.s2.tbl
 ----
 hello	world
 
+# drop and re-create a schema within the same transaction
+statement ok
+BEGIN
+
 statement ok
 DROP SCHEMA ducklake.s1 CASCADE
 
+query I
+SELECT schema_name FROM duckdb_schemas() WHERE database_name='ducklake' ORDER BY ALL
+----
+main
+s2
+
 statement ok
-DROP SCHEMA ducklake.s2 CASCADE
+CREATE SCHEMA ducklake.s1
+
+statement ok
+CREATE TABLE ducklake.s1.tbl(a DATE);
+
+statement ok
+INSERT INTO ducklake.s1.tbl VALUES (DATE '1992-01-01');
+
+query I
+SELECT * FROM ducklake.s1.tbl
+----
+1992-01-01
+
+statement ok
+COMMIT
+
+query I
+SELECT * FROM ducklake.s1.tbl
+----
+1992-01-01

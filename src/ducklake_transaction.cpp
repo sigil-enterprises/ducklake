@@ -311,6 +311,10 @@ bool DuckLakeTransaction::IsDeleted(CatalogEntry &entry) {
 		auto &table_entry = entry.Cast<DuckLakeTableEntry>();
 		return dropped_tables.find(table_entry.GetTableId()) != dropped_tables.end();
 	}
+	case CatalogType::SCHEMA_ENTRY: {
+		auto &schema_entry = entry.Cast<DuckLakeSchemaEntry>();
+		return dropped_schemas.find(schema_entry.GetSchemaId()) != dropped_schemas.end();
+	}
 	default:
 		throw InternalException("Catalog type not supported for IsDeleted");
 	}
