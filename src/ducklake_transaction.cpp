@@ -293,8 +293,7 @@ void DuckLakeTransaction::DropSchema(DuckLakeSchemaEntry &schema) {
 }
 
 void DuckLakeTransaction::DropTable(DuckLakeTableEntry &table) {
-	auto table_id = table.GetTableId();
-	if (IsTransactionLocal(table_id)) {
+	if (table.IsTransactionLocal()) {
 		// table is transaction-local - drop it from the transaction local changes
 		auto schema_entry = new_tables.find(table.ParentSchema().name);
 		if (schema_entry == new_tables.end()) {
@@ -302,6 +301,7 @@ void DuckLakeTransaction::DropTable(DuckLakeTableEntry &table) {
 		}
 		schema_entry->second->DropEntry(table.name);
 	} else {
+		auto table_id = table.GetTableId();
 		dropped_tables.insert(table_id);
 	}
 }
@@ -341,12 +341,12 @@ void DuckLakeTransaction::AlterEntry(CatalogEntry &entry, unique_ptr<CatalogEntr
 	auto &table = entry.Cast<DuckLakeTableEntry>();
 	auto &entries = GetOrCreateTransactionLocalEntries(entry);
 	entries.CreateEntry(std::move(new_entry));
-	auto table_id = table.GetTableId();
-	if (IsTransactionLocal(table_id)) {
+	if (table.IsTransactionLocal()) {
 		// table is transaction local - delete the old table from there
 		entries.DropEntry(entry.name);
 	} else {
 		// table is not transaction local - add to drop list
+		auto table_id = table.GetTableId();
 		dropped_tables.insert(table_id);
 	}
 }

@@ -236,7 +236,7 @@ ORDER BY table_id, column_order
 	for (auto &entry : loaded_tables) {
 		// flush the table
 		auto table_entry = make_uniq<DuckLakeTableEntry>(*this, *entry.schema_entry, *entry.create_table_info,
-		                                                 entry.table_id, std::move(entry.table_uuid));
+		                                                 entry.table_id, std::move(entry.table_uuid), false);
 		entry.schema_entry->AddEntry(CatalogType::TABLE_ENTRY, std::move(table_entry));
 	}
 

@@ -11,8 +11,9 @@
 namespace duckdb {
 
 DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info,
-                                       idx_t table_id, string table_uuid_p)
-    : TableCatalogEntry(catalog, schema, info), table_id(table_id), table_uuid(std::move(table_uuid_p)) {
+                                       idx_t table_id, string table_uuid_p, bool is_transaction_local)
+    : TableCatalogEntry(catalog, schema, info), table_id(table_id), table_uuid(std::move(table_uuid_p)),
+      is_transaction_local(is_transaction_local) {
 }
 
 unique_ptr<BaseStatistics> DuckLakeTableEntry::GetStatistics(ClientContext &context, column_t column_id) {
@@ -51,7 +52,8 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	auto &table_info = create_info->Cast<CreateTableInfo>();
 	table_info.table = info.new_table_name;
 	// create a complete copy of this table with only the name changed
-	return make_uniq<DuckLakeTableEntry>(ParentCatalog(), ParentSchema(), table_info, GetTableId(), GetTableUUID());
+	return make_uniq<DuckLakeTableEntry>(ParentCatalog(), ParentSchema(), table_info, GetTableId(), GetTableUUID(),
+	                                     true);
 }
 
 unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transaction, AlterTableInfo &info) {

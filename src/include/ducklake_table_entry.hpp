@@ -17,7 +17,7 @@ class DuckLakeTransaction;
 class DuckLakeTableEntry : public TableCatalogEntry {
 public:
 	DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info, idx_t table_id,
-	                   string table_uuid);
+	                   string table_uuid, bool is_transaction_local);
 
 public:
 	idx_t GetTableId() const {
@@ -25,6 +25,9 @@ public:
 	}
 	const string &GetTableUUID() const {
 		return table_uuid;
+	}
+	bool IsTransactionLocal() const {
+		return is_transaction_local;
 	}
 
 public:
@@ -45,6 +48,7 @@ private:
 private:
 	idx_t table_id;
 	string table_uuid;
+	bool is_transaction_local;
 };
 
 } // namespace duckdb
