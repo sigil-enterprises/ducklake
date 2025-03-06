@@ -25,6 +25,9 @@ public:
 	const string &GetSchemaUUID() const {
 		return schema_uuid;
 	}
+	void SetSchemaId(idx_t new_schema_id) {
+		schema_id = new_schema_id;
+	}
 
 public:
 	optional_ptr<CatalogEntry> CreateTable(CatalogTransaction transaction, BoundCreateTableInfo &info) override;
@@ -48,6 +51,7 @@ public:
 	optional_ptr<CatalogEntry> GetEntry(CatalogTransaction transaction, CatalogType type, const string &name) override;
 
 	void AddEntry(CatalogType type, unique_ptr<CatalogEntry> entry);
+	void TryDropSchema(DuckLakeTransaction &transaction, bool cascade);
 
 	static bool CatalogTypeIsSupported(CatalogType type);
 

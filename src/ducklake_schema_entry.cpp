@@ -15,12 +15,12 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction t
                                                             BoundCreateTableInfo &info) {
 	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
 	//! get a local table-id
-	idx_t table_id = duck_transaction.GetLocalTableId();
+	idx_t table_id = duck_transaction.GetLocalCatalogId();
 	auto table_uuid = UUID::ToString(UUID::GenerateRandomUUID());
 	auto table_entry =
 	    make_uniq<DuckLakeTableEntry>(ParentCatalog(), *this, info.Base(), table_id, std::move(table_uuid));
 	auto result = table_entry.get();
-	duck_transaction.CreateEntry(CatalogType::TABLE_ENTRY, std::move(table_entry));
+	duck_transaction.CreateEntry(std::move(table_entry));
 	return result;
 }
 
@@ -111,15 +111,15 @@ void DuckLakeSchemaEntry::DropEntry(ClientContext &context, DropInfo &info) {
 	if (info.cascade) {
 		throw NotImplementedException("Cascade Drop not supported in DuckLake");
 	}
-	auto table = GetEntry(GetCatalogTransaction(context), info.type, info.name);
-	if (!table) {
+	auto catalog_entry = GetEntry(GetCatalogTransaction(context), info.type, info.name);
+	if (!catalog_entry) {
 		if (info.if_not_found == OnEntryNotFound::RETURN_NULL) {
 			return;
 		}
 		throw InternalException("Failed to drop entry \"%s\" - could not find entry", info.name);
 	}
 	auto &transaction = DuckLakeTransaction::Get(context, catalog);
-	transaction.DropEntry(*table);
+	transaction.DropEntry(*catalog_entry);
 }
 
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::GetEntry(CatalogTransaction transaction, CatalogType type,
@@ -147,6 +147,30 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::GetEntry(CatalogTransaction tran
 void DuckLakeSchemaEntry::AddEntry(CatalogType type, unique_ptr<CatalogEntry> entry) {
 	auto &catalog_set = GetCatalogSet(type);
 	catalog_set.CreateEntry(std::move(entry));
+}
+
+void DuckLakeSchemaEntry::TryDropSchema(DuckLakeTransaction &transaction, bool cascade) {
+	if (!cascade) {
+		// get a list of all dependents
+		vector<reference<CatalogEntry>> dependents;
+		for (auto &entry : tables.GetEntries()) {
+			dependents.push_back(*entry.second);
+		}
+		if (dependents.empty()) {
+			return;
+		}
+		string error_string = "Cannot drop schema \"" + name + "\" because there are entries that depend on it\n";
+		for (auto &dependent : dependents) {
+			auto &dep = dependent.get();
+			error_string += StringUtil::Format("%s %s depends on %s.\n", CatalogTypeToString(dep.type), dep.name, name);
+		}
+		error_string += "Use DROP...CASCADE to drop all dependents.";
+		throw CatalogException(error_string);
+	}
+	// drop all dependents
+	for (auto &entry : tables.GetEntries()) {
+		transaction.DropEntry(*entry.second);
+	}
 }
 
 DuckLakeCatalogSet &DuckLakeSchemaEntry::GetCatalogSet(CatalogType type) {

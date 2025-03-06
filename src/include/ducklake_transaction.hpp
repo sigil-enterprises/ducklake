@@ -17,6 +17,8 @@
 namespace duckdb {
 class DuckLakeCatalog;
 class DuckLakeCatalogSet;
+class DuckLakeSchemaEntry;
+class DuckLakeTableEntry;
 
 class DuckLakeTransaction : public Transaction {
 public:
@@ -41,30 +43,43 @@ public:
 
 	static DuckLakeTransaction &Get(ClientContext &context, Catalog &catalog);
 
-	void CreateEntry(CatalogType catalog_type, unique_ptr<CatalogEntry> entry);
+	void CreateEntry(unique_ptr<CatalogEntry> entry);
 	void DropEntry(CatalogEntry &entry);
 	bool IsDeleted(CatalogEntry &entry);
 
-	DuckLakeCatalogSet &GetOrCreateTransactionLocalEntries(CatalogType catalog_type, const string &schema_name);
+	DuckLakeCatalogSet &GetOrCreateTransactionLocalEntries(CatalogEntry &entry);
+	optional_ptr<DuckLakeCatalogSet> GetTransactionLocalSchemas();
 	optional_ptr<DuckLakeCatalogSet> GetTransactionLocalEntries(CatalogType type, const string &schema_name);
 	optional_ptr<CatalogEntry> GetTransactionLocalEntry(CatalogType catalog_type, const string &schema_name,
 	                                                    const string &entry_name);
 	vector<string> GetTransactionLocalFiles(idx_t table_id);
 	void AppendFiles(idx_t table_id, const vector<string> &files);
 
+	void DropSchema(DuckLakeSchemaEntry &schema);
+	void DropTable(DuckLakeTableEntry &table);
+
+	bool SchemaChangesMade();
 	bool ChangesMade();
+	idx_t GetLocalCatalogId();
+
+private:
 	void FlushChanges();
-	idx_t GetLocalTableId();
+	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,
+	               unordered_set<idx_t> &dropped_entries);
 
 private:
 	DuckLakeCatalog &ducklake_catalog;
 	DatabaseInstance &db;
 	unique_ptr<Connection> connection;
 	unique_ptr<DuckLakeSnapshot> snapshot;
-	idx_t local_table_id;
+	idx_t local_catalog_id;
 	//! New tables added by this transaction
 	case_insensitive_map_t<unique_ptr<DuckLakeCatalogSet>> new_tables;
 	unordered_set<idx_t> dropped_tables;
+	//! Schemas added by this transaction
+	unique_ptr<DuckLakeCatalogSet> new_schemas;
+	unordered_set<idx_t> dropped_schemas;
+	//! Data files added by this transaction
 	unordered_map<idx_t, vector<string>> new_data_files;
 };
 

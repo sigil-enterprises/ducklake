@@ -6,9 +6,11 @@
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
+#include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "ducklake_schema_entry.hpp"
 #include "ducklake_table_entry.hpp"
 #include "ducklake_transaction.hpp"
+#include "duckdb/common/types/uuid.hpp"
 
 namespace duckdb {
 
@@ -32,11 +34,35 @@ void DuckLakeCatalog::Initialize(optional_ptr<ClientContext> context, bool load_
 }
 
 optional_ptr<CatalogEntry> DuckLakeCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {
-	throw InternalException("Unsupported DuckLake function");
+	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
+	//! get a local table-id
+	idx_t schema_id = duck_transaction.GetLocalCatalogId();
+	auto schema_uuid = UUID::ToString(UUID::GenerateRandomUUID());
+	auto schema_entry = make_uniq<DuckLakeSchemaEntry>(*this, info, schema_id, std::move(schema_uuid));
+	auto result = schema_entry.get();
+	duck_transaction.CreateEntry(std::move(schema_entry));
+	return result;
+}
+
+void DuckLakeCatalog::DropSchema(ClientContext &context, DropInfo &info) {
+	auto schema = GetSchema(GetCatalogTransaction(context), info.name, info.if_not_found);
+	if (!schema) {
+		return;
+	}
+	auto &transaction = DuckLakeTransaction::Get(context, *this);
+	auto &ducklake_schema = schema->Cast<DuckLakeSchemaEntry>();
+	ducklake_schema.TryDropSchema(transaction, info.cascade);
+	transaction.DropEntry(*schema);
 }
 
 void DuckLakeCatalog::ScanSchemas(ClientContext &context, std::function<void(SchemaCatalogEntry &)> callback) {
 	auto &duck_transaction = DuckLakeTransaction::Get(context, *this);
+	auto set = duck_transaction.GetTransactionLocalSchemas();
+	if (set) {
+		for (auto &entry : set->GetEntries()) {
+			callback(entry.second->Cast<SchemaCatalogEntry>());
+		}
+	}
 	auto snapshot = duck_transaction.GetSnapshot();
 	auto &schemas = GetSchemaForSnapshot(duck_transaction, snapshot);
 	for (auto &schema : schemas.GetEntries()) {
@@ -157,11 +183,19 @@ optional_ptr<SchemaCatalogEntry> DuckLakeCatalog::GetSchema(CatalogTransaction t
                                                             OnEntryNotFound if_not_found,
                                                             QueryErrorContext error_context) {
 	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
+	// look for the schema in the set of transaction-local schemas
+	auto set = duck_transaction.GetTransactionLocalSchemas();
+	if (set) {
+		auto entry = set->GetEntry<SchemaCatalogEntry>(schema_name);
+		if (entry) {
+			return entry;
+		}
+	}
 	auto snapshot = duck_transaction.GetSnapshot();
 	auto &schemas = GetSchemaForSnapshot(duck_transaction, snapshot);
 	auto entry = schemas.GetEntry<SchemaCatalogEntry>(schema_name);
 	if (!entry && if_not_found == OnEntryNotFound::THROW_EXCEPTION) {
-		throw BinderException("DuckLakeCatalog - schema %s not found", schema_name);
+		throw BinderException("Schema \"%s\" not found in DuckLakeCatalog \"%s\"", schema_name, GetName());
 	}
 	return entry;
 }
@@ -186,10 +220,6 @@ DatabaseSize DuckLakeCatalog::GetDatabaseSize(ClientContext &context) {
 
 bool DuckLakeCatalog::InMemory() {
 	return false;
-}
-
-void DuckLakeCatalog::DropSchema(ClientContext &context, DropInfo &info) {
-	throw InternalException("Unsupported DuckLake function");
 }
 
 string DuckLakeCatalog::GetDBPath() {

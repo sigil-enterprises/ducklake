@@ -16,6 +16,13 @@ CREATE SCHEMA ducklake.s1;
 statement ok
 CREATE SCHEMA ducklake.s2;
 
+query I
+SELECT schema_name FROM duckdb_schemas() WHERE database_name='ducklake' ORDER BY ALL
+----
+main
+s1
+s2
+
 statement ok
 CREATE TABLE ducklake.s1.tbl(i INT);
 
@@ -37,3 +44,86 @@ query II
 SELECT * FROM ducklake.s2.tbl
 ----
 hello	world
+
+# drop the schemas again
+statement error
+DROP SCHEMA ducklake.s1
+----
+there are entries that depend on it
+
+statement ok
+DROP TABLE ducklake.s1.tbl
+
+statement ok
+DROP SCHEMA ducklake.s1
+
+statement ok
+DROP SCHEMA ducklake.s2 CASCADE
+
+# the schemas are now gone
+statement error
+CREATE TABLE ducklake.s1.tbl2(i INT)
+----
+not found
+
+foreach commit_query ROLLBACK COMMIT
+
+# now try all of this transaction-local
+statement ok
+BEGIN
+
+statement ok
+CREATE SCHEMA ducklake.s1;
+
+statement ok
+CREATE SCHEMA ducklake.s2;
+
+query I
+SELECT schema_name FROM duckdb_schemas() WHERE database_name='ducklake' ORDER BY ALL
+----
+main
+s1
+s2
+
+statement ok
+CREATE TABLE ducklake.s1.tbl(i INT);
+
+statement ok
+CREATE TABLE ducklake.s2.tbl(a VARCHAR, b VARCHAR);
+
+statement ok
+INSERT INTO ducklake.s1.tbl VALUES (42);
+
+statement ok
+INSERT INTO ducklake.s2.tbl VALUES ('hello', 'world');
+
+query I
+SELECT * FROM ducklake.s1.tbl
+----
+42
+
+query II
+SELECT * FROM ducklake.s2.tbl
+----
+hello	world
+
+statement ok
+${commit_query}
+
+endloop
+
+query I
+SELECT * FROM ducklake.s1.tbl
+----
+42
+
+query II
+SELECT * FROM ducklake.s2.tbl
+----
+hello	world
+
+statement ok
+DROP SCHEMA ducklake.s1 CASCADE
+
+statement ok
+DROP SCHEMA ducklake.s2 CASCADE
