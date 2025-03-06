@@ -9,7 +9,7 @@ namespace duckdb {
 DuckLakeTransaction::DuckLakeTransaction(DuckLakeCatalog &ducklake_catalog, TransactionManager &manager,
                                          ClientContext &context)
     : Transaction(manager, context), ducklake_catalog(ducklake_catalog), db(*context.db),
-      local_table_id(9223372036854775808ULL) {
+      local_table_id(TRANSACTION_LOCAL_ID_START) {
 }
 
 DuckLakeTransaction::~DuckLakeTransaction() {
@@ -35,8 +35,8 @@ void DuckLakeTransaction::Rollback() {
 	if (!new_data_files.empty()) {
 		// remove any files that were written
 		auto &fs = FileSystem::GetFileSystem(db);
-		for(auto &table_entry : new_data_files) {
-			for(auto &file_name : table_entry.second) {
+		for (auto &table_entry : new_data_files) {
+			for (auto &file_name : table_entry.second) {
 				fs.RemoveFile(file_name);
 			}
 		}
@@ -52,7 +52,7 @@ Connection &DuckLakeTransaction::GetConnection() {
 }
 
 bool DuckLakeTransaction::ChangesMade() {
-	return !new_tables.empty() || !new_data_files.empty();
+	return !new_tables.empty() || !new_data_files.empty() || !dropped_tables.empty();
 }
 
 void DuckLakeTransaction::FlushChanges() {
@@ -63,20 +63,35 @@ void DuckLakeTransaction::FlushChanges() {
 	auto commit_snapshot = GetSnapshot();
 
 	commit_snapshot.snapshot_id++;
-	auto changed_schema = !new_tables.empty();
+	auto changed_schema = !new_tables.empty() || !dropped_tables.empty();
 	if (changed_schema) {
 		// we changed the schema - need to get a new schema version
 		commit_snapshot.schema_version++;
 	}
 	unique_ptr<QueryResult> result;
+	if (!dropped_tables.empty()) {
+		string dropped_table_list;
+		for (auto &dropped_table_id : dropped_tables) {
+			if (!dropped_table_list.empty()) {
+				dropped_table_list += ", ";
+			}
+			dropped_table_list += to_string(dropped_table_id);
+		}
+		auto drop_tables_query = StringUtil::Format(
+		    R"(UPDATE {METADATA_CATALOG}.ducklake_table SET end_snapshot = {SNAPSHOT_ID} WHERE table_id IN (%s);)",
+		    dropped_table_list);
+		result = Query(commit_snapshot, drop_tables_query);
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to write dropped table information to DuckLake:");
+		}
+	}
 	// write new tables
 	for (auto &schema_entry : new_tables) {
 		for (auto &entry : schema_entry.second->GetEntries()) {
-			// CREATE TABLE ducklake_table(table_id BIGINT PRIMARY KEY, table_uuid UUID, begin_snapshot BIGINT,
-			// end_snapshot BIGINT, schema_id BIGINT, table_name VARCHAR);
 			// write any new tables that we created
 			auto &table = entry.second->Cast<DuckLakeTableEntry>();
 			auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
+			auto transaction_local_id = table.GetTableId();
 			auto table_id = commit_snapshot.next_table_id++;
 			auto table_insert_query = StringUtil::Format(
 			    R"(INSERT INTO {METADATA_CATALOG}.ducklake_table VALUES (%d, '%s', {SNAPSHOT_ID}, NULL, %d, '%s');)",
@@ -86,8 +101,6 @@ void DuckLakeTransaction::FlushChanges() {
 				result->GetErrorObject().Throw("Failed to write new table to DuckLake:");
 			}
 			// write the columns
-			// CREATE TABLE ducklake_column(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id
-			// BIGINT, column_order BIGINT, column_name VARCHAR, column_type VARCHAR, default_value VARCHAR);
 			string column_insert_query;
 			idx_t column_id = 0;
 			for (auto &col : table.GetColumns().Logical()) {
@@ -102,6 +115,12 @@ void DuckLakeTransaction::FlushChanges() {
 			result = Query(commit_snapshot, column_insert_query);
 			if (result->HasError()) {
 				result->GetErrorObject().Throw("Failed to write column information to DuckLake:");
+			}
+			// if we have written any data to this table - move them to the new (correct) table id as well
+			auto data_file_entry = new_data_files.find(transaction_local_id);
+			if (data_file_entry != new_data_files.end()) {
+				new_data_files[table_id] = std::move(data_file_entry->second);
+				new_data_files.erase(transaction_local_id);
 			}
 		}
 	}
@@ -209,6 +228,41 @@ void DuckLakeTransaction::AppendFiles(idx_t table_id, const vector<string> &file
 
 DuckLakeTransaction &DuckLakeTransaction::Get(ClientContext &context, Catalog &catalog) {
 	return Transaction::Get(context, catalog).Cast<DuckLakeTransaction>();
+}
+
+void DuckLakeTransaction::CreateEntry(CatalogType catalog_type, unique_ptr<CatalogEntry> entry) {
+	auto &schema_name = entry->ParentSchema().name;
+	auto &set = GetOrCreateTransactionLocalEntries(catalog_type, schema_name);
+	set.CreateEntry(std::move(entry));
+}
+
+void DuckLakeTransaction::DropEntry(CatalogEntry &entry) {
+	if (entry.type != CatalogType::TABLE_ENTRY) {
+		throw InternalException("Unsupported type for drop");
+	}
+	auto &table = entry.Cast<DuckLakeTableEntry>();
+	auto table_id = table.GetTableId();
+	if (table_id >= TRANSACTION_LOCAL_ID_START) {
+		// table is transaction-local - drop it from the transaction local changes
+		auto schema_entry = new_tables.find(entry.ParentSchema().name);
+		if (schema_entry == new_tables.end()) {
+			throw InternalException("Dropping a transaction local table that does not exist?");
+		}
+		schema_entry->second->DropEntry(entry.name);
+	} else {
+		dropped_tables.insert(table_id);
+	}
+}
+
+bool DuckLakeTransaction::IsDeleted(CatalogEntry &entry) {
+	switch (entry.type) {
+	case CatalogType::TABLE_ENTRY: {
+		auto &table_entry = entry.Cast<DuckLakeTableEntry>();
+		return dropped_tables.find(table_entry.GetTableId()) != dropped_tables.end();
+	}
+	default:
+		throw InternalException("Catalog type not supported for IsDeleted");
+	}
 }
 
 DuckLakeCatalogSet &DuckLakeTransaction::GetOrCreateTransactionLocalEntries(CatalogType catalog_type,

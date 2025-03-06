@@ -16,7 +16,8 @@
 
 namespace duckdb {
 
-DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info, vector<string> transaction_local_files_p)
+DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,
+                                             vector<string> transaction_local_files_p)
     : MultiFileList(vector<string> {}, FileGlobOptions::ALLOW_EMPTY), transaction(transaction), read_info(read_info),
       read_file_list(false), transaction_local_files(std::move(transaction_local_files_p)) {
 }

@@ -1,0 +1,98 @@
+# name: test/sql/ducklake_drop_table.test
+# description: Test dropping of tables in DuckLake
+# group: [quack]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_drop.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_drop_files')
+
+statement ok
+CREATE TABLE ducklake.test(i INTEGER);
+
+statement ok
+BEGIN
+
+statement ok
+DROP TABLE ducklake.test
+
+statement error
+SELECT * FROM ducklake.test
+----
+does not exist
+
+statement ok
+ROLLBACK
+
+query I
+SELECT * FROM ducklake.test
+----
+
+statement ok
+DROP TABLE ducklake.test
+
+statement error
+SELECT * FROM ducklake.test
+----
+does not exist
+
+statement ok
+DROP TABLE IF EXISTS ducklake.test
+
+statement error
+DROP TABLE ducklake.test
+----
+does not exist
+
+# test drop of a transaction-local table
+statement ok
+BEGIN
+
+statement ok
+CREATE TABLE ducklake.test2(i INTEGER);
+
+query I
+SELECT * FROM ducklake.test2
+----
+
+statement ok
+DROP TABLE ducklake.test2
+
+statement error
+SELECT * FROM ducklake.test2
+----
+does not exist
+
+statement ok
+COMMIT
+
+statement ok
+CREATE TABLE ducklake.test(i INTEGER);
+
+# drop and create the same table in the same transaction
+statement ok
+BEGIN
+
+statement ok
+DROP TABLE ducklake.test;
+
+statement ok
+CREATE TABLE ducklake.test(i VARCHAR, j VARCHAR);
+
+statement ok
+INSERT INTO ducklake.test VALUES ('hello', 'world');
+
+query II
+SELECT * FROM ducklake.test
+----
+hello	world
+
+statement ok
+COMMIT
+
+query II
+SELECT * FROM ducklake.test
+----
+hello	world

@@ -3,6 +3,7 @@
 #include "ducklake_table_entry.hpp"
 #include "ducklake_transaction.hpp"
 #include "duckdb/common/types/uuid.hpp"
+#include "duckdb/parser/parsed_data/drop_info.hpp"
 
 namespace duckdb {
 
@@ -13,14 +14,13 @@ DuckLakeSchemaEntry::DuckLakeSchemaEntry(Catalog &catalog, CreateSchemaInfo &inf
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction transaction,
                                                             BoundCreateTableInfo &info) {
 	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
-	auto &entry = duck_transaction.GetOrCreateTransactionLocalEntries(CatalogType::TABLE_ENTRY, name);
 	//! get a local table-id
 	idx_t table_id = duck_transaction.GetLocalTableId();
 	auto table_uuid = UUID::ToString(UUID::GenerateRandomUUID());
 	auto table_entry =
 	    make_uniq<DuckLakeTableEntry>(ParentCatalog(), *this, info.Base(), table_id, std::move(table_uuid));
 	auto result = table_entry.get();
-	entry.CreateEntry(std::move(table_entry));
+	duck_transaction.CreateEntry(CatalogType::TABLE_ENTRY, std::move(table_entry));
 	return result;
 }
 
@@ -106,8 +106,20 @@ void DuckLakeSchemaEntry::Scan(CatalogType type, const std::function<void(Catalo
 		callback(*entry.second);
 	}
 }
+
 void DuckLakeSchemaEntry::DropEntry(ClientContext &context, DropInfo &info) {
-	throw InternalException("Unsupported schema operation");
+	if (info.cascade) {
+		throw NotImplementedException("Cascade Drop not supported in DuckLake");
+	}
+	auto table = GetEntry(GetCatalogTransaction(context), info.type, info.name);
+	if (!table) {
+		if (info.if_not_found == OnEntryNotFound::RETURN_NULL) {
+			return;
+		}
+		throw InternalException("Failed to drop entry \"%s\" - could not find entry", info.name);
+	}
+	auto &transaction = DuckLakeTransaction::Get(context, catalog);
+	transaction.DropEntry(*table);
 }
 
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::GetEntry(CatalogTransaction transaction, CatalogType type,
@@ -122,7 +134,14 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::GetEntry(CatalogTransaction tran
 		return transaction_entry;
 	}
 	auto &catalog_set = GetCatalogSet(type);
-	return catalog_set.GetEntry(entry_name);
+	auto entry = catalog_set.GetEntry(entry_name);
+	if (!entry) {
+		return nullptr;
+	}
+	if (duck_transaction.IsDeleted(*entry)) {
+		return nullptr;
+	}
+	return *entry;
 }
 
 void DuckLakeSchemaEntry::AddEntry(CatalogType type, unique_ptr<CatalogEntry> entry) {

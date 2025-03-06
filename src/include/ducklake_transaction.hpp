@@ -20,6 +20,9 @@ class DuckLakeCatalogSet;
 
 class DuckLakeTransaction : public Transaction {
 public:
+	static constexpr const idx_t TRANSACTION_LOCAL_ID_START = 9223372036854775808ULL;
+
+public:
 	DuckLakeTransaction(DuckLakeCatalog &ducklake_catalog, TransactionManager &manager, ClientContext &context);
 	~DuckLakeTransaction() override;
 
@@ -38,10 +41,14 @@ public:
 
 	static DuckLakeTransaction &Get(ClientContext &context, Catalog &catalog);
 
+	void CreateEntry(CatalogType catalog_type, unique_ptr<CatalogEntry> entry);
+	void DropEntry(CatalogEntry &entry);
+	bool IsDeleted(CatalogEntry &entry);
+
 	DuckLakeCatalogSet &GetOrCreateTransactionLocalEntries(CatalogType catalog_type, const string &schema_name);
 	optional_ptr<DuckLakeCatalogSet> GetTransactionLocalEntries(CatalogType type, const string &schema_name);
 	optional_ptr<CatalogEntry> GetTransactionLocalEntry(CatalogType catalog_type, const string &schema_name,
-	                                                    const string &entry_name); 
+	                                                    const string &entry_name);
 	vector<string> GetTransactionLocalFiles(idx_t table_id);
 	void AppendFiles(idx_t table_id, const vector<string> &files);
 
@@ -57,6 +64,7 @@ private:
 	idx_t local_table_id;
 	//! New tables added by this transaction
 	case_insensitive_map_t<unique_ptr<DuckLakeCatalogSet>> new_tables;
+	unordered_set<idx_t> dropped_tables;
 	unordered_map<idx_t, vector<string>> new_data_files;
 };
 

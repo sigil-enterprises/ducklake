@@ -29,6 +29,7 @@ public:
 
 	void CreateEntry(unique_ptr<CatalogEntry> entry);
 	optional_ptr<CatalogEntry> GetEntry(const string &name);
+	unique_ptr<CatalogEntry> DropEntry(const string &name);
 
 	template <class T>
 	optional_ptr<T> GetEntry(const string &name) {
