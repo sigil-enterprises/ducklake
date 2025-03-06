@@ -96,6 +96,9 @@ void DuckLakeSchemaEntry::Scan(ClientContext &context, CatalogType type,
 	// scan committed entries
 	auto &catalog_set = GetCatalogSet(type);
 	for (auto &entry : catalog_set.GetEntries()) {
+		if (duck_transaction.IsDeleted(*entry.second)) {
+			continue;
+		}
 		callback(*entry.second);
 	}
 }

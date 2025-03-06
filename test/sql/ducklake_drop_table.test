@@ -23,6 +23,10 @@ SELECT * FROM ducklake.test
 ----
 does not exist
 
+query I
+SELECT table_name FROM duckdb_tables() WHERE database_name = 'ducklake'
+----
+
 statement ok
 ROLLBACK
 
