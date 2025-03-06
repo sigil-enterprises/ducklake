@@ -8,8 +8,7 @@ void DuckLakeCatalogSet::CreateEntry(unique_ptr<CatalogEntry> entry) {
 	catalog_entries.insert(make_pair(std::move(name), std::move(entry)));
 }
 
-optional_ptr<CatalogEntry> DuckLakeCatalogSet::GetEntry(DuckLakeTransaction &transaction, const string &name) {
-	//! FIXME: search in transaction local storage
+optional_ptr<CatalogEntry> DuckLakeCatalogSet::GetEntry(const string &name) {
 	auto entry = catalog_entries.find(name);
 	if (entry == catalog_entries.end()) {
 		return nullptr;

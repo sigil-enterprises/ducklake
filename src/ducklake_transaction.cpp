@@ -192,19 +192,37 @@ DuckLakeTransaction &DuckLakeTransaction::Get(ClientContext &context, Catalog &c
 	return Transaction::Get(context, catalog).Cast<DuckLakeTransaction>();
 }
 
-DuckLakeCatalogSet &DuckLakeTransaction::GetOrCreateNewTableElements(const string &schema_name) {
-	auto entry = GetNewTableElements(schema_name);
+DuckLakeCatalogSet &DuckLakeTransaction::GetOrCreateTransactionLocalEntries(CatalogType catalog_type,
+                                                                            const string &schema_name) {
+	auto entry = GetTransactionLocalEntries(catalog_type, schema_name);
 	if (entry) {
 		return *entry;
 	}
+	if (catalog_type != CatalogType::TABLE_ENTRY) {
+		throw InternalException("Catalog type not supported for transaction local storage");
+	}
 	// need to create it
-	auto new_table_list = make_uniq<DuckLakeCatalogSet>(CatalogType::TABLE_ENTRY, schema_name);
+	auto new_table_list = make_uniq<DuckLakeCatalogSet>();
 	auto &result = *new_table_list;
 	new_tables.insert(make_pair(schema_name, std::move(new_table_list)));
 	return result;
 }
 
-optional_ptr<DuckLakeCatalogSet> DuckLakeTransaction::GetNewTableElements(const string &schema_name) {
+optional_ptr<CatalogEntry> DuckLakeTransaction::GetTransactionLocalEntry(CatalogType catalog_type,
+                                                                         const string &schema_name,
+                                                                         const string &entry_name) {
+	auto set = GetTransactionLocalEntries(catalog_type, schema_name);
+	if (!set) {
+		return nullptr;
+	}
+	return set->GetEntry(entry_name);
+}
+
+optional_ptr<DuckLakeCatalogSet> DuckLakeTransaction::GetTransactionLocalEntries(CatalogType catalog_type,
+                                                                                 const string &schema_name) {
+	if (catalog_type != CatalogType::TABLE_ENTRY) {
+		return nullptr;
+	}
 	auto entry = new_tables.find(schema_name);
 	if (entry == new_tables.end()) {
 		return nullptr;

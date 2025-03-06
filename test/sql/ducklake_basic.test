@@ -43,7 +43,6 @@ query II
 SELECT * FROM ducklake.test2
 ----
 
-
 # data path is required
 statement error
 ATTACH 'ducklake:__TEST_DIR__/ducklake_error.db' AS ducklake_error

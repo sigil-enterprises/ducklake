@@ -149,7 +149,7 @@ ORDER BY table_id, column_order
 		entry.schema_entry->AddEntry(CatalogType::TABLE_ENTRY, std::move(table_entry));
 	}
 
-	auto schema_set = make_uniq<DuckLakeCatalogSet>(CatalogType::SCHEMA_ENTRY, std::move(schema_map));
+	auto schema_set = make_uniq<DuckLakeCatalogSet>(std::move(schema_map));
 	return schema_set;
 }
 
@@ -159,7 +159,7 @@ optional_ptr<SchemaCatalogEntry> DuckLakeCatalog::GetSchema(CatalogTransaction t
 	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
 	auto snapshot = duck_transaction.GetSnapshot();
 	auto &schemas = GetSchemaForSnapshot(duck_transaction, snapshot);
-	auto entry = schemas.GetEntry<SchemaCatalogEntry>(duck_transaction, schema_name);
+	auto entry = schemas.GetEntry<SchemaCatalogEntry>(schema_name);
 	if (!entry && if_not_found == OnEntryNotFound::THROW_EXCEPTION) {
 		throw BinderException("DuckLakeCatalog - schema %s not found", schema_name);
 	}

@@ -49,6 +49,8 @@ public:
 
 	void AddEntry(CatalogType type, unique_ptr<CatalogEntry> entry);
 
+	static bool CatalogTypeIsSupported(CatalogType type);
+
 private:
 	DuckLakeCatalogSet &GetCatalogSet(CatalogType type);
 

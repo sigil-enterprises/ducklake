@@ -38,8 +38,10 @@ public:
 
 	static DuckLakeTransaction &Get(ClientContext &context, Catalog &catalog);
 
-	DuckLakeCatalogSet &GetOrCreateNewTableElements(const string &schema_name);
-	optional_ptr<DuckLakeCatalogSet> GetNewTableElements(const string &schema_name);
+	DuckLakeCatalogSet &GetOrCreateTransactionLocalEntries(CatalogType catalog_type, const string &schema_name);
+	optional_ptr<DuckLakeCatalogSet> GetTransactionLocalEntries(CatalogType type, const string &schema_name);
+	optional_ptr<CatalogEntry> GetTransactionLocalEntry(CatalogType catalog_type, const string &schema_name,
+	                                                    const string &entry_name);
 	void AppendFiles(idx_t table_id, const vector<string> &files);
 
 	bool ChangesMade();

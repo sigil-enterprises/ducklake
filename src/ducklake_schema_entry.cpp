@@ -7,14 +7,13 @@
 namespace duckdb {
 
 DuckLakeSchemaEntry::DuckLakeSchemaEntry(Catalog &catalog, CreateSchemaInfo &info, idx_t schema_id, string schema_uuid)
-    : SchemaCatalogEntry(catalog, info), schema_id(schema_id), schema_uuid(std::move(schema_uuid)),
-      tables(CatalogType::TABLE_ENTRY, name) {
+    : SchemaCatalogEntry(catalog, info), schema_id(schema_id), schema_uuid(std::move(schema_uuid)) {
 }
 
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction transaction,
                                                             BoundCreateTableInfo &info) {
 	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
-	auto &entry = duck_transaction.GetOrCreateNewTableElements(name);
+	auto &entry = duck_transaction.GetOrCreateTransactionLocalEntries(CatalogType::TABLE_ENTRY, name);
 	//! get a local table-id
 	idx_t table_id = duck_transaction.GetLocalTableId();
 	auto table_uuid = UUID::ToString(UUID::GenerateRandomUUID());
@@ -23,6 +22,15 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction t
 	auto result = table_entry.get();
 	entry.CreateEntry(std::move(table_entry));
 	return result;
+}
+
+bool DuckLakeSchemaEntry::CatalogTypeIsSupported(CatalogType type) {
+	switch (type) {
+	case CatalogType::TABLE_ENTRY:
+		return true;
+	default:
+		return false;
+	}
 }
 
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateFunction(CatalogTransaction transaction,
@@ -74,7 +82,18 @@ void DuckLakeSchemaEntry::Alter(CatalogTransaction transaction, AlterInfo &info)
 
 void DuckLakeSchemaEntry::Scan(ClientContext &context, CatalogType type,
                                const std::function<void(CatalogEntry &)> &callback) {
-	// FIXME: scan transaction-local entries
+	if (!CatalogTypeIsSupported(type)) {
+		return;
+	}
+	// scan transaction-local entries
+	auto &duck_transaction = DuckLakeTransaction::Get(context, ParentCatalog());
+	auto set = duck_transaction.GetTransactionLocalEntries(type, name);
+	if (set) {
+		for (auto &entry : set->GetEntries()) {
+			callback(*entry.second);
+		}
+	}
+	// scan committed entries
 	auto &catalog_set = GetCatalogSet(type);
 	for (auto &entry : catalog_set.GetEntries()) {
 		callback(*entry.second);
@@ -90,11 +109,20 @@ void DuckLakeSchemaEntry::Scan(CatalogType type, const std::function<void(Catalo
 void DuckLakeSchemaEntry::DropEntry(ClientContext &context, DropInfo &info) {
 	throw InternalException("Unsupported schema operation");
 }
+
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::GetEntry(CatalogTransaction transaction, CatalogType type,
-                                                         const string &name) {
+                                                         const string &entry_name) {
+	if (!CatalogTypeIsSupported(type)) {
+		return nullptr;
+	}
 	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
+	//! search in transaction local storage first
+	auto transaction_entry = duck_transaction.GetTransactionLocalEntry(type, name, entry_name);
+	if (transaction_entry) {
+		return transaction_entry;
+	}
 	auto &catalog_set = GetCatalogSet(type);
-	return catalog_set.GetEntry(duck_transaction, name);
+	return catalog_set.GetEntry(entry_name);
 }
 
 void DuckLakeSchemaEntry::AddEntry(CatalogType type, unique_ptr<CatalogEntry> entry) {
