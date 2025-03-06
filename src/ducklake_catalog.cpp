@@ -11,6 +11,7 @@
 #include "ducklake_table_entry.hpp"
 #include "ducklake_transaction.hpp"
 #include "duckdb/common/types/uuid.hpp"
+#include "ducklake_types.hpp"
 
 namespace duckdb {
 
@@ -86,6 +87,65 @@ DuckLakeCatalogSet &DuckLakeCatalog::GetSchemaForSnapshot(DuckLakeTransaction &t
 	auto &result = *schema;
 	schemas.insert(make_pair(snapshot.schema_version, std::move(schema)));
 	return result;
+}
+
+LogicalType DuckLakeCatalog::ParseDuckLakeType(const string &type) {
+	if (StringUtil::EndsWith(type, "[]")) {
+		// list - recurse
+		auto child_type = ParseDuckLakeType(type.substr(0, type.size() - 2));
+		return LogicalType::LIST(child_type);
+	}
+
+	if (StringUtil::StartsWith(type, "MAP(") && StringUtil::EndsWith(type, ")")) {
+		// map - recurse
+		string map_args = type.substr(4, type.size() - 5);
+		vector<string> map_args_vect = StringUtil::SplitWithParentheses(map_args);
+		if (map_args_vect.size() != 2) {
+			throw InvalidInputException("Ill formatted map type: '%s'", type);
+		}
+		StringUtil::Trim(map_args_vect[0]);
+		StringUtil::Trim(map_args_vect[1]);
+		auto key_type = ParseDuckLakeType(map_args_vect[0]);
+		auto value_type = ParseDuckLakeType(map_args_vect[1]);
+		return LogicalType::MAP(key_type, value_type);
+	}
+
+	if (StringUtil::StartsWith(type, "STRUCT(") && StringUtil::EndsWith(type, ")")) {
+		// struct - recurse
+		string struct_members_str = type.substr(7, type.size() - 8);
+		vector<string> struct_members_vect = StringUtil::SplitWithParentheses(struct_members_str);
+		child_list_t<LogicalType> struct_members;
+		for (idx_t member_idx = 0; member_idx < struct_members_vect.size(); member_idx++) {
+			StringUtil::Trim(struct_members_vect[member_idx]);
+			vector<string> struct_member_parts = StringUtil::SplitWithParentheses(struct_members_vect[member_idx], ' ');
+			if (struct_member_parts.size() != 2) {
+				throw InvalidInputException("Ill formatted struct type: %s", type);
+			}
+			StringUtil::Trim(struct_member_parts[0]);
+			StringUtil::Trim(struct_member_parts[1]);
+			auto value_type = ParseDuckLakeType(struct_member_parts[1]);
+			struct_members.emplace_back(make_pair(struct_member_parts[0], value_type));
+		}
+		return LogicalType::STRUCT(struct_members);
+	}
+	if (StringUtil::StartsWith(type, "DECIMAL(") && StringUtil::EndsWith(type, ")")) {
+		// decimal - parse width/scale
+		string decimal_members_str = type.substr(8, type.size() - 9);
+		vector<string> decimal_members_vect = StringUtil::SplitWithParentheses(decimal_members_str);
+		if (decimal_members_vect.size() != 2) {
+			throw InvalidInputException("Invalid DECIMAL type - expected width and scale");
+		}
+		auto width = std::stoull(decimal_members_vect[0]);
+		auto scale = std::stoull(decimal_members_vect[1]);
+		return LogicalType::DECIMAL(width, scale);
+	}
+
+	LogicalType type_id = StringUtil::CIEquals(type, "ANY") ? LogicalType::ANY : TransformStringToLogicalTypeId(type);
+	if (type_id == LogicalTypeId::USER) {
+		throw InvalidInputException(
+		    "Error while generating extension function overloads - unrecognized logical type %s", type);
+	}
+	return type_id;
 }
 
 unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTransaction &transaction,
@@ -165,11 +225,12 @@ ORDER BY table_id, column_order
 		}
 		auto &table_entry = loaded_tables.back();
 		// add the column to this table
-		auto column_type = DBConfig::ParseLogicalType(column_type_str);
+		auto column_type = DuckLakeTypes::FromString(column_type_str);
 		ColumnDefinition column(std::move(column_name), std::move(column_type));
 		table_entry.create_table_info->columns.AddColumn(std::move(column));
 		// FIXME: parse default value
 		// FIXME: we need to keep the column id somehow
+		// FIXME: handle nested types
 	}
 	// flush the tables
 	for (auto &entry : loaded_tables) {

@@ -3,6 +3,7 @@
 #include "ducklake_catalog.hpp"
 #include "ducklake_schema_entry.hpp"
 #include "ducklake_table_entry.hpp"
+#include "ducklake_types.hpp"
 
 namespace duckdb {
 
@@ -148,9 +149,9 @@ void DuckLakeTransaction::FlushChanges() {
 					if (!column_insert_query.empty()) {
 						column_insert_query += ", ";
 					}
-					column_insert_query +=
-					    StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, NULL)", column_id, table_id,
-					                       column_id, SQLString(col.GetName()), SQLString(col.GetType().ToString()));
+					column_insert_query += StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, NULL)",
+					                                          column_id, table_id, column_id, SQLString(col.GetName()),
+					                                          SQLString(DuckLakeTypes::ToString(col.GetType())));
 				}
 				column_insert_query = "INSERT INTO {METADATA_CATALOG}.ducklake_column VALUES " + column_insert_query;
 				result = Query(commit_snapshot, column_insert_query);
