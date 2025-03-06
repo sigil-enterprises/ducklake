@@ -6,6 +6,7 @@
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
 #include "ducklake_transaction.hpp"
+#include "duckdb/parser/parsed_data/create_table_info.hpp"
 
 namespace duckdb {
 
@@ -43,6 +44,23 @@ TableFunction DuckLakeTableEntry::GetScanFunction(ClientContext &context, unique
 	bind_data = std::move(result);
 
 	return function;
+}
+
+unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, RenameTableInfo &info) {
+	auto create_info = GetInfo();
+	auto &table_info = create_info->Cast<CreateTableInfo>();
+	table_info.table = info.new_table_name;
+	// create a complete copy of this table with only the name changed
+	return make_uniq<DuckLakeTableEntry>(ParentCatalog(), ParentSchema(), table_info, GetTableId(), GetTableUUID());
+}
+
+unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transaction, AlterTableInfo &info) {
+	switch (info.alter_table_type) {
+	case AlterTableType::RENAME_TABLE:
+		return AlterTable(transaction, info.Cast<RenameTableInfo>());
+	default:
+		throw BinderException("Unsupported ALTER TABLE type - DuckLake tables only support RENAME TABLE for now");
+	}
 }
 
 TableStorageInfo DuckLakeTableEntry::GetStorageInfo(ClientContext &context) {

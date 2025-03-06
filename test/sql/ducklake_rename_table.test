@@ -1,0 +1,36 @@
+# name: test/sql/ducklake_rename_table.test
+# description: test ducklake extension
+# group: [quack]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_files', METADATA_CATALOG 'ducklake_meta')
+
+# test table renames
+statement ok
+CREATE TABLE ducklake.test(i INTEGER);
+
+statement ok
+INSERT INTO ducklake.test VALUES (42);
+
+query I
+SELECT * FROM ducklake.test
+----
+42
+
+statement ok
+ALTER TABLE ducklake.test RENAME TO test2
+
+query I
+SELECT * FROM ducklake.test2
+----
+42
+
+# rename transaction local
+# what if there is a conflict when renaming?
+# multiple renames of the same table in the same transaction
+# rename followed by insert to the same table in the same transaction
+# rename followed by drop

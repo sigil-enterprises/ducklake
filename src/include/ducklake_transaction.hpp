@@ -46,6 +46,7 @@ public:
 	void CreateEntry(unique_ptr<CatalogEntry> entry);
 	void DropEntry(CatalogEntry &entry);
 	bool IsDeleted(CatalogEntry &entry);
+	void AlterEntry(CatalogEntry &old_entry, unique_ptr<CatalogEntry> new_entry);
 
 	DuckLakeCatalogSet &GetOrCreateTransactionLocalEntries(CatalogEntry &entry);
 	optional_ptr<DuckLakeCatalogSet> GetTransactionLocalSchemas();
@@ -61,6 +62,9 @@ public:
 	bool SchemaChangesMade();
 	bool ChangesMade();
 	idx_t GetLocalCatalogId();
+	static bool IsTransactionLocal(idx_t id) {
+		return id >= TRANSACTION_LOCAL_ID_START;
+	}
 
 private:
 	void FlushChanges();

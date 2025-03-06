@@ -11,6 +11,8 @@
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 
 namespace duckdb {
+struct AlterTableInfo;
+class DuckLakeTransaction;
 
 class DuckLakeTableEntry : public TableCatalogEntry {
 public:
@@ -32,8 +34,13 @@ public:
 
 	TableStorageInfo GetStorageInfo(ClientContext &context) override;
 
+	unique_ptr<CatalogEntry> Alter(DuckLakeTransaction &transaction, AlterTableInfo &info);
+
 	void BindUpdateConstraints(Binder &binder, LogicalGet &get, LogicalProjection &proj, LogicalUpdate &update,
 	                           ClientContext &context) override;
+
+private:
+	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, RenameTableInfo &info);
 
 private:
 	idx_t table_id;

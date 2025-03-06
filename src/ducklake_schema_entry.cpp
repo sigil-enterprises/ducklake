@@ -76,8 +76,16 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateType(CatalogTransaction tr
 	throw InternalException("Unsupported schema operation");
 }
 
-void DuckLakeSchemaEntry::Alter(CatalogTransaction transaction, AlterInfo &info) {
-	throw InternalException("Unsupported schema operation");
+void DuckLakeSchemaEntry::Alter(CatalogTransaction catalog_transaction, AlterInfo &info) {
+	if (info.type != AlterType::ALTER_TABLE) {
+		throw BinderException("Only altering tables is supported for now");
+	}
+	auto &alter = info.Cast<AlterTableInfo>();
+	auto &transaction = DuckLakeTransaction::Get(catalog_transaction.GetContext(), catalog);
+	auto table_entry = GetEntry(catalog_transaction, CatalogType::TABLE_ENTRY, alter.name);
+	auto &table = table_entry->Cast<DuckLakeTableEntry>();
+	auto new_table = table.Alter(transaction, alter);
+	transaction.AlterEntry(table, std::move(new_table));
 }
 
 void DuckLakeSchemaEntry::Scan(ClientContext &context, CatalogType type,
