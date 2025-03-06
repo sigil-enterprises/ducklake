@@ -32,7 +32,8 @@ unique_ptr<MultiFileReader> DuckLakeMultiFileReader::CreateInstance(const TableF
 shared_ptr<MultiFileList> DuckLakeMultiFileReader::CreateFileList(ClientContext &context, const vector<string> &paths,
                                                                   FileGlobOptions options) {
 	auto &transaction = DuckLakeTransaction::Get(context, read_info.table.ParentCatalog());
-	auto result = make_shared_ptr<DuckLakeMultiFileList>(transaction, read_info);
+	auto transaction_local_files = transaction.GetTransactionLocalFiles(read_info.table_id);
+	auto result = make_shared_ptr<DuckLakeMultiFileList>(transaction, read_info, std::move(transaction_local_files));
 	return std::move(result);
 }
 

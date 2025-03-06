@@ -28,8 +28,18 @@ void DuckLakeTransaction::Commit() {
 
 void DuckLakeTransaction::Rollback() {
 	if (connection) {
+		// rollback any changes made to the metadata catalog
 		connection->Rollback();
 		connection.reset();
+	}
+	if (!new_data_files.empty()) {
+		// remove any files that were written
+		auto &fs = FileSystem::GetFileSystem(db);
+		for(auto &table_entry : new_data_files) {
+			for(auto &file_name : table_entry.second) {
+				fs.RemoveFile(file_name);
+			}
+		}
 	}
 }
 
@@ -175,6 +185,15 @@ DuckLakeSnapshot DuckLakeTransaction::GetSnapshot() {
 
 idx_t DuckLakeTransaction::GetLocalTableId() {
 	return local_table_id++;
+}
+
+vector<string> DuckLakeTransaction::GetTransactionLocalFiles(idx_t table_id) {
+	auto entry = new_data_files.find(table_id);
+	if (entry == new_data_files.end()) {
+		return vector<string>();
+	} else {
+		return entry->second;
+	}
 }
 
 void DuckLakeTransaction::AppendFiles(idx_t table_id, const vector<string> &files) {

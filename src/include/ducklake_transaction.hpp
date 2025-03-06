@@ -41,7 +41,8 @@ public:
 	DuckLakeCatalogSet &GetOrCreateTransactionLocalEntries(CatalogType catalog_type, const string &schema_name);
 	optional_ptr<DuckLakeCatalogSet> GetTransactionLocalEntries(CatalogType type, const string &schema_name);
 	optional_ptr<CatalogEntry> GetTransactionLocalEntry(CatalogType catalog_type, const string &schema_name,
-	                                                    const string &entry_name);
+	                                                    const string &entry_name); 
+	vector<string> GetTransactionLocalFiles(idx_t table_id);
 	void AppendFiles(idx_t table_id, const vector<string> &files);
 
 	bool ChangesMade();
