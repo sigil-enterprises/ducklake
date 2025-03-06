@@ -13,7 +13,7 @@ namespace duckdb {
 
 DuckLakeInitializer::DuckLakeInitializer(ClientContext &context, DuckLakeCatalog &catalog,
                                          const string &metadata_database, const string &metadata_path,
-                                         const string &schema, const string &data_path)
+                                         const string &schema, string &data_path)
     : context(context), catalog(catalog), metadata_database(metadata_database), metadata_path(metadata_path),
       schema(schema), data_path(data_path) {
 }
@@ -79,7 +79,19 @@ void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction
 }
 
 void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction) {
-	throw InternalException("FIXME: load existing duck lake");
+	// load the data path from the existing duck lake
+	auto result = transaction.Query("SELECT data_path FROM {METADATA_CATALOG}.ducklake_info");
+	if (result->HasError()) {
+		auto &error_obj = result->GetErrorObject();
+		error_obj.Throw("Failed to load existing DuckLake");
+	}
+	auto chunk = result->Fetch();
+	if (chunk->size() != 1) {
+		throw InvalidInputException("Failed to load existing ducklake - ducklake_info does not have a single row");
+	}
+	if (data_path.empty()) {
+		data_path = chunk->GetValue(0, 0).GetValue<string>();
+	}
 }
 
 } // namespace duckdb
