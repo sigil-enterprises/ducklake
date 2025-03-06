@@ -94,8 +94,8 @@ void DuckLakeTransaction::FlushChanges() {
 			auto transaction_local_id = table.GetTableId();
 			auto table_id = commit_snapshot.next_table_id++;
 			auto table_insert_query = StringUtil::Format(
-			    R"(INSERT INTO {METADATA_CATALOG}.ducklake_table VALUES (%d, '%s', {SNAPSHOT_ID}, NULL, %d, '%s');)",
-			    table_id, table.GetTableUUID(), schema.GetSchemaId(), table.name);
+			    R"(INSERT INTO {METADATA_CATALOG}.ducklake_table VALUES (%d, '%s', {SNAPSHOT_ID}, NULL, %d, %s);)",
+			    table_id, table.GetTableUUID(), schema.GetSchemaId(), SQLString(table.name));
 			result = Query(commit_snapshot, table_insert_query);
 			if (result->HasError()) {
 				result->GetErrorObject().Throw("Failed to write new table to DuckLake:");
@@ -108,8 +108,8 @@ void DuckLakeTransaction::FlushChanges() {
 					column_insert_query += ", ";
 				}
 				column_insert_query +=
-				    StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, '%s', '%s', NULL)", column_id, table_id,
-				                       column_id, col.GetName(), col.GetType().ToString());
+				    StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, NULL)", column_id, table_id,
+				                       column_id, SQLString(col.GetName()), SQLString(col.GetType().ToString()));
 			}
 			column_insert_query = "INSERT INTO {METADATA_CATALOG}.ducklake_column VALUES " + column_insert_query;
 			result = Query(commit_snapshot, column_insert_query);
@@ -138,8 +138,8 @@ void DuckLakeTransaction::FlushChanges() {
 				}
 				// FIXME: write file statistics
 				data_file_insert_query +=
-				    StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, NULL, '%s', 'parquet', NULL, NULL, NULL)",
-				                       commit_snapshot.next_data_file_id, table_id, file);
+				    StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, NULL, %s, 'parquet', NULL, NULL, NULL)",
+				                       commit_snapshot.next_data_file_id, table_id, SQLString(file));
 				commit_snapshot.next_data_file_id++;
 			}
 		}
