@@ -20,6 +20,7 @@ class DuckLakeCatalogSet;
 class DuckLakeSchemaEntry;
 class DuckLakeTableEntry;
 struct SnapshotChangeInformation;
+struct TransactionChangeInformation;
 
 class DuckLakeTransaction : public Transaction {
 public:
@@ -71,10 +72,11 @@ private:
 	void FlushChanges();
 	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,
 	               unordered_set<idx_t> &dropped_entries);
-	void CheckForConflicts(DuckLakeSnapshot transaction_snapshot, const SnapshotChangeInformation &changes);
-	void CheckForConflicts(const SnapshotChangeInformation &changes, const SnapshotChangeInformation &other_changes);
-	void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, const SnapshotChangeInformation &changes);
-	SnapshotChangeInformation GetSnapshotChanges();
+	void CheckForConflicts(DuckLakeSnapshot transaction_snapshot, const TransactionChangeInformation &changes);
+	void CheckForConflicts(const TransactionChangeInformation &changes, const SnapshotChangeInformation &other_changes);
+	void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, const TransactionChangeInformation &changes);
+	//! Return the set of changes made by this transaction
+	TransactionChangeInformation GetTransactionChanges();
 
 private:
 	DuckLakeCatalog &ducklake_catalog;
@@ -87,7 +89,7 @@ private:
 	unordered_set<idx_t> dropped_tables;
 	//! Schemas added by this transaction
 	unique_ptr<DuckLakeCatalogSet> new_schemas;
-	unordered_set<idx_t> dropped_schemas;
+	unordered_map<idx_t, reference<DuckLakeSchemaEntry>> dropped_schemas;
 	//! Data files added by this transaction
 	unordered_map<idx_t, vector<string>> new_data_files;
 };

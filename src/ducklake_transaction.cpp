@@ -80,6 +80,14 @@ void DuckLakeTransaction::FlushDrop(DuckLakeSnapshot commit_snapshot, const stri
 	}
 }
 
+struct TransactionChangeInformation {
+	case_insensitive_set_t created_schemas;
+	unordered_map<idx_t, reference<DuckLakeSchemaEntry>> dropped_schemas;
+	case_insensitive_map_t<reference_set_t<DuckLakeTableEntry>> created_tables;
+	unordered_set<idx_t> dropped_tables;
+	unordered_set<idx_t> inserted_tables;
+};
+
 struct SnapshotChangeInformation {
 	case_insensitive_set_t created_schemas;
 	unordered_set<idx_t> dropped_schemas;
@@ -88,13 +96,13 @@ struct SnapshotChangeInformation {
 	unordered_set<idx_t> inserted_tables;
 };
 
-SnapshotChangeInformation DuckLakeTransaction::GetSnapshotChanges() {
-	SnapshotChangeInformation changes;
+TransactionChangeInformation DuckLakeTransaction::GetTransactionChanges() {
+	TransactionChangeInformation changes;
 	for (auto &dropped_table_idx : dropped_tables) {
 		changes.dropped_tables.insert(dropped_table_idx);
 	}
-	for (auto &dropped_schema_idx : dropped_schemas) {
-		changes.dropped_schemas.insert(dropped_schema_idx);
+	for (auto &entry : dropped_schemas) {
+		changes.dropped_schemas.insert(entry);
 	}
 	if (new_schemas) {
 		for (auto &entry : new_schemas->GetEntries()) {
@@ -107,7 +115,7 @@ SnapshotChangeInformation DuckLakeTransaction::GetSnapshotChanges() {
 			// write any new tables that we created
 			auto &table = entry.second->Cast<DuckLakeTableEntry>();
 			auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
-			changes.created_tables[schema.name].insert(table.name);
+			changes.created_tables[schema.name].insert(table);
 		}
 	}
 	for (auto &entry : new_data_files) {
@@ -125,7 +133,7 @@ string SQLStringOrNull(const string &str) {
 }
 
 void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
-                                               const SnapshotChangeInformation &changes) {
+                                               const TransactionChangeInformation &changes) {
 	string schemas_created;
 	string schemas_dropped;
 	string tables_created;
@@ -134,11 +142,11 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 	string tables_inserted_into;
 	string tables_deleted_from;
 
-	for (auto &dropped_schema_idx : changes.dropped_schemas) {
+	for (auto &entry : changes.dropped_schemas) {
 		if (!schemas_dropped.empty()) {
 			schemas_dropped += ",";
 		}
-		schemas_dropped += to_string(dropped_schema_idx);
+		schemas_dropped += to_string(entry.first);
 	}
 	for (auto &dropped_table_idx : changes.dropped_tables) {
 		if (!tables_dropped.empty()) {
@@ -159,7 +167,7 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 			if (!tables_created.empty()) {
 				tables_created += ",";
 			}
-			tables_created += schema_prefix + KeywordHelper::WriteQuoted(created_table, '"');
+			tables_created += schema_prefix + KeywordHelper::WriteQuoted(created_table.get().name, '"');
 		}
 	}
 	// insert the snapshot changes
@@ -246,54 +254,93 @@ vector<ParsedTableInfo> ParseTableList(const string &input) {
 	return result;
 }
 
-void DuckLakeTransaction::CheckForConflicts(const SnapshotChangeInformation &changes,
+unordered_set<idx_t> ParseDropList(const string &input) {
+	unordered_set<idx_t> result;
+	if (input.empty()) {
+		return result;
+	}
+	auto splits = StringUtil::Split(input, ",");
+	for (auto &split : splits) {
+		result.insert(std::stoull(split));
+	}
+	return result;
+}
+
+void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &changes,
                                             const SnapshotChangeInformation &other_changes) {
 	// check if we are dropping the same table as another transaction
 	for (auto &dropped_idx : changes.dropped_tables) {
 		if (other_changes.dropped_tables.find(dropped_idx) != other_changes.dropped_tables.end()) {
 			throw TransactionException("Transaction conflict - attempting to drop table with table index \"%s\""
-				                       "- but this has been dropped by another transaction already",
-				                       dropped_idx);
+			                           "- but this has been dropped by another transaction already",
+			                           dropped_idx);
 		}
 	}
 	// check if we are dropping the same schema as another transaction
-	for (auto &dropped_idx : changes.dropped_schemas) {
+	for (auto &entry : changes.dropped_schemas) {
+		auto &dropped_schema = entry.second.get();
+		auto dropped_idx = entry.first;
 		if (other_changes.dropped_schemas.find(dropped_idx) != other_changes.dropped_schemas.end()) {
-			throw TransactionException("Transaction conflict - attempting to drop table with table index \"%s\""
-				                       "- but this has been dropped by another transaction already",
-				                       dropped_idx);
+			throw TransactionException("Transaction conflict - attempting to drop schema \"%s\""
+			                           "- but this has been dropped by another transaction already",
+			                           dropped_schema.name);
+		}
+		auto other_entry = other_changes.created_tables.find(dropped_schema.name);
+		if (other_entry != other_changes.created_tables.end()) {
+			throw TransactionException("Transaction conflict - attempting to drop schema \"%s\""
+			                           "- but another transaction has created a table in this schema",
+			                           dropped_schema.name);
 		}
 	}
 	// check if we are creating the same schema as another transaction
 	for (auto &created_schema : changes.created_schemas) {
 		if (other_changes.created_schemas.find(created_schema) != other_changes.created_schemas.end()) {
-				throw TransactionException("Transaction conflict - attempting to create schema \"%s\""
-				                           "- but this has been created by another transaction already",
-				                           created_schema);
+			throw TransactionException("Transaction conflict - attempting to create schema \"%s\""
+			                           "- but this has been created by another transaction already",
+			                           created_schema);
 		}
 	}
 	// check if we are creating the same table as another transaction
 	for (auto &entry : changes.created_tables) {
 		auto &schema_name = entry.first;
-		auto other_entry = other_changes.created_tables.find(schema_name);
-		if (other_entry == other_changes.created_tables.end()) {
-			// the other transactions created no tables in this schema
-			continue;
-		}
 		auto &created_tables = entry.second;
-		auto &other_created_tables = other_entry->second;
-		for (auto &table_name : created_tables) {
-			if (other_created_tables.find(table_name) != other_created_tables.end()) {
+		for (auto &table_ref : created_tables) {
+			auto &table = table_ref.get();
+			auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
+			auto schema_entry = other_changes.dropped_schemas.find(schema.GetSchemaId());
+			if (schema_entry != other_changes.dropped_schemas.end()) {
+				// the schema this table was created in was dropped
 				throw TransactionException("Transaction conflict - attempting to create table \"%s\" in schema \"%s\" "
-				                           "- but this has been created by another transaction already",
-				                           table_name, schema_name);
+				                           "- but this schema has been dropped by another transaction already",
+				                           table.name, schema_name);
 			}
+			auto other_entry = other_changes.created_tables.find(schema_name);
+			if (other_entry == other_changes.created_tables.end()) {
+				// the other transactions created no tables in this schema
+				continue;
+			}
+			auto &other_created_tables = other_entry->second;
+			if (other_created_tables.find(table.name) != other_created_tables.end()) {
+				// a table with this name in this schema was already created
+				throw TransactionException("Transaction conflict - attempting to create table \"%s\" in schema \"%s\" "
+				                           "- but this table has been created by another transaction already",
+				                           table.name, schema_name);
+			}
+		}
+	}
+	for (auto &table_id : changes.inserted_tables) {
+		auto other_entry = other_changes.dropped_tables.find(table_id);
+		if (other_entry != other_changes.dropped_tables.end()) {
+			// trying to insert into a table that was dropped
+			throw TransactionException("Transaction conflict - attempting to insert into table with id %d"
+			                           "- but this table has been dropped by another transaction",
+			                           table_id);
 		}
 	}
 }
 
 void DuckLakeTransaction::CheckForConflicts(DuckLakeSnapshot transaction_snapshot,
-                                            const SnapshotChangeInformation &changes) {
+                                            const TransactionChangeInformation &changes) {
 	// get all changes made to the system after the current snapshot was started
 	auto result = Query(transaction_snapshot, R"(
 	SELECT COALESCE(STRING_AGG(schemas_created), ''),
@@ -316,6 +363,7 @@ void DuckLakeTransaction::CheckForConflicts(DuckLakeSnapshot transaction_snapsho
 		auto created_schemas = row.GetValue<string>(0);
 		auto dropped_schemas = row.GetValue<string>(1);
 		auto created_tables = row.GetValue<string>(2);
+		auto dropped_tables = row.GetValue<string>(3);
 
 		auto created_schema_list = ParseSchemaList(created_schemas);
 		for (auto &created_schema : created_schema_list) {
@@ -325,6 +373,8 @@ void DuckLakeTransaction::CheckForConflicts(DuckLakeSnapshot transaction_snapsho
 		for (auto &entry : created_table_list) {
 			other_changes.created_tables[entry.schema].insert(entry.table);
 		}
+		other_changes.dropped_schemas = ParseDropList(dropped_schemas);
+		other_changes.dropped_tables = ParseDropList(dropped_tables);
 	}
 	CheckForConflicts(changes, other_changes);
 }
@@ -336,7 +386,7 @@ void DuckLakeTransaction::FlushChanges() {
 	}
 	idx_t max_retry_count = 5;
 	auto transaction_snapshot = GetSnapshot();
-	auto transaction_changes = GetSnapshotChanges();
+	auto transaction_changes = GetTransactionChanges();
 	for (idx_t i = 0; i < max_retry_count; i++) {
 		auto commit_snapshot = GetSnapshot();
 		commit_snapshot.snapshot_id++;
@@ -356,7 +406,11 @@ void DuckLakeTransaction::FlushChanges() {
 				FlushDrop(commit_snapshot, "ducklake_table", "table_id", dropped_tables);
 			}
 			if (!dropped_schemas.empty()) {
-				FlushDrop(commit_snapshot, "ducklake_schema", "schema_id", dropped_schemas);
+				unordered_set<idx_t> dropped_schema_ids;
+				for (auto &entry : dropped_schemas) {
+					dropped_schema_ids.insert(entry.first);
+				}
+				FlushDrop(commit_snapshot, "ducklake_schema", "schema_id", dropped_schema_ids);
 			}
 			// write new schemas
 			if (new_schemas) {
@@ -576,7 +630,7 @@ void DuckLakeTransaction::DropSchema(DuckLakeSchemaEntry &schema) {
 		}
 		new_schemas->DropEntry(schema.name);
 	} else {
-		dropped_schemas.insert(schema_id);
+		dropped_schemas.insert(make_pair(schema.GetSchemaId(), reference<DuckLakeSchemaEntry>(schema)));
 	}
 }
 
