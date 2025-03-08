@@ -35,6 +35,20 @@ void DuckLakeCatalog::Initialize(optional_ptr<ClientContext> context, bool load_
 }
 
 optional_ptr<CatalogEntry> DuckLakeCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {
+	auto schema = GetSchema(transaction, info.schema, OnEntryNotFound::RETURN_NULL);
+	if (schema) {
+		if (info.on_conflict == OnCreateConflict::IGNORE_ON_CONFLICT) {
+			return nullptr;
+		}
+		if (info.on_conflict == OnCreateConflict::ERROR_ON_CONFLICT) {
+			return nullptr;
+		}
+		// drop the existing entry
+		DropInfo drop_info;
+		drop_info.type = CatalogType::SCHEMA_ENTRY;
+		drop_info.name = info.schema;
+		DropSchema(transaction.GetContext(), drop_info);
+	}
 	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
 	//! get a local table-id
 	idx_t schema_id = duck_transaction.GetLocalCatalogId();
@@ -259,8 +273,11 @@ optional_ptr<SchemaCatalogEntry> DuckLakeCatalog::GetSchema(CatalogTransaction t
 	auto snapshot = duck_transaction.GetSnapshot();
 	auto &schemas = GetSchemaForSnapshot(duck_transaction, snapshot);
 	auto entry = schemas.GetEntry<SchemaCatalogEntry>(schema_name);
-	if (!entry && if_not_found == OnEntryNotFound::THROW_EXCEPTION) {
-		throw BinderException("Schema \"%s\" not found in DuckLakeCatalog \"%s\"", schema_name, GetName());
+	if (!entry) {
+		if (if_not_found == OnEntryNotFound::THROW_EXCEPTION) {
+			throw BinderException("Schema \"%s\" not found in DuckLakeCatalog \"%s\"", schema_name, GetName());
+		}
+		return nullptr;
 	}
 	if (duck_transaction.IsDeleted(*entry)) {
 		return nullptr;

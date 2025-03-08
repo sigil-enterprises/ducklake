@@ -72,7 +72,48 @@ statement ok con2
 COMMIT
 
 # two transactions try to drop the same table: conflict
+statement ok con1
+BEGIN
+
+statement ok con2
+BEGIN
+
+statement ok con1
+DROP TABLE ducklake.test
+
+statement ok con2
+DROP TABLE ducklake.test
+
+statement ok con1
+COMMIT
+
+statement error con2
+COMMIT
+----
+Conflict
+
 # two transactions try to create a schema with the same name: conflict
+statement ok con1
+BEGIN
+
+statement ok con2
+BEGIN
+
+statement ok con1
+CREATE SCHEMA ducklake.s1
+
+statement ok con2
+CREATE SCHEMA ducklake.s1
+
+statement ok con1
+COMMIT
+
+statement error con2
+COMMIT
+----
+Transaction conflict
+
+
 # two transactions try to create a table with the same name in a different schema: no conflict
 # two transactions try to drop the same schema: conflict
 # one transaction tries to create a table in a dropped schema: conflict

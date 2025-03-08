@@ -248,6 +248,30 @@ vector<ParsedTableInfo> ParseTableList(const string &input) {
 
 void DuckLakeTransaction::CheckForConflicts(const SnapshotChangeInformation &changes,
                                             const SnapshotChangeInformation &other_changes) {
+	// check if we are dropping the same table as another transaction
+	for (auto &dropped_idx : changes.dropped_tables) {
+		if (other_changes.dropped_tables.find(dropped_idx) != other_changes.dropped_tables.end()) {
+			throw TransactionException("Transaction conflict - attempting to drop table with table index \"%s\""
+				                       "- but this has been dropped by another transaction already",
+				                       dropped_idx);
+		}
+	}
+	// check if we are dropping the same schema as another transaction
+	for (auto &dropped_idx : changes.dropped_schemas) {
+		if (other_changes.dropped_schemas.find(dropped_idx) != other_changes.dropped_schemas.end()) {
+			throw TransactionException("Transaction conflict - attempting to drop table with table index \"%s\""
+				                       "- but this has been dropped by another transaction already",
+				                       dropped_idx);
+		}
+	}
+	// check if we are creating the same schema as another transaction
+	for (auto &created_schema : changes.created_schemas) {
+		if (other_changes.created_schemas.find(created_schema) != other_changes.created_schemas.end()) {
+				throw TransactionException("Transaction conflict - attempting to create schema \"%s\""
+				                           "- but this has been created by another transaction already",
+				                           created_schema);
+		}
+	}
 	// check if we are creating the same table as another transaction
 	for (auto &entry : changes.created_tables) {
 		auto &schema_name = entry.first;
