@@ -50,7 +50,7 @@ COMMIT
 statement error con2
 COMMIT
 ----
-zxcv
+Transaction conflict
 
 # two transactions try to insert into the same table: no conflict
 statement ok con1

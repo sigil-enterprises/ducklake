@@ -80,16 +80,239 @@ void DuckLakeTransaction::FlushDrop(DuckLakeSnapshot commit_snapshot, const stri
 	}
 }
 
+struct SnapshotChangeInformation {
+	case_insensitive_set_t created_schemas;
+	unordered_set<idx_t> dropped_schemas;
+	case_insensitive_map_t<case_insensitive_set_t> created_tables;
+	unordered_set<idx_t> dropped_tables;
+	unordered_set<idx_t> inserted_tables;
+};
+
+SnapshotChangeInformation DuckLakeTransaction::GetSnapshotChanges() {
+	SnapshotChangeInformation changes;
+	for (auto &dropped_table_idx : dropped_tables) {
+		changes.dropped_tables.insert(dropped_table_idx);
+	}
+	for (auto &dropped_schema_idx : dropped_schemas) {
+		changes.dropped_schemas.insert(dropped_schema_idx);
+	}
+	if (new_schemas) {
+		for (auto &entry : new_schemas->GetEntries()) {
+			auto &schema_entry = entry.second->Cast<DuckLakeSchemaEntry>();
+			changes.created_schemas.insert(schema_entry.name);
+		}
+	}
+	for (auto &schema_entry : new_tables) {
+		for (auto &entry : schema_entry.second->GetEntries()) {
+			// write any new tables that we created
+			auto &table = entry.second->Cast<DuckLakeTableEntry>();
+			auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
+			changes.created_tables[schema.name].insert(table.name);
+		}
+	}
+	for (auto &entry : new_data_files) {
+		auto table_id = entry.first;
+		changes.inserted_tables.insert(table_id);
+	}
+	return changes;
+}
+
+string SQLStringOrNull(const string &str) {
+	if (str.empty()) {
+		return "NULL";
+	}
+	return KeywordHelper::WriteQuoted(str, '\'');
+}
+
+void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
+                                               const SnapshotChangeInformation &changes) {
+	string schemas_created;
+	string schemas_dropped;
+	string tables_created;
+	string tables_dropped;
+	string tables_altered;
+	string tables_inserted_into;
+	string tables_deleted_from;
+
+	for (auto &dropped_schema_idx : changes.dropped_schemas) {
+		if (!schemas_dropped.empty()) {
+			schemas_dropped += ",";
+		}
+		schemas_dropped += to_string(dropped_schema_idx);
+	}
+	for (auto &dropped_table_idx : changes.dropped_tables) {
+		if (!tables_dropped.empty()) {
+			tables_dropped += ",";
+		}
+		tables_dropped += to_string(dropped_table_idx);
+	}
+	for (auto &created_schema : changes.created_schemas) {
+		if (!schemas_created.empty()) {
+			schemas_created += ",";
+		}
+		schemas_created += KeywordHelper::WriteQuoted(created_schema, '"');
+	}
+	for (auto &entry : changes.created_tables) {
+		auto &schema = entry.first;
+		auto schema_prefix = KeywordHelper::WriteQuoted(schema, '"') + ".";
+		for (auto &created_table : entry.second) {
+			if (!tables_created.empty()) {
+				tables_created += ",";
+			}
+			tables_created += schema_prefix + KeywordHelper::WriteQuoted(created_table, '"');
+		}
+	}
+	// insert the snapshot changes
+	auto query = StringUtil::Format(
+	    R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot_changes VALUES ({SNAPSHOT_ID}, %s, %s, %s, %s, %s, %s, %s);)",
+	    SQLStringOrNull(schemas_created), SQLStringOrNull(schemas_dropped), SQLStringOrNull(tables_created),
+	    SQLStringOrNull(tables_dropped), SQLStringOrNull(tables_altered), SQLStringOrNull(tables_inserted_into),
+	    SQLStringOrNull(tables_deleted_from));
+	auto result = Query(commit_snapshot, query);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to write new snapshot to DuckLake:");
+	}
+}
+
+string ParseQuotedValue(const string &input, idx_t &pos) {
+	if (pos >= input.size() || input[pos] != '"') {
+		throw InvalidInputException("Failed to parse quoted value - expected a quote");
+	}
+	string result;
+	pos++;
+	for (; pos < input.size(); pos++) {
+		if (input[pos] == '"') {
+			pos++;
+			// check if this is an escaped quote
+			if (pos < input.size() && input[pos] == '"') {
+				// escaped quote
+				result += '"';
+				continue;
+			}
+			return result;
+		}
+		result += input[pos];
+	}
+	throw InvalidInputException("Failed to parse quoted value - unterminated quote");
+}
+
+vector<string> ParseSchemaList(const string &input) {
+	vector<string> result;
+	if (input.empty()) {
+		return result;
+	}
+	idx_t pos = 0;
+	while (true) {
+		result.push_back(ParseQuotedValue(input, pos));
+		if (pos >= input.size()) {
+			break;
+		}
+		if (input[pos] != ',') {
+			throw InvalidInputException("Failed to parse schema list - expected a comma");
+		}
+		pos++;
+	}
+	return result;
+}
+
+struct ParsedTableInfo {
+	string schema;
+	string table;
+};
+
+vector<ParsedTableInfo> ParseTableList(const string &input) {
+	vector<ParsedTableInfo> result;
+	if (input.empty()) {
+		return result;
+	}
+	idx_t pos = 0;
+	while (true) {
+		ParsedTableInfo table_data;
+		table_data.schema = ParseQuotedValue(input, pos);
+		if (pos >= input.size() || input[pos] != '.') {
+			throw InvalidInputException("Failed to parse table list - expected a dot");
+		}
+		pos++;
+		table_data.table = ParseQuotedValue(input, pos);
+		result.push_back(std::move(table_data));
+		if (pos >= input.size()) {
+			break;
+		}
+		if (input[pos] != ',') {
+			throw InvalidInputException("Failed to parse table list - expected a comma");
+		}
+		pos++;
+	}
+	return result;
+}
+
+void DuckLakeTransaction::CheckForConflicts(const SnapshotChangeInformation &changes,
+                                            const SnapshotChangeInformation &other_changes) {
+	// check if we are creating the same table as another transaction
+	for (auto &entry : changes.created_tables) {
+		auto &schema_name = entry.first;
+		auto other_entry = other_changes.created_tables.find(schema_name);
+		if (other_entry == other_changes.created_tables.end()) {
+			// the other transactions created no tables in this schema
+			continue;
+		}
+		auto &created_tables = entry.second;
+		auto &other_created_tables = other_entry->second;
+		for (auto &table_name : created_tables) {
+			if (other_created_tables.find(table_name) != other_created_tables.end()) {
+				throw TransactionException("Transaction conflict - attempting to create table \"%s\" in schema \"%s\" "
+				                           "- but this has been created by another transaction already",
+				                           table_name, schema_name);
+			}
+		}
+	}
+}
+
+void DuckLakeTransaction::CheckForConflicts(DuckLakeSnapshot transaction_snapshot,
+                                            const SnapshotChangeInformation &changes) {
+	// get all changes made to the system after the current snapshot was started
+	auto result = Query(transaction_snapshot, R"(
+	SELECT COALESCE(STRING_AGG(schemas_created), ''),
+		   COALESCE(STRING_AGG(schemas_dropped), ''),
+		   COALESCE(STRING_AGG(tables_created), ''),
+		   COALESCE(STRING_AGG(tables_dropped), ''),
+		   COALESCE(STRING_AGG(tables_altered), ''),
+		   COALESCE(STRING_AGG(tables_inserted_into), ''),
+		   COALESCE(STRING_AGG(tables_deleted_from), '')
+	FROM {METADATA_CATALOG}.ducklake_snapshot_changes
+	WHERE snapshot_id > {SNAPSHOT_ID}
+	)");
+	if (result->HasError()) {
+		result->GetErrorObject().Throw(
+		    "Failed to commit DuckLake transaction - failed to get snapshot changes for conflict resolution:");
+	}
+	// parse changes made by other transactions
+	SnapshotChangeInformation other_changes;
+	for (auto &row : *result) {
+		auto created_schemas = row.GetValue<string>(0);
+		auto dropped_schemas = row.GetValue<string>(1);
+		auto created_tables = row.GetValue<string>(2);
+
+		auto created_schema_list = ParseSchemaList(created_schemas);
+		for (auto &created_schema : created_schema_list) {
+			other_changes.created_schemas.insert(created_schema);
+		}
+		auto created_table_list = ParseTableList(created_tables);
+		for (auto &entry : created_table_list) {
+			other_changes.created_tables[entry.schema].insert(entry.table);
+		}
+	}
+	CheckForConflicts(changes, other_changes);
+}
+
 void DuckLakeTransaction::FlushChanges() {
 	if (!ChangesMade()) {
 		// read-only transactions don't need to do anything
 		return;
 	}
-	// schemas_created -> "s1"
-	// schemas_dropped -> "s1"
-	// tables_created -> "s1.tbl"
-	// FIXME: retry in case of conflicts
 	idx_t max_retry_count = 5;
+	auto transaction_snapshot = GetSnapshot();
+	auto transaction_changes = GetSnapshotChanges();
 	for (idx_t i = 0; i < max_retry_count; i++) {
 		auto commit_snapshot = GetSnapshot();
 		commit_snapshot.snapshot_id++;
@@ -97,11 +320,12 @@ void DuckLakeTransaction::FlushChanges() {
 			// we changed the schema - need to get a new schema version
 			commit_snapshot.schema_version++;
 		}
-		if (i > 0) {
-			// get the new snapshot information
-			// FIXME: check for conflicts
-		}
 		try {
+			if (i > 0) {
+				// we failed our first commit due to another transaction committing
+				// retry - but first check for conflicts
+				CheckForConflicts(transaction_snapshot, transaction_changes);
+			}
 			unique_ptr<QueryResult> result;
 			// drop entries
 			if (!dropped_tables.empty()) {
@@ -218,12 +442,18 @@ void DuckLakeTransaction::FlushChanges() {
 			if (result->HasError()) {
 				result->GetErrorObject().Throw("Failed to write new snapshot to DuckLake:");
 			}
+			WriteSnapshotChanges(commit_snapshot, transaction_changes);
 			connection->Commit();
 			// finished writing
 			break;
 		} catch (std::exception &ex) {
 			ErrorData error(ex);
 			connection->Rollback();
+			if (error.Type() == ExceptionType::TRANSACTION) {
+				// immediately rethrow transaction conflicts - no need to retry
+				connection.reset();
+				throw;
+			}
 			bool is_primary_key_error = StringUtil::Contains(error.Message(), "primary key constraint");
 			bool finished_retrying = i + 1 >= max_retry_count;
 			if (!is_primary_key_error || finished_retrying) {

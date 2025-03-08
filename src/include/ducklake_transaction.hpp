@@ -19,6 +19,7 @@ class DuckLakeCatalog;
 class DuckLakeCatalogSet;
 class DuckLakeSchemaEntry;
 class DuckLakeTableEntry;
+struct SnapshotChangeInformation;
 
 class DuckLakeTransaction : public Transaction {
 public:
@@ -70,6 +71,10 @@ private:
 	void FlushChanges();
 	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,
 	               unordered_set<idx_t> &dropped_entries);
+	void CheckForConflicts(DuckLakeSnapshot transaction_snapshot, const SnapshotChangeInformation &changes);
+	void CheckForConflicts(const SnapshotChangeInformation &changes, const SnapshotChangeInformation &other_changes);
+	void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, const SnapshotChangeInformation &changes);
+	SnapshotChangeInformation GetSnapshotChanges();
 
 private:
 	DuckLakeCatalog &ducklake_catalog;

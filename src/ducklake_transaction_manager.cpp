@@ -17,7 +17,11 @@ Transaction &DuckLakeTransactionManager::StartTransaction(ClientContext &context
 
 ErrorData DuckLakeTransactionManager::CommitTransaction(ClientContext &context, Transaction &transaction) {
 	auto &ducklake_transaction = transaction.Cast<DuckLakeTransaction>();
-	ducklake_transaction.Commit();
+	try {
+		ducklake_transaction.Commit();
+	} catch (std::exception &ex) {
+		return ErrorData(ex);
+	}
 	lock_guard<mutex> l(transaction_lock);
 	transactions.erase(transaction);
 	return ErrorData();
