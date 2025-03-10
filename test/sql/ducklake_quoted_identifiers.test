@@ -1,13 +1,13 @@
-# name: test/sql/ducklake_drop_table.test
+# name: test/sql/ducklake_quoted_identifiers.test
 # description: Test quoted identifiers in DuckLake
-# group: [quack]
+# group: [ducklake]
 
 require ducklake
 
 require parquet
 
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/ducklake ''quoted'' "db".db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake ''quoted'' "path"')
+ATTACH 'ducklake:__TEST_DIR__/ducklake ''quoted'' "db".db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake ''quoted'' "path"', METADATA_CATALOG '''quoted'' catalog "name"', METADATA_SCHEMA '''quoted'' catalog "schema"')
 
 statement ok
 CREATE TABLE ducklake."quoted 'table' ""name"""("quoted 'column' ""name""" INTEGER);

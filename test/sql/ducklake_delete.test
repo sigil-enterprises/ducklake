@@ -1,6 +1,6 @@
 # name: test/sql/ducklake_delete.test
 # description: Test ducklake deletes
-# group: [quack]
+# group: [ducklake]
 
 require ducklake
 

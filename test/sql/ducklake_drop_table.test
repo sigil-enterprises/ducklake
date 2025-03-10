@@ -1,6 +1,6 @@
 # name: test/sql/ducklake_drop_table.test
 # description: Test dropping of tables in DuckLake
-# group: [quack]
+# group: [ducklake]
 
 require ducklake
 

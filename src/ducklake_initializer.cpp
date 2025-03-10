@@ -21,7 +21,7 @@ DuckLakeInitializer::DuckLakeInitializer(ClientContext &context, DuckLakeCatalog
 void DuckLakeInitializer::Initialize() {
 	auto &transaction = DuckLakeTransaction::Get(context, catalog);
 	// attach the metadata database
-	auto result = transaction.Query("ATTACH '{METADATA_PATH}' AS \"{METADATA_CATALOG_NAME}\"");
+	auto result = transaction.Query("ATTACH {METADATA_PATH} AS {METADATA_CATALOG_NAME_IDENTIFIER}");
 	if (result->HasError()) {
 		auto &error_obj = result->GetErrorObject();
 		error_obj.Throw("Failed to attach DuckLake MetaData \"" + metadata_database + "\" at path + \"" +
@@ -35,8 +35,9 @@ void DuckLakeInitializer::Initialize() {
 	// after the metadata database is attached initialize the ducklake
 	// check if we are loading an existing DuckLake or creating a new one
 	// FIXME: verify that all tables are in the correct format instead
-	result = transaction.Query("SELECT COUNT(*) FROM duckdb_tables() WHERE database_name='{METADATA_CATALOG_NAME}' AND "
-	                           "schema_name='{METADATA_SCHEMA_NAME}' AND table_name LIKE 'ducklake_%'");
+	result = transaction.Query(
+	    "SELECT COUNT(*) FROM duckdb_tables() WHERE database_name={METADATA_CATALOG_NAME_LITERAL} AND "
+	    "schema_name={METADATA_SCHEMA_NAME_LITERAL} AND table_name LIKE 'ducklake_%'");
 	if (result->HasError()) {
 		auto &error_obj = result->GetErrorObject();
 		error_obj.Throw("Failed to load DuckLake table data");
@@ -70,7 +71,7 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_table_column_statistics(column_id BIGIN
 CREATE TABLE {METADATA_CATALOG}.ducklake_column(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, column_order BIGINT, column_name VARCHAR, column_type VARCHAR, default_value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_data_file(data_file_id BIGINT PRIMARY KEY, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, file_order BIGINT, path VARCHAR, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, partition_id BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file(delete_fle_id BIGINT PRIMARY KEY, begin_snapshot BIGINT, end_snapshot BIGINT, data_file_id BIGINT, path VARCHAR, delete_count BIGINT, file_size_bytes BIGINT);
-INSERT INTO {METADATA_CATALOG}.ducklake_info VALUES ('{DATA_PATH}');
+INSERT INTO {METADATA_CATALOG}.ducklake_info VALUES ({DATA_PATH});
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
 INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main');
 	)";

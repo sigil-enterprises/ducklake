@@ -554,16 +554,29 @@ void DuckLakeTransaction::FlushChanges() {
 	}
 }
 
+string SQLIdentifierToString(const string &text) {
+	return "\"" + StringUtil::Replace(text, "\"", "\"\"") + "\"";
+}
+
+string SQLLiteralToString(const string &text) {
+	return "'" + StringUtil::Replace(text, "'", "''") + "'";
+}
+
 unique_ptr<QueryResult> DuckLakeTransaction::Query(string query) {
 	auto &connection = GetConnection();
-	// FIXME: escaping...
-	query = StringUtil::Replace(query, "{METADATA_CATALOG_NAME}", ducklake_catalog.MetadataDatabaseName());
-	query = StringUtil::Replace(query, "{METADATA_SCHEMA_NAME}", ducklake_catalog.MetadataSchemaName());
-	query = StringUtil::Replace(query, "{METADATA_CATALOG}",
-	                            ducklake_catalog.MetadataDatabaseName() + "." + ducklake_catalog.MetadataSchemaName());
-	query =
-	    StringUtil::Replace(query, "{METADATA_PATH}", StringUtil::Replace(ducklake_catalog.MetadataPath(), "'", "''"));
-	query = StringUtil::Replace(query, "{DATA_PATH}", StringUtil::Replace(ducklake_catalog.DataPath(), "'", "''"));
+	auto catalog_identifier = SQLIdentifierToString(ducklake_catalog.MetadataDatabaseName());
+	auto catalog_literal = SQLLiteralToString(ducklake_catalog.MetadataDatabaseName());
+	auto schema_identifier = SQLIdentifierToString(ducklake_catalog.MetadataSchemaName());
+	auto schema_literal = SQLLiteralToString(ducklake_catalog.MetadataSchemaName());
+	auto metadata_path = SQLLiteralToString(ducklake_catalog.MetadataPath());
+	auto data_path = SQLLiteralToString(ducklake_catalog.DataPath());
+
+	query = StringUtil::Replace(query, "{METADATA_CATALOG_NAME_LITERAL}", catalog_literal);
+	query = StringUtil::Replace(query, "{METADATA_CATALOG_NAME_IDENTIFIER}", catalog_identifier);
+	query = StringUtil::Replace(query, "{METADATA_SCHEMA_NAME_LITERAL}", schema_literal);
+	query = StringUtil::Replace(query, "{METADATA_CATALOG}", catalog_identifier + "." + schema_identifier);
+	query = StringUtil::Replace(query, "{METADATA_PATH}", metadata_path);
+	query = StringUtil::Replace(query, "{DATA_PATH}", data_path);
 	return connection.Query(query);
 }
 

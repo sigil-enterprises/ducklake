@@ -1,6 +1,6 @@
 # name: test/sql/ducklake_schema.test
 # description: Test schema support in DuckLake
-# group: [quack]
+# group: [ducklake]
 
 require ducklake
 

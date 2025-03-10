@@ -1,6 +1,6 @@
 # name: test/sql/ducklake_transaction_schema.test
 # description: Test multi-schema support in DuckLake
-# group: [quack]
+# group: [ducklake]
 
 require ducklake
 
