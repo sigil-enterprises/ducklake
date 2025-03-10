@@ -35,15 +35,7 @@ void DuckLakeTransaction::Rollback() {
 		connection->Rollback();
 		connection.reset();
 	}
-	if (!new_data_files.empty()) {
-		// remove any files that were written
-		auto &fs = FileSystem::GetFileSystem(db);
-		for (auto &table_entry : new_data_files) {
-			for (auto &file_name : table_entry.second) {
-				fs.RemoveFile(file_name);
-			}
-		}
-	}
+	CleanupFiles();
 }
 
 Connection &DuckLakeTransaction::GetConnection() {
@@ -264,6 +256,20 @@ unordered_set<idx_t> ParseDropList(const string &input) {
 		result.insert(std::stoull(split));
 	}
 	return result;
+}
+
+void DuckLakeTransaction::CleanupFiles() {
+	if (new_data_files.empty()) {
+		return;
+	}
+	// remove any files that were written
+	auto &fs = FileSystem::GetFileSystem(db);
+	for (auto &table_entry : new_data_files) {
+		for (auto &file_name : table_entry.second) {
+			fs.RemoveFile(file_name);
+		}
+	}
+	new_data_files.clear();
 }
 
 void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &changes,
@@ -530,12 +536,14 @@ void DuckLakeTransaction::FlushChanges() {
 			if (error.Type() == ExceptionType::TRANSACTION) {
 				// immediately rethrow transaction conflicts - no need to retry
 				connection.reset();
+				CleanupFiles();
 				throw;
 			}
 			bool is_primary_key_error = StringUtil::Contains(error.Message(), "primary key constraint");
 			bool finished_retrying = i + 1 >= max_retry_count;
 			if (!is_primary_key_error || finished_retrying) {
 				// we abort after the max retry count
+				CleanupFiles();
 				error.Throw("Failed to commit DuckLake transaction:");
 			}
 			// retry the transaction (with a new snapshot id)

@@ -51,7 +51,8 @@ public:
 	                                               unique_ptr<PhysicalOperator> plan) override;
 	unique_ptr<PhysicalOperator> PlanDelete(ClientContext &context, LogicalDelete &op,
 	                                        unique_ptr<PhysicalOperator> plan) override;
-	unique_ptr<PhysicalOperator> PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op) override;
+	unique_ptr<PhysicalOperator> PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner,
+	                                        LogicalDelete &op) override;
 	unique_ptr<PhysicalOperator> PlanUpdate(ClientContext &context, LogicalUpdate &op,
 	                                        unique_ptr<PhysicalOperator> plan) override;
 	unique_ptr<LogicalOperator> BindCreateIndex(Binder &binder, CreateStatement &stmt, TableCatalogEntry &table,

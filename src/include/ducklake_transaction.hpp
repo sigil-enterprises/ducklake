@@ -69,6 +69,7 @@ public:
 	}
 
 private:
+	void CleanupFiles();
 	void FlushChanges();
 	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,
 	               unordered_set<idx_t> &dropped_entries);

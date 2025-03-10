@@ -11,7 +11,7 @@ namespace duckdb {
 // (filename does not need to come from the reader)
 
 LogicalGet &ExtractLogicalGet(reference<LogicalOperator> op) {
-	while(op.get().type != LogicalOperatorType::LOGICAL_GET) {
+	while (op.get().type != LogicalOperatorType::LOGICAL_GET) {
 		if (op.get().type == LogicalOperatorType::LOGICAL_FILTER) {
 			op = *op.get().children[0];
 		} else {
@@ -21,19 +21,18 @@ LogicalGet &ExtractLogicalGet(reference<LogicalOperator> op) {
 	return op.get().Cast<LogicalGet>();
 }
 
-unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op) {
+unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner,
+                                                         LogicalDelete &op) {
 	auto &get = ExtractLogicalGet(*op.children[0]);
 	auto &bind_data = get.bind_data->Cast<MultiFileBindData>();
 	auto files = bind_data.file_list->GetAllFiles();
-
 
 	throw InternalException("Unsupported DuckLake function");
 }
 
 unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanDelete(ClientContext &context, LogicalDelete &op,
-														 unique_ptr<PhysicalOperator> plan) {
+                                                         unique_ptr<PhysicalOperator> plan) {
 	throw InternalException("Unsupported DuckLake function");
 }
 
-}
-
+} // namespace duckdb
