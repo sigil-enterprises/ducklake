@@ -15,7 +15,7 @@ static unique_ptr<Catalog> DuckLakeAttach(StorageExtensionInfo *storage_info, Cl
 	for (auto &entry : info.options) {
 		if (StringUtil::CIEquals(entry.first, "data_path")) {
 			data_path = entry.second.ToString();
-		} else if (StringUtil::CIEquals(entry.first, "schema")) {
+		} else if (StringUtil::CIEquals(entry.first, "metadata_schema")) {
 			schema = entry.second.ToString();
 		} else if (StringUtil::CIEquals(entry.first, "metadata_catalog")) {
 			metadata_catalog_name = entry.second.ToString();

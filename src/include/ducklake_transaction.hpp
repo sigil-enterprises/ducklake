@@ -68,6 +68,8 @@ public:
 		return id >= TRANSACTION_LOCAL_ID_START;
 	}
 
+	string GetDefaultSchemaName();
+
 private:
 	void CleanupFiles();
 	void FlushChanges();

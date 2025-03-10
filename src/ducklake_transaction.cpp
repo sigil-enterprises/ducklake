@@ -4,6 +4,7 @@
 #include "ducklake_schema_entry.hpp"
 #include "ducklake_table_entry.hpp"
 #include "ducklake_types.hpp"
+#include "duckdb/main/attached_database.hpp"
 
 namespace duckdb {
 
@@ -557,8 +558,9 @@ unique_ptr<QueryResult> DuckLakeTransaction::Query(string query) {
 	auto &connection = GetConnection();
 	// FIXME: escaping...
 	query = StringUtil::Replace(query, "{METADATA_CATALOG_NAME}", ducklake_catalog.MetadataDatabaseName());
-	// FIXME: configurable schema, and default to default schema for catalog
-	query = StringUtil::Replace(query, "{METADATA_CATALOG}", ducklake_catalog.MetadataDatabaseName() + ".main");
+	query = StringUtil::Replace(query, "{METADATA_SCHEMA_NAME}", ducklake_catalog.MetadataSchemaName());
+	query = StringUtil::Replace(query, "{METADATA_CATALOG}",
+	                            ducklake_catalog.MetadataDatabaseName() + "." + ducklake_catalog.MetadataSchemaName());
 	query =
 	    StringUtil::Replace(query, "{METADATA_PATH}", StringUtil::Replace(ducklake_catalog.MetadataPath(), "'", "''"));
 	query = StringUtil::Replace(query, "{DATA_PATH}", StringUtil::Replace(ducklake_catalog.DataPath(), "'", "''"));
@@ -571,6 +573,13 @@ unique_ptr<QueryResult> DuckLakeTransaction::Query(DuckLakeSnapshot snapshot, st
 	query = StringUtil::Replace(query, "{NEXT_CATALOG_ID}", to_string(snapshot.next_catalog_id));
 	query = StringUtil::Replace(query, "{NEXT_FILE_ID}", to_string(snapshot.next_file_id));
 	return Query(std::move(query));
+}
+
+string DuckLakeTransaction::GetDefaultSchemaName() {
+	auto &metadata_context = *connection->context;
+	auto &db_manager = DatabaseManager::Get(metadata_context);
+	auto metadb = db_manager.GetDatabase(metadata_context, ducklake_catalog.MetadataDatabaseName());
+	return metadb->GetCatalog().GetDefaultSchema();
 }
 
 DuckLakeSnapshot DuckLakeTransaction::GetSnapshot() {

@@ -29,6 +29,9 @@ public:
 	const string &MetadataDatabaseName() const {
 		return metadata_database;
 	}
+	const string &MetadataSchemaName() const {
+		return metadata_schema;
+	}
 	const string &MetadataPath() const {
 		return metadata_path;
 	}

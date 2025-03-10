@@ -18,13 +18,13 @@ class DuckLakeTransaction;
 class DuckLakeInitializer {
 public:
 	DuckLakeInitializer(ClientContext &context, DuckLakeCatalog &catalog, const string &metadata_database,
-	                    const string &metadata_path, const string &schema, string &data_path);
+	                    const string &metadata_path, string &schema, string &data_path);
 
 public:
 	void Initialize();
 
 private:
-	void InitializeNewDuckLake(DuckLakeTransaction &transaction);
+	void InitializeNewDuckLake(DuckLakeTransaction &transaction, bool has_explicit_schema);
 	void LoadExistingDuckLake(DuckLakeTransaction &transaction);
 
 private:
@@ -32,7 +32,7 @@ private:
 	DuckLakeCatalog &catalog;
 	const string &metadata_database;
 	const string &metadata_path;
-	const string &schema;
+	string &schema;
 	string &data_path;
 };
 
