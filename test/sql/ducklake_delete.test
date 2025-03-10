@@ -1,0 +1,21 @@
+# name: test/sql/ducklake_delete.test
+# description: Test ducklake deletes
+# group: [quack]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_deletes.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_delete_files')
+
+statement ok
+CREATE TABLE ducklake.test AS SELECT i id FROM range(1000) t(i);
+
+statement ok
+INSERT INTO ducklake.test SELECT i id FROM range(15000, 160000) t(i)
+
+query I
+DELETE FROM ducklake.test WHERE id%2=0
+----
+500
