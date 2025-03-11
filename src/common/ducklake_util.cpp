@@ -1,4 +1,4 @@
-#include "ducklake_util.hpp"
+#include "common/ducklake_util.hpp"
 #include "duckdb/common/string_util.hpp"
 
 namespace duckdb {

@@ -1,7 +1,7 @@
 //===----------------------------------------------------------------------===//
 //                         DuckDB
 //
-// ducklake_scan.hpp
+// storage/ducklake_scan.hpp
 //
 //
 //===----------------------------------------------------------------------===//
@@ -9,7 +9,7 @@
 #pragma once
 
 #include "duckdb/function/table_function.hpp"
-#include "ducklake_snapshot.hpp"
+#include "common/ducklake_snapshot.hpp"
 
 namespace duckdb {
 class DuckLakeMultiFileList;

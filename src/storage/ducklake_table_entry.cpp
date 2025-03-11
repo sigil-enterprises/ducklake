@@ -1,11 +1,12 @@
-#include "ducklake_table_entry.hpp"
+#include "storage/ducklake_table_entry.hpp"
+#include "storage/ducklake_scan.hpp"
+#include "storage/ducklake_transaction.hpp"
+
 #include "duckdb/storage/statistics/base_statistics.hpp"
 #include "duckdb/storage/table_storage_info.hpp"
 #include "duckdb/function/table_function.hpp"
-#include "ducklake_scan.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
-#include "ducklake_transaction.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 
 namespace duckdb {

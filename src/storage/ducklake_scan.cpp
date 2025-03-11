@@ -1,5 +1,5 @@
-#include "ducklake_scan.hpp"
-#include "ducklake_multi_file_reader.hpp"
+#include "storage/ducklake_scan.hpp"
+#include "storage/ducklake_multi_file_reader.hpp"
 
 #include "duckdb/catalog/catalog_entry/table_function_catalog_entry.hpp"
 #include "duckdb/function/table_function.hpp"

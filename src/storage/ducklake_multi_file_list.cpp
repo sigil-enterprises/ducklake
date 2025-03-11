@@ -1,6 +1,6 @@
-#include "ducklake_scan.hpp"
-#include "ducklake_multi_file_list.hpp"
-#include "ducklake_multi_file_reader.hpp"
+#include "storage/ducklake_scan.hpp"
+#include "storage/ducklake_multi_file_list.hpp"
+#include "storage/ducklake_multi_file_reader.hpp"
 
 #include "duckdb/common/local_file_system.hpp"
 #include "duckdb/function/table_function.hpp"

@@ -1,11 +1,12 @@
-#include "ducklake_transaction.hpp"
+#include "storage/ducklake_transaction.hpp"
+#include "storage/ducklake_catalog.hpp"
+#include "storage/ducklake_schema_entry.hpp"
+#include "storage/ducklake_table_entry.hpp"
+#include "common/ducklake_types.hpp"
+#include "common/ducklake_util.hpp"
+
 #include "duckdb/main/database_manager.hpp"
-#include "ducklake_catalog.hpp"
-#include "ducklake_schema_entry.hpp"
-#include "ducklake_table_entry.hpp"
-#include "ducklake_types.hpp"
 #include "duckdb/main/attached_database.hpp"
-#include "ducklake_util.hpp"
 
 namespace duckdb {
 

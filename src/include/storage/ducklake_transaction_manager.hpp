@@ -1,7 +1,7 @@
 //===----------------------------------------------------------------------===//
 //                         DuckDB
 //
-// ducklake_transaction_manager.hpp
+// storageducklake_transaction_manager.hpp
 //
 //
 //===----------------------------------------------------------------------===//
@@ -9,8 +9,8 @@
 #pragma once
 
 #include "duckdb/transaction/transaction_manager.hpp"
-#include "ducklake_transaction.hpp"
-#include "ducklake_catalog.hpp"
+#include "storage/ducklake_transaction.hpp"
+#include "storage/ducklake_catalog.hpp"
 
 namespace duckdb {
 

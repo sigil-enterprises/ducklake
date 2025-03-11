@@ -1,8 +1,8 @@
 #include "duckdb.hpp"
 
-#include "ducklake_storage.hpp"
-#include "ducklake_catalog.hpp"
-#include "ducklake_transaction_manager.hpp"
+#include "storage/ducklake_storage.hpp"
+#include "storage/ducklake_catalog.hpp"
+#include "storage/ducklake_transaction_manager.hpp"
 
 namespace duckdb {
 

@@ -1,7 +1,7 @@
 //===----------------------------------------------------------------------===//
 //                         DuckDB
 //
-// ducklake_catalog.hpp
+// storage/ducklake_catalog.hpp
 //
 //
 //===----------------------------------------------------------------------===//
@@ -9,7 +9,7 @@
 #pragma once
 
 #include "duckdb/catalog/catalog.hpp"
-#include "ducklake_catalog_set.hpp"
+#include "storage/ducklake_catalog_set.hpp"
 
 namespace duckdb {
 class ColumnList;

@@ -4,7 +4,7 @@
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
-#include "ducklake_storage.hpp"
+#include "storage/ducklake_storage.hpp"
 
 namespace duckdb {
 

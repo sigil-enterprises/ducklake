@@ -1,8 +1,8 @@
-#include "ducklake_catalog.hpp"
-#include "ducklake_insert.hpp"
-#include "ducklake_table_entry.hpp"
-#include "ducklake_transaction.hpp"
-#include "ducklake_util.hpp"
+#include "storage/ducklake_catalog.hpp"
+#include "storage/ducklake_insert.hpp"
+#include "storage/ducklake_table_entry.hpp"
+#include "storage/ducklake_transaction.hpp"
+#include "common/ducklake_util.hpp"
 
 #include "duckdb/catalog/catalog_entry/copy_function_catalog_entry.hpp"
 #include "duckdb/execution/operator/projection/physical_projection.hpp"

@@ -1,7 +1,8 @@
-#include "ducklake_schema_entry.hpp"
+#include "storage/ducklake_schema_entry.hpp"
+#include "storage/ducklake_table_entry.hpp"
+#include "storage/ducklake_transaction.hpp"
+
 #include "duckdb/planner/parsed_data/bound_create_table_info.hpp"
-#include "ducklake_table_entry.hpp"
-#include "ducklake_transaction.hpp"
 #include "duckdb/common/types/uuid.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 

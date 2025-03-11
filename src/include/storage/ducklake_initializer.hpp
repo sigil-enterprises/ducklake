@@ -1,14 +1,14 @@
 //===----------------------------------------------------------------------===//
 //                         DuckDB
 //
-// ducklake_initializer.hpp
+// storage/ducklake_initializer.hpp
 //
 //
 //===----------------------------------------------------------------------===//
 
 #pragma once
 
-#include "ducklake_catalog.hpp"
+#include "storage/ducklake_catalog.hpp"
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/main/connection.hpp"
 

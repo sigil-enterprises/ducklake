@@ -1,7 +1,7 @@
 //===----------------------------------------------------------------------===//
 //                         DuckDB
 //
-// functions/delta_scan/delta_multi_file_reader.hpp
+// storage/ducklake_multi_file_reader.hpp
 //
 //
 //===----------------------------------------------------------------------===//
@@ -9,7 +9,7 @@
 #pragma once
 
 #include "duckdb/common/multi_file_reader.hpp"
-#include "ducklake_scan.hpp"
+#include "storage/ducklake_scan.hpp"
 
 namespace duckdb {
 

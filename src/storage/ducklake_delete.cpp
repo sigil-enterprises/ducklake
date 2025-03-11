@@ -1,4 +1,4 @@
-#include "ducklake_catalog.hpp"
+#include "storage/ducklake_catalog.hpp"
 #include "duckdb/planner/operator/logical_delete.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/common/multi_file_reader_function.hpp"

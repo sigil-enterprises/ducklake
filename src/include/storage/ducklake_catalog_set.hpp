@@ -1,7 +1,7 @@
 //===----------------------------------------------------------------------===//
 //                         DuckDB
 //
-// ducklake_catalog_set.hpp
+// storage/ducklake_catalog_set.hpp
 //
 //
 //===----------------------------------------------------------------------===//
@@ -11,7 +11,7 @@
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/common/case_insensitive_map.hpp"
 #include "duckdb/catalog/catalog_entry.hpp"
-#include "ducklake_snapshot.hpp"
+#include "common/ducklake_snapshot.hpp"
 
 namespace duckdb {
 class DuckLakeTransaction;

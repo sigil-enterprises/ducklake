@@ -1,5 +1,5 @@
-#include "ducklake_catalog_set.hpp"
-#include "ducklake_transaction.hpp"
+#include "storage/ducklake_catalog_set.hpp"
+#include "storage/ducklake_transaction.hpp"
 
 namespace duckdb {
 

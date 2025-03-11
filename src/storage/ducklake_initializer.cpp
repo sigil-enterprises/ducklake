@@ -1,13 +1,14 @@
-#include "ducklake_initializer.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/transaction/meta_transaction.hpp"
 #include "duckdb/storage/data_table.hpp"
 #include "duckdb/common/types/column/column_data_collection.hpp"
 #include "duckdb/common/types/uuid.hpp"
-#include "ducklake_schema_entry.hpp"
 #include "duckdb/main/connection.hpp"
-#include "ducklake_catalog.hpp"
-#include "ducklake_transaction.hpp"
+
+#include "storage/ducklake_initializer.hpp"
+#include "storage/ducklake_catalog.hpp"
+#include "storage/ducklake_transaction.hpp"
+#include "storage/ducklake_schema_entry.hpp"
 
 namespace duckdb {
 

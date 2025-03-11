@@ -1,7 +1,7 @@
 //===----------------------------------------------------------------------===//
 //                         DuckDB
 //
-// ducklake_schema_entry.hpp
+// storage/ducklake_schema_entry.hpp
 //
 //
 //===----------------------------------------------------------------------===//
@@ -9,7 +9,7 @@
 #pragma once
 
 #include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
-#include "ducklake_catalog_set.hpp"
+#include "storage/ducklake_catalog_set.hpp"
 
 namespace duckdb {
 class DuckLakeTransaction;

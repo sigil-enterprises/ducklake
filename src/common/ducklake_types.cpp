@@ -1,4 +1,4 @@
-#include "ducklake_types.hpp"
+#include "common/ducklake_types.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/to_string.hpp"
 

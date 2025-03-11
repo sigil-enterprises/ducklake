@@ -1,7 +1,7 @@
 //===----------------------------------------------------------------------===//
 //                         DuckDB
 //
-// ducklake_multi_file_list.hpp
+// storage/ducklake_multi_file_list.hpp
 //
 //
 //===----------------------------------------------------------------------===//
@@ -9,8 +9,8 @@
 #pragma once
 
 #include "duckdb/common/multi_file_reader.hpp"
-#include "ducklake_scan.hpp"
-#include "ducklake_transaction.hpp"
+#include "storage/ducklake_scan.hpp"
+#include "storage/ducklake_transaction.hpp"
 
 namespace duckdb {
 

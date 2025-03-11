@@ -1,17 +1,18 @@
-#include "ducklake_catalog.hpp"
+#include "storage/ducklake_catalog.hpp"
+#include "storage/ducklake_initializer.hpp"
+#include "storage/ducklake_schema_entry.hpp"
+#include "storage/ducklake_table_entry.hpp"
+#include "storage/ducklake_transaction.hpp"
+#include "common/ducklake_types.hpp"
+
 #include "duckdb/storage/database_size.hpp"
 #include "duckdb/main/attached_database.hpp"
-#include "ducklake_initializer.hpp"
 #include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
-#include "ducklake_schema_entry.hpp"
-#include "ducklake_table_entry.hpp"
-#include "ducklake_transaction.hpp"
 #include "duckdb/common/types/uuid.hpp"
-#include "ducklake_types.hpp"
 
 namespace duckdb {
 
