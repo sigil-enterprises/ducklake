@@ -33,7 +33,7 @@ unique_ptr<MultiFileList> DuckLakeMultiFileList::ComplexFilterPushdown(ClientCon
 }
 
 string GenerateFilterPushdown(const TableFilter &filter, idx_t column_id) {
-	switch(filter.filter_type) {
+	switch (filter.filter_type) {
 	case TableFilterType::CONSTANT_COMPARISON: {
 		auto &constant_filter = filter.Cast<ConstantFilter>();
 
@@ -55,7 +55,7 @@ DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const Multi
                                              const vector<column_t> &column_ids, TableFilterSet &filters) const {
 	return nullptr;
 	string filter;
-	for(auto &entry : filters.filters) {
+	for (auto &entry : filters.filters) {
 		auto column_id = entry.first;
 		// FIXME: handle structs
 		auto table_column_id = column_ids[column_id];
@@ -106,8 +106,8 @@ const vector<string> &DuckLakeMultiFileList::GetFiles() {
 		// FIXME: we can do pushdown of stats into the file list here to prune it
 		auto query = StringUtil::Format(R"(
 SELECT path
-FROM {METADATA_CATALOG}.ducklake_data_file
-WHERE table_id=%d AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL);
+FROM {METADATA_CATALOG}.ducklake_data_file_%d
+WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL);
 		)",
 		                                read_info.table_id);
 		auto result = transaction.Query(read_info.snapshot, query);
