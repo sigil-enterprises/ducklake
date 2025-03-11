@@ -323,7 +323,7 @@ void DuckLakeTransaction::CheckForConflicts(DuckLakeSnapshot transaction_snapsho
 	)");
 	if (result->HasError()) {
 		result->GetErrorObject().Throw(
-		    "Failed to commit DuckLake transaction - failed to get snapshot changes for conflict resolution:");
+		    "Failed to commit DuckLake transaction - failed to get snapshot changes for conflict resolution:" );
 	}
 	// parse changes made by other transactions
 	SnapshotChangeInformation other_changes;
@@ -367,7 +367,7 @@ void DuckLakeTransaction::FlushNewSchemas(DuckLakeSnapshot &commit_snapshot) {
 	schema_insert_sql = "INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES " + schema_insert_sql;
 	auto result = Query(commit_snapshot, schema_insert_sql);
 	if (result->HasError()) {
-		result->GetErrorObject().Throw("Failed to write new schemas to DuckLake:");
+		result->GetErrorObject().Throw("Failed to write new schemas to DuckLake: ");
 	}
 }
 
@@ -412,21 +412,6 @@ void DuckLakeTransaction::FlushNewTables(DuckLakeSnapshot &commit_snapshot) {
 					                                        column_id, table_id, column_id, SQLString(col.GetName()),
 					                                        SQLString(DuckLakeTypes::ToString(col.GetType())));
 				}
-
-				// create the data file tables
-				data_file_tables += StringUtil::Format(R"(
-CREATE TABLE {METADATA_CATALOG}.ducklake_data_file_%d(data_file_id BIGINT PRIMARY KEY, begin_snapshot BIGINT, end_snapshot BIGINT, file_order BIGINT, path VARCHAR, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, partition_id BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_file_column_statistics_%d(data_file_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, value_count BIGINT, null_count BIGINT, nan_count BIGINT, min_value VARCHAR, max_value VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file_%d(delete_file_id BIGINT PRIMARY KEY, begin_snapshot BIGINT, end_snapshot BIGINT, data_file_id BIGINT, path VARCHAR, delete_count BIGINT, file_size_bytes BIGINT);
-				)",
-				                                       table_id, table_id, table_id);
-
-				// if we have written any data to this table - move them to the new (correct) table id as well
-				auto data_file_entry = new_data_files.find(original_id);
-				if (data_file_entry != new_data_files.end()) {
-					new_data_files[table_id] = std::move(data_file_entry->second);
-					new_data_files.erase(original_id);
-				}
 			}
 		}
 	}
@@ -435,7 +420,7 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file_%d(delete_file_id BIGINT PR
 		table_insert_sql = "INSERT INTO {METADATA_CATALOG}.ducklake_table VALUES " + table_insert_sql;
 		auto result = Query(commit_snapshot, table_insert_sql);
 		if (result->HasError()) {
-			result->GetErrorObject().Throw("Failed to write new table to DuckLake:");
+			result->GetErrorObject().Throw("Failed to write new table to DuckLake: ");
 		}
 	}
 	if (!column_insert_sql.empty()) {
@@ -443,14 +428,14 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file_%d(delete_file_id BIGINT PR
 		column_insert_sql = "INSERT INTO {METADATA_CATALOG}.ducklake_column VALUES " + column_insert_sql;
 		auto result = Query(commit_snapshot, column_insert_sql);
 		if (result->HasError()) {
-			result->GetErrorObject().Throw("Failed to write column information to DuckLake:");
+			result->GetErrorObject().Throw("Failed to write column information to DuckLake: ");
 		}
 	}
 	if (!data_file_tables.empty()) {
 		// data file tables
 		auto result = Query(commit_snapshot, data_file_tables);
 		if (result->HasError()) {
-			result->GetErrorObject().Throw("Failed to create data file tables for new tables in DuckLake:");
+			result->GetErrorObject().Throw("Failed to create data file tables for new tables in DuckLake: ");
 		}
 	}
 }
@@ -498,22 +483,30 @@ void DuckLakeTransaction::FlushNewData(DuckLakeSnapshot &commit_snapshot) {
 			throw InternalException("No files found!?");
 		}
 		// insert the data files
-		data_file_insert_query = StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_data_file_%d VALUES %s",
-		                                            table_id, data_file_insert_query);
+		data_file_insert_query = StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_data_file VALUES %s",
+		                                            data_file_insert_query);
 		auto result = Query(commit_snapshot, data_file_insert_query);
 		if (result->HasError()) {
-			result->GetErrorObject().Throw("Failed to write data file information to DuckLake:");
+			result->GetErrorObject().Throw("Failed to write data file information to DuckLake: ");
 		}
 		// insert the column stats
 		column_stats_insert_query =
-		    StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_file_column_statistics_%d VALUES %s", table_id,
+		    StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_file_column_statistics VALUES %s",
 		                       column_stats_insert_query);
 		result = Query(commit_snapshot, column_stats_insert_query);
 		if (result->HasError()) {
-			result->GetErrorObject().Throw("Failed to write column stats information to DuckLake:");
+			result->GetErrorObject().Throw("Failed to write column stats information to DuckLake: ");
 		}
 	}
-	// FIXME: update global table statistics
+}
+
+void DuckLakeTransaction::InsertSnapshot(DuckLakeSnapshot commit_snapshot) {
+	auto result = Query(
+		commit_snapshot,
+		R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES ({SNAPSHOT_ID}, NOW(), {SCHEMA_VERSION}, {NEXT_CATALOG_ID}, {NEXT_FILE_ID});)");
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to write new snapshot to DuckLake: ");
+	}
 }
 
 void DuckLakeTransaction::FlushChanges() {
@@ -537,7 +530,6 @@ void DuckLakeTransaction::FlushChanges() {
 				// retry - but first check for conflicts
 				CheckForConflicts(transaction_snapshot, transaction_changes);
 			}
-			unique_ptr<QueryResult> result;
 			// drop entries
 			if (!dropped_tables.empty()) {
 				FlushDrop(commit_snapshot, "ducklake_table", "table_id", dropped_tables);
@@ -559,12 +551,8 @@ void DuckLakeTransaction::FlushChanges() {
 			FlushNewData(commit_snapshot);
 
 			// write the new snapshot
-			result = Query(
-			    commit_snapshot,
-			    R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES ({SNAPSHOT_ID}, NOW(), {SCHEMA_VERSION}, {NEXT_CATALOG_ID}, {NEXT_FILE_ID});)");
-			if (result->HasError()) {
-				result->GetErrorObject().Throw("Failed to write new snapshot to DuckLake:");
-			}
+			InsertSnapshot(commit_snapshot);
+
 			WriteSnapshotChanges(commit_snapshot, transaction_changes);
 			connection->Commit();
 			// finished writing

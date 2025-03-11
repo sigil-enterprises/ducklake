@@ -180,8 +180,8 @@ DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const Multi
 			filter += " AND ";
 		}
 		filter += StringUtil::Format(
-		    "data_file_id IN (SELECT data_file_id FROM {METADATA_CATALOG}.ducklake_file_column_statistics_%d WHERE %s)",
-		    read_info.table_id, final_filter);
+		    "data_file_id IN (SELECT data_file_id FROM {METADATA_CATALOG}.ducklake_file_column_statistics WHERE %s)",
+		    final_filter);
 	}
 	if (!filter.empty()) {
 		return make_uniq<DuckLakeMultiFileList>(transaction, read_info, transaction_local_files, std::move(filter));
@@ -217,21 +217,22 @@ string DuckLakeMultiFileList::GetFile(idx_t i) {
 const vector<string> &DuckLakeMultiFileList::GetFiles() {
 	if (!read_file_list) {
 		// we have not read the file list yet - read it
-		// FIXME: we can do pushdown of stats into the file list here to prune it
-		auto query = StringUtil::Format(R"(
+		if (!DuckLakeTransaction::IsTransactionLocal(read_info.table_id)) {
+			// not a transaction local table - read the file list from the metadata store
+			auto query = StringUtil::Format(R"(
 SELECT path
-FROM {METADATA_CATALOG}.ducklake_data_file_%d
-WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
-		)",
-		                                read_info.table_id);
-		if (!filter.empty()) {
-			query += "\nAND " + filter;
-		}
+FROM {METADATA_CATALOG}.ducklake_data_file
+WHERE table_id=%d AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
+		)", read_info.table_id);
+			if (!filter.empty()) {
+				query += "\nAND " + filter;
+			}
 
-		auto result = transaction.Query(read_info.snapshot, query);
+			auto result = transaction.Query(read_info.snapshot, query);
 
-		for (auto &row : *result) {
-			files.push_back(row.GetValue<string>(0));
+			for (auto &row : *result) {
+				files.push_back(row.GetValue<string>(0));
+			}
 		}
 		for (auto &transaction_local_file : transaction_local_files) {
 			files.push_back(transaction_local_file.file_name);

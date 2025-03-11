@@ -79,6 +79,7 @@ private:
 	void FlushNewSchemas(DuckLakeSnapshot &commit_snapshot);
 	void FlushNewTables(DuckLakeSnapshot &commit_snapshot);
 	void FlushNewData(DuckLakeSnapshot &commit_snapshot);
+	void InsertSnapshot(DuckLakeSnapshot commit_snapshot);
 	void CheckForConflicts(DuckLakeSnapshot transaction_snapshot, const TransactionChangeInformation &changes);
 	void CheckForConflicts(const TransactionChangeInformation &changes, const SnapshotChangeInformation &other_changes);
 	void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, const TransactionChangeInformation &changes);
