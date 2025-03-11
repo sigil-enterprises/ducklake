@@ -1,3 +1,4 @@
+#include "common/ducklake_util.hpp"
 #include "storage/ducklake_scan.hpp"
 #include "storage/ducklake_multi_file_list.hpp"
 #include "storage/ducklake_multi_file_reader.hpp"
@@ -20,9 +21,10 @@
 namespace duckdb {
 
 DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,
-                                             vector<DuckLakeDataFile> transaction_local_files_p)
+                                             vector<DuckLakeDataFile> transaction_local_files_p, string filter_p)
     : MultiFileList(vector<string> {}, FileGlobOptions::ALLOW_EMPTY), transaction(transaction), read_info(read_info),
-      read_file_list(false), transaction_local_files(std::move(transaction_local_files_p)) {
+      read_file_list(false), transaction_local_files(std::move(transaction_local_files_p)),
+      filter(std::move(filter_p)) {
 }
 
 unique_ptr<MultiFileList> DuckLakeMultiFileList::ComplexFilterPushdown(ClientContext &context,
@@ -32,17 +34,115 @@ unique_ptr<MultiFileList> DuckLakeMultiFileList::ComplexFilterPushdown(ClientCon
 	return nullptr;
 }
 
-string GenerateFilterPushdown(const TableFilter &filter, idx_t column_id) {
+string CastValueToTarget(const Value &val, const LogicalType &type) {
+	if (type.IsNumeric()) {
+		// for numerics we cast the min/max instead
+		return val.ToString();
+	}
+	// convert to a string
+	return DuckLakeUtil::SQLLiteralToString(val.ToString());
+}
+
+string CastStatsToTarget(const string &stats, const LogicalType &type) {
+	// we only need to cast numerics
+	if (type.IsNumeric()) {
+		return stats + "::" + type.ToString();
+	}
+	return stats;
+}
+
+string GenerateFilterPushdown(const TableFilter &filter, unordered_set<string> &referenced_stats) {
 	switch (filter.filter_type) {
 	case TableFilterType::CONSTANT_COMPARISON: {
 		auto &constant_filter = filter.Cast<ConstantFilter>();
+		auto &type = constant_filter.constant.type();
+		switch (type.id()) {
+		case LogicalTypeId::BLOB:
+			return string();
+		default:
+			break;
+		}
 
+		auto constant_str = CastValueToTarget(constant_filter.constant, type);
+		auto min_value = CastStatsToTarget("min_value", type);
+		auto max_value = CastStatsToTarget("max_value", type);
+		switch (constant_filter.comparison_type) {
+		case ExpressionType::COMPARE_EQUAL:
+			// x = constant
+			// this can only be true if "constant BETWEEN min AND max"
+			referenced_stats.insert("min_value");
+			referenced_stats.insert("max_value");
+			return StringUtil::Format("%s BETWEEN %s AND %s", constant_str, min_value, max_value);
+		case ExpressionType::COMPARE_NOTEQUAL:
+			// x <> constant
+			// this can only be false if "constant = min AND constant = max" (i.e. min = max = constant)
+			// skip this for now
+			return string();
+		case ExpressionType::COMPARE_GREATERTHANOREQUALTO:
+			// x >= constant
+			// this can only be true if "max >= C"
+			referenced_stats.insert("max_value");
+			return StringUtil::Format("%s >= %s", max_value, constant_str);
+		case ExpressionType::COMPARE_GREATERTHAN:
+			// x > constant
+			// this can only be true if "max > C"
+			referenced_stats.insert("max_value");
+			return StringUtil::Format("%s > %s", max_value, constant_str);
+		case ExpressionType::COMPARE_LESSTHANOREQUALTO:
+			// x <= constant
+			// this can only be true if "min <= C"
+			referenced_stats.insert("min_value");
+			return StringUtil::Format("%s <= %s", min_value, constant_str);
+		case ExpressionType::COMPARE_LESSTHAN:
+			// x < constant
+			// this can only be true if "min < C"
+			referenced_stats.insert("min_value");
+			return StringUtil::Format("%s < %s", min_value, constant_str);
+		default:
+			// unsupported
+			return string();
+		}
 		break;
 	}
 	case TableFilterType::IS_NULL:
+		// IS NULL can only be true if the file has any NULL values
+		referenced_stats.insert("null_count");
+		return "null_count > 0";
 	case TableFilterType::IS_NOT_NULL:
-	case TableFilterType::CONJUNCTION_OR:
-	case TableFilterType::CONJUNCTION_AND:
+		// IS NOT NULL can only be true if the file has any valid values
+		referenced_stats.insert("value_count");
+		return "value_count > 0";
+	case TableFilterType::CONJUNCTION_OR: {
+		auto &conjunction_or_filter = filter.Cast<ConjunctionOrFilter>();
+		string result;
+		for (auto &child_filter : conjunction_or_filter.child_filters) {
+			if (!result.empty()) {
+				result += " OR ";
+			}
+			string child_str = GenerateFilterPushdown(*child_filter, referenced_stats);
+			if (child_str.empty()) {
+				return string();
+			}
+			result += child_str;
+		}
+		return result;
+	}
+	case TableFilterType::CONJUNCTION_AND: {
+		auto &conjunction_and_filter = filter.Cast<ConjunctionAndFilter>();
+		string result;
+		for (auto &child_filter : conjunction_and_filter.child_filters) {
+			if (!result.empty()) {
+				result += " AND ";
+			}
+			string child_str = GenerateFilterPushdown(*child_filter, referenced_stats);
+			if (child_str.empty()) {
+				return string();
+			}
+			result += child_str;
+		}
+		return result;
+	}
+	// FIXME: we probably want to support IN filters as well here
 	default:
 		// unsupported filter
 		return string();
@@ -53,24 +153,38 @@ unique_ptr<MultiFileList>
 DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options,
                                              const vector<string> &names, const vector<LogicalType> &types,
                                              const vector<column_t> &column_ids, TableFilterSet &filters) const {
-	return nullptr;
 	string filter;
 	for (auto &entry : filters.filters) {
 		auto column_id = entry.first;
 		// FIXME: handle structs
 		auto table_column_id = column_ids[column_id];
-		auto new_filter = GenerateFilterPushdown(*entry.second, table_column_id);
+		unordered_set<string> referenced_stats;
+		auto new_filter = GenerateFilterPushdown(*entry.second, referenced_stats);
 		if (new_filter.empty()) {
 			// failed to generate filter for this column
 			continue;
 		}
+		// generate the final filter for this column
+		string final_filter;
+		final_filter = "column_id=" + to_string(table_column_id);
+		final_filter += " AND ";
+		final_filter += "(";
+		// if any of the referenced stats are NULL we cannot prune
+		for (auto &stats_name : referenced_stats) {
+			final_filter += stats_name + " IS NULL OR ";
+		}
+		// finally add the filter
+		final_filter += "(" + new_filter + "))";
+		// add the filter to the list of filters
 		if (!filter.empty()) {
 			filter += " AND ";
 		}
-		filter += new_filter;
+		filter += StringUtil::Format(
+		    "data_file_id IN (SELECT data_file_id FROM {METADATA_CATALOG}.ducklake_file_column_statistics_%d WHERE %s)",
+		    read_info.table_id, final_filter);
 	}
 	if (!filter.empty()) {
-		throw InternalException("Push filter");
+		return make_uniq<DuckLakeMultiFileList>(transaction, read_info, transaction_local_files, std::move(filter));
 	}
 	return nullptr;
 }
@@ -107,9 +221,13 @@ const vector<string> &DuckLakeMultiFileList::GetFiles() {
 		auto query = StringUtil::Format(R"(
 SELECT path
 FROM {METADATA_CATALOG}.ducklake_data_file_%d
-WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL);
+WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
 		)",
 		                                read_info.table_id);
+		if (!filter.empty()) {
+			query += "\nAND " + filter;
+		}
+
 		auto result = transaction.Query(read_info.snapshot, query);
 
 		for (auto &row : *result) {

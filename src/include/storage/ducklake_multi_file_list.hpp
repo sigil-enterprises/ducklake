@@ -19,7 +19,7 @@ namespace duckdb {
 class DuckLakeMultiFileList : public MultiFileList {
 public:
 	explicit DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,
-	                               vector<DuckLakeDataFile> transaction_local_files);
+	                               vector<DuckLakeDataFile> transaction_local_files, string filter = string());
 
 	unique_ptr<MultiFileList> ComplexFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options,
 	                                                MultiFilePushdownInfo &info,
@@ -50,6 +50,8 @@ private:
 	bool read_file_list;
 	//! The set of transaction-local files
 	vector<DuckLakeDataFile> transaction_local_files;
+	//! The filter to apply
+	string filter;
 };
 
 } // namespace duckdb

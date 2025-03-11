@@ -74,7 +74,8 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_column(column_id BIGINT, begin_snapshot
 INSERT INTO {METADATA_CATALOG}.ducklake_info VALUES (1, {DATA_PATH}, 'DuckDB %s');
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
 INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main');
-	)", DuckDB::SourceID());
+	)",
+	                                       DuckDB::SourceID());
 	// TODO: add
 	//	ducklake_partition_info
 	//	ducklake_partition_column_info
