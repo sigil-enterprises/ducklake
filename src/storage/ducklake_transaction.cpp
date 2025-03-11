@@ -412,6 +412,12 @@ void DuckLakeTransaction::FlushNewTables(DuckLakeSnapshot &commit_snapshot) {
 					                                        column_id, table_id, column_id, SQLString(col.GetName()),
 					                                        SQLString(DuckLakeTypes::ToString(col.GetType())));
 				}
+				// if we have written any data to this table - move them to the new (correct) table id as well
+				auto data_file_entry = new_data_files.find(original_id);
+				if (data_file_entry != new_data_files.end()) {
+					new_data_files[table_id] = std::move(data_file_entry->second);
+					new_data_files.erase(original_id);
+				}
 			}
 		}
 	}
@@ -454,7 +460,7 @@ void DuckLakeTransaction::FlushNewData(DuckLakeSnapshot &commit_snapshot) {
 			}
 			auto file_id = commit_snapshot.next_file_id++;
 			data_file_insert_query +=
-			    StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, NULL, %s, 'parquet', %d, %d, %d, NULL)", file_id,
+			    StringUtil::Format("(%d, %d, {SNAPSHOT_ID}, NULL, NULL, %s, 'parquet', %d, %d, %d, NULL)", file_id, table_id,
 			                       SQLString(file.file_name), file.row_count, file.file_size_bytes, file.footer_size);
 
 			// gather the column statistics for this file
