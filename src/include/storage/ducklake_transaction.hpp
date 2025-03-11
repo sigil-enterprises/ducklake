@@ -20,6 +20,7 @@ class DuckLakeCatalog;
 class DuckLakeCatalogSet;
 class DuckLakeSchemaEntry;
 class DuckLakeTableEntry;
+struct DuckLakeTableStats;
 struct SnapshotChangeInformation;
 struct TransactionChangeInformation;
 
@@ -80,6 +81,7 @@ private:
 	void FlushNewTables(DuckLakeSnapshot &commit_snapshot);
 	void FlushNewData(DuckLakeSnapshot &commit_snapshot);
 	void InsertSnapshot(DuckLakeSnapshot commit_snapshot);
+	void UpdateGlobalTableStats(DuckLakeSnapshot commit_snapshot, idx_t table_id, DuckLakeTableStats new_stats);
 	void CheckForConflicts(DuckLakeSnapshot transaction_snapshot, const TransactionChangeInformation &changes);
 	void CheckForConflicts(const TransactionChangeInformation &changes, const SnapshotChangeInformation &other_changes);
 	void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, const TransactionChangeInformation &changes);

@@ -68,12 +68,12 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot(snapshot_id BIGINT PRIMARY KEY
 CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot_changes(snapshot_id BIGINT PRIMARY KEY, schemas_created VARCHAR, schemas_dropped VARCHAR, tables_created VARCHAR, tables_dropped VARCHAR, tables_altered VARCHAR, tables_inserted_into VARCHAR, tables_deleted_from VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_schema(schema_id BIGINT PRIMARY KEY, schema_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_name VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_table(table_id BIGINT, table_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, table_name VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_table_statistics(table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, record_count BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_data_file(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, file_order BIGINT, path VARCHAR, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, partition_id BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_file_column_statistics(data_file_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, value_count BIGINT, null_count BIGINT, nan_count BIGINT, min_value VARCHAR, max_value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file(delete_file_id BIGINT PRIMARY KEY, begin_snapshot BIGINT, end_snapshot BIGINT, data_file_id BIGINT, path VARCHAR, delete_count BIGINT, file_size_bytes BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_table_column_statistics(column_id BIGINT, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, contains_null BOOLEAN, min_value VARCHAR, max_value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_column(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, column_order BIGINT, column_name VARCHAR, column_type VARCHAR, default_value VARCHAR);
+CREATE TABLE {METADATA_CATALOG}.ducklake_table_stats(table_id BIGINT, record_count BIGINT, file_size_bytes BIGINT);
+CREATE TABLE {METADATA_CATALOG}.ducklake_table_column_stats(table_id BIGINT, column_id BIGINT, contains_null BOOLEAN, min_value VARCHAR, max_value VARCHAR);
 INSERT INTO {METADATA_CATALOG}.ducklake_info VALUES (1, {DATA_PATH}, 'DuckDB %s');
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
 INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main');

@@ -223,7 +223,8 @@ const vector<string> &DuckLakeMultiFileList::GetFiles() {
 SELECT path
 FROM {METADATA_CATALOG}.ducklake_data_file
 WHERE table_id=%d AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
-		)", read_info.table_id);
+		)",
+			                                read_info.table_id);
 			if (!filter.empty()) {
 				query += "\nAND " + filter;
 			}

@@ -323,7 +323,7 @@ void DuckLakeTransaction::CheckForConflicts(DuckLakeSnapshot transaction_snapsho
 	)");
 	if (result->HasError()) {
 		result->GetErrorObject().Throw(
-		    "Failed to commit DuckLake transaction - failed to get snapshot changes for conflict resolution:" );
+		    "Failed to commit DuckLake transaction - failed to get snapshot changes for conflict resolution:");
 	}
 	// parse changes made by other transactions
 	SnapshotChangeInformation other_changes;
@@ -446,6 +446,190 @@ void DuckLakeTransaction::FlushNewTables(DuckLakeSnapshot &commit_snapshot) {
 	}
 }
 
+void DuckLakeTableStats::MergeStats(idx_t col_id, const DuckLakeColumnStats &file_stats) {
+	auto entry = column_stats.find(col_id);
+	if (entry == column_stats.end()) {
+		column_stats.insert(make_pair(col_id, file_stats));
+		return;
+	}
+	// merge the stats
+	auto &current_stats = entry->second;
+	if (!file_stats.has_null_count) {
+		current_stats.has_null_count = false;
+	} else if (current_stats.has_null_count) {
+		// both stats have a null count - add them up
+		current_stats.null_count += file_stats.null_count;
+	}
+
+	if (!file_stats.has_min) {
+		current_stats.has_min = false;
+	} else if (current_stats.has_min) {
+		// both stats have a min - select the smallest
+		if (current_stats.type.IsNumeric()) {
+			// for numerics we need to parse the stats
+			auto current_min = Value(current_stats.min).DefaultCastAs(current_stats.type);
+			auto new_min = Value(file_stats.min).DefaultCastAs(current_stats.type);
+			if (new_min < current_min) {
+				current_stats.min = file_stats.min;
+			}
+		} else if (file_stats.min < current_stats.min) {
+			// for other types we can compare the strings directly
+			current_stats.min = file_stats.min;
+		}
+	}
+
+	if (!file_stats.has_max) {
+		current_stats.has_max = false;
+	} else if (current_stats.has_max) {
+		// both stats have a min - select the smallest
+		if (current_stats.type.IsNumeric()) {
+			// for numerics we need to parse the stats
+			auto current_min = Value(current_stats.max).DefaultCastAs(current_stats.type);
+			auto new_min = Value(file_stats.max).DefaultCastAs(current_stats.type);
+			if (new_min > current_min) {
+				current_stats.max = file_stats.max;
+			}
+		} else if (file_stats.max > current_stats.max) {
+			// for other types we can compare the strings directly
+			current_stats.max = file_stats.max;
+		}
+	}
+}
+
+void DuckLakeTransaction::UpdateGlobalTableStats(DuckLakeSnapshot commit_snapshot, idx_t table_id,
+                                                 DuckLakeTableStats new_stats) {
+	// first load the latest stats (if any)
+	// table stats
+	bool stats_initialized = false;
+	auto result = Query(StringUtil::Format(R"(
+SELECT record_count, file_size_bytes
+FROM {METADATA_CATALOG}.ducklake_table_stats
+WHERE table_id = %d
+)",
+	                                       table_id));
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to get table stats information in DuckLake: ");
+	}
+	idx_t record_count = 0;
+	idx_t file_size_bytes = 0;
+	for (auto &row : *result) {
+		record_count = row.GetValue<idx_t>(0);
+		file_size_bytes = row.GetValue<idx_t>(1);
+		stats_initialized = true;
+	}
+	// column stats
+	result = Query(StringUtil::Format(R"(
+SELECT column_id, contains_null, min_value, max_value
+FROM {METADATA_CATALOG}.ducklake_table_column_stats
+WHERE table_id = %d
+)",
+	                                  table_id));
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to get column stats information in DuckLake: ");
+	}
+	for (auto &row : *result) {
+		auto column_id = row.GetValue<idx_t>(0);
+		auto entry = new_stats.column_stats.find(column_id);
+		if (entry == new_stats.column_stats.end()) {
+			// FIXME: should this ever happen?
+			continue;
+		}
+		// merge the current min/max stats with the existing stats in the table
+		DuckLakeColumnStats existing_stats(entry->second.type);
+		if (row.IsNull(1)) {
+			existing_stats.has_null_count = false;
+		} else {
+			existing_stats.has_null_count = true;
+			auto contains_null = row.GetValue<idx_t>(1);
+			existing_stats.null_count = contains_null ? 1 : 0;
+		}
+		if (row.IsNull(2)) {
+			existing_stats.has_min = true;
+		} else {
+			existing_stats.has_min = true;
+			existing_stats.min = row.GetValue<string>(2);
+		}
+		if (row.IsNull(3)) {
+			existing_stats.has_max = true;
+		} else {
+			existing_stats.has_max = true;
+			existing_stats.max = row.GetValue<string>(3);
+		}
+		new_stats.MergeStats(column_id, existing_stats);
+	}
+	new_stats.record_count += record_count;
+	new_stats.table_size_bytes += file_size_bytes;
+
+	// now that we have obtained the total stats - update the new stats in the tables
+	string column_stats_values;
+	for (auto &entry : new_stats.column_stats) {
+		if (!column_stats_values.empty()) {
+			column_stats_values += ",";
+		}
+		auto column_id = entry.first;
+		auto &column_stats = entry.second;
+		column_stats_values += "(";
+		column_stats_values += to_string(table_id);
+		column_stats_values += ",";
+		column_stats_values += to_string(column_id);
+		column_stats_values += ",";
+		if (column_stats.has_null_count) {
+			column_stats_values += column_stats.null_count > 0 ? "true" : "false";
+		} else {
+			column_stats_values += "NULL";
+		}
+		column_stats_values += ",";
+		if (column_stats.has_min) {
+			column_stats_values += DuckLakeUtil::SQLLiteralToString(column_stats.min);
+		} else {
+			column_stats_values += "NULL";
+		}
+		column_stats_values += ",";
+		if (entry.second.has_max) {
+			column_stats_values += DuckLakeUtil::SQLLiteralToString(column_stats.max);
+		} else {
+			column_stats_values += "NULL";
+		}
+		column_stats_values += ")";
+	}
+
+	if (!stats_initialized) {
+		// stats have not been initialized yet - insert them
+		result = Query(StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_table_stats VALUES (%d, %d, %d);",
+		                                  table_id, new_stats.record_count, new_stats.table_size_bytes));
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to insert stats information in DuckLake: ");
+		}
+
+		result = Query(StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_table_column_stats VALUES %s;",
+		                                  column_stats_values));
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to insert stats information in DuckLake: ");
+		}
+	} else {
+		// stats have been initialized - update them
+		result = Query(StringUtil::Format(
+		    "UPDATE {METADATA_CATALOG}.ducklake_table_stats SET record_count=%d, file_size_bytes=%d WHERE table_id=%d;",
+		    new_stats.record_count, new_stats.table_size_bytes, table_id));
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to update stats information in DuckLake: ");
+		}
+		result = Query(StringUtil::Format(R"(
+WITH new_values(tid, cid, new_contains_null, new_min, new_max) AS (
+	VALUES %s
+)
+UPDATE {METADATA_CATALOG}.ducklake_table_column_stats
+SET contains_null=new_contains_null, min_value=new_min, max_value=new_max
+FROM new_values
+WHERE table_id=tid AND column_id=cid
+)",
+		                                  column_stats_values));
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to update stats information in DuckLake: ");
+		}
+	}
+}
+
 void DuckLakeTransaction::FlushNewData(DuckLakeSnapshot &commit_snapshot) {
 	if (new_data_files.empty()) {
 		return;
@@ -454,14 +638,19 @@ void DuckLakeTransaction::FlushNewData(DuckLakeSnapshot &commit_snapshot) {
 		string data_file_insert_query;
 		string column_stats_insert_query;
 		auto table_id = entry.first;
+
+		DuckLakeTableStats new_stats;
 		for (auto &file : entry.second) {
 			if (!data_file_insert_query.empty()) {
 				data_file_insert_query += ",";
 			}
 			auto file_id = commit_snapshot.next_file_id++;
-			data_file_insert_query +=
-			    StringUtil::Format("(%d, %d, {SNAPSHOT_ID}, NULL, NULL, %s, 'parquet', %d, %d, %d, NULL)", file_id, table_id,
-			                       SQLString(file.file_name), file.row_count, file.file_size_bytes, file.footer_size);
+			data_file_insert_query += StringUtil::Format(
+			    "(%d, %d, {SNAPSHOT_ID}, NULL, NULL, %s, 'parquet', %d, %d, %d, NULL)", file_id, table_id,
+			    SQLString(file.file_name), file.row_count, file.file_size_bytes, file.footer_size);
+
+			new_stats.record_count += file.row_count;
+			new_stats.table_size_bytes += file.file_size_bytes;
 
 			// gather the column statistics for this file
 			for (auto &column_stats_entry : file.column_stats) {
@@ -482,34 +671,37 @@ void DuckLakeTransaction::FlushNewData(DuckLakeSnapshot &commit_snapshot) {
 				}
 				column_stats_insert_query += StringUtil::Format("(%d, %d, NULL, %s, %s, NULL, %s, %s)", file_id,
 				                                                column_id, value_count, null_count, min_val, max_val);
+
+				// merge the stats into the new global states
+				new_stats.MergeStats(column_id, stats);
 			}
-			// FIXME update the global stats for the table
 		}
 		if (data_file_insert_query.empty()) {
 			throw InternalException("No files found!?");
 		}
 		// insert the data files
-		data_file_insert_query = StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_data_file VALUES %s",
-		                                            data_file_insert_query);
+		data_file_insert_query =
+		    StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_data_file VALUES %s", data_file_insert_query);
 		auto result = Query(commit_snapshot, data_file_insert_query);
 		if (result->HasError()) {
 			result->GetErrorObject().Throw("Failed to write data file information to DuckLake: ");
 		}
 		// insert the column stats
-		column_stats_insert_query =
-		    StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_file_column_statistics VALUES %s",
-		                       column_stats_insert_query);
+		column_stats_insert_query = StringUtil::Format(
+		    "INSERT INTO {METADATA_CATALOG}.ducklake_file_column_statistics VALUES %s", column_stats_insert_query);
 		result = Query(commit_snapshot, column_stats_insert_query);
 		if (result->HasError()) {
 			result->GetErrorObject().Throw("Failed to write column stats information to DuckLake: ");
 		}
+		// update the global stats for this table based on the newly written files
+		UpdateGlobalTableStats(commit_snapshot, table_id, std::move(new_stats));
 	}
 }
 
 void DuckLakeTransaction::InsertSnapshot(DuckLakeSnapshot commit_snapshot) {
 	auto result = Query(
-		commit_snapshot,
-		R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES ({SNAPSHOT_ID}, NOW(), {SCHEMA_VERSION}, {NEXT_CATALOG_ID}, {NEXT_FILE_ID});)");
+	    commit_snapshot,
+	    R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES ({SNAPSHOT_ID}, NOW(), {SCHEMA_VERSION}, {NEXT_CATALOG_ID}, {NEXT_FILE_ID});)");
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write new snapshot to DuckLake: ");
 	}

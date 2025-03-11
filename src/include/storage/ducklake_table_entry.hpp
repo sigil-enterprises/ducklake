@@ -9,6 +9,7 @@
 #pragma once
 
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
+#include "storage/ducklake_table_stats.hpp"
 
 namespace duckdb {
 struct AlterTableInfo;
@@ -28,6 +29,9 @@ public:
 	}
 	bool IsTransactionLocal() const {
 		return is_transaction_local;
+	}
+	optional_ptr<DuckLakeTableStats> GetTableStats() const {
+		return table_stats.get();
 	}
 
 public:
@@ -49,6 +53,7 @@ private:
 	idx_t table_id;
 	string table_uuid;
 	bool is_transaction_local;
+	unique_ptr<DuckLakeTableStats> table_stats;
 };
 
 } // namespace duckdb

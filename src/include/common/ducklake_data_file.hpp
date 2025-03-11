@@ -14,6 +14,10 @@
 namespace duckdb {
 
 struct DuckLakeColumnStats {
+	explicit DuckLakeColumnStats(LogicalType type_p) : type(std::move(type_p)) {
+	}
+
+	LogicalType type;
 	string min;
 	string max;
 	idx_t null_count = 0;
