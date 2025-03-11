@@ -438,6 +438,67 @@ void DuckLakeTransaction::FlushNewTables(DuckLakeSnapshot &commit_snapshot) {
 	}
 }
 
+void DuckLakeTransaction::FlushNewData(DuckLakeSnapshot &commit_snapshot) {
+	if (new_data_files.empty()) {
+		return;
+	}
+	string data_file_insert_query;
+	string column_stats_insert_query;
+	for (auto &entry : new_data_files) {
+		auto table_id = entry.first;
+		for (auto &file : entry.second) {
+			if (!data_file_insert_query.empty()) {
+				data_file_insert_query += ",";
+			}
+			auto file_id = commit_snapshot.next_file_id++;
+			data_file_insert_query += StringUtil::Format(
+			    "(%d, {SNAPSHOT_ID}, NULL, %d, NULL, %s, 'parquet', %d, %d, %d, NULL)", file_id, table_id,
+			    SQLString(file.file_name), file.row_count, file.file_size_bytes, file.footer_size);
+
+			// gather the column statistics for this file
+			for (auto &column_stats_entry : file.column_stats) {
+				if (!column_stats_insert_query.empty()) {
+					column_stats_insert_query += ",";
+				}
+				auto column_id = column_stats_entry.first;
+				auto &stats = column_stats_entry.second;
+				string min_val = stats.has_min ? DuckLakeUtil::SQLLiteralToString(stats.min) : "NULL";
+				string max_val = stats.has_max ? DuckLakeUtil::SQLLiteralToString(stats.max) : "NULL";
+				string value_count, null_count;
+				if (stats.has_null_count) {
+					value_count = to_string(file.row_count - stats.null_count);
+					null_count = to_string(stats.null_count);
+				} else {
+					value_count = "NULL";
+					null_count = "NULL";
+				}
+				column_stats_insert_query +=
+				    StringUtil::Format("(%d, %d, NULL, %s, %s, NULL, %s, %s)", file_id, column_id,
+				                       value_count, null_count, min_val, max_val);
+			}
+			// FIXME update the global stats for the table
+		}
+	}
+	if (data_file_insert_query.empty()) {
+		throw InternalException("No files found!?");
+	}
+	// insert the data files
+	data_file_insert_query =
+	    "INSERT INTO {METADATA_CATALOG}.ducklake_data_file VALUES " + data_file_insert_query;
+	auto result = Query(commit_snapshot, data_file_insert_query);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to write data file information to DuckLake:");
+	}
+	// insert the column stats
+	column_stats_insert_query = "INSERT INTO {METADATA_CATALOG}.ducklake_file_column_statistics VALUES " +
+	                            column_stats_insert_query;
+	result = Query(commit_snapshot, column_stats_insert_query);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to write column stats information to DuckLake:");
+	}
+	// FIXME: update global table statistics
+}
+
 void DuckLakeTransaction::FlushChanges() {
 	if (!ChangesMade()) {
 		// read-only transactions don't need to do anything
@@ -478,69 +539,8 @@ void DuckLakeTransaction::FlushChanges() {
 			FlushNewTables(commit_snapshot);
 
 			// write new data files
-			if (!new_data_files.empty()) {
-				string data_file_insert_query;
-				string column_stats_insert_query;
-				// 	CREATE TABLE ducklake_data_file(data_file_id BIGINT PRIMARY KEY, begin_snapshot BIGINT, end_snapshot
-				// BIGINT, table_id BIGINT, file_order BIGINT, path VARCHAR, file_format VARCHAR, record_count BIGINT,
-				// file_size_bytes BIGINT, partition_id BIGINT);
-				for (auto &entry : new_data_files) {
-					auto table_id = entry.first;
-					for (auto &file : entry.second) {
-						if (!data_file_insert_query.empty()) {
-							data_file_insert_query += ",";
-						}
-						auto file_id = commit_snapshot.next_file_id++;
-						data_file_insert_query += StringUtil::Format(
-						    "(%d, {SNAPSHOT_ID}, NULL, %d, NULL, %s, 'parquet', %d, %d, %d, NULL)", file_id, table_id,
-						    SQLString(file.file_name), file.row_count, file.file_size_bytes, file.footer_size);
+			FlushNewData(commit_snapshot);
 
-						// CREATE TABLE ducklake_file_column_statistics(data_file_id BIGINT, column_id BIGINT,
-						// column_size_bytes BIGINT, value_count BIGINT, null_count BIGINT, nan_count BIGINT, min_value
-						// VARCHAR, max_value VARCHAR);
-						// write the column statistics for this file
-						for (auto &column_stats_entry : file.column_stats) {
-							if (!column_stats_insert_query.empty()) {
-								column_stats_insert_query += ",";
-							}
-							auto column_id = column_stats_entry.first;
-							auto &stats = column_stats_entry.second;
-							string min_val = stats.has_min ? DuckLakeUtil::SQLLiteralToString(stats.min) : "NULL";
-							string max_val = stats.has_max ? DuckLakeUtil::SQLLiteralToString(stats.max) : "NULL";
-							string value_count, null_count;
-							if (stats.has_null_count) {
-								value_count = to_string(file.row_count - stats.null_count);
-								null_count = to_string(stats.null_count);
-							} else {
-								value_count = "NULL";
-								null_count = "NULL";
-							}
-							column_stats_insert_query +=
-							    StringUtil::Format("(%d, %d, NULL, %s, %s, NULL, %s, %s)", file_id, column_id,
-							                       value_count, null_count, min_val, max_val);
-						}
-						// FIXME update the global stats for the table
-					}
-				}
-				if (data_file_insert_query.empty()) {
-					throw InternalException("No files found!?");
-				}
-				// insert the data files
-				data_file_insert_query =
-				    "INSERT INTO {METADATA_CATALOG}.ducklake_data_file VALUES " + data_file_insert_query;
-				result = Query(commit_snapshot, data_file_insert_query);
-				if (result->HasError()) {
-					result->GetErrorObject().Throw("Failed to write data file information to DuckLake:");
-				}
-				// insert the column stats
-				column_stats_insert_query = "INSERT INTO {METADATA_CATALOG}.ducklake_file_column_statistics VALUES " +
-				                            column_stats_insert_query;
-				result = Query(commit_snapshot, column_stats_insert_query);
-				if (result->HasError()) {
-					result->GetErrorObject().Throw("Failed to write column stats information to DuckLake:");
-				}
-				// FIXME: update global table statistics
-			}
 			// write the new snapshot
 			result = Query(
 			    commit_snapshot,
