@@ -347,6 +347,30 @@ void DuckLakeTransaction::CheckForConflicts(DuckLakeSnapshot transaction_snapsho
 	CheckForConflicts(changes, other_changes);
 }
 
+void DuckLakeTransaction::FlushNewSchemas(DuckLakeSnapshot &commit_snapshot) {
+	if (!new_schemas) {
+		return;
+	}
+	string schema_insert_sql;
+	for (auto &entry : new_schemas->GetEntries()) {
+		auto &schema_entry = entry.second->Cast<DuckLakeSchemaEntry>();
+		auto schema_id = commit_snapshot.next_catalog_id++;
+		if (!schema_insert_sql.empty()) {
+			schema_insert_sql += ",";
+		}
+		schema_insert_sql += StringUtil::Format("(%d, '%s', {SNAPSHOT_ID}, NULL, %s)",
+			schema_id, schema_entry.GetSchemaUUID(), SQLString(schema_entry.name));
+
+		// set the schema id of this schema entry so subsequent tables are written correctly
+		schema_entry.SetSchemaId(schema_id);
+	}
+	schema_insert_sql = "INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES " + schema_insert_sql;
+	auto result = Query(commit_snapshot, schema_insert_sql);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to write new schemas to DuckLake:");
+	}
+}
+
 void DuckLakeTransaction::FlushChanges() {
 	if (!ChangesMade()) {
 		// read-only transactions don't need to do anything
@@ -381,22 +405,7 @@ void DuckLakeTransaction::FlushChanges() {
 				FlushDrop(commit_snapshot, "ducklake_schema", "schema_id", dropped_schema_ids);
 			}
 			// write new schemas
-			if (new_schemas) {
-				for (auto &entry : new_schemas->GetEntries()) {
-					auto &schema_entry = entry.second->Cast<DuckLakeSchemaEntry>();
-					auto schema_id = commit_snapshot.next_catalog_id++;
-					auto schema_insert_query = StringUtil::Format(
-					    R"(INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (%d, '%s', {SNAPSHOT_ID}, NULL, %s);)",
-					    schema_id, schema_entry.GetSchemaUUID(), SQLString(schema_entry.name));
-					result = Query(commit_snapshot, schema_insert_query);
-					if (result->HasError()) {
-						result->GetErrorObject().Throw("Failed to write new schema to DuckLake:");
-					}
-
-					// set the schema id of this schema entry so subsequent tables are written correctly
-					schema_entry.SetSchemaId(schema_id);
-				}
-			}
+			FlushNewSchemas(commit_snapshot);
 
 			// write new tables
 			for (auto &schema_entry : new_tables) {

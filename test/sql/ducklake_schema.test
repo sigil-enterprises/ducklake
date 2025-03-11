@@ -156,3 +156,16 @@ query I
 SELECT * FROM ducklake.s1.tbl
 ----
 1992-01-01
+
+# write multiple schemas in one transaction
+statement ok
+BEGIN
+
+statement ok
+CREATE SCHEMA ducklake.schema_one;
+
+statement ok
+CREATE SCHEMA ducklake.schema_two
+
+statement ok
+COMMIT
