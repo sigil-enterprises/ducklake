@@ -30,10 +30,10 @@ DuckLakeInsert::DuckLakeInsert(LogicalOperator &op, SchemaCatalogEntry &schema, 
 //===--------------------------------------------------------------------===//
 class DuckLakeInsertGlobalState : public GlobalSinkState {
 public:
-	explicit DuckLakeInsertGlobalState() : insert_count(0) {
+	explicit DuckLakeInsertGlobalState() : total_insert_count(0) {
 	}
-	vector<string> written_files;
-	idx_t insert_count; // TODO: this needs to be per file
+	vector<DuckLakeDataFile> written_files;
+	idx_t total_insert_count;
 };
 
 unique_ptr<GlobalSinkState> DuckLakeInsert::GetGlobalSinkState(ClientContext &context) const {
@@ -56,11 +56,46 @@ SinkResultType DuckLakeInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 		                        "should be its Source");
 	}
 
-	global_state.insert_count += chunk.GetValue(0, 0).GetValue<idx_t>();
+	for(idx_t r = 0; r < chunk.size(); r++) {
+		DuckLakeDataFile data_file;
+		data_file.file_name = chunk.GetValue(0, r).GetValue<string>();
+		data_file.row_count = chunk.GetValue(1, r).GetValue<idx_t>();
+		data_file.file_size_bytes = chunk.GetValue(2, r).GetValue<idx_t>();
+		data_file.footer_size = chunk.GetValue(4, r).GetValue<idx_t>();
 
-	auto files = chunk.GetValue(1, 0);
-	for (const auto &val : ListValue::GetChildren(files)) {
-		global_state.written_files.push_back(val.ToString());
+		// extract the column stats
+		auto column_stats = chunk.GetValue(5, r);
+		auto &map_children = MapValue::GetChildren(column_stats);
+		for(idx_t col_idx = 0; col_idx < map_children.size(); col_idx++) {
+			DuckLakeColumnStats column_stats;
+			auto &struct_children = StructValue::GetChildren(map_children[col_idx]);
+			auto &col_name = StringValue::Get(struct_children[0]);
+			auto &col_stats = MapValue::GetChildren(struct_children[1]);
+			for(idx_t stats_idx = 0; stats_idx < col_stats.size(); stats_idx++) {
+				auto &stats_children = StructValue::GetChildren(col_stats[stats_idx]);
+				auto &stats_name = StringValue::Get(stats_children[0]);
+				auto &stats_value = StringValue::Get(stats_children[1]);
+				if (stats_name == "min") {
+					D_ASSERT(!column_stats.has_min);
+					column_stats.min = stats_value;
+					column_stats.has_min = true;
+				} else if (stats_name == "max") {
+					D_ASSERT(!column_stats.has_max);
+					column_stats.max = stats_value;
+					column_stats.has_max = true;
+				} else if (stats_name == "null_count") {
+					D_ASSERT(!column_stats.has_null_count);
+					column_stats.has_null_count = true;
+					column_stats.null_count = std::stoull(stats_value);
+				} else {
+					throw NotImplementedException("Unsupported stats type in DuckLakeInsert::Sink()");
+				}
+			}
+			data_file.column_stats.insert(make_pair(col_name, std::move(column_stats)));
+		}
+
+		global_state.written_files.push_back(std::move(data_file));
+		global_state.total_insert_count += data_file.row_count;
 	}
 
 	return SinkResultType::NEED_MORE_INPUT;
@@ -72,7 +107,7 @@ SinkResultType DuckLakeInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 SourceResultType DuckLakeInsert::GetData(ExecutionContext &context, DataChunk &chunk,
                                          OperatorSourceInput &input) const {
 	auto &global_state = sink_state->Cast<DuckLakeInsertGlobalState>();
-	auto value = Value::BIGINT(global_state.insert_count);
+	auto value = Value::BIGINT(global_state.total_insert_count);
 	chunk.SetCardinality(1);
 	chunk.SetValue(0, 0, value);
 	return SourceResultType::FINISHED;
@@ -153,7 +188,7 @@ unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCopyForInsert(ClientContext &c
 
 	auto function_data = copy_fun->function.copy_to_bind(context, bind_input, names_to_write, types_to_write);
 
-	auto copy_return_types = GetCopyFunctionReturnLogicalTypes(CopyFunctionReturnType::CHANGED_ROWS_AND_FILE_LIST);
+	auto copy_return_types = GetCopyFunctionReturnLogicalTypes(CopyFunctionReturnType::WRITTEN_FILE_STATISTICS);
 	auto physical_copy =
 	    make_uniq<PhysicalCopyToFile>(copy_return_types, copy_fun->function, std::move(function_data), 1);
 
@@ -167,7 +202,7 @@ unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCopyForInsert(ClientContext &c
 	physical_copy->overwrite_mode = CopyOverwriteMode::COPY_OVERWRITE_OR_IGNORE;
 	physical_copy->per_thread_output = false;
 	physical_copy->rotate = false;
-	physical_copy->return_type = CopyFunctionReturnType::CHANGED_ROWS_AND_FILE_LIST;
+	physical_copy->return_type = CopyFunctionReturnType::WRITTEN_FILE_STATISTICS;
 	physical_copy->children.push_back(std::move(plan));
 	physical_copy->names = names_to_write;
 	physical_copy->expected_types = types_to_write;

@@ -17,7 +17,7 @@
 namespace duckdb {
 
 DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,
-                                             vector<string> transaction_local_files_p)
+                                             vector<DuckLakeDataFile> transaction_local_files_p)
     : MultiFileList(vector<string> {}, FileGlobOptions::ALLOW_EMPTY), transaction(transaction), read_info(read_info),
       read_file_list(false), transaction_local_files(std::move(transaction_local_files_p)) {
 }
@@ -73,11 +73,11 @@ WHERE table_id=%d AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_s
 		auto result = transaction.Query(read_info.snapshot, query);
 
 		for (auto &row : *result) {
-			auto file_path = row.GetValue<string>(0);
-			files.push_back(std::move(file_path));
+			files.push_back(row.GetValue<string>(0));
 		}
-		files.insert(files.end(), transaction_local_files.begin(), transaction_local_files.end());
-
+		for(auto &transaction_local_file : transaction_local_files) {
+			files.push_back(transaction_local_file.file_name);
+		}
 		read_file_list = true;
 	}
 	return files;

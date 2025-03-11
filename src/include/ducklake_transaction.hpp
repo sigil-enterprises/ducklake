@@ -13,6 +13,7 @@
 #include "duckdb/main/connection.hpp"
 #include "ducklake_snapshot.hpp"
 #include "ducklake_catalog_set.hpp"
+#include "ducklake_data_file.hpp"
 
 namespace duckdb {
 class DuckLakeCatalog;
@@ -55,8 +56,8 @@ public:
 	optional_ptr<DuckLakeCatalogSet> GetTransactionLocalEntries(CatalogType type, const string &schema_name);
 	optional_ptr<CatalogEntry> GetTransactionLocalEntry(CatalogType catalog_type, const string &schema_name,
 	                                                    const string &entry_name);
-	vector<string> GetTransactionLocalFiles(idx_t table_id);
-	void AppendFiles(idx_t table_id, const vector<string> &files);
+	vector<DuckLakeDataFile> GetTransactionLocalFiles(idx_t table_id);
+	void AppendFiles(idx_t table_id, const vector<DuckLakeDataFile> &files);
 
 	void DropSchema(DuckLakeSchemaEntry &schema);
 	void DropTable(DuckLakeTableEntry &table);
@@ -94,7 +95,7 @@ private:
 	unique_ptr<DuckLakeCatalogSet> new_schemas;
 	unordered_map<idx_t, reference<DuckLakeSchemaEntry>> dropped_schemas;
 	//! Data files added by this transaction
-	unordered_map<idx_t, vector<string>> new_data_files;
+	unordered_map<idx_t, vector<DuckLakeDataFile>> new_data_files;
 };
 
 } // namespace duckdb

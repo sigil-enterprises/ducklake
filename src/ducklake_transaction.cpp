@@ -266,8 +266,8 @@ void DuckLakeTransaction::CleanupFiles() {
 	// remove any files that were written
 	auto &fs = FileSystem::GetFileSystem(db);
 	for (auto &table_entry : new_data_files) {
-		for (auto &file_name : table_entry.second) {
-			fs.RemoveFile(file_name);
+		for (auto &file : table_entry.second) {
+			fs.RemoveFile(file.file_name);
 		}
 	}
 	new_data_files.clear();
@@ -504,8 +504,8 @@ void DuckLakeTransaction::FlushChanges() {
 						}
 						// FIXME: write file statistics
 						data_file_insert_query +=
-						    StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, NULL, %s, 'parquet', NULL, NULL, NULL)",
-						                       commit_snapshot.next_file_id, table_id, SQLString(file));
+						    StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, NULL, %s, 'parquet', %d, %d, %d, NULL)",
+						                       commit_snapshot.next_file_id, table_id, SQLString(file.file_name), file.row_count, file.file_size_bytes, file.footer_size);
 						commit_snapshot.next_file_id++;
 					}
 				}
@@ -519,6 +519,7 @@ void DuckLakeTransaction::FlushChanges() {
 					result->GetErrorObject().Throw("Failed to write data file information to DuckLake:");
 				}
 				// FIXME: write column statistics
+				// FIXME: update global table statistics
 			}
 			// write the new snapshot
 			result = Query(
@@ -622,16 +623,16 @@ idx_t DuckLakeTransaction::GetLocalCatalogId() {
 	return local_catalog_id++;
 }
 
-vector<string> DuckLakeTransaction::GetTransactionLocalFiles(idx_t table_id) {
+vector<DuckLakeDataFile> DuckLakeTransaction::GetTransactionLocalFiles(idx_t table_id) {
 	auto entry = new_data_files.find(table_id);
 	if (entry == new_data_files.end()) {
-		return vector<string>();
+		return vector<DuckLakeDataFile>();
 	} else {
 		return entry->second;
 	}
 }
 
-void DuckLakeTransaction::AppendFiles(idx_t table_id, const vector<string> &files) {
+void DuckLakeTransaction::AppendFiles(idx_t table_id, const vector<DuckLakeDataFile> &files) {
 	auto entry = new_data_files.find(table_id);
 	if (entry != new_data_files.end()) {
 		// already exists - append
