@@ -13,6 +13,9 @@
 #include "duckdb/parser/expression/function_expression.hpp"
 #include "duckdb/planner/table_filter.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
+#include "duckdb/planner/filter/constant_filter.hpp"
+#include "duckdb/planner/filter/conjunction_filter.hpp"
+#include "duckdb/planner/filter/null_filter.hpp"
 
 namespace duckdb {
 
@@ -29,10 +32,46 @@ unique_ptr<MultiFileList> DuckLakeMultiFileList::ComplexFilterPushdown(ClientCon
 	return nullptr;
 }
 
+string GenerateFilterPushdown(const TableFilter &filter, idx_t column_id) {
+	switch(filter.filter_type) {
+	case TableFilterType::CONSTANT_COMPARISON: {
+		auto &constant_filter = filter.Cast<ConstantFilter>();
+
+		break;
+	}
+	case TableFilterType::IS_NULL:
+	case TableFilterType::IS_NOT_NULL:
+	case TableFilterType::CONJUNCTION_OR:
+	case TableFilterType::CONJUNCTION_AND:
+	default:
+		// unsupported filter
+		return string();
+	}
+}
+
 unique_ptr<MultiFileList>
 DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options,
                                              const vector<string> &names, const vector<LogicalType> &types,
                                              const vector<column_t> &column_ids, TableFilterSet &filters) const {
+	return nullptr;
+	string filter;
+	for(auto &entry : filters.filters) {
+		auto column_id = entry.first;
+		// FIXME: handle structs
+		auto table_column_id = column_ids[column_id];
+		auto new_filter = GenerateFilterPushdown(*entry.second, table_column_id);
+		if (new_filter.empty()) {
+			// failed to generate filter for this column
+			continue;
+		}
+		if (!filter.empty()) {
+			filter += " AND ";
+		}
+		filter += new_filter;
+	}
+	if (!filter.empty()) {
+		throw InternalException("Push filter");
+	}
 	return nullptr;
 }
 
@@ -49,7 +88,8 @@ idx_t DuckLakeMultiFileList::GetTotalFileCount() {
 }
 
 unique_ptr<NodeStatistics> DuckLakeMultiFileList::GetCardinality(ClientContext &context) {
-	return nullptr;
+	// FIXME: get cardinality from table stats here...
+	return make_uniq<NodeStatistics>(1);
 }
 
 string DuckLakeMultiFileList::GetFile(idx_t i) {
