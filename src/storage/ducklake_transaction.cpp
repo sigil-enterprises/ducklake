@@ -416,7 +416,7 @@ void DuckLakeTransaction::FlushNewTables(DuckLakeSnapshot &commit_snapshot) {
 				// create the data file tables
 				data_file_tables += StringUtil::Format(R"(
 CREATE TABLE {METADATA_CATALOG}.ducklake_data_file_%d(data_file_id BIGINT PRIMARY KEY, begin_snapshot BIGINT, end_snapshot BIGINT, file_order BIGINT, path VARCHAR, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, partition_id BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_file_column_statistics_%d(data_file_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, value_count BIGINT, null_count BIGINT, nan_count BIGINT, min_value VARCHAR, max_value VARCHAR, PRIMARY KEY (data_file_id, column_id));
+CREATE TABLE {METADATA_CATALOG}.ducklake_file_column_statistics_%d(data_file_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, value_count BIGINT, null_count BIGINT, nan_count BIGINT, min_value VARCHAR, max_value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file_%d(delete_file_id BIGINT PRIMARY KEY, begin_snapshot BIGINT, end_snapshot BIGINT, data_file_id BIGINT, path VARCHAR, delete_count BIGINT, file_size_bytes BIGINT);
 				)",
 				                                       table_id, table_id, table_id);

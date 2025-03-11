@@ -9,6 +9,7 @@
 #include "storage/ducklake_catalog.hpp"
 #include "storage/ducklake_transaction.hpp"
 #include "storage/ducklake_schema_entry.hpp"
+#include "duckdb.hpp"
 
 namespace duckdb {
 
@@ -61,8 +62,8 @@ void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction
 		// if the schema is user provided create it
 		initialize_query += "CREATE SCHEMA IF NOT EXISTS {METADATA_CATALOG};\n";
 	}
-	initialize_query += R"(
-CREATE TABLE {METADATA_CATALOG}.ducklake_info(data_path VARCHAR);
+	initialize_query += StringUtil::Format(R"(
+CREATE TABLE {METADATA_CATALOG}.ducklake_info(version BIGINT, data_path VARCHAR, created_by VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot(snapshot_id BIGINT PRIMARY KEY, snapshot_time TIMESTAMPTZ, schema_version BIGINT, next_catalog_id BIGINT, next_file_id BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot_changes(snapshot_id BIGINT PRIMARY KEY, schemas_created VARCHAR, schemas_dropped VARCHAR, tables_created VARCHAR, tables_dropped VARCHAR, tables_altered VARCHAR, tables_inserted_into VARCHAR, tables_deleted_from VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_schema(schema_id BIGINT PRIMARY KEY, schema_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_name VARCHAR);
@@ -70,10 +71,10 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_table(table_id BIGINT, table_uuid UUID,
 CREATE TABLE {METADATA_CATALOG}.ducklake_table_statistics(table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, record_count BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_table_column_statistics(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, null_count BIGINT, lower_bound VARCHAR, upper_bound VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_column(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, column_order BIGINT, column_name VARCHAR, column_type VARCHAR, default_value VARCHAR);
-INSERT INTO {METADATA_CATALOG}.ducklake_info VALUES ({DATA_PATH});
+INSERT INTO {METADATA_CATALOG}.ducklake_info VALUES (1, {DATA_PATH}, 'DuckDB %s');
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
 INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main');
-	)";
+	)", DuckDB::SourceID());
 	// TODO: add
 	//	ducklake_partition_info
 	//	ducklake_partition_column_info
