@@ -358,8 +358,8 @@ void DuckLakeTransaction::FlushNewSchemas(DuckLakeSnapshot &commit_snapshot) {
 		if (!schema_insert_sql.empty()) {
 			schema_insert_sql += ",";
 		}
-		schema_insert_sql += StringUtil::Format("(%d, '%s', {SNAPSHOT_ID}, NULL, %s)",
-			schema_id, schema_entry.GetSchemaUUID(), SQLString(schema_entry.name));
+		schema_insert_sql += StringUtil::Format("(%d, '%s', {SNAPSHOT_ID}, NULL, %s)", schema_id,
+		                                        schema_entry.GetSchemaUUID(), SQLString(schema_entry.name));
 
 		// set the schema id of this schema entry so subsequent tables are written correctly
 		schema_entry.SetSchemaId(schema_id);
@@ -368,6 +368,73 @@ void DuckLakeTransaction::FlushNewSchemas(DuckLakeSnapshot &commit_snapshot) {
 	auto result = Query(commit_snapshot, schema_insert_sql);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write new schemas to DuckLake:");
+	}
+}
+
+void DuckLakeTransaction::FlushNewTables(DuckLakeSnapshot &commit_snapshot) {
+	if (new_tables.empty()) {
+		return;
+	}
+	string table_insert_sql;
+	string column_insert_sql;
+	for (auto &schema_entry : new_tables) {
+		for (auto &entry : schema_entry.second->GetEntries()) {
+			// write any new tables that we created
+			auto &table = entry.second->Cast<DuckLakeTableEntry>();
+			auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
+			auto original_id = table.GetTableId();
+			idx_t table_id;
+			bool is_new_table;
+			if (IsTransactionLocal(original_id)) {
+				table_id = commit_snapshot.next_catalog_id++;
+				is_new_table = true;
+			} else {
+				// this table already has an id - keep it
+				// this happens if e.g. this table is renamed
+				table_id = original_id;
+				is_new_table = false;
+			}
+			if (!table_insert_sql.empty()) {
+				table_insert_sql += ", ";
+			}
+			table_insert_sql += StringUtil::Format("(%d, '%s', {SNAPSHOT_ID}, NULL, %d, %s)", table_id,
+			                                       table.GetTableUUID(), schema.GetSchemaId(), SQLString(table.name));
+			if (is_new_table) {
+				// if this is a new table - write the columns
+				idx_t column_id = 0;
+				for (auto &col : table.GetColumns().Logical()) {
+					if (!column_insert_sql.empty()) {
+						column_insert_sql += ", ";
+					}
+					column_insert_sql += StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, NULL)",
+					                                        column_id, table_id, column_id, SQLString(col.GetName()),
+					                                        SQLString(DuckLakeTypes::ToString(col.GetType())));
+				}
+
+				// if we have written any data to this table - move them to the new (correct) table id as well
+				auto data_file_entry = new_data_files.find(original_id);
+				if (data_file_entry != new_data_files.end()) {
+					new_data_files[table_id] = std::move(data_file_entry->second);
+					new_data_files.erase(original_id);
+				}
+			}
+		}
+	}
+	if (table_insert_sql.empty()) {
+		return;
+	}
+	table_insert_sql = "INSERT INTO {METADATA_CATALOG}.ducklake_table VALUES " + table_insert_sql;
+	auto result = Query(commit_snapshot, table_insert_sql);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to write new table to DuckLake:");
+	}
+	if (column_insert_sql.empty()) {
+		return;
+	}
+	column_insert_sql = "INSERT INTO {METADATA_CATALOG}.ducklake_column VALUES " + column_insert_sql;
+	result = Query(commit_snapshot, column_insert_sql);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to write column information to DuckLake:");
 	}
 }
 
@@ -408,58 +475,8 @@ void DuckLakeTransaction::FlushChanges() {
 			FlushNewSchemas(commit_snapshot);
 
 			// write new tables
-			for (auto &schema_entry : new_tables) {
-				for (auto &entry : schema_entry.second->GetEntries()) {
-					// write any new tables that we created
-					auto &table = entry.second->Cast<DuckLakeTableEntry>();
-					auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
-					auto original_id = table.GetTableId();
-					idx_t table_id;
-					bool is_new_table;
-					if (IsTransactionLocal(original_id)) {
-						table_id = commit_snapshot.next_catalog_id++;
-						is_new_table = true;
-					} else {
-						// this table already has an id - keep it
-						// this happens if e.g. this table is renamed
-						table_id = original_id;
-						is_new_table = false;
-					}
-					auto table_insert_query = StringUtil::Format(
-					    R"(INSERT INTO {METADATA_CATALOG}.ducklake_table VALUES (%d, '%s', {SNAPSHOT_ID}, NULL, %d, %s);)",
-					    table_id, table.GetTableUUID(), schema.GetSchemaId(), SQLString(table.name));
-					result = Query(commit_snapshot, table_insert_query);
-					if (result->HasError()) {
-						result->GetErrorObject().Throw("Failed to write new table to DuckLake:");
-					}
-					if (is_new_table) {
-						// if this is a new table - write the columns
-						string column_insert_query;
-						idx_t column_id = 0;
-						for (auto &col : table.GetColumns().Logical()) {
-							if (!column_insert_query.empty()) {
-								column_insert_query += ", ";
-							}
-							column_insert_query += StringUtil::Format(
-							    "(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, NULL)", column_id, table_id, column_id,
-							    SQLString(col.GetName()), SQLString(DuckLakeTypes::ToString(col.GetType())));
-						}
-						column_insert_query =
-						    "INSERT INTO {METADATA_CATALOG}.ducklake_column VALUES " + column_insert_query;
-						result = Query(commit_snapshot, column_insert_query);
-						if (result->HasError()) {
-							result->GetErrorObject().Throw("Failed to write column information to DuckLake:");
-						}
+			FlushNewTables(commit_snapshot);
 
-						// if we have written any data to this table - move them to the new (correct) table id as well
-						auto data_file_entry = new_data_files.find(original_id);
-						if (data_file_entry != new_data_files.end()) {
-							new_data_files[table_id] = std::move(data_file_entry->second);
-							new_data_files.erase(original_id);
-						}
-					}
-				}
-			}
 			// write new data files
 			if (!new_data_files.empty()) {
 				string data_file_insert_query;
