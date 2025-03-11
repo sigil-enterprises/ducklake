@@ -27,7 +27,7 @@ struct DuckLakeDataFile {
 	idx_t row_count;
 	idx_t file_size_bytes;
 	idx_t footer_size;
-	case_insensitive_map_t<DuckLakeColumnStats> column_stats;
+	map<idx_t, DuckLakeColumnStats> column_stats;
 };
 
 } // namespace duckdb

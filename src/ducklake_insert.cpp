@@ -2,6 +2,7 @@
 #include "ducklake_insert.hpp"
 #include "ducklake_table_entry.hpp"
 #include "ducklake_transaction.hpp"
+#include "ducklake_util.hpp"
 
 #include "duckdb/catalog/catalog_entry/copy_function_catalog_entry.hpp"
 #include "duckdb/execution/operator/projection/physical_projection.hpp"
@@ -30,14 +31,26 @@ DuckLakeInsert::DuckLakeInsert(LogicalOperator &op, SchemaCatalogEntry &schema, 
 //===--------------------------------------------------------------------===//
 class DuckLakeInsertGlobalState : public GlobalSinkState {
 public:
-	explicit DuckLakeInsertGlobalState() : total_insert_count(0) {
+	explicit DuckLakeInsertGlobalState(DuckLakeTableEntry &table) : table(table), total_insert_count(0) {
 	}
+
+	DuckLakeTableEntry &table;
 	vector<DuckLakeDataFile> written_files;
 	idx_t total_insert_count;
 };
 
 unique_ptr<GlobalSinkState> DuckLakeInsert::GetGlobalSinkState(ClientContext &context) const {
-	return make_uniq<DuckLakeInsertGlobalState>();
+	optional_ptr<DuckLakeTableEntry> table_ptr;
+	if (info) {
+		// CREATE TABLE AS - create the table
+		auto &catalog = schema->catalog;
+		table_ptr = &catalog.CreateTable(catalog.GetCatalogTransaction(context), *schema.get_mutable(), *info)
+		                 ->Cast<DuckLakeTableEntry>();
+	} else {
+		// INSERT INTO
+		table_ptr = table;
+	}
+	return make_uniq<DuckLakeInsertGlobalState>(*table_ptr);
 }
 
 //
@@ -56,7 +69,7 @@ SinkResultType DuckLakeInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 		                        "should be its Source");
 	}
 
-	for(idx_t r = 0; r < chunk.size(); r++) {
+	for (idx_t r = 0; r < chunk.size(); r++) {
 		DuckLakeDataFile data_file;
 		data_file.file_name = chunk.GetValue(0, r).GetValue<string>();
 		data_file.row_count = chunk.GetValue(1, r).GetValue<idx_t>();
@@ -66,12 +79,12 @@ SinkResultType DuckLakeInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 		// extract the column stats
 		auto column_stats = chunk.GetValue(5, r);
 		auto &map_children = MapValue::GetChildren(column_stats);
-		for(idx_t col_idx = 0; col_idx < map_children.size(); col_idx++) {
+		for (idx_t col_idx = 0; col_idx < map_children.size(); col_idx++) {
 			DuckLakeColumnStats column_stats;
 			auto &struct_children = StructValue::GetChildren(map_children[col_idx]);
 			auto &col_name = StringValue::Get(struct_children[0]);
 			auto &col_stats = MapValue::GetChildren(struct_children[1]);
-			for(idx_t stats_idx = 0; stats_idx < col_stats.size(); stats_idx++) {
+			for (idx_t stats_idx = 0; stats_idx < col_stats.size(); stats_idx++) {
 				auto &stats_children = StructValue::GetChildren(col_stats[stats_idx]);
 				auto &stats_name = StringValue::Get(stats_children[0]);
 				auto &stats_value = StringValue::Get(stats_children[1]);
@@ -91,7 +104,13 @@ SinkResultType DuckLakeInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 					throw NotImplementedException("Unsupported stats type in DuckLakeInsert::Sink()");
 				}
 			}
-			data_file.column_stats.insert(make_pair(col_name, std::move(column_stats)));
+			auto column_names = DuckLakeUtil::ParseQuotedList(col_name, '.');
+			if (column_names.size() != 1) {
+				// FIXME: handle nested types
+				continue;
+			}
+			auto &column_def = global_state.table.GetColumn(column_names[0]);
+			data_file.column_stats.insert(make_pair(column_def.Oid(), std::move(column_stats)));
 		}
 
 		global_state.written_files.push_back(std::move(data_file));
@@ -119,16 +138,8 @@ SinkFinalizeType DuckLakeInsert::Finalize(Pipeline &pipeline, Event &event, Clie
                                           OperatorSinkFinalizeInput &input) const {
 	auto &global_state = input.global_state.Cast<DuckLakeInsertGlobalState>();
 
-	optional_ptr<DuckLakeTableEntry> table_ptr;
-	if (info) {
-		auto &catalog = schema->catalog;
-		table_ptr = &catalog.CreateTable(catalog.GetCatalogTransaction(context), *schema.get_mutable(), *info)
-		                 ->Cast<DuckLakeTableEntry>();
-	} else {
-		table_ptr = table;
-	}
-	auto &transaction = DuckLakeTransaction::Get(context, table_ptr->catalog);
-	transaction.AppendFiles(table_ptr->GetTableId(), global_state.written_files);
+	auto &transaction = DuckLakeTransaction::Get(context, global_state.table.catalog);
+	transaction.AppendFiles(global_state.table.GetTableId(), global_state.written_files);
 
 	return SinkFinalizeType::READY;
 }

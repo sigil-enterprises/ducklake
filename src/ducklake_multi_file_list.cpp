@@ -75,7 +75,7 @@ WHERE table_id=%d AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_s
 		for (auto &row : *result) {
 			files.push_back(row.GetValue<string>(0));
 		}
-		for(auto &transaction_local_file : transaction_local_files) {
+		for (auto &transaction_local_file : transaction_local_files) {
 			files.push_back(transaction_local_file.file_name);
 		}
 		read_file_list = true;

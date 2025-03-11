@@ -5,6 +5,7 @@
 #include "ducklake_table_entry.hpp"
 #include "ducklake_types.hpp"
 #include "duckdb/main/attached_database.hpp"
+#include "ducklake_util.hpp"
 
 namespace duckdb {
 
@@ -175,47 +176,6 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 	}
 }
 
-string ParseQuotedValue(const string &input, idx_t &pos) {
-	if (pos >= input.size() || input[pos] != '"') {
-		throw InvalidInputException("Failed to parse quoted value - expected a quote");
-	}
-	string result;
-	pos++;
-	for (; pos < input.size(); pos++) {
-		if (input[pos] == '"') {
-			pos++;
-			// check if this is an escaped quote
-			if (pos < input.size() && input[pos] == '"') {
-				// escaped quote
-				result += '"';
-				continue;
-			}
-			return result;
-		}
-		result += input[pos];
-	}
-	throw InvalidInputException("Failed to parse quoted value - unterminated quote");
-}
-
-vector<string> ParseSchemaList(const string &input) {
-	vector<string> result;
-	if (input.empty()) {
-		return result;
-	}
-	idx_t pos = 0;
-	while (true) {
-		result.push_back(ParseQuotedValue(input, pos));
-		if (pos >= input.size()) {
-			break;
-		}
-		if (input[pos] != ',') {
-			throw InvalidInputException("Failed to parse schema list - expected a comma");
-		}
-		pos++;
-	}
-	return result;
-}
-
 struct ParsedTableInfo {
 	string schema;
 	string table;
@@ -229,12 +189,12 @@ vector<ParsedTableInfo> ParseTableList(const string &input) {
 	idx_t pos = 0;
 	while (true) {
 		ParsedTableInfo table_data;
-		table_data.schema = ParseQuotedValue(input, pos);
+		table_data.schema = DuckLakeUtil::ParseQuotedValue(input, pos);
 		if (pos >= input.size() || input[pos] != '.') {
 			throw InvalidInputException("Failed to parse table list - expected a dot");
 		}
 		pos++;
-		table_data.table = ParseQuotedValue(input, pos);
+		table_data.table = DuckLakeUtil::ParseQuotedValue(input, pos);
 		result.push_back(std::move(table_data));
 		if (pos >= input.size()) {
 			break;
@@ -372,7 +332,7 @@ void DuckLakeTransaction::CheckForConflicts(DuckLakeSnapshot transaction_snapsho
 		auto created_tables = row.GetValue<string>(2);
 		auto dropped_tables = row.GetValue<string>(3);
 
-		auto created_schema_list = ParseSchemaList(created_schemas);
+		auto created_schema_list = DuckLakeUtil::ParseQuotedList(created_schemas);
 		for (auto &created_schema : created_schema_list) {
 			other_changes.created_schemas.insert(created_schema);
 		}
@@ -493,6 +453,7 @@ void DuckLakeTransaction::FlushChanges() {
 			// write new data files
 			if (!new_data_files.empty()) {
 				string data_file_insert_query;
+				string column_stats_insert_query;
 				// 	CREATE TABLE ducklake_data_file(data_file_id BIGINT PRIMARY KEY, begin_snapshot BIGINT, end_snapshot
 				// BIGINT, table_id BIGINT, file_order BIGINT, path VARCHAR, file_format VARCHAR, record_count BIGINT,
 				// file_size_bytes BIGINT, partition_id BIGINT);
@@ -502,23 +463,55 @@ void DuckLakeTransaction::FlushChanges() {
 						if (!data_file_insert_query.empty()) {
 							data_file_insert_query += ",";
 						}
-						// FIXME: write file statistics
-						data_file_insert_query +=
-						    StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, NULL, %s, 'parquet', %d, %d, %d, NULL)",
-						                       commit_snapshot.next_file_id, table_id, SQLString(file.file_name), file.row_count, file.file_size_bytes, file.footer_size);
-						commit_snapshot.next_file_id++;
+						auto file_id = commit_snapshot.next_file_id++;
+						data_file_insert_query += StringUtil::Format(
+						    "(%d, {SNAPSHOT_ID}, NULL, %d, NULL, %s, 'parquet', %d, %d, %d, NULL)", file_id, table_id,
+						    SQLString(file.file_name), file.row_count, file.file_size_bytes, file.footer_size);
+
+						// CREATE TABLE ducklake_file_column_statistics(data_file_id BIGINT, column_id BIGINT,
+						// column_size_bytes BIGINT, value_count BIGINT, null_count BIGINT, nan_count BIGINT, min_value
+						// VARCHAR, max_value VARCHAR);
+						// write the column statistics for this file
+						for (auto &column_stats_entry : file.column_stats) {
+							if (!column_stats_insert_query.empty()) {
+								column_stats_insert_query += ",";
+							}
+							auto column_id = column_stats_entry.first;
+							auto &stats = column_stats_entry.second;
+							string min_val = stats.has_min ? DuckLakeUtil::SQLLiteralToString(stats.min) : "NULL";
+							string max_val = stats.has_max ? DuckLakeUtil::SQLLiteralToString(stats.max) : "NULL";
+							string value_count, null_count;
+							if (stats.has_null_count) {
+								value_count = to_string(file.row_count - stats.null_count);
+								null_count = to_string(stats.null_count);
+							} else {
+								value_count = "NULL";
+								null_count = "NULL";
+							}
+							column_stats_insert_query +=
+							    StringUtil::Format("(%d, %d, NULL, %s, %s, NULL, %s, %s)", file_id, column_id,
+							                       value_count, null_count, min_val, max_val);
+						}
+						// FIXME update the global stats for the table
 					}
 				}
 				if (data_file_insert_query.empty()) {
 					throw InternalException("No files found!?");
 				}
+				// insert the data files
 				data_file_insert_query =
 				    "INSERT INTO {METADATA_CATALOG}.ducklake_data_file VALUES " + data_file_insert_query;
 				result = Query(commit_snapshot, data_file_insert_query);
 				if (result->HasError()) {
 					result->GetErrorObject().Throw("Failed to write data file information to DuckLake:");
 				}
-				// FIXME: write column statistics
+				// insert the column stats
+				column_stats_insert_query = "INSERT INTO {METADATA_CATALOG}.ducklake_file_column_statistics VALUES " +
+				                            column_stats_insert_query;
+				result = Query(commit_snapshot, column_stats_insert_query);
+				if (result->HasError()) {
+					result->GetErrorObject().Throw("Failed to write column stats information to DuckLake:");
+				}
 				// FIXME: update global table statistics
 			}
 			// write the new snapshot
@@ -555,22 +548,14 @@ void DuckLakeTransaction::FlushChanges() {
 	}
 }
 
-string SQLIdentifierToString(const string &text) {
-	return "\"" + StringUtil::Replace(text, "\"", "\"\"") + "\"";
-}
-
-string SQLLiteralToString(const string &text) {
-	return "'" + StringUtil::Replace(text, "'", "''") + "'";
-}
-
 unique_ptr<QueryResult> DuckLakeTransaction::Query(string query) {
 	auto &connection = GetConnection();
-	auto catalog_identifier = SQLIdentifierToString(ducklake_catalog.MetadataDatabaseName());
-	auto catalog_literal = SQLLiteralToString(ducklake_catalog.MetadataDatabaseName());
-	auto schema_identifier = SQLIdentifierToString(ducklake_catalog.MetadataSchemaName());
-	auto schema_literal = SQLLiteralToString(ducklake_catalog.MetadataSchemaName());
-	auto metadata_path = SQLLiteralToString(ducklake_catalog.MetadataPath());
-	auto data_path = SQLLiteralToString(ducklake_catalog.DataPath());
+	auto catalog_identifier = DuckLakeUtil::SQLIdentifierToString(ducklake_catalog.MetadataDatabaseName());
+	auto catalog_literal = DuckLakeUtil::SQLLiteralToString(ducklake_catalog.MetadataDatabaseName());
+	auto schema_identifier = DuckLakeUtil::SQLIdentifierToString(ducklake_catalog.MetadataSchemaName());
+	auto schema_literal = DuckLakeUtil::SQLLiteralToString(ducklake_catalog.MetadataSchemaName());
+	auto metadata_path = DuckLakeUtil::SQLLiteralToString(ducklake_catalog.MetadataPath());
+	auto data_path = DuckLakeUtil::SQLLiteralToString(ducklake_catalog.DataPath());
 
 	query = StringUtil::Replace(query, "{METADATA_CATALOG_NAME_LITERAL}", catalog_literal);
 	query = StringUtil::Replace(query, "{METADATA_CATALOG_NAME_IDENTIFIER}", catalog_identifier);
