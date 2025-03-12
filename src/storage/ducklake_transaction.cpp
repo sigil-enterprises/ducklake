@@ -372,7 +372,45 @@ void DuckLakeTransaction::FlushNewSchemas(DuckLakeSnapshot &commit_snapshot) {
 }
 
 void DuckLakeTransaction::FlushNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table) {
-	throw InternalException("FIXME: write DuckLakePartition to file");
+	// set old partition data as no longer valid
+	auto update_partition_query = StringUtil::Format(R"(
+UPDATE {METADATA_CATALOG}.ducklake_partition_info
+SET end_snapshot = {SNAPSHOT_ID}
+WHERE table_id = %d AND end_snapshot IS NULL)", table.GetTableId());
+	auto result = Query(commit_snapshot, update_partition_query);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to update old partition information in DuckLake:");
+	}
+	// insert the new partition data
+	auto partition_data = table.GetPartitionData();
+	if (!partition_data) {
+		// dropping partition data - we don't need to do anything
+		return;
+	}
+	partition_data->partition_id = commit_snapshot.next_catalog_id++;
+	auto new_partition_data_query = StringUtil::Format(R"(
+INSERT INTO {METADATA_CATALOG}.ducklake_partition_info
+VALUES (%d, %d, {SNAPSHOT_ID}, NULL);)", partition_data->partition_id, table.GetTableId());
+	result = Query(commit_snapshot, new_partition_data_query);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to insert new partition information in DuckLake:");
+	}
+	string insert_partition_cols;
+	for(auto &field : partition_data->fields) {
+		if (!insert_partition_cols.empty()) {
+			insert_partition_cols += ", ";
+		}
+		if (field.transform.type != DuckLakeTransformType::IDENTITY) {
+			throw NotImplementedException("FIXME: non-identity transform");
+		}
+		insert_partition_cols += StringUtil::Format("(%d, %d, %d, 'identity')", partition_data->partition_id, field.partition_key_index, field.column_id);
+	}
+	insert_partition_cols = "INSERT INTO {METADATA_CATALOG}.ducklake_partition_columns VALUES " + insert_partition_cols;
+
+	result = Query(commit_snapshot, insert_partition_cols);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to insert new partition information in DuckLake:");
+	}
 }
 
 void DuckLakeTransaction::FlushNewTables(DuckLakeSnapshot &commit_snapshot) {

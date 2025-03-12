@@ -9,6 +9,7 @@
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
+#include "duckdb/parser/expression/columnref_expression.hpp"
 
 namespace duckdb {
 
@@ -63,6 +64,10 @@ TableFunction DuckLakeTableEntry::GetScanFunction(ClientContext &context, unique
 	return function;
 }
 
+void DuckLakeTableEntry::SetPartitionData(unique_ptr<DuckLakePartition> partition_data_p) {
+	partition_data = std::move(partition_data_p);
+}
+
 optional_ptr<DuckLakeTableStats> DuckLakeTableEntry::GetTableStats(ClientContext &context) {
 	if (IsTransactionLocal()) {
 		// no stats for transaction local tables
@@ -81,13 +86,34 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	return make_uniq<DuckLakeTableEntry>(*this, table_info);
 }
 
+DuckLakePartitionField GetPartitionField(DuckLakeTableEntry &table, ParsedExpression &expr) {
+	if (expr.type != ExpressionType::COLUMN_REF) {
+		throw NotImplementedException("Unsupported partition key %s - only columns are supported", expr.ToString());
+	}
+	auto &colref = expr.Cast<ColumnRefExpression>();
+	if (colref.IsQualified()) {
+		throw InvalidInputException("Unexpected qualified column reference - only columns are supported");
+	}
+	DuckLakePartitionField field;
+	auto &col = table.GetColumn(colref.GetColumnName());
+	field.column_id = col.Oid();
+	field.transform.type = DuckLakeTransformType::IDENTITY;
+	return field;
+}
+
 unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, SetPartitionedByInfo &info) {
 	auto create_info = GetInfo();
 	auto &table_info = create_info->Cast<CreateTableInfo>();
 	// create a complete copy of this table with the partition info added
-	auto new_entry = make_uniq<DuckLakeTableEntry>(ParentCatalog(), ParentSchema(), table_info, GetTableId(), GetTableUUID(),
-										 TransactionLocalChange::SET_PARTITION_KEY);
-	throw InternalException("FIXME: create DuckLakePartition from the SetPartitionedByInfo");
+	auto partition_data = make_uniq<DuckLakePartition>();
+	for(idx_t expr_idx = 0; expr_idx < info.partition_keys.size(); expr_idx++) {
+		auto &expr = *info.partition_keys[expr_idx];
+		auto partition_field = GetPartitionField(*this, expr);
+		partition_field.partition_key_index = expr_idx;
+		partition_data->fields.push_back(partition_field);
+	}
+
+	auto new_entry = make_uniq<DuckLakeTableEntry>(*this, table_info, std::move(partition_data));
 	return std::move(new_entry);
 }
 

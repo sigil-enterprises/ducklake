@@ -259,19 +259,52 @@ ORDER BY table_id, column_order
 
 	// load partition information
 	result = transaction.Query(snapshot, R"(
-SELECT partition_id, table_id, column_id, transform
+SELECT partition_id, table_id, partition_key_index, column_id, transform
 FROM {METADATA_CATALOG}.ducklake_partition_info part
 JOIN {METADATA_CATALOG}.ducklake_partition_columns part_col USING (partition_id)
 WHERE {SNAPSHOT_ID} >= part.begin_snapshot AND ({SNAPSHOT_ID} < part.end_snapshot OR part.end_snapshot IS NULL)
-ORDER BY partition_id, partition_key_index
+ORDER BY table_id, partition_id, partition_key_index
 )");
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to get partition information from DuckLake: ");
 	}
+	struct LoadedPartitionEntry {
+		idx_t table_id;
+		unique_ptr<DuckLakePartition> partition;
+	};
+	vector<LoadedPartitionEntry> loaded_partitions;
 	for (auto &row : *result) {
-		throw NotImplementedException("Load partitions");
-	}
+		auto partition_id = row.GetValue<uint64_t>(0);
+		auto table_id = row.GetValue<uint64_t>(1);
 
+		if (loaded_partitions.empty() || loaded_partitions.back().table_id != table_id) {
+			LoadedPartitionEntry entry;
+			entry.table_id = table_id;
+			entry.partition = make_uniq<DuckLakePartition>();
+			entry.partition->partition_id = partition_id;
+			loaded_partitions.push_back(std::move(entry));
+		}
+		auto &partition_entry = loaded_partitions.back();
+
+		DuckLakePartitionField partition_field;
+		partition_field.partition_key_index = row.GetValue<uint64_t>(2);
+		partition_field.column_id = row.GetValue<uint64_t>(3);
+		auto transform = row.GetValue<string>(4);
+		if (transform != "identity") {
+			throw NotImplementedException("Unsupported transform found in DuckLake: %s", transform);
+		}
+		partition_field.transform.type = DuckLakeTransformType::IDENTITY;
+		partition_entry.partition->fields.push_back(std::move(partition_field));
+	}
+	// flush the partition entries
+	for (auto &entry : loaded_partitions) {
+		auto table = schema_set->GetEntryById(entry.table_id);
+		if (!table || table->type != CatalogType::TABLE_ENTRY) {
+			throw InvalidInputException("Could not find matching table for partition entry");
+		}
+		auto &ducklake_table = table->Cast<DuckLakeTableEntry>();
+		ducklake_table.SetPartitionData(std::move(entry.partition));
+	}
 	return schema_set;
 }
 

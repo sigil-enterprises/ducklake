@@ -23,13 +23,13 @@ struct DuckLakeTransform {
 };
 
 struct DuckLakePartitionField {
-	idx_t partition_key_index;
+	idx_t partition_key_index = 0;
 	idx_t column_id;
 	DuckLakeTransform transform;
 };
 
 struct DuckLakePartition {
-	idx_t partition_id;
+	idx_t partition_id = 0;
 	vector<DuckLakePartitionField> fields;
 };
 

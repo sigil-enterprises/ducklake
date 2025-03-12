@@ -200,6 +200,9 @@ unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCopyForInsert(ClientContext &c
 	auto types_to_write = columns.GetColumnTypes();
 
 	auto function_data = copy_fun->function.copy_to_bind(context, bind_input, names_to_write, types_to_write);
+	if (partition_data) {
+		throw InternalException("FIXME: write partitioned data");
+	}
 
 	auto copy_return_types = GetCopyFunctionReturnLogicalTypes(CopyFunctionReturnType::WRITTEN_FILE_STATISTICS);
 	auto physical_copy =
