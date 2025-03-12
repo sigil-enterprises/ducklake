@@ -43,7 +43,6 @@ struct DuckLakeMultiFileReader : public MultiFileReader {
 	void BindOptions(MultiFileReaderOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
 	                 vector<string> &names, MultiFileReaderBindData &bind_data) override;
 
-private:
 	DuckLakeFunctionInfo &read_info;
 };
 

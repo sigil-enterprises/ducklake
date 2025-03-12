@@ -10,6 +10,7 @@
 
 #include "duckdb/catalog/catalog.hpp"
 #include "storage/ducklake_catalog_set.hpp"
+#include "storage/ducklake_stats.hpp"
 
 namespace duckdb {
 class ColumnList;
@@ -62,6 +63,7 @@ public:
 	                                            unique_ptr<LogicalOperator> plan) override;
 
 	DatabaseSize GetDatabaseSize(ClientContext &context) override;
+	optional_ptr<DuckLakeTableStats> GetTableStats(ClientContext &context, idx_t table_id);
 
 	bool InMemory() override;
 	string GetDBPath() override;
@@ -74,10 +76,15 @@ private:
 	unique_ptr<DuckLakeCatalogSet> LoadSchemaForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
 	unique_ptr<PhysicalOperator> PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
 	                                               unique_ptr<PhysicalOperator> plan);
+	DuckLakeStats &GetStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
+	unique_ptr<DuckLakeStats> LoadStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
 
 private:
 	mutex schemas_lock;
+	//! Map of schema index -> schema
 	unordered_map<idx_t, unique_ptr<DuckLakeCatalogSet>> schemas;
+	//! Map of data file index -> table stats
+	unordered_map<idx_t, unique_ptr<DuckLakeStats>> stats;
 	string metadata_database;
 	string metadata_path;
 	string data_path;

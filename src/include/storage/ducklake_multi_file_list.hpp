@@ -34,6 +34,7 @@ public:
 	FileExpandResult GetExpandResult() override;
 	idx_t GetTotalFileCount() override;
 	unique_ptr<NodeStatistics> GetCardinality(ClientContext &context) override;
+	DuckLakeTableEntry &GetTable();
 
 protected:
 	//! Get the i-th expanded file

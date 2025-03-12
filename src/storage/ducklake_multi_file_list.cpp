@@ -206,6 +206,10 @@ unique_ptr<NodeStatistics> DuckLakeMultiFileList::GetCardinality(ClientContext &
 	return make_uniq<NodeStatistics>(1);
 }
 
+DuckLakeTableEntry &DuckLakeMultiFileList::GetTable() {
+	return read_info.table;
+}
+
 string DuckLakeMultiFileList::GetFile(idx_t i) {
 	auto &files = GetFiles();
 	if (i < files.size()) {

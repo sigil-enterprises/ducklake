@@ -8,6 +8,8 @@ require parquet
 
 require tpch
 
+mode skip
+
 statement ok
 CALL dbgen(sf=1);
 

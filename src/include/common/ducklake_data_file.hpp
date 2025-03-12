@@ -8,23 +8,9 @@
 
 #pragma once
 
-#include "duckdb/common/case_insensitive_map.hpp"
-#include "duckdb/common/common.hpp"
+#include "storage/ducklake_stats.hpp"
 
 namespace duckdb {
-
-struct DuckLakeColumnStats {
-	explicit DuckLakeColumnStats(LogicalType type_p) : type(std::move(type_p)) {
-	}
-
-	LogicalType type;
-	string min;
-	string max;
-	idx_t null_count = 0;
-	bool has_min = false;
-	bool has_max = false;
-	bool has_null_count = false;
-};
 
 struct DuckLakeDataFile {
 	string file_name;

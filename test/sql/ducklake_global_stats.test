@@ -1,0 +1,46 @@
+# name: test/sql/ducklake_global_stats.test
+# description: Test global stats
+# group: [ducklake]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_global_stats.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_global_stats', METADATA_CATALOG 'ducklake_meta')
+
+# test tracking of stats
+statement ok
+CREATE TABLE ducklake.test(i INTEGER);
+
+statement ok
+INSERT INTO ducklake.test VALUES (42);
+
+query I
+SELECT stats(i) FROM ducklake.test LIMIT 1
+----
+<REGEX>:.*Min.*42.*Max.*42.*Has Null.*false.*
+
+statement ok
+INSERT INTO ducklake.test VALUES (84)
+
+query I
+SELECT stats(i) FROM ducklake.test LIMIT 1
+----
+<REGEX>:.*Min.*42.*Max.*84.*Has Null.*false.*
+
+statement ok
+INSERT INTO ducklake.test VALUES (NULL)
+
+query I
+SELECT stats(i) FROM ducklake.test LIMIT 1
+----
+<REGEX>:.*Min.*42.*Max.*84.*Has Null.*true.*
+
+# multiple inserts
+# insert null values
+# dates/timestamps
+# strings
+
+
+# transaction-local stats

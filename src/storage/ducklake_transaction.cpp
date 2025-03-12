@@ -411,6 +411,7 @@ void DuckLakeTransaction::FlushNewTables(DuckLakeSnapshot &commit_snapshot) {
 					column_insert_sql += StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, NULL)",
 					                                        column_id, table_id, column_id, SQLString(col.GetName()),
 					                                        SQLString(DuckLakeTypes::ToString(col.GetType())));
+					column_id++;
 				}
 				// if we have written any data to this table - move them to the new (correct) table id as well
 				auto data_file_entry = new_data_files.find(original_id);
@@ -446,59 +447,10 @@ void DuckLakeTransaction::FlushNewTables(DuckLakeSnapshot &commit_snapshot) {
 	}
 }
 
-void DuckLakeTableStats::MergeStats(idx_t col_id, const DuckLakeColumnStats &file_stats) {
-	auto entry = column_stats.find(col_id);
-	if (entry == column_stats.end()) {
-		column_stats.insert(make_pair(col_id, file_stats));
-		return;
-	}
-	// merge the stats
-	auto &current_stats = entry->second;
-	if (!file_stats.has_null_count) {
-		current_stats.has_null_count = false;
-	} else if (current_stats.has_null_count) {
-		// both stats have a null count - add them up
-		current_stats.null_count += file_stats.null_count;
-	}
-
-	if (!file_stats.has_min) {
-		current_stats.has_min = false;
-	} else if (current_stats.has_min) {
-		// both stats have a min - select the smallest
-		if (current_stats.type.IsNumeric()) {
-			// for numerics we need to parse the stats
-			auto current_min = Value(current_stats.min).DefaultCastAs(current_stats.type);
-			auto new_min = Value(file_stats.min).DefaultCastAs(current_stats.type);
-			if (new_min < current_min) {
-				current_stats.min = file_stats.min;
-			}
-		} else if (file_stats.min < current_stats.min) {
-			// for other types we can compare the strings directly
-			current_stats.min = file_stats.min;
-		}
-	}
-
-	if (!file_stats.has_max) {
-		current_stats.has_max = false;
-	} else if (current_stats.has_max) {
-		// both stats have a min - select the smallest
-		if (current_stats.type.IsNumeric()) {
-			// for numerics we need to parse the stats
-			auto current_min = Value(current_stats.max).DefaultCastAs(current_stats.type);
-			auto new_min = Value(file_stats.max).DefaultCastAs(current_stats.type);
-			if (new_min > current_min) {
-				current_stats.max = file_stats.max;
-			}
-		} else if (file_stats.max > current_stats.max) {
-			// for other types we can compare the strings directly
-			current_stats.max = file_stats.max;
-		}
-	}
-}
-
 void DuckLakeTransaction::UpdateGlobalTableStats(DuckLakeSnapshot commit_snapshot, idx_t table_id,
                                                  DuckLakeTableStats new_stats) {
-	// first load the latest stats (if any)
+    // FIXME: use LoadStatsForSnapshot on the catalog
+   	// first load the latest stats (if any)
 	// table stats
 	bool stats_initialized = false;
 	auto result = Query(StringUtil::Format(R"(

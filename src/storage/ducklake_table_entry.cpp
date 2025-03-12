@@ -1,4 +1,5 @@
 #include "storage/ducklake_table_entry.hpp"
+#include "storage/ducklake_catalog.hpp"
 #include "storage/ducklake_scan.hpp"
 #include "storage/ducklake_transaction.hpp"
 
@@ -46,6 +47,15 @@ TableFunction DuckLakeTableEntry::GetScanFunction(ClientContext &context, unique
 	bind_data = std::move(result);
 
 	return function;
+}
+
+optional_ptr<DuckLakeTableStats> DuckLakeTableEntry::GetTableStats(ClientContext &context) {
+	if (IsTransactionLocal()) {
+		// no stats for transaction local tables
+		return nullptr;
+	}
+	auto &dl_catalog = catalog.Cast<DuckLakeCatalog>();
+	return dl_catalog.GetTableStats(context, GetTableId());
 }
 
 unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, RenameTableInfo &info) {

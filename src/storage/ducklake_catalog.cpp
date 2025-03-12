@@ -187,6 +187,7 @@ WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_s
 		schema_id_map.insert(make_pair(schema_id, reference<DuckLakeSchemaEntry>(*schema_entry)));
 		schema_map.insert(make_pair(std::move(schema_name), std::move(schema_entry)));
 	}
+
 	result = transaction.Query(snapshot, R"(
 SELECT schema_id, table_id, table_uuid::VARCHAR, table_name, column_id, column_name, column_type, default_value
 FROM {METADATA_CATALOG}.ducklake_table tbl
@@ -214,7 +215,7 @@ ORDER BY table_id, column_order
 			throw InvalidInputException("Failed to load DuckLake - Table entry \"%s\" does not have any columns",
 			                            table_name);
 		}
-		//		auto column_id = row.GetValue<uint64_t>(4);
+//		auto column_id = row.GetValue<uint64_t>(4);
 		auto column_name = row.GetValue<string>(5);
 		auto column_type_str = row.GetValue<string>(6);
 		//		auto default_value = row.GetValue<string>(7);
@@ -243,6 +244,7 @@ ORDER BY table_id, column_order
 		auto column_type = DuckLakeTypes::FromString(column_type_str);
 		ColumnDefinition column(std::move(column_name), std::move(column_type));
 		table_entry.create_table_info->columns.AddColumn(std::move(column));
+
 		// FIXME: parse default value
 		// FIXME: we need to keep the column id somehow
 		// FIXME: handle nested types
@@ -257,6 +259,92 @@ ORDER BY table_id, column_order
 
 	auto schema_set = make_uniq<DuckLakeCatalogSet>(std::move(schema_map));
 	return schema_set;
+}
+
+DuckLakeStats &DuckLakeCatalog::GetStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot) {
+	lock_guard<mutex> guard(schemas_lock);
+	auto entry = stats.find(snapshot.next_file_id);
+	if (entry != stats.end()) {
+		// this stats are already cached
+		return *entry->second;
+	}
+	// load the stats from the metadata manager
+	auto table_stats = LoadStatsForSnapshot(transaction, snapshot);
+	auto &result = *table_stats;
+	stats.insert(make_pair(snapshot.next_file_id, std::move(table_stats)));
+	return result;
+}
+
+unique_ptr<DuckLakeStats> DuckLakeCatalog::LoadStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot) {
+	// query the most recent stats
+	auto result = transaction.Query(snapshot, R"(
+SELECT table_id, column_id, record_count, file_size_bytes, contains_null, min_value, max_value
+FROM {METADATA_CATALOG}.ducklake_table_stats
+LEFT JOIN {METADATA_CATALOG}.ducklake_table_column_stats USING (table_id)
+WHERE record_count IS NOT NULL AND file_size_bytes IS NOT NULL
+ORDER BY table_id;
+)");
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to get global stats information from DuckLake: ");
+	}
+	struct LoadedStatsEntry {
+		idx_t table_id;
+		unique_ptr<DuckLakeTableStats> stats;
+	};
+	vector<LoadedStatsEntry> loaded_stats;
+	for (auto &row : *result) {
+		auto table_id = row.GetValue<uint64_t>(0);
+		auto column_id = row.GetValue<uint64_t>(1);
+
+		if (loaded_stats.empty() || loaded_stats.back().table_id != table_id) {
+			// new stats
+			LoadedStatsEntry new_entry;
+			new_entry.table_id = table_id;
+			new_entry.stats = make_uniq<DuckLakeTableStats>();
+			new_entry.stats->record_count = row.GetValue<uint64_t>(2);
+			new_entry.stats->table_size_bytes = row.GetValue<uint64_t>(3);
+			loaded_stats.push_back(std::move(new_entry));
+		}
+		// add the stats for this column
+		auto &stats_entry = loaded_stats.back();
+		// FIXME: get correct type for this column
+		DuckLakeColumnStats column_stats(LogicalType::INTEGER);
+		if (row.IsNull(4)) {
+		    column_stats.has_null_count = false;
+		} else {
+		    column_stats.has_null_count = true;
+		    column_stats.null_count = row.GetValue<uint64_t>(4);
+		}
+		if (row.IsNull(5)) {
+		    column_stats.has_min = false;
+		} else {
+		    column_stats.has_min = true;
+		    column_stats.min = row.GetValue<string>(5);
+		}
+		if (row.IsNull(6)) {
+		    column_stats.has_max = false;
+		} else {
+		    column_stats.has_max = true;
+		    column_stats.max = row.GetValue<string>(6);
+		}
+		stats_entry.stats->column_stats.insert(make_pair(column_id, std::move(column_stats)));
+	}
+	// construct the stats map
+	auto lake_stats = make_uniq<DuckLakeStats>();
+	for(auto &stats : loaded_stats) {
+		lake_stats->table_stats.insert(make_pair(stats.table_id, std::move(stats.stats)));
+	}
+	return lake_stats;
+}
+
+optional_ptr<DuckLakeTableStats> DuckLakeCatalog::GetTableStats(ClientContext &context, idx_t table_id) {
+	auto &transaction = DuckLakeTransaction::Get(context, *this);
+	auto &lake_stats = GetStatsForSnapshot(transaction, transaction.GetSnapshot());
+	auto entry = lake_stats.table_stats.find(table_id);
+	if (entry == lake_stats.table_stats.end()) {
+		return nullptr;
+	}
+	return entry->second.get();
 }
 
 optional_ptr<SchemaCatalogEntry> DuckLakeCatalog::GetSchema(CatalogTransaction transaction, const string &schema_name,

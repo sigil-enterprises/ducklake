@@ -1,5 +1,8 @@
 #include "storage/ducklake_scan.hpp"
 #include "storage/ducklake_multi_file_reader.hpp"
+#include "storage/ducklake_multi_file_list.hpp"
+#include "storage/ducklake_table_entry.hpp"
+#include "storage/ducklake_stats.hpp"
 
 #include "duckdb/catalog/catalog_entry/table_function_catalog_entry.hpp"
 #include "duckdb/function/table_function.hpp"
@@ -22,6 +25,23 @@ static InsertionOrderPreservingMap<string> DuckLakeFunctionToString(TableFunctio
 	return result;
 }
 
+unique_ptr<BaseStatistics> DuckLakeStatistics(ClientContext &context, const FunctionData *bind_data,
+														 column_t column_index) {
+	auto &multi_file_data = bind_data->Cast<MultiFileBindData>();
+	auto &file_list = multi_file_data.file_list->Cast<DuckLakeMultiFileList>();
+	auto &table = file_list.GetTable();
+	auto stats = table.GetTableStats(context);
+	if (!stats) {
+		return nullptr;
+	}
+	auto entry = stats->column_stats.find(column_index);
+	if (entry == stats->column_stats.end()) {
+		return nullptr;
+	}
+	// FIXME: don't read if we have transaction-local inserts
+	return entry->second.ToStats();
+}
+
 TableFunction DuckLakeFunctions::GetDuckLakeScanFunction(DatabaseInstance &instance) {
 	// Parquet extension needs to be loaded for this to make sense
 	ExtensionHelper::AutoLoadExtension(instance, "parquet");
@@ -34,11 +54,12 @@ TableFunction DuckLakeFunctions::GetDuckLakeScanFunction(DatabaseInstance &insta
 	// Register the MultiFileReader as the driver for reads
 	function.get_multi_file_reader = DuckLakeMultiFileReader::CreateInstance;
 
+	function.statistics = DuckLakeStatistics;
+
 	// Unset all of these: they are either broken, very inefficient.
 	// TODO: implement/fix these
 	function.serialize = nullptr;
 	function.deserialize = nullptr;
-	function.statistics = nullptr;
 	function.table_scan_progress = nullptr;
 	function.get_bind_info = nullptr;
 
