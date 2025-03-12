@@ -37,6 +37,28 @@ SELECT stats(i) FROM ducklake.test LIMIT 1
 ----
 <REGEX>:.*Min.*42.*Max.*84.*Has Null.*true.*
 
+# dates/timestamps
+statement ok
+CREATE TABLE ducklake.dates(d DATE);
+
+statement ok
+INSERT INTO ducklake.dates VALUES (date '1992-01-01');
+
+query I
+SELECT stats(d) FROM ducklake.dates LIMIT 1
+----
+<REGEX>:.*Min.*1992-01-01.*Max.*1992-01-01.*Has Null.*false.*
+
+statement ok
+INSERT INTO ducklake.dates VALUES (date '2000-02-03');
+
+query I
+SELECT stats(d) FROM ducklake.dates LIMIT 1
+----
+<REGEX>:.*Min.*1992-01-01.*Max.*2000-02-03.*Has Null.*false.*
+
+# strings
+
 # multiple inserts within the same transaction
 statement ok
 BEGIN
@@ -72,6 +94,3 @@ SELECT * FROM ducklake.test WHERE i=100
 
 statement ok
 ROLLBACK
-
-# dates/timestamps
-# strings

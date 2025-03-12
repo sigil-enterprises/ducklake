@@ -166,7 +166,9 @@ DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const Multi
 		}
 		// generate the final filter for this column
 		string final_filter;
-		final_filter = "column_id=" + to_string(table_column_id);
+		final_filter = "table_id=" + to_string(read_info.table_id);
+		final_filter += " AND ";
+		final_filter += "column_id=" + to_string(table_column_id);
 		final_filter += " AND ";
 		final_filter += "(";
 		// if any of the referenced stats are NULL we cannot prune
@@ -234,6 +236,9 @@ WHERE table_id=%d AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_s
 			}
 
 			auto result = transaction.Query(read_info.snapshot, query);
+			if (result->HasError()) {
+				result->GetErrorObject().Throw("Failed to get data file list from DuckLake: ");
+			}
 
 			for (auto &row : *result) {
 				files.push_back(row.GetValue<string>(0));

@@ -88,8 +88,10 @@ unique_ptr<BaseStatistics> DuckLakeColumnStats::CreateNumericStats() const {
 }
 
 unique_ptr<BaseStatistics> DuckLakeColumnStats::ToStats() const {
+	if (type.IsNumeric()) {
+		return CreateNumericStats();
+	}
 	switch (type.id()) {
-	case LogicalTypeId::TINYINT:
 	case LogicalTypeId::SMALLINT:
 	case LogicalTypeId::INTEGER:
 	case LogicalTypeId::BIGINT:
@@ -97,6 +99,13 @@ unique_ptr<BaseStatistics> DuckLakeColumnStats::ToStats() const {
 	case LogicalTypeId::USMALLINT:
 	case LogicalTypeId::UINTEGER:
 	case LogicalTypeId::UBIGINT:
+	case LogicalTypeId::DATE:
+	case LogicalTypeId::TIME:
+	case LogicalTypeId::TIMESTAMP:
+	case LogicalTypeId::TIMESTAMP_TZ:
+	case LogicalTypeId::TIMESTAMP_SEC:
+	case LogicalTypeId::TIMESTAMP_MS:
+	case LogicalTypeId::TIMESTAMP_NS:
 		return CreateNumericStats();
 	default:
 		return nullptr;

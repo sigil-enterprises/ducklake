@@ -574,8 +574,9 @@ void DuckLakeTransaction::FlushNewData(DuckLakeSnapshot &commit_snapshot) {
 					value_count = "NULL";
 					null_count = "NULL";
 				}
-				column_stats_insert_query += StringUtil::Format("(%d, %d, NULL, %s, %s, NULL, %s, %s)", file_id,
-				                                                column_id, value_count, null_count, min_val, max_val);
+				column_stats_insert_query +=
+				    StringUtil::Format("(%d, %d, %d, NULL, %s, %s, NULL, %s, %s)", file_id, table_id, column_id,
+				                       value_count, null_count, min_val, max_val);
 
 				// merge the stats into the new global states
 				new_stats.MergeStats(column_id, stats);
