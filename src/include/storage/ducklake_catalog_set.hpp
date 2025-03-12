@@ -15,6 +15,7 @@
 
 namespace duckdb {
 class DuckLakeTransaction;
+class DuckLakeSchemaEntry;
 
 using ducklake_entries_map_t = case_insensitive_map_t<unique_ptr<CatalogEntry>>;
 
@@ -22,14 +23,14 @@ using ducklake_entries_map_t = case_insensitive_map_t<unique_ptr<CatalogEntry>>;
 //! Note that we don't need any locks to access this - the catalog set is constant for a given snapshot
 class DuckLakeCatalogSet {
 public:
-	DuckLakeCatalogSet() {
-	}
-	DuckLakeCatalogSet(ducklake_entries_map_t catalog_entries_p) : catalog_entries(std::move(catalog_entries_p)) {
-	}
+	DuckLakeCatalogSet();
+	DuckLakeCatalogSet(ducklake_entries_map_t catalog_entries_p);
 
 	void CreateEntry(unique_ptr<CatalogEntry> entry);
 	optional_ptr<CatalogEntry> GetEntry(const string &name);
 	unique_ptr<CatalogEntry> DropEntry(const string &name);
+	optional_ptr<CatalogEntry> GetEntryById(idx_t index);
+	void AddEntry(DuckLakeSchemaEntry &schema, idx_t id, unique_ptr<CatalogEntry> entry);
 
 	template <class T>
 	optional_ptr<T> GetEntry(const string &name) {
@@ -46,6 +47,7 @@ public:
 
 private:
 	ducklake_entries_map_t catalog_entries;
+	unordered_map<idx_t, reference<CatalogEntry>> id_to_entry_map;
 };
 
 } // namespace duckdb
