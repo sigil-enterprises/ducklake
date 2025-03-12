@@ -87,6 +87,24 @@ unique_ptr<BaseStatistics> DuckLakeColumnStats::CreateNumericStats() const {
 	return stats.ToUnique();
 }
 
+unique_ptr<BaseStatistics> DuckLakeColumnStats::CreateStringStats() const {
+	if (!has_min || !has_max) {
+		return nullptr;
+	}
+	auto stats = StringStats::CreateEmpty(type);
+
+	StringStats::Update(stats, string_t(min));
+	StringStats::Update(stats, string_t(max));
+	StringStats::ResetMaxStringLength(stats);
+	StringStats::SetContainsUnicode(stats);
+	// set null count
+	if (!has_null_count || null_count > 0) {
+		stats.SetHasNull();
+	}
+	stats.SetHasNoNull();
+	return stats.ToUnique();
+}
+
 unique_ptr<BaseStatistics> DuckLakeColumnStats::ToStats() const {
 	if (type.IsNumeric()) {
 		return CreateNumericStats();
@@ -107,6 +125,8 @@ unique_ptr<BaseStatistics> DuckLakeColumnStats::ToStats() const {
 	case LogicalTypeId::TIMESTAMP_MS:
 	case LogicalTypeId::TIMESTAMP_NS:
 		return CreateNumericStats();
+	case LogicalTypeId::VARCHAR:
+		return CreateStringStats();
 	default:
 		return nullptr;
 	}

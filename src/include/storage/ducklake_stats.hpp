@@ -32,6 +32,7 @@ public:
 
 private:
 	unique_ptr<BaseStatistics> CreateNumericStats() const;
+	unique_ptr<BaseStatistics> CreateStringStats() const;
 };
 
 //! These are the global, table-wide stats
