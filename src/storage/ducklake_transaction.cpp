@@ -371,17 +371,24 @@ void DuckLakeTransaction::FlushNewSchemas(DuckLakeSnapshot &commit_snapshot) {
 	}
 }
 
+void DuckLakeTransaction::FlushNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table) {
+	throw InternalException("FIXME: write DuckLakePartition to file");
+}
+
 void DuckLakeTransaction::FlushNewTables(DuckLakeSnapshot &commit_snapshot) {
 	if (new_tables.empty()) {
 		return;
 	}
 	string table_insert_sql;
 	string column_insert_sql;
-	string data_file_tables;
 	for (auto &schema_entry : new_tables) {
 		for (auto &entry : schema_entry.second->GetEntries()) {
 			// write any new tables that we created
 			auto &table = entry.second->Cast<DuckLakeTableEntry>();
+			if (table.LocalChange() == TransactionLocalChange::SET_PARTITION_KEY) {
+				FlushNewPartitionKey(commit_snapshot, table);
+				continue;
+			}
 			auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
 			auto original_id = table.GetTableId();
 			idx_t table_id;
@@ -436,13 +443,6 @@ void DuckLakeTransaction::FlushNewTables(DuckLakeSnapshot &commit_snapshot) {
 		auto result = Query(commit_snapshot, column_insert_sql);
 		if (result->HasError()) {
 			result->GetErrorObject().Throw("Failed to write column information to DuckLake: ");
-		}
-	}
-	if (!data_file_tables.empty()) {
-		// data file tables
-		auto result = Query(commit_snapshot, data_file_tables);
-		if (result->HasError()) {
-			result->GetErrorObject().Throw("Failed to create data file tables for new tables in DuckLake: ");
 		}
 	}
 }
@@ -833,15 +833,26 @@ void DuckLakeTransaction::AlterEntry(CatalogEntry &entry, unique_ptr<CatalogEntr
 		throw InternalException("Rename of this type not yet supported");
 	}
 	auto &table = entry.Cast<DuckLakeTableEntry>();
+	auto &new_table = new_entry->Cast<DuckLakeTableEntry>();
 	auto &entries = GetOrCreateTransactionLocalEntries(entry);
 	entries.CreateEntry(std::move(new_entry));
-	if (table.IsTransactionLocal()) {
-		// table is transaction local - delete the old table from there
-		entries.DropEntry(entry.name);
-	} else {
-		// table is not transaction local - add to drop list
-		auto table_id = table.GetTableId();
-		dropped_tables.insert(table_id);
+	switch (new_table.LocalChange() ) {
+	case TransactionLocalChange::RENAMED: {
+		// rename - take care of the old table
+		if (table.IsTransactionLocal()) {
+			// table is transaction local - delete the old table from there
+			entries.DropEntry(entry.name);
+		} else {
+			// table is not transaction local - add to drop list
+			auto table_id = table.GetTableId();
+			dropped_tables.insert(table_id);
+		}
+		break;
+	}
+	case TransactionLocalChange::SET_PARTITION_KEY:
+		break;
+	default:
+		throw NotImplementedException("Alter type not supported in DuckLakeTransaction::AlterEntry");
 	}
 }
 

@@ -10,15 +10,24 @@
 
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 #include "storage/ducklake_stats.hpp"
+#include "storage/ducklake_partition_data.hpp"
 
 namespace duckdb {
 struct AlterTableInfo;
+struct SetPartitionedByInfo;
 class DuckLakeTransaction;
+
+enum class TransactionLocalChange {
+	NONE,
+	CREATED,
+	RENAMED,
+	SET_PARTITION_KEY
+};
 
 class DuckLakeTableEntry : public TableCatalogEntry {
 public:
 	DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info, idx_t table_id,
-	                   string table_uuid, bool is_transaction_local);
+	                   string table_uuid, TransactionLocalChange transaction_local_change);
 
 public:
 	idx_t GetTableId() const {
@@ -28,8 +37,15 @@ public:
 		return table_uuid;
 	}
 	bool IsTransactionLocal() const {
-		return is_transaction_local;
+		return transaction_local_change != TransactionLocalChange::NONE;
 	}
+	TransactionLocalChange LocalChange() const {
+		return transaction_local_change;
+	}
+	optional_ptr<DuckLakePartition> GetPartitionData() {
+		return partition_data.get();
+	}
+	void SetPartitionData(unique_ptr<DuckLakePartition> partition_data);
 	optional_ptr<DuckLakeTableStats> GetTableStats(ClientContext &context);
 
 public:
@@ -46,11 +62,19 @@ public:
 
 private:
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, RenameTableInfo &info);
+	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, SetPartitionedByInfo &info);
+
+public:
+	// ! Create a DuckLakeTableEntry from a RENAME
+	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info);
+	// ! Create a DuckLakeTableEntry from a SET PARTITION KEY
+	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, unique_ptr<DuckLakePartition> partition_data);
 
 private:
 	idx_t table_id;
 	string table_uuid;
-	bool is_transaction_local;
+	TransactionLocalChange transaction_local_change;
+	unique_ptr<DuckLakePartition> partition_data;
 };
 
 } // namespace duckdb

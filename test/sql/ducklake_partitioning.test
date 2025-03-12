@@ -1,0 +1,28 @@
+# name: test/sql/ducklake_partitioning.test
+# description: Test partitioning
+# group: [ducklake]
+
+require ducklake
+
+require parquet
+
+# partitioning based on a column
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_partitioning.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_partitioning')
+
+statement ok
+USE ducklake
+
+statement ok
+CREATE TABLE partitioned_tbl(part_key INTEGER, values VARCHAR);
+
+statement ok
+ALTER TABLE partitioned_tbl SET PARTITIONED BY (part_key);
+
+statement ok
+INSERT INTO partitioned_tbl SELECT i%2, concat('thisisastring_', i) FROM range(10000) t(i)
+
+query I
+SELECT COUNT(*) FROM partitioned_tbl WHERE part_key=0
+----
+5000

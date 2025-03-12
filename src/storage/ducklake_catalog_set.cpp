@@ -10,9 +10,13 @@ DuckLakeCatalogSet::DuckLakeCatalogSet(ducklake_entries_map_t catalog_entries_p)
     : catalog_entries(std::move(catalog_entries_p)) {
 }
 
-void DuckLakeCatalogSet::CreateEntry(unique_ptr<CatalogEntry> entry) {
-	auto name = entry->name;
-	catalog_entries.insert(make_pair(std::move(name), std::move(entry)));
+void DuckLakeCatalogSet::CreateEntry(unique_ptr<CatalogEntry> catalog_entry) {
+	auto name = catalog_entry->name;
+	auto entry = catalog_entries.find(name);
+	if (entry != catalog_entries.end()) {
+		catalog_entry->SetChild(std::move(entry->second));
+	}
+	catalog_entries.insert(make_pair(std::move(name), std::move(catalog_entry)));
 }
 
 unique_ptr<CatalogEntry> DuckLakeCatalogSet::DropEntry(const string &name) {

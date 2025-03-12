@@ -252,11 +252,26 @@ ORDER BY table_id, column_order
 	auto schema_set = make_uniq<DuckLakeCatalogSet>(std::move(schema_map));
 	// flush the tables
 	for (auto &entry : loaded_tables) {
-		// flush the table
 		auto table_entry = make_uniq<DuckLakeTableEntry>(*this, *entry.schema_entry, *entry.create_table_info,
-		                                                 entry.table_id, std::move(entry.table_uuid), false);
+		                                                 entry.table_id, std::move(entry.table_uuid), TransactionLocalChange::NONE);
 		schema_set->AddEntry(*entry.schema_entry, entry.table_id, std::move(table_entry));
 	}
+
+	// load partition information
+	result = transaction.Query(snapshot, R"(
+SELECT partition_id, table_id, column_id, transform
+FROM {METADATA_CATALOG}.ducklake_partition_info part
+JOIN {METADATA_CATALOG}.ducklake_partition_columns part_col USING (partition_id)
+WHERE {SNAPSHOT_ID} >= part.begin_snapshot AND ({SNAPSHOT_ID} < part.end_snapshot OR part.end_snapshot IS NULL)
+ORDER BY partition_id, partition_key_index
+)");
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to get partition information from DuckLake: ");
+	}
+	for (auto &row : *result) {
+		throw NotImplementedException("Load partitions");
+	}
+
 	return schema_set;
 }
 

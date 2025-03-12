@@ -13,9 +13,23 @@
 namespace duckdb {
 
 DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info,
-                                       idx_t table_id, string table_uuid_p, bool is_transaction_local)
+                                       idx_t table_id, string table_uuid_p, TransactionLocalChange transaction_local_change)
     : TableCatalogEntry(catalog, schema, info), table_id(table_id), table_uuid(std::move(table_uuid_p)),
-      is_transaction_local(is_transaction_local) {
+      transaction_local_change(transaction_local_change) {
+}
+
+// ALTER TABLE RENAME
+DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info) :
+	DuckLakeTableEntry(parent.ParentCatalog(), parent.ParentSchema(), info, parent.GetTableId(), parent.GetTableUUID(), TransactionLocalChange::RENAMED) {
+	if (parent.partition_data) {
+		partition_data = make_uniq<DuckLakePartition>(*parent.partition_data);
+	}
+}
+
+// ALTER TABLE SET PARTITION KEY
+DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, unique_ptr<DuckLakePartition> partition_data_p) :
+	DuckLakeTableEntry(parent.ParentCatalog(), parent.ParentSchema(), info, parent.GetTableId(), parent.GetTableUUID(), TransactionLocalChange::SET_PARTITION_KEY) {
+	partition_data = std::move(partition_data_p);
 }
 
 unique_ptr<BaseStatistics> DuckLakeTableEntry::GetStatistics(ClientContext &context, column_t column_id) {
@@ -64,14 +78,25 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	auto &table_info = create_info->Cast<CreateTableInfo>();
 	table_info.table = info.new_table_name;
 	// create a complete copy of this table with only the name changed
-	return make_uniq<DuckLakeTableEntry>(ParentCatalog(), ParentSchema(), table_info, GetTableId(), GetTableUUID(),
-	                                     true);
+	return make_uniq<DuckLakeTableEntry>(*this, table_info);
+}
+
+unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, SetPartitionedByInfo &info) {
+	auto create_info = GetInfo();
+	auto &table_info = create_info->Cast<CreateTableInfo>();
+	// create a complete copy of this table with the partition info added
+	auto new_entry = make_uniq<DuckLakeTableEntry>(ParentCatalog(), ParentSchema(), table_info, GetTableId(), GetTableUUID(),
+										 TransactionLocalChange::SET_PARTITION_KEY);
+	throw InternalException("FIXME: create DuckLakePartition from the SetPartitionedByInfo");
+	return std::move(new_entry);
 }
 
 unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transaction, AlterTableInfo &info) {
 	switch (info.alter_table_type) {
 	case AlterTableType::RENAME_TABLE:
 		return AlterTable(transaction, info.Cast<RenameTableInfo>());
+	case AlterTableType::SET_PARTITIONED_BY:
+		return AlterTable(transaction, info.Cast<SetPartitionedByInfo>());
 	default:
 		throw BinderException("Unsupported ALTER TABLE type - DuckLake tables only support RENAME TABLE for now");
 	}

@@ -78,6 +78,7 @@ private:
 	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,
 	               unordered_set<idx_t> &dropped_entries);
 	void FlushNewSchemas(DuckLakeSnapshot &commit_snapshot);
+	void FlushNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table);
 	void FlushNewTables(DuckLakeSnapshot &commit_snapshot);
 	void FlushNewData(DuckLakeSnapshot &commit_snapshot);
 	void InsertSnapshot(DuckLakeSnapshot commit_snapshot);

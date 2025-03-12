@@ -174,7 +174,7 @@ static optional_ptr<CopyFunctionCatalogEntry> TryGetCopyFunction(DatabaseInstanc
 	return schema.GetEntry(data, CatalogType::COPY_FUNCTION_ENTRY, name)->Cast<CopyFunctionCatalogEntry>();
 }
 
-unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
+unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCopyForInsert(ClientContext &context, const ColumnList &columns, optional_ptr<DuckLakePartition> partition_data,
                                                                 unique_ptr<PhysicalOperator> plan) {
 	auto info = make_uniq<CopyInfo>();
 	info->file_path = DataPath();
@@ -231,9 +231,12 @@ unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanInsert(ClientContext &context,
 	if (op.action_type != OnConflictAction::THROW) {
 		throw BinderException("ON CONFLICT clause not yet supported for insertion into DuckLake table");
 	}
-	auto &columns = op.table.GetColumns();
-	auto physical_copy = PlanCopyForInsert(context, columns, std::move(plan));
-	auto insert = make_uniq<DuckLakeInsert>(op, op.table.Cast<DuckLakeTableEntry>(), op.column_index_map);
+	auto &ducklake_table = op.table.Cast<DuckLakeTableEntry>();
+	auto &columns = ducklake_table.GetColumns();
+	auto partition_data = ducklake_table.GetPartitionData();
+
+	auto physical_copy = PlanCopyForInsert(context, columns, partition_data, std::move(plan));
+	auto insert = make_uniq<DuckLakeInsert>(op, ducklake_table, op.column_index_map);
 	insert->children.push_back(std::move(physical_copy));
 	return std::move(insert);
 }
@@ -243,7 +246,7 @@ unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCreateTableAs(ClientContext &c
 	auto &create_info = op.info->Base();
 	auto &columns = create_info.columns;
 	// FIXME: if table already exists and we are doing CREATE IF NOT EXISTS - skip
-	auto physical_copy = PlanCopyForInsert(context, columns, std::move(plan));
+	auto physical_copy = PlanCopyForInsert(context, columns, nullptr, std::move(plan));
 	auto insert = make_uniq<DuckLakeInsert>(op, op.schema, std::move(op.info));
 	insert->children.push_back(std::move(physical_copy));
 	return std::move(insert);
