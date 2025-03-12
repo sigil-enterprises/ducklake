@@ -35,6 +35,9 @@ public:
 	idx_t GetTotalFileCount() override;
 	unique_ptr<NodeStatistics> GetCardinality(ClientContext &context) override;
 	DuckLakeTableEntry &GetTable();
+	bool HasTransactionLocalFiles() const {
+		return !transaction_local_files.empty();
+	}
 
 protected:
 	//! Get the i-th expanded file

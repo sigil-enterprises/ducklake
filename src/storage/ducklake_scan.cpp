@@ -29,6 +29,11 @@ unique_ptr<BaseStatistics> DuckLakeStatistics(ClientContext &context, const Func
                                               column_t column_index) {
 	auto &multi_file_data = bind_data->Cast<MultiFileBindData>();
 	auto &file_list = multi_file_data.file_list->Cast<DuckLakeMultiFileList>();
+	if (file_list.HasTransactionLocalFiles()) {
+		// don't read stats if we have transaction-local inserts
+		// FIXME: we could unify the stats with the global stats
+		return nullptr;
+	}
 	auto &table = file_list.GetTable();
 	auto stats = table.GetTableStats(context);
 	if (!stats) {
@@ -38,7 +43,6 @@ unique_ptr<BaseStatistics> DuckLakeStatistics(ClientContext &context, const Func
 	if (entry == stats->column_stats.end()) {
 		return nullptr;
 	}
-	// FIXME: don't read if we have transaction-local inserts
 	return entry->second.ToStats();
 }
 

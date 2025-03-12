@@ -37,10 +37,41 @@ SELECT stats(i) FROM ducklake.test LIMIT 1
 ----
 <REGEX>:.*Min.*42.*Max.*84.*Has Null.*true.*
 
-# multiple inserts
-# insert null values
+# multiple inserts within the same transaction
+statement ok
+BEGIN
+
+statement ok
+INSERT INTO ducklake.test VALUES (85);
+
+statement ok
+INSERT INTO ducklake.test VALUES (86);
+
+statement ok
+INSERT INTO ducklake.test VALUES (87);
+
+statement ok
+COMMIT
+
+query I
+SELECT stats(i) FROM ducklake.test LIMIT 1
+----
+<REGEX>:.*Min.*42.*Max.*87.*Has Null.*true.*
+
+# test stats with transaction-local changes
+statement ok
+BEGIN
+
+statement ok
+INSERT INTO ducklake.test VALUES (100);
+
+query I
+SELECT * FROM ducklake.test WHERE i=100
+----
+100
+
+statement ok
+ROLLBACK
+
 # dates/timestamps
 # strings
-
-
-# transaction-local stats
