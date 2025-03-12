@@ -617,6 +617,10 @@ void DuckLakeTransaction::FlushNewData(DuckLakeSnapshot &commit_snapshot) {
 				if (stats.has_null_count) {
 					value_count = to_string(file.row_count - stats.null_count);
 					null_count = to_string(stats.null_count);
+					if (stats.null_count == file.row_count) {
+						// all values are NULL for this file
+						stats.any_valid = false;
+					}
 				} else {
 					value_count = "NULL";
 					null_count = "NULL";

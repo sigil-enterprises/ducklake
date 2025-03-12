@@ -25,6 +25,7 @@ struct DuckLakeColumnStats {
 	bool has_min = false;
 	bool has_max = false;
 	bool has_null_count = false;
+	bool any_valid = true;
 
 public:
 	unique_ptr<BaseStatistics> ToStats() const;

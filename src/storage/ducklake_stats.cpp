@@ -19,6 +19,20 @@ void DuckLakeTableStats::MergeStats(idx_t col_id, const DuckLakeColumnStats &fil
 		current_stats.null_count += file_stats.null_count;
 	}
 
+	if (!file_stats.any_valid) {
+		// all values in the source are NULL - don't update min/max
+		return;
+	}
+	if (!current_stats.any_valid) {
+		// all values in the current stats are null - copy the min/max
+		current_stats.min = file_stats.min;
+		current_stats.has_min = file_stats.has_min;
+		current_stats.max = file_stats.max;
+		current_stats.has_max = file_stats.has_max;
+		current_stats.any_valid = true;
+		return;
+	}
+
 	if (!file_stats.has_min) {
 		current_stats.has_min = false;
 	} else if (current_stats.has_min) {
