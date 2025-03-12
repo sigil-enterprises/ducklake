@@ -17,12 +17,7 @@ struct AlterTableInfo;
 struct SetPartitionedByInfo;
 class DuckLakeTransaction;
 
-enum class TransactionLocalChange {
-	NONE,
-	CREATED,
-	RENAMED,
-	SET_PARTITION_KEY
-};
+enum class TransactionLocalChange { NONE, CREATED, RENAMED, SET_PARTITION_KEY };
 
 class DuckLakeTableEntry : public TableCatalogEntry {
 public:

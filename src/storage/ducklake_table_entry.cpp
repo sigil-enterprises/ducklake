@@ -14,22 +14,26 @@
 namespace duckdb {
 
 DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info,
-                                       idx_t table_id, string table_uuid_p, TransactionLocalChange transaction_local_change)
+                                       idx_t table_id, string table_uuid_p,
+                                       TransactionLocalChange transaction_local_change)
     : TableCatalogEntry(catalog, schema, info), table_id(table_id), table_uuid(std::move(table_uuid_p)),
       transaction_local_change(transaction_local_change) {
 }
 
 // ALTER TABLE RENAME
-DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info) :
-	DuckLakeTableEntry(parent.ParentCatalog(), parent.ParentSchema(), info, parent.GetTableId(), parent.GetTableUUID(), TransactionLocalChange::RENAMED) {
+DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info)
+    : DuckLakeTableEntry(parent.ParentCatalog(), parent.ParentSchema(), info, parent.GetTableId(),
+                         parent.GetTableUUID(), TransactionLocalChange::RENAMED) {
 	if (parent.partition_data) {
 		partition_data = make_uniq<DuckLakePartition>(*parent.partition_data);
 	}
 }
 
 // ALTER TABLE SET PARTITION KEY
-DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, unique_ptr<DuckLakePartition> partition_data_p) :
-	DuckLakeTableEntry(parent.ParentCatalog(), parent.ParentSchema(), info, parent.GetTableId(), parent.GetTableUUID(), TransactionLocalChange::SET_PARTITION_KEY) {
+DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info,
+                                       unique_ptr<DuckLakePartition> partition_data_p)
+    : DuckLakeTableEntry(parent.ParentCatalog(), parent.ParentSchema(), info, parent.GetTableId(),
+                         parent.GetTableUUID(), TransactionLocalChange::SET_PARTITION_KEY) {
 	partition_data = std::move(partition_data_p);
 }
 
@@ -106,7 +110,7 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	auto &table_info = create_info->Cast<CreateTableInfo>();
 	// create a complete copy of this table with the partition info added
 	auto partition_data = make_uniq<DuckLakePartition>();
-	for(idx_t expr_idx = 0; expr_idx < info.partition_keys.size(); expr_idx++) {
+	for (idx_t expr_idx = 0; expr_idx < info.partition_keys.size(); expr_idx++) {
 		auto &expr = *info.partition_keys[expr_idx];
 		auto partition_field = GetPartitionField(*this, expr);
 		partition_field.partition_key_index = expr_idx;

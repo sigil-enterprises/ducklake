@@ -18,8 +18,8 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction t
 	//! get a local table-id
 	idx_t table_id = duck_transaction.GetLocalCatalogId();
 	auto table_uuid = UUID::ToString(UUID::GenerateRandomUUID());
-	auto table_entry =
-	    make_uniq<DuckLakeTableEntry>(ParentCatalog(), *this, info.Base(), table_id, std::move(table_uuid), TransactionLocalChange::CREATED);
+	auto table_entry = make_uniq<DuckLakeTableEntry>(ParentCatalog(), *this, info.Base(), table_id,
+	                                                 std::move(table_uuid), TransactionLocalChange::CREATED);
 	auto result = table_entry.get();
 	duck_transaction.CreateEntry(std::move(table_entry));
 	return result;

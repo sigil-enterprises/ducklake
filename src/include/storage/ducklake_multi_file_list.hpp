@@ -47,6 +47,7 @@ private:
 	const vector<string> &GetFiles();
 
 private:
+	mutex file_lock;
 	DuckLakeTransaction &transaction;
 	DuckLakeFunctionInfo &read_info;
 	//! The set of files to read

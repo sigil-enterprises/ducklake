@@ -221,6 +221,7 @@ string DuckLakeMultiFileList::GetFile(idx_t i) {
 }
 
 const vector<string> &DuckLakeMultiFileList::GetFiles() {
+	lock_guard<mutex> l(file_lock);
 	if (!read_file_list) {
 		// we have not read the file list yet - read it
 		if (!DuckLakeTransaction::IsTransactionLocal(read_info.table_id)) {

@@ -376,7 +376,8 @@ void DuckLakeTransaction::FlushNewPartitionKey(DuckLakeSnapshot &commit_snapshot
 	auto update_partition_query = StringUtil::Format(R"(
 UPDATE {METADATA_CATALOG}.ducklake_partition_info
 SET end_snapshot = {SNAPSHOT_ID}
-WHERE table_id = %d AND end_snapshot IS NULL)", table.GetTableId());
+WHERE table_id = %d AND end_snapshot IS NULL)",
+	                                                 table.GetTableId());
 	auto result = Query(commit_snapshot, update_partition_query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to update old partition information in DuckLake:");
@@ -390,20 +391,22 @@ WHERE table_id = %d AND end_snapshot IS NULL)", table.GetTableId());
 	partition_data->partition_id = commit_snapshot.next_catalog_id++;
 	auto new_partition_data_query = StringUtil::Format(R"(
 INSERT INTO {METADATA_CATALOG}.ducklake_partition_info
-VALUES (%d, %d, {SNAPSHOT_ID}, NULL);)", partition_data->partition_id, table.GetTableId());
+VALUES (%d, %d, {SNAPSHOT_ID}, NULL);)",
+	                                                   partition_data->partition_id, table.GetTableId());
 	result = Query(commit_snapshot, new_partition_data_query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to insert new partition information in DuckLake:");
 	}
 	string insert_partition_cols;
-	for(auto &field : partition_data->fields) {
+	for (auto &field : partition_data->fields) {
 		if (!insert_partition_cols.empty()) {
 			insert_partition_cols += ", ";
 		}
 		if (field.transform.type != DuckLakeTransformType::IDENTITY) {
 			throw NotImplementedException("FIXME: non-identity transform");
 		}
-		insert_partition_cols += StringUtil::Format("(%d, %d, %d, 'identity')", partition_data->partition_id, field.partition_key_index, field.column_id);
+		insert_partition_cols += StringUtil::Format("(%d, %d, %d, 'identity')", partition_data->partition_id,
+		                                            field.partition_key_index, field.column_id);
 	}
 	insert_partition_cols = "INSERT INTO {METADATA_CATALOG}.ducklake_partition_columns VALUES " + insert_partition_cols;
 
@@ -874,7 +877,7 @@ void DuckLakeTransaction::AlterEntry(CatalogEntry &entry, unique_ptr<CatalogEntr
 	auto &new_table = new_entry->Cast<DuckLakeTableEntry>();
 	auto &entries = GetOrCreateTransactionLocalEntries(entry);
 	entries.CreateEntry(std::move(new_entry));
-	switch (new_table.LocalChange() ) {
+	switch (new_table.LocalChange()) {
 	case TransactionLocalChange::RENAMED: {
 		// rename - take care of the old table
 		if (table.IsTransactionLocal()) {

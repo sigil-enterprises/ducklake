@@ -64,11 +64,6 @@ unique_ptr<GlobalSinkState> DuckLakeInsert::GetGlobalSinkState(ClientContext &co
 SinkResultType DuckLakeInsert::Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const {
 	auto &global_state = input.global_state.Cast<DuckLakeInsertGlobalState>();
 
-	if (chunk.size() != 1) {
-		throw InternalException("DuckLakeInsert::Sink expects a single row containing output of the PhysicalCopy that "
-		                        "should be its Source");
-	}
-
 	for (idx_t r = 0; r < chunk.size(); r++) {
 		DuckLakeDataFile data_file;
 		data_file.file_name = chunk.GetValue(0, r).GetValue<string>();
@@ -174,7 +169,8 @@ static optional_ptr<CopyFunctionCatalogEntry> TryGetCopyFunction(DatabaseInstanc
 	return schema.GetEntry(data, CatalogType::COPY_FUNCTION_ENTRY, name)->Cast<CopyFunctionCatalogEntry>();
 }
 
-unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCopyForInsert(ClientContext &context, const ColumnList &columns, optional_ptr<DuckLakePartition> partition_data,
+unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
+                                                                optional_ptr<DuckLakePartition> partition_data,
                                                                 unique_ptr<PhysicalOperator> plan) {
 	auto info = make_uniq<CopyInfo>();
 	info->file_path = DataPath();
@@ -200,9 +196,6 @@ unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCopyForInsert(ClientContext &c
 	auto types_to_write = columns.GetColumnTypes();
 
 	auto function_data = copy_fun->function.copy_to_bind(context, bind_input, names_to_write, types_to_write);
-	if (partition_data) {
-		throw InternalException("FIXME: write partitioned data");
-	}
 
 	auto copy_return_types = GetCopyFunctionReturnLogicalTypes(CopyFunctionReturnType::WRITTEN_FILE_STATISTICS);
 	auto physical_copy =
@@ -211,14 +204,26 @@ unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCopyForInsert(ClientContext &c
 	auto current_write_uuid = UUID::ToString(UUID::GenerateRandomUUID());
 
 	physical_copy->use_tmp_file = false;
-	physical_copy->file_path = data_path + "/duckdblake-" + current_write_uuid + ".parquet";
-	physical_copy->partition_output = false;
+	if (partition_data) {
+		vector<idx_t> partition_columns;
+		for (auto &field : partition_data->fields) {
+			partition_columns.push_back(field.column_id);
+		}
+		physical_copy->filename_pattern.SetFilenamePattern("ducklake-" + current_write_uuid + "_{i}");
+		physical_copy->file_path = data_path;
+		physical_copy->partition_output = true;
+		physical_copy->partition_columns = std::move(partition_columns);
+	} else {
+		physical_copy->file_path = data_path + "/duckdblake-" + current_write_uuid + ".parquet";
+		physical_copy->partition_output = false;
+	}
 
 	physical_copy->file_extension = "parquet";
 	physical_copy->overwrite_mode = CopyOverwriteMode::COPY_OVERWRITE_OR_IGNORE;
 	physical_copy->per_thread_output = false;
 	physical_copy->rotate = false;
 	physical_copy->return_type = CopyFunctionReturnType::WRITTEN_FILE_STATISTICS;
+	physical_copy->write_partition_columns = true;
 	physical_copy->children.push_back(std::move(plan));
 	physical_copy->names = names_to_write;
 	physical_copy->expected_types = types_to_write;

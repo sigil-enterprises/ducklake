@@ -252,8 +252,9 @@ ORDER BY table_id, column_order
 	auto schema_set = make_uniq<DuckLakeCatalogSet>(std::move(schema_map));
 	// flush the tables
 	for (auto &entry : loaded_tables) {
-		auto table_entry = make_uniq<DuckLakeTableEntry>(*this, *entry.schema_entry, *entry.create_table_info,
-		                                                 entry.table_id, std::move(entry.table_uuid), TransactionLocalChange::NONE);
+		auto table_entry =
+		    make_uniq<DuckLakeTableEntry>(*this, *entry.schema_entry, *entry.create_table_info, entry.table_id,
+		                                  std::move(entry.table_uuid), TransactionLocalChange::NONE);
 		schema_set->AddEntry(*entry.schema_entry, entry.table_id, std::move(table_entry));
 	}
 
