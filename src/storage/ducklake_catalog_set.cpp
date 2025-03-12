@@ -6,7 +6,8 @@ namespace duckdb {
 
 DuckLakeCatalogSet::DuckLakeCatalogSet() {
 }
-DuckLakeCatalogSet::DuckLakeCatalogSet(ducklake_entries_map_t catalog_entries_p) : catalog_entries(std::move(catalog_entries_p)) {
+DuckLakeCatalogSet::DuckLakeCatalogSet(ducklake_entries_map_t catalog_entries_p)
+    : catalog_entries(std::move(catalog_entries_p)) {
 }
 
 void DuckLakeCatalogSet::CreateEntry(unique_ptr<CatalogEntry> entry) {

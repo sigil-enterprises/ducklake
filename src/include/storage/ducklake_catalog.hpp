@@ -63,7 +63,9 @@ public:
 	                                            unique_ptr<LogicalOperator> plan) override;
 
 	DatabaseSize GetDatabaseSize(ClientContext &context) override;
-	optional_ptr<DuckLakeTableStats> GetTableStats(ClientContext &context, idx_t table_id);
+	optional_ptr<DuckLakeTableStats> GetTableStats(DuckLakeTransaction &transaction, idx_t table_id);
+	optional_ptr<DuckLakeTableStats> GetTableStats(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
+	                                               idx_t table_id);
 
 	bool InMemory() override;
 	string GetDBPath() override;
@@ -77,7 +79,8 @@ private:
 	unique_ptr<PhysicalOperator> PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
 	                                               unique_ptr<PhysicalOperator> plan);
 	DuckLakeStats &GetStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
-	unique_ptr<DuckLakeStats> LoadStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot, DuckLakeCatalogSet &schema);
+	unique_ptr<DuckLakeStats> LoadStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
+	                                               DuckLakeCatalogSet &schema);
 
 private:
 	mutex schemas_lock;

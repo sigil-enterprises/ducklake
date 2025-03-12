@@ -26,7 +26,7 @@ static InsertionOrderPreservingMap<string> DuckLakeFunctionToString(TableFunctio
 }
 
 unique_ptr<BaseStatistics> DuckLakeStatistics(ClientContext &context, const FunctionData *bind_data,
-														 column_t column_index) {
+                                              column_t column_index) {
 	auto &multi_file_data = bind_data->Cast<MultiFileBindData>();
 	auto &file_list = multi_file_data.file_list->Cast<DuckLakeMultiFileList>();
 	auto &table = file_list.GetTable();

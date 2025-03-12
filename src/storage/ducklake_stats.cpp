@@ -88,7 +88,7 @@ unique_ptr<BaseStatistics> DuckLakeColumnStats::CreateNumericStats() const {
 }
 
 unique_ptr<BaseStatistics> DuckLakeColumnStats::ToStats() const {
-	switch(type.id()) {
+	switch (type.id()) {
 	case LogicalTypeId::TINYINT:
 	case LogicalTypeId::SMALLINT:
 	case LogicalTypeId::INTEGER:
@@ -103,4 +103,4 @@ unique_ptr<BaseStatistics> DuckLakeColumnStats::ToStats() const {
 	}
 }
 
-}
+} // namespace duckdb

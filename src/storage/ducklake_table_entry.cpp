@@ -55,7 +55,8 @@ optional_ptr<DuckLakeTableStats> DuckLakeTableEntry::GetTableStats(ClientContext
 		return nullptr;
 	}
 	auto &dl_catalog = catalog.Cast<DuckLakeCatalog>();
-	return dl_catalog.GetTableStats(context, GetTableId());
+	auto &transaction = DuckLakeTransaction::Get(context, ParentCatalog());
+	return dl_catalog.GetTableStats(transaction, GetTableId());
 }
 
 unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, RenameTableInfo &info) {

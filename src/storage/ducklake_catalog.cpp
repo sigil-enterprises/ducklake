@@ -215,7 +215,7 @@ ORDER BY table_id, column_order
 			throw InvalidInputException("Failed to load DuckLake - Table entry \"%s\" does not have any columns",
 			                            table_name);
 		}
-//		auto column_id = row.GetValue<uint64_t>(4);
+		//		auto column_id = row.GetValue<uint64_t>(4);
 		auto column_name = row.GetValue<string>(5);
 		auto column_type_str = row.GetValue<string>(6);
 		//		auto default_value = row.GetValue<string>(7);
@@ -275,7 +275,8 @@ DuckLakeStats &DuckLakeCatalog::GetStatsForSnapshot(DuckLakeTransaction &transac
 	return result;
 }
 
-unique_ptr<DuckLakeStats> DuckLakeCatalog::LoadStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot, DuckLakeCatalogSet &schema) {
+unique_ptr<DuckLakeStats> DuckLakeCatalog::LoadStatsForSnapshot(DuckLakeTransaction &transaction,
+                                                                DuckLakeSnapshot snapshot, DuckLakeCatalogSet &schema) {
 	// query the most recent stats
 	auto result = transaction.Query(snapshot, R"(
 SELECT table_id, column_id, record_count, file_size_bytes, contains_null, min_value, max_value
@@ -322,36 +323,40 @@ ORDER BY table_id;
 		auto &col = stats_entry.table_entry->GetColumn(LogicalIndex(column_id));
 		DuckLakeColumnStats column_stats(col.Type());
 		if (row.IsNull(4)) {
-		    column_stats.has_null_count = false;
+			column_stats.has_null_count = false;
 		} else {
-		    column_stats.has_null_count = true;
-		    column_stats.null_count = row.GetValue<uint64_t>(4);
+			column_stats.has_null_count = true;
+			column_stats.null_count = row.GetValue<uint64_t>(4);
 		}
 		if (row.IsNull(5)) {
-		    column_stats.has_min = false;
+			column_stats.has_min = false;
 		} else {
-		    column_stats.has_min = true;
-		    column_stats.min = row.GetValue<string>(5);
+			column_stats.has_min = true;
+			column_stats.min = row.GetValue<string>(5);
 		}
 		if (row.IsNull(6)) {
-		    column_stats.has_max = false;
+			column_stats.has_max = false;
 		} else {
-		    column_stats.has_max = true;
-		    column_stats.max = row.GetValue<string>(6);
+			column_stats.has_max = true;
+			column_stats.max = row.GetValue<string>(6);
 		}
 		stats_entry.stats->column_stats.insert(make_pair(column_id, std::move(column_stats)));
 	}
 	// construct the stats map
 	auto lake_stats = make_uniq<DuckLakeStats>();
-	for(auto &stats : loaded_stats) {
+	for (auto &stats : loaded_stats) {
 		lake_stats->table_stats.insert(make_pair(stats.table_id, std::move(stats.stats)));
 	}
 	return lake_stats;
 }
 
-optional_ptr<DuckLakeTableStats> DuckLakeCatalog::GetTableStats(ClientContext &context, idx_t table_id) {
-	auto &transaction = DuckLakeTransaction::Get(context, *this);
-	auto &lake_stats = GetStatsForSnapshot(transaction, transaction.GetSnapshot());
+optional_ptr<DuckLakeTableStats> DuckLakeCatalog::GetTableStats(DuckLakeTransaction &transaction, idx_t table_id) {
+	return GetTableStats(transaction, transaction.GetSnapshot(), table_id);
+}
+
+optional_ptr<DuckLakeTableStats> DuckLakeCatalog::GetTableStats(DuckLakeTransaction &transaction,
+                                                                DuckLakeSnapshot snapshot, idx_t table_id) {
+	auto &lake_stats = GetStatsForSnapshot(transaction, snapshot);
 	auto entry = lake_stats.table_stats.find(table_id);
 	if (entry == lake_stats.table_stats.end()) {
 		return nullptr;
