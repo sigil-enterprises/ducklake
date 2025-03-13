@@ -12,12 +12,14 @@
 #include "duckdb/common/case_insensitive_map.hpp"
 #include "duckdb/main/connection.hpp"
 #include "storage/ducklake_catalog_set.hpp"
+#include "storage/ducklake_metadata_manager.hpp"
 #include "common/ducklake_snapshot.hpp"
 #include "common/ducklake_data_file.hpp"
 
 namespace duckdb {
 class DuckLakeCatalog;
 class DuckLakeCatalogSet;
+class DuckLakeMetadataManager;
 class DuckLakeSchemaEntry;
 class DuckLakeTableEntry;
 struct DuckLakeTableStats;
@@ -38,6 +40,9 @@ public:
 
 	DuckLakeCatalog &GetCatalog() {
 		return ducklake_catalog;
+	}
+	DuckLakeMetadataManager &GetMetadataManager() {
+		return *metadata_manager;
 	}
 	unique_ptr<QueryResult> Query(DuckLakeSnapshot snapshot, string query);
 	unique_ptr<QueryResult> Query(string query);
@@ -92,6 +97,7 @@ private:
 private:
 	DuckLakeCatalog &ducklake_catalog;
 	DatabaseInstance &db;
+	unique_ptr<DuckLakeMetadataManager> metadata_manager;
 	unique_ptr<Connection> connection;
 	unique_ptr<DuckLakeSnapshot> snapshot;
 	idx_t local_catalog_id;

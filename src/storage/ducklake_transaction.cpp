@@ -14,6 +14,7 @@ DuckLakeTransaction::DuckLakeTransaction(DuckLakeCatalog &ducklake_catalog, Tran
                                          ClientContext &context)
     : Transaction(manager, context), ducklake_catalog(ducklake_catalog), db(*context.db),
       local_catalog_id(TRANSACTION_LOCAL_ID_START) {
+	metadata_manager = make_uniq<DuckLakeMetadataManager>(*this);
 }
 
 DuckLakeTransaction::~DuckLakeTransaction() {
@@ -55,24 +56,6 @@ bool DuckLakeTransaction::SchemaChangesMade() {
 
 bool DuckLakeTransaction::ChangesMade() {
 	return SchemaChangesMade() || !new_data_files.empty();
-}
-
-void DuckLakeTransaction::FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name,
-                                    const string &id_name, unordered_set<idx_t> &dropped_entries) {
-	string dropped_table_list;
-	for (auto &dropped_table_id : dropped_entries) {
-		if (!dropped_table_list.empty()) {
-			dropped_table_list += ", ";
-		}
-		dropped_table_list += to_string(dropped_table_id);
-	}
-	auto drop_tables_query =
-	    StringUtil::Format(R"(UPDATE {METADATA_CATALOG}.%s SET end_snapshot = {SNAPSHOT_ID} WHERE %s IN (%s);)",
-	                       metadata_table_name, id_name, dropped_table_list);
-	auto result = Query(commit_snapshot, drop_tables_query);
-	if (result->HasError()) {
-		result->GetErrorObject().Throw("Failed to write dropped table information to DuckLake:");
-	}
 }
 
 struct TransactionChangeInformation {
@@ -656,14 +639,14 @@ void DuckLakeTransaction::FlushChanges() {
 			}
 			// drop entries
 			if (!dropped_tables.empty()) {
-				FlushDrop(commit_snapshot, "ducklake_table", "table_id", dropped_tables);
+				metadata_manager->DropTables(commit_snapshot, dropped_tables);
 			}
 			if (!dropped_schemas.empty()) {
 				unordered_set<idx_t> dropped_schema_ids;
 				for (auto &entry : dropped_schemas) {
 					dropped_schema_ids.insert(entry.first);
 				}
-				FlushDrop(commit_snapshot, "ducklake_schema", "schema_id", dropped_schema_ids);
+				metadata_manager->DropTables(commit_snapshot, dropped_schema_ids);
 			}
 			// write new schemas
 			FlushNewSchemas(commit_snapshot);
