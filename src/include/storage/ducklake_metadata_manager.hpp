@@ -16,6 +16,7 @@
 #include "common/ducklake_snapshot.hpp"
 #include "storage/ducklake_partition_data.hpp"
 #include "storage/ducklake_stats.hpp"
+#include "duckdb/common/types/timestamp.hpp"
 
 namespace duckdb {
 class DuckLakeCatalogSet;
@@ -104,6 +105,13 @@ struct SnapshotChangeInfo {
 	string tables_deleted_from;
 };
 
+struct DuckLakeSnapshotInfo {
+	idx_t id;
+	timestamp_tz_t time;
+	idx_t schema_version;
+	SnapshotChangeInfo change_info;
+};
+
 struct DuckLakeCatalogInfo {
 	vector<DuckLakeSchemaInfo> schemas;
 	vector<DuckLakeTableInfo> tables;
@@ -131,6 +139,7 @@ public:
 	virtual void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, const SnapshotChangeInfo &change_info);
 	virtual void UpdateGlobalTableStats(const DuckLakeGlobalStatsInfo &stats);
 	virtual SnapshotChangeInfo GetChangesMadeAfterSnapshot(DuckLakeSnapshot start_snapshot);
+	virtual vector<DuckLakeSnapshotInfo> GetAllSnapshots();
 
 	virtual unique_ptr<DuckLakeSnapshot> GetSnapshot();
 

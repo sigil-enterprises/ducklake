@@ -476,4 +476,33 @@ WHERE table_id=tid AND column_id=cid
 	}
 }
 
+vector<DuckLakeSnapshotInfo> DuckLakeMetadataManager::GetAllSnapshots() {
+	auto res = transaction.Query(R"(
+SELECT snapshot_id, snapshot_time, schema_version, schemas_created, schemas_dropped, tables_created, tables_dropped, tables_altered, tables_inserted_into, tables_deleted_from
+FROM {METADATA_CATALOG}.ducklake_snapshot
+LEFT JOIN {METADATA_CATALOG}.ducklake_snapshot_changes USING (snapshot_id)
+ORDER BY snapshot_id
+)");
+	if (res->HasError()) {
+		res->GetErrorObject().Throw("Failed to get snapshot information from DuckLake: ");
+	}
+	vector<DuckLakeSnapshotInfo> snapshots;
+	for (auto &row : *res) {
+		DuckLakeSnapshotInfo snapshot_info;
+		snapshot_info.id = row.GetValue<idx_t>(0);
+		snapshot_info.time = row.GetValue<timestamp_tz_t>(1);
+		snapshot_info.schema_version = row.GetValue<idx_t>(2);
+		snapshot_info.change_info.schemas_created = row.IsNull(3) ? string() : row.GetValue<string>(3);
+		snapshot_info.change_info.schemas_dropped = row.IsNull(4) ? string() : row.GetValue<string>(4);
+		snapshot_info.change_info.tables_created = row.IsNull(5) ? string() : row.GetValue<string>(5);
+		snapshot_info.change_info.tables_dropped = row.IsNull(6) ? string() : row.GetValue<string>(6);
+		snapshot_info.change_info.tables_altered = row.IsNull(7) ? string() : row.GetValue<string>(7);
+		snapshot_info.change_info.tables_inserted_into = row.IsNull(8) ? string() : row.GetValue<string>(8);
+		snapshot_info.change_info.tables_deleted_from = row.IsNull(9) ? string() : row.GetValue<string>(9);
+
+		snapshots.push_back(std::move(snapshot_info));
+	}
+	return snapshots;
+}
+
 } // namespace duckdb

@@ -13,6 +13,35 @@ struct DuckLakeSnapshotsBindData : public TableFunctionData {
 	vector<vector<Value>> snapshots;
 };
 
+Value IDListToValue(const string &list_val) {
+	vector<Value> list_values;
+	auto drop_list = DuckLakeUtil::ParseDropList(list_val);
+	for (auto &drop_entry : drop_list) {
+		list_values.emplace_back(to_string(drop_entry));
+	}
+	return Value::LIST(LogicalType::VARCHAR, std::move(list_values));
+}
+
+Value QuotedListToValue(const string &list_val) {
+	vector<Value> list_values;
+	auto change_list = DuckLakeUtil::ParseQuotedList(list_val);
+	for (auto &change_entry : change_list) {
+		list_values.emplace_back(change_entry);
+	}
+	return Value::LIST(LogicalType::VARCHAR, std::move(list_values));
+}
+
+Value TableListToValue(const string &list_val) {
+	vector<Value> list_values;
+	auto created_list = DuckLakeUtil::ParseTableList(list_val);
+	for (auto &entry : created_list) {
+		auto schema = KeywordHelper::WriteOptionallyQuoted(entry.schema);
+		auto table = KeywordHelper::WriteOptionallyQuoted(entry.table);
+		list_values.emplace_back(schema + "." + table);
+	}
+	return Value::LIST(LogicalType::VARCHAR, std::move(list_values));
+}
+
 static unique_ptr<FunctionData> DuckLakeSnapshotsBind(ClientContext &context, TableFunctionBindInput &input,
                                                       vector<LogicalType> &return_types, vector<string> &names) {
 	if (input.inputs[0].IsNull()) {
@@ -31,60 +60,45 @@ static unique_ptr<FunctionData> DuckLakeSnapshotsBind(ClientContext &context, Ta
 	}
 	auto &transaction = DuckLakeTransaction::Get(context, catalog);
 
-	vector<string> change_sets {"schemas_created", "schemas_dropped",      "tables_created",     "tables_dropped",
-	                            "tables_altered",  "tables_inserted_into", "tables_deleted_from"};
-	auto res = transaction.Query(R"(
-SELECT snapshot_id, snapshot_time, schema_version, schemas_created, schemas_dropped, tables_created, tables_dropped, tables_altered, tables_inserted_into, tables_deleted_from
-FROM {METADATA_CATALOG}.ducklake_snapshot
-LEFT JOIN {METADATA_CATALOG}.ducklake_snapshot_changes USING (snapshot_id)
-ORDER BY snapshot_id
-)");
-	if (res->HasError()) {
-		res->GetErrorObject().Throw("Failed to get snapshot information from DuckLake: ");
-	}
+	auto &metadata_manager = transaction.GetMetadataManager();
+	auto snapshots = metadata_manager.GetAllSnapshots();
 	auto result = make_uniq<DuckLakeSnapshotsBindData>();
-	for (auto &row : *res) {
+	for(auto &snapshot : snapshots) {
 		vector<Value> row_values;
-		auto snapshot_id = row.GetValue<idx_t>(0);
-		auto snapshot_time = row.GetValue<timestamp_tz_t>(1);
-		auto schema_version = row.GetValue<idx_t>(2);
+		row_values.push_back(Value::BIGINT(snapshot.id));
+		row_values.push_back(Value::TIMESTAMPTZ(snapshot.time));
+		row_values.push_back(Value::BIGINT(snapshot.schema_version));
 
 		vector<Value> change_keys;
 		vector<Value> change_values;
-
-		for (idx_t c = 0; c < change_sets.size(); c++) {
-			idx_t col_idx = c + 3;
-			if (row.IsNull(col_idx)) {
-				continue;
-			}
-			auto changes = row.GetValue<string>(col_idx);
-			auto &change_name = change_sets[c];
-			vector<Value> change_list_values;
-			if (change_name == "schemas_dropped" || change_name == "tables_dropped" ||
-			    change_name == "tables_inserted_into") {
-				auto drop_list = DuckLakeUtil::ParseDropList(changes);
-				for (auto &drop_entry : drop_list) {
-					change_list_values.emplace_back(to_string(drop_entry));
-				}
-			} else if (change_name == "tables_created") {
-				auto created_list = DuckLakeUtil::ParseTableList(changes);
-				for (auto &entry : created_list) {
-					auto schema = KeywordHelper::WriteOptionallyQuoted(entry.schema);
-					auto table = KeywordHelper::WriteOptionallyQuoted(entry.table);
-					change_list_values.emplace_back(schema + "." + table);
-				}
-			} else {
-				auto change_list = DuckLakeUtil::ParseQuotedList(changes);
-				for (auto &change_entry : change_list) {
-					change_list_values.emplace_back(change_entry);
-				}
-			}
-			change_keys.push_back(Value(change_name));
-			change_values.push_back(Value::LIST(LogicalType::VARCHAR, std::move(change_list_values)));
+		if (!snapshot.change_info.schemas_created.empty()) {
+			change_keys.emplace_back("schemas_created");
+			change_values.push_back(QuotedListToValue(snapshot.change_info.schemas_created));
 		}
-		row_values.push_back(Value::BIGINT(snapshot_id));
-		row_values.push_back(Value::TIMESTAMPTZ(snapshot_time));
-		row_values.push_back(Value::BIGINT(schema_version));
+		if (!snapshot.change_info.schemas_dropped.empty()) {
+			change_keys.emplace_back("schemas_dropped");
+			change_values.push_back(IDListToValue(snapshot.change_info.schemas_dropped));
+		}
+		if (!snapshot.change_info.tables_created.empty()) {
+			change_keys.emplace_back("tables_created");
+			change_values.push_back(TableListToValue(snapshot.change_info.tables_created));
+		}
+		if (!snapshot.change_info.tables_dropped.empty()) {
+			change_keys.emplace_back("tables_dropped");
+			change_values.push_back(IDListToValue(snapshot.change_info.tables_dropped));
+		}
+		if (!snapshot.change_info.tables_altered.empty()) {
+			change_keys.emplace_back("tables_altered");
+			change_values.push_back(IDListToValue(snapshot.change_info.tables_altered));
+		}
+		if (!snapshot.change_info.tables_inserted_into.empty()) {
+			change_keys.emplace_back("tables_inserted_into");
+			change_values.push_back(IDListToValue(snapshot.change_info.tables_inserted_into));
+		}
+		if (!snapshot.change_info.tables_deleted_from.empty()) {
+			change_keys.emplace_back("tables_deleted_from");
+			change_values.push_back(IDListToValue(snapshot.change_info.tables_deleted_from));
+		}
 		row_values.push_back(Value::MAP(LogicalType::VARCHAR, LogicalType::LIST(LogicalType::VARCHAR),
 		                                std::move(change_keys), std::move(change_values)));
 		result->snapshots.push_back(std::move(row_values));
