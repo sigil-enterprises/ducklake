@@ -646,7 +646,7 @@ void DuckLakeTransaction::FlushChanges() {
 				for (auto &entry : dropped_schemas) {
 					dropped_schema_ids.insert(entry.first);
 				}
-				metadata_manager->DropTables(commit_snapshot, dropped_schema_ids);
+				metadata_manager->DropSchemas(commit_snapshot, dropped_schema_ids);
 			}
 			// write new schemas
 			FlushNewSchemas(commit_snapshot);
