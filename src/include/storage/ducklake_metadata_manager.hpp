@@ -18,6 +18,7 @@
 #include "storage/ducklake_stats.hpp"
 
 namespace duckdb {
+class DuckLakeCatalogSet;
 class DuckLakeSchemaEntry;
 class DuckLakeTableEntry;
 class DuckLakeTransaction;
@@ -74,15 +75,22 @@ struct DuckLakePartitionInfo {
 
 struct DuckLakeGlobalColumnStatsInfo {
 	idx_t column_id;
-	string contains_null;
+
+	bool contains_null;
+	bool has_contains_null;
+
 	string min_val;
+	bool has_min;
+
 	string max_val;
+	bool has_max;
 };
 
 struct DuckLakeGlobalStatsInfo {
 	idx_t table_id;
 	bool initialized;
-	DuckLakeTableStats table_stats;
+	idx_t record_count;
+	idx_t table_size_bytes;
 	vector<DuckLakeGlobalColumnStatsInfo> column_stats;
 };
 
@@ -111,6 +119,7 @@ public:
 	DuckLakeMetadataManager &Get(DuckLakeTransaction &transaction);
 
 	virtual DuckLakeCatalogInfo GetCatalogForSnapshot(DuckLakeSnapshot snapshot);
+	virtual vector<DuckLakeGlobalStatsInfo> GetGlobalTableStats(DuckLakeSnapshot snapshot);
 	virtual void DropSchemas(DuckLakeSnapshot commit_snapshot, unordered_set<idx_t> ids);
 	virtual void DropTables(DuckLakeSnapshot commit_snapshot, unordered_set<idx_t> ids);
 	virtual void WriteNewSchemas(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeSchemaInfo> &new_schemas);

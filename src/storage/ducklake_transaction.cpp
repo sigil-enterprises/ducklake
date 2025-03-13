@@ -376,24 +376,22 @@ void DuckLakeTransaction::UpdateGlobalTableStats(idx_t table_id, DuckLakeTableSt
 		DuckLakeGlobalColumnStatsInfo col_stats;
 		col_stats.column_id = entry.first;
 		auto &column_stats = entry.second;
+		col_stats.has_contains_null = column_stats.has_null_count;
 		if (column_stats.has_null_count) {
-			col_stats.contains_null = column_stats.null_count > 0 ? "true" : "false";
-		} else {
-			col_stats.contains_null = "NULL";
+			col_stats.contains_null = column_stats.null_count > 0;
 		}
+		col_stats.has_min = column_stats.has_min;
 		if (column_stats.has_min) {
-			col_stats.min_val = DuckLakeUtil::SQLLiteralToString(column_stats.min);
-		} else {
-			col_stats.min_val = "NULL";
+			col_stats.min_val = column_stats.min;
 		}
-		if (entry.second.has_max) {
-			col_stats.max_val = DuckLakeUtil::SQLLiteralToString(column_stats.max);
-		} else {
-			col_stats.max_val = "NULL";
+		col_stats.has_max = column_stats.has_max;
+		if (column_stats.has_max) {
+			col_stats.max_val = column_stats.max;
 		}
 		stats.column_stats.push_back(std::move(col_stats));
 	}
-	stats.table_stats = std::move(new_stats);
+	stats.record_count = new_stats.record_count;
+	stats.table_size_bytes = new_stats.table_size_bytes;
 	// finally update the stats in the tables
 	metadata_manager->UpdateGlobalTableStats(stats);
 }

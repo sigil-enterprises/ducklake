@@ -179,26 +179,25 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 
 	auto schema_set = make_uniq<DuckLakeCatalogSet>(std::move(schema_map));
 	// load the table entries
-	for(auto &table : catalog.tables) {
+	for (auto &table : catalog.tables) {
 		// find the schema for the table
 		auto entry = schema_id_map.find(table.schema_id);
 		if (entry == schema_id_map.end()) {
 			throw InvalidInputException(
-				"Failed to load DuckLake - could not find schema that corresponds to the table entry \"%s\"",
-				table.name);
+			    "Failed to load DuckLake - could not find schema that corresponds to the table entry \"%s\"",
+			    table.name);
 		}
 		auto &schema_entry = entry->second.get();
 		auto create_table_info = make_uniq<CreateTableInfo>(schema_entry, table.name);
 		// parse the columns
-		for(auto &col_info : table.columns) {
+		for (auto &col_info : table.columns) {
 			auto column_type = DuckLakeTypes::FromString(col_info.type);
 			ColumnDefinition column(std::move(col_info.name), std::move(column_type));
 			create_table_info->columns.AddColumn(std::move(column));
 		}
 		// create the table and add it to the schema set
-		auto table_entry =
-			make_uniq<DuckLakeTableEntry>(*this, schema_entry, *create_table_info, table.id,
-										  std::move(table.uuid), TransactionLocalChange::NONE);
+		auto table_entry = make_uniq<DuckLakeTableEntry>(*this, schema_entry, *create_table_info, table.id,
+		                                                 std::move(table.uuid), TransactionLocalChange::NONE);
 		schema_set->AddEntry(schema_entry, table.id, std::move(table_entry));
 	}
 
@@ -210,7 +209,7 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 		}
 		auto partition = make_uniq<DuckLakePartition>();
 		partition->partition_id = entry.id.GetIndex();
-		for(auto &field : entry.fields) {
+		for (auto &field : entry.fields) {
 			DuckLakePartitionField partition_field;
 			partition_field.partition_key_index = field.partition_key_index;
 			partition_field.column_id = field.column_id;
@@ -240,75 +239,41 @@ DuckLakeStats &DuckLakeCatalog::GetStatsForSnapshot(DuckLakeTransaction &transac
 
 unique_ptr<DuckLakeStats> DuckLakeCatalog::LoadStatsForSnapshot(DuckLakeTransaction &transaction,
                                                                 DuckLakeSnapshot snapshot, DuckLakeCatalogSet &schema) {
-	// query the most recent stats
-	auto result = transaction.Query(snapshot, R"(
-SELECT table_id, column_id, record_count, file_size_bytes, contains_null, min_value, max_value
-FROM {METADATA_CATALOG}.ducklake_table_stats
-LEFT JOIN {METADATA_CATALOG}.ducklake_table_column_stats USING (table_id)
-WHERE record_count IS NOT NULL AND file_size_bytes IS NOT NULL
-ORDER BY table_id;
-)");
-	if (result->HasError()) {
-		result->GetErrorObject().Throw("Failed to get global stats information from DuckLake: ");
-	}
-	struct LoadedStatsEntry {
-		idx_t table_id;
-		optional_ptr<DuckLakeTableEntry> table_entry;
-		unique_ptr<DuckLakeTableStats> stats;
-	};
-	vector<LoadedStatsEntry> loaded_stats;
-	for (auto &row : *result) {
-		auto table_id = row.GetValue<uint64_t>(0);
-		auto column_id = row.GetValue<uint64_t>(1);
+	auto &metadata_manager = transaction.GetMetadataManager();
+	auto global_stats = metadata_manager.GetGlobalTableStats(snapshot);
 
-		if (loaded_stats.empty() || loaded_stats.back().table_id != table_id) {
-			// new stats
-			LoadedStatsEntry new_entry;
-
-			// find the referenced table entry
-			auto table_entry = schema.GetEntryById(table_id);
-			if (table_entry && table_entry->type == CatalogType::TABLE_ENTRY) {
-				new_entry.table_entry = table_entry->Cast<DuckLakeTableEntry>();
-			}
-
-			// set up the table-level stats
-			new_entry.table_id = table_id;
-			new_entry.stats = make_uniq<DuckLakeTableStats>();
-			new_entry.stats->record_count = row.GetValue<uint64_t>(2);
-			new_entry.stats->table_size_bytes = row.GetValue<uint64_t>(3);
-			loaded_stats.push_back(std::move(new_entry));
-		}
-		// add the stats for this column
-		auto &stats_entry = loaded_stats.back();
-		if (!stats_entry.table_entry) {
-			continue;
-		}
-		auto &col = stats_entry.table_entry->GetColumn(LogicalIndex(column_id));
-		DuckLakeColumnStats column_stats(col.Type());
-		if (row.IsNull(4)) {
-			column_stats.has_null_count = false;
-		} else {
-			column_stats.has_null_count = true;
-			column_stats.null_count = row.GetValue<uint64_t>(4);
-		}
-		if (row.IsNull(5)) {
-			column_stats.has_min = false;
-		} else {
-			column_stats.has_min = true;
-			column_stats.min = row.GetValue<string>(5);
-		}
-		if (row.IsNull(6)) {
-			column_stats.has_max = false;
-		} else {
-			column_stats.has_max = true;
-			column_stats.max = row.GetValue<string>(6);
-		}
-		stats_entry.stats->column_stats.insert(make_pair(column_id, std::move(column_stats)));
-	}
 	// construct the stats map
 	auto lake_stats = make_uniq<DuckLakeStats>();
-	for (auto &stats : loaded_stats) {
-		lake_stats->table_stats.insert(make_pair(stats.table_id, std::move(stats.stats)));
+	for (auto &stats : global_stats) {
+		// find the referenced table entry
+		auto table_entry = schema.GetEntryById(stats.table_id);
+		if (!table_entry || table_entry->type != CatalogType::TABLE_ENTRY) {
+			// failed to find the referenced table entry - this means the table does not exist for this snapshot
+			// since the global stats are not versioned this is not an error - just skip
+			continue;
+		}
+		auto table_stats = make_uniq<DuckLakeTableStats>();
+		table_stats->record_count = stats.record_count;
+		table_stats->table_size_bytes = stats.table_size_bytes;
+		auto &table = table_entry->Cast<DuckLakeTableEntry>();
+		for (auto &col_stats : stats.column_stats) {
+			auto &col = table.GetColumn(LogicalIndex(col_stats.column_id));
+			DuckLakeColumnStats column_stats(col.Type());
+			column_stats.has_null_count = col_stats.has_contains_null;
+			if (column_stats.has_null_count) {
+				column_stats.null_count = col_stats.contains_null ? 1 : 0;
+			}
+			column_stats.has_min = col_stats.has_min;
+			if (column_stats.has_min) {
+				column_stats.min = col_stats.min_val;
+			}
+			column_stats.has_max = col_stats.has_max;
+			if (column_stats.has_max) {
+				column_stats.max = col_stats.max_val;
+			}
+			table_stats->column_stats.insert(make_pair(col_stats.column_id, std::move(column_stats)));
+		}
+		lake_stats->table_stats.insert(make_pair(stats.table_id, std::move(table_stats)));
 	}
 	return lake_stats;
 }
