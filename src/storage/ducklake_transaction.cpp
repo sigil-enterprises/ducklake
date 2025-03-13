@@ -278,7 +278,8 @@ vector<DuckLakeSchemaInfo> DuckLakeTransaction::GetNewSchemas(DuckLakeSnapshot &
 	return schemas;
 }
 
-void DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table, vector<DuckLakePartitionInfo> &new_partition_keys) {
+void DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table,
+                                             vector<DuckLakePartitionInfo> &new_partition_keys) {
 	DuckLakePartitionInfo partition_key;
 	partition_key.table_id = table.GetTableId();
 	// insert the new partition data
@@ -297,7 +298,8 @@ void DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot, 
 	new_partition_keys.push_back(std::move(partition_key));
 }
 
-vector<DuckLakeTableInfo> DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &commit_snapshot, vector<DuckLakePartitionInfo> &new_partition_keys) {
+vector<DuckLakeTableInfo> DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &commit_snapshot,
+                                                            vector<DuckLakePartitionInfo> &new_partition_keys) {
 	vector<DuckLakeTableInfo> tables;
 	for (auto &schema_entry : new_tables) {
 		for (auto &entry : schema_entry.second->GetEntries()) {
@@ -349,8 +351,11 @@ vector<DuckLakeTableInfo> DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &co
 }
 
 void DuckLakeTransaction::UpdateGlobalTableStats(idx_t table_id, DuckLakeTableStats new_stats) {
+	DuckLakeGlobalStatsInfo stats;
+	stats.table_id = table_id;
+
 	auto current_stats = ducklake_catalog.GetTableStats(*this, table_id);
-	bool stats_initialized = false;
+	stats.initialized = false;
 	if (current_stats) {
 		// merge the current stats into the new stats
 		for (auto &entry : current_stats->column_stats) {
@@ -358,78 +363,32 @@ void DuckLakeTransaction::UpdateGlobalTableStats(idx_t table_id, DuckLakeTableSt
 		}
 		new_stats.record_count += current_stats->record_count;
 		new_stats.table_size_bytes += current_stats->table_size_bytes;
-		stats_initialized = true;
+		stats.initialized = true;
 	}
-
-	// now that we have obtained the total stats - generate the SQL to insert
-	string column_stats_values;
 	for (auto &entry : new_stats.column_stats) {
-		if (!column_stats_values.empty()) {
-			column_stats_values += ",";
-		}
-		auto column_id = entry.first;
+		DuckLakeGlobalColumnStatsInfo col_stats;
+		col_stats.column_id = entry.first;
 		auto &column_stats = entry.second;
-		column_stats_values += "(";
-		column_stats_values += to_string(table_id);
-		column_stats_values += ",";
-		column_stats_values += to_string(column_id);
-		column_stats_values += ",";
 		if (column_stats.has_null_count) {
-			column_stats_values += column_stats.null_count > 0 ? "true" : "false";
+			col_stats.contains_null = column_stats.null_count > 0 ? "true" : "false";
 		} else {
-			column_stats_values += "NULL";
+			col_stats.contains_null = "NULL";
 		}
-		column_stats_values += ",";
 		if (column_stats.has_min) {
-			column_stats_values += DuckLakeUtil::SQLLiteralToString(column_stats.min);
+			col_stats.min_val = DuckLakeUtil::SQLLiteralToString(column_stats.min);
 		} else {
-			column_stats_values += "NULL";
+			col_stats.min_val = "NULL";
 		}
-		column_stats_values += ",";
 		if (entry.second.has_max) {
-			column_stats_values += DuckLakeUtil::SQLLiteralToString(column_stats.max);
+			col_stats.max_val = DuckLakeUtil::SQLLiteralToString(column_stats.max);
 		} else {
-			column_stats_values += "NULL";
+			col_stats.max_val = "NULL";
 		}
-		column_stats_values += ")";
+		stats.column_stats.push_back(std::move(col_stats));
 	}
+	stats.table_stats = std::move(new_stats);
 	// finally update the stats in the tables
-	if (!stats_initialized) {
-		// stats have not been initialized yet - insert them
-		auto result =
-		    Query(StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_table_stats VALUES (%d, %d, %d);",
-		                             table_id, new_stats.record_count, new_stats.table_size_bytes));
-		if (result->HasError()) {
-			result->GetErrorObject().Throw("Failed to insert stats information in DuckLake: ");
-		}
-
-		result = Query(StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_table_column_stats VALUES %s;",
-		                                  column_stats_values));
-		if (result->HasError()) {
-			result->GetErrorObject().Throw("Failed to insert stats information in DuckLake: ");
-		}
-	} else {
-		// stats have been initialized - update them
-		auto result = Query(StringUtil::Format(
-		    "UPDATE {METADATA_CATALOG}.ducklake_table_stats SET record_count=%d, file_size_bytes=%d WHERE table_id=%d;",
-		    new_stats.record_count, new_stats.table_size_bytes, table_id));
-		if (result->HasError()) {
-			result->GetErrorObject().Throw("Failed to update stats information in DuckLake: ");
-		}
-		result = Query(StringUtil::Format(R"(
-WITH new_values(tid, cid, new_contains_null, new_min, new_max) AS (
-	VALUES %s
-)
-UPDATE {METADATA_CATALOG}.ducklake_table_column_stats
-SET contains_null=new_contains_null, min_value=new_min, max_value=new_max
-FROM new_values
-WHERE table_id=tid AND column_id=cid
-)",
-		                                  column_stats_values));
-		if (result->HasError()) {
-			result->GetErrorObject().Throw("Failed to update stats information in DuckLake: ");
-		}
-	}
+	metadata_manager->UpdateGlobalTableStats(stats);
 }
 
 vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &commit_snapshot) {
