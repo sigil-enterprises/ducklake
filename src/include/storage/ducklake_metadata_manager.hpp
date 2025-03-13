@@ -92,6 +92,7 @@ struct SnapshotChangeInfo {
 
 struct DuckLakeCatalogInfo {
 	vector<DuckLakeSchemaInfo> schemas;
+	vector<DuckLakeTableInfo> tables;
 };
 
 // The DuckLake metadata manger is the communication layer between the system and the metadata catalog

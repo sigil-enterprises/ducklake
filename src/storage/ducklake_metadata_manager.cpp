@@ -31,6 +31,46 @@ WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_s
 		schema.name = row.GetValue<string>(2);
 		catalog.schemas.push_back(std::move(schema));
 	}
+
+	// load the table information
+	result = transaction.Query(snapshot, R"(
+SELECT schema_id, table_id, table_uuid::VARCHAR, table_name, column_id, column_name, column_type, default_value
+FROM {METADATA_CATALOG}.ducklake_table tbl
+LEFT JOIN {METADATA_CATALOG}.ducklake_column col USING (table_id)
+WHERE {SNAPSHOT_ID} >= tbl.begin_snapshot AND ({SNAPSHOT_ID} < tbl.end_snapshot OR tbl.end_snapshot IS NULL)
+  AND (({SNAPSHOT_ID} >= col.begin_snapshot AND ({SNAPSHOT_ID} < col.end_snapshot OR col.end_snapshot IS NULL)) OR column_id IS NULL)
+ORDER BY table_id, column_order
+)");
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to get table information from DuckLake: ");
+	}
+	auto &tables = catalog.tables;
+	for (auto &row : *result) {
+		auto table_id = row.GetValue<uint64_t>(1);
+
+		// check if this column belongs to the current table or not
+		if (tables.empty() || tables.back().id != table_id) {
+			// new table
+			DuckLakeTableInfo table_info;
+			table_info.id = table_id;
+			table_info.schema_id = row.GetValue<uint64_t>(0);
+			table_info.uuid = row.GetValue<string>(2);
+			table_info.name = row.GetValue<string>(3);
+			tables.push_back(std::move(table_info));
+		}
+		auto &table_entry = tables.back();
+		if (row.GetValue<Value>(4).IsNull()) {
+			throw InvalidInputException("Failed to load DuckLake - Table entry \"%s\" does not have any columns",
+										table_entry.name);
+		}
+		// add the column to this table
+		DuckLakeColumnInfo column_info;
+		column_info.id = row.GetValue<uint64_t>(4);
+		column_info.name = row.GetValue<string>(5);
+		column_info.type = row.GetValue<string>(6);
+		table_entry.columns.push_back(std::move(column_info));
+	}
+
 	return catalog;
 }
 
