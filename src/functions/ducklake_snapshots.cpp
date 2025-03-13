@@ -6,13 +6,6 @@
 
 namespace duckdb {
 
-struct DuckLakeSnapshotsBindData : public TableFunctionData {
-	DuckLakeSnapshotsBindData() {
-	}
-
-	vector<vector<Value>> snapshots;
-};
-
 Value IDListToValue(const string &list_val) {
 	vector<Value> list_values;
 	auto drop_list = DuckLakeUtil::ParseDropList(list_val);
@@ -62,8 +55,8 @@ static unique_ptr<FunctionData> DuckLakeSnapshotsBind(ClientContext &context, Ta
 
 	auto &metadata_manager = transaction.GetMetadataManager();
 	auto snapshots = metadata_manager.GetAllSnapshots();
-	auto result = make_uniq<DuckLakeSnapshotsBindData>();
-	for(auto &snapshot : snapshots) {
+	auto result = make_uniq<MetadataBindData>();
+	for (auto &snapshot : snapshots) {
 		vector<Value> row_values;
 		row_values.push_back(Value::BIGINT(snapshot.id));
 		row_values.push_back(Value::TIMESTAMPTZ(snapshot.time));
@@ -101,7 +94,7 @@ static unique_ptr<FunctionData> DuckLakeSnapshotsBind(ClientContext &context, Ta
 		}
 		row_values.push_back(Value::MAP(LogicalType::VARCHAR, LogicalType::LIST(LogicalType::VARCHAR),
 		                                std::move(change_keys), std::move(change_values)));
-		result->snapshots.push_back(std::move(row_values));
+		result->rows.push_back(std::move(row_values));
 	}
 
 	names.emplace_back("snapshot_id");
@@ -119,42 +112,8 @@ static unique_ptr<FunctionData> DuckLakeSnapshotsBind(ClientContext &context, Ta
 	return std::move(result);
 }
 
-struct DuckLakeSnapshotsData : public GlobalTableFunctionState {
-	DuckLakeSnapshotsData() : offset(0) {
-	}
-
-	idx_t offset;
-};
-
-unique_ptr<GlobalTableFunctionState> DuckLakeSnapshotsInit(ClientContext &context, TableFunctionInitInput &input) {
-	auto result = make_uniq<DuckLakeSnapshotsData>();
-	return std::move(result);
-}
-
-void DuckLakeSnapshotsExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
-	auto &data = data_p.bind_data->Cast<DuckLakeSnapshotsBindData>();
-	auto &state = data_p.global_state->Cast<DuckLakeSnapshotsData>();
-	if (state.offset >= data.snapshots.size()) {
-		// finished returning values
-		return;
-	}
-	// start returning values
-	// either fill up the chunk or return all the remaining columns
-	idx_t count = 0;
-	while (state.offset < data.snapshots.size() && count < STANDARD_VECTOR_SIZE) {
-		auto &entry = data.snapshots[state.offset++];
-
-		for (idx_t c = 0; c < entry.size(); c++) {
-			output.SetValue(c, count, entry[c]);
-		}
-		count++;
-	}
-	output.SetCardinality(count);
-}
-
 DuckLakeSnapshotsFunction::DuckLakeSnapshotsFunction()
-    : TableFunction("ducklake_snapshots", {LogicalType::VARCHAR}, DuckLakeSnapshotsExecute, DuckLakeSnapshotsBind,
-                    DuckLakeSnapshotsInit) {
+    : BaseMetadataFunction("ducklake_snapshots", DuckLakeSnapshotsBind) {
 }
 
 } // namespace duckdb

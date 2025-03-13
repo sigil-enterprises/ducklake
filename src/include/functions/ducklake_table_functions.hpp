@@ -12,7 +12,19 @@
 
 namespace duckdb {
 
-class DuckLakeSnapshotsFunction : public TableFunction {
+struct MetadataBindData : public TableFunctionData {
+	MetadataBindData() {
+	}
+
+	vector<vector<Value>> rows;
+};
+
+class BaseMetadataFunction : public TableFunction {
+public:
+	BaseMetadataFunction(string name, table_function_bind_t bind);
+};
+
+class DuckLakeSnapshotsFunction : public BaseMetadataFunction {
 public:
 	DuckLakeSnapshotsFunction();
 };
