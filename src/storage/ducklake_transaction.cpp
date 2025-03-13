@@ -278,59 +278,33 @@ vector<DuckLakeSchemaInfo> DuckLakeTransaction::GetNewSchemas(DuckLakeSnapshot &
 	return schemas;
 }
 
-void DuckLakeTransaction::FlushNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table) {
-	// set old partition data as no longer valid
-	auto update_partition_query = StringUtil::Format(R"(
-UPDATE {METADATA_CATALOG}.ducklake_partition_info
-SET end_snapshot = {SNAPSHOT_ID}
-WHERE table_id = %d AND end_snapshot IS NULL)",
-	                                                 table.GetTableId());
-	auto result = Query(commit_snapshot, update_partition_query);
-	if (result->HasError()) {
-		result->GetErrorObject().Throw("Failed to update old partition information in DuckLake:");
-	}
+void DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table, vector<DuckLakePartitionInfo> &new_partition_keys) {
+	DuckLakePartitionInfo partition_key;
+	partition_key.table_id = table.GetTableId();
 	// insert the new partition data
 	auto partition_data = table.GetPartitionData();
 	if (!partition_data) {
-		// dropping partition data - we don't need to do anything
+		// dropping partition data - insert the empty partition key data for this table
+		new_partition_keys.push_back(std::move(partition_key));
 		return;
 	}
-	partition_data->partition_id = commit_snapshot.next_catalog_id++;
-	auto new_partition_data_query = StringUtil::Format(R"(
-INSERT INTO {METADATA_CATALOG}.ducklake_partition_info
-VALUES (%d, %d, {SNAPSHOT_ID}, NULL);)",
-	                                                   partition_data->partition_id, table.GetTableId());
-	result = Query(commit_snapshot, new_partition_data_query);
-	if (result->HasError()) {
-		result->GetErrorObject().Throw("Failed to insert new partition information in DuckLake:");
-	}
-	string insert_partition_cols;
+	auto partition_id = commit_snapshot.next_catalog_id++;
+	partition_key.id = partition_id;
+	partition_data->partition_id = partition_id;
 	for (auto &field : partition_data->fields) {
-		if (!insert_partition_cols.empty()) {
-			insert_partition_cols += ", ";
-		}
-		if (field.transform.type != DuckLakeTransformType::IDENTITY) {
-			throw NotImplementedException("FIXME: non-identity transform");
-		}
-		insert_partition_cols += StringUtil::Format("(%d, %d, %d, 'identity')", partition_data->partition_id,
-		                                            field.partition_key_index, field.column_id);
+		partition_key.fields.push_back(field);
 	}
-	insert_partition_cols = "INSERT INTO {METADATA_CATALOG}.ducklake_partition_columns VALUES " + insert_partition_cols;
-
-	result = Query(commit_snapshot, insert_partition_cols);
-	if (result->HasError()) {
-		result->GetErrorObject().Throw("Failed to insert new partition information in DuckLake:");
-	}
+	new_partition_keys.push_back(std::move(partition_key));
 }
 
-vector<DuckLakeTableInfo> DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &commit_snapshot) {
+vector<DuckLakeTableInfo> DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &commit_snapshot, vector<DuckLakePartitionInfo> &new_partition_keys) {
 	vector<DuckLakeTableInfo> tables;
 	for (auto &schema_entry : new_tables) {
 		for (auto &entry : schema_entry.second->GetEntries()) {
 			// write any new tables that we created
 			auto &table = entry.second->Cast<DuckLakeTableEntry>();
 			if (table.LocalChange() == TransactionLocalChange::SET_PARTITION_KEY) {
-				FlushNewPartitionKey(commit_snapshot, table);
+				GetNewPartitionKey(commit_snapshot, table, new_partition_keys);
 				continue;
 			}
 			auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
@@ -551,8 +525,10 @@ void DuckLakeTransaction::FlushChanges() {
 
 			// write new tables
 			if (!new_tables.empty()) {
-				auto table_list = GetNewTables(commit_snapshot);
+				vector<DuckLakePartitionInfo> partition_keys;
+				auto table_list = GetNewTables(commit_snapshot, partition_keys);
 				metadata_manager->WriteNewTables(commit_snapshot, table_list);
+				metadata_manager->WriteNewPartitionKeys(commit_snapshot, partition_keys);
 			}
 
 			// write new data files

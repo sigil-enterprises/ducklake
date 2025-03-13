@@ -11,8 +11,10 @@
 #include "duckdb/common/common.hpp"
 #include "duckdb/common/unordered_set.hpp"
 #include "duckdb/common/case_insensitive_map.hpp"
+#include "duckdb/common/optional_idx.hpp"
 #include "duckdb/common/reference_map.hpp"
 #include "common/ducklake_snapshot.hpp"
+#include "storage/ducklake_partition_data.hpp"
 
 namespace duckdb {
 class DuckLakeSchemaEntry;
@@ -57,6 +59,12 @@ struct DuckLakeFileInfo {
 	vector<DuckLakeColumnStatsInfo> column_stats;
 };
 
+struct DuckLakePartitionInfo {
+	optional_idx id;
+	idx_t table_id;
+	vector<DuckLakePartitionField> fields;
+};
+
 struct SnapshotChangeInfo {
 	string schemas_created;
 	string schemas_dropped;
@@ -79,6 +87,7 @@ public:
 	virtual void DropTables(DuckLakeSnapshot commit_snapshot, unordered_set<idx_t> ids);
 	virtual void WriteNewSchemas(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeSchemaInfo> &new_schemas);
 	virtual void WriteNewTables(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeTableInfo> &new_tables);
+	virtual void WriteNewPartitionKeys(DuckLakeSnapshot commit_snapshot, const vector<DuckLakePartitionInfo> &new_partitions);
 	virtual void WriteNewDataFiles(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeFileInfo> &new_files);
 	virtual void InsertSnapshot(DuckLakeSnapshot commit_snapshot);
 	virtual void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, const SnapshotChangeInfo &change_info);

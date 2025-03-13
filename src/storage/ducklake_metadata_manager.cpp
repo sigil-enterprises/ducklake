@@ -211,4 +211,65 @@ unique_ptr<DuckLakeSnapshot> DuckLakeMetadataManager::GetSnapshot() {
 	return make_uniq<DuckLakeSnapshot>(snapshot_id, schema_version, next_catalog_id, next_file_id);
 }
 
+void DuckLakeMetadataManager::WriteNewPartitionKeys(DuckLakeSnapshot commit_snapshot, const vector<DuckLakePartitionInfo> &new_partitions) {
+	if (new_partitions.empty()) {
+		return;
+	}
+	string old_partition_table_ids;
+	string new_partition_values;
+	string insert_partition_cols;
+	for(auto &partition : new_partitions) {
+		// set old partition data as no longer valid
+		if (!old_partition_table_ids.empty()) {
+			old_partition_table_ids += ", ";
+		}
+		old_partition_table_ids += to_string(partition.table_id);
+		if (!partition.id.IsValid()) {
+			// dropping partition data - we don't need to do anything
+			return;
+		}
+		auto partition_id = partition.id.GetIndex();
+		if (!new_partition_values.empty()) {
+			new_partition_values += ", ";
+		}
+		new_partition_values += StringUtil::Format(R"((%d, %d, {SNAPSHOT_ID}, NULL);)",
+														   partition_id, partition.table_id);
+		for (auto &field : partition.fields) {
+			if (!insert_partition_cols.empty()) {
+				insert_partition_cols += ", ";
+			}
+			if (field.transform.type != DuckLakeTransformType::IDENTITY) {
+				throw NotImplementedException("FIXME: non-identity transform");
+			}
+			insert_partition_cols += StringUtil::Format("(%d, %d, %d, 'identity')", partition_id,
+														field.partition_key_index, field.column_id);
+		}
+	}
+	// update old partition information for any tables that have been altered
+	auto update_partition_query = StringUtil::Format(R"(
+UPDATE {METADATA_CATALOG}.ducklake_partition_info
+SET end_snapshot = {SNAPSHOT_ID}
+WHERE table_id IN (%s) AND end_snapshot IS NULL)", old_partition_table_ids);
+	auto result = transaction.Query(commit_snapshot, update_partition_query);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to update old partition information in DuckLake: ");
+	}
+	if (!new_partition_values.empty()) {
+		new_partition_values = "INSERT INTO {METADATA_CATALOG}.ducklake_partition_info VALUES " + new_partition_values;
+		auto result = transaction.Query(commit_snapshot, new_partition_values);
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to insert new partition information in DuckLake: ");
+		}
+
+	}
+	if (!insert_partition_cols.empty()) {
+		insert_partition_cols = "INSERT INTO {METADATA_CATALOG}.ducklake_partition_columns VALUES " + insert_partition_cols;
+
+		auto result = transaction.Query(commit_snapshot, insert_partition_cols);
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to insert new partition information in DuckLake:");
+		}
+	}
+}
+
 } // namespace duckdb

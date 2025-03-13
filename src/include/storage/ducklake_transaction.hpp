@@ -83,7 +83,8 @@ private:
 	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,
 	               unordered_set<idx_t> &dropped_entries);
 	vector<DuckLakeSchemaInfo> GetNewSchemas(DuckLakeSnapshot &commit_snapshot);
-	vector<DuckLakeTableInfo> GetNewTables(DuckLakeSnapshot &commit_snapshot);
+	vector<DuckLakeTableInfo> GetNewTables(DuckLakeSnapshot &commit_snapshot, vector<DuckLakePartitionInfo> &new_partition_keys);
+	void GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table, vector<DuckLakePartitionInfo> &new_partition_keys);
 	void FlushNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table);
 	vector<DuckLakeFileInfo> GetNewDataFiles(DuckLakeSnapshot &commit_snapshot);
 	void UpdateGlobalTableStats(idx_t table_id, DuckLakeTableStats new_stats);
