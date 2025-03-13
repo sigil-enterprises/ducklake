@@ -126,6 +126,9 @@ public:
 
 	DuckLakeMetadataManager &Get(DuckLakeTransaction &transaction);
 
+	//! Initialize a new DuckLake
+	virtual void InitializeDuckLake(bool has_explicit_schema);
+	//! Get the catalog information for a specific snapshot
 	virtual DuckLakeCatalogInfo GetCatalogForSnapshot(DuckLakeSnapshot snapshot);
 	virtual vector<DuckLakeGlobalStatsInfo> GetGlobalTableStats(DuckLakeSnapshot snapshot);
 	virtual void DropSchemas(DuckLakeSnapshot commit_snapshot, unordered_set<idx_t> ids);

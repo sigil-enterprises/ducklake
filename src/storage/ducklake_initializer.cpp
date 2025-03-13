@@ -9,7 +9,6 @@
 #include "storage/ducklake_catalog.hpp"
 #include "storage/ducklake_transaction.hpp"
 #include "storage/ducklake_schema_entry.hpp"
-#include "duckdb.hpp"
 
 namespace duckdb {
 
@@ -57,40 +56,8 @@ void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction
 		throw InvalidInputException("Attempting to create a new ducklake instance but data_path is not set - set the "
 		                            "DATA_PATH parameter to the desired location of the data files");
 	}
-	string initialize_query;
-	if (has_explicit_schema) {
-		// if the schema is user provided create it
-		initialize_query += "CREATE SCHEMA IF NOT EXISTS {METADATA_CATALOG};\n";
-	}
-	initialize_query += StringUtil::Format(R"(
-CREATE TABLE {METADATA_CATALOG}.ducklake_info(version BIGINT, data_path VARCHAR, created_by VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot(snapshot_id BIGINT PRIMARY KEY, snapshot_time TIMESTAMPTZ, schema_version BIGINT, next_catalog_id BIGINT, next_file_id BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot_changes(snapshot_id BIGINT PRIMARY KEY, schemas_created VARCHAR, schemas_dropped VARCHAR, tables_created VARCHAR, tables_dropped VARCHAR, tables_altered VARCHAR, tables_inserted_into VARCHAR, tables_deleted_from VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_schema(schema_id BIGINT PRIMARY KEY, schema_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_name VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_table(table_id BIGINT, table_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, table_name VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_data_file(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, file_order BIGINT, path VARCHAR, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, partition_id BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_file_column_statistics(data_file_id BIGINT, table_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, value_count BIGINT, null_count BIGINT, nan_count BIGINT, min_value VARCHAR, max_value VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file(delete_file_id BIGINT PRIMARY KEY, begin_snapshot BIGINT, end_snapshot BIGINT, data_file_id BIGINT, path VARCHAR, format VARCHAR, delete_count BIGINT, file_size_bytes BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_column(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, column_order BIGINT, column_name VARCHAR, column_type VARCHAR, default_value VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_table_stats(table_id BIGINT, record_count BIGINT, file_size_bytes BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_table_column_stats(table_id BIGINT, column_id BIGINT, contains_null BOOLEAN, min_value VARCHAR, max_value VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_partition_info(partition_id BIGINT, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_partition_columns(partition_id BIGINT, partition_key_index BIGINT, column_id BIGINT, transform VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_file_partition_values(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, partition_key_index BIGINT, partition_value VARCHAR);
-INSERT INTO {METADATA_CATALOG}.ducklake_info VALUES (1, {DATA_PATH}, 'DuckDB %s');
-INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
-INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main');
-	)",
-	                                       DuckDB::SourceID());
-	// TODO: add
-	//	ducklake_sorting_info
-	//	ducklake_sorting_column_info
-	//	ducklake_view
-	//	ducklake_macro
-	auto result = transaction.Query(initialize_query);
-	if (result->HasError()) {
-		result->GetErrorObject().Throw("Failed to initialize DuckLake:");
-	}
+	auto &metadata_manager = transaction.GetMetadataManager();
+	metadata_manager.InitializeDuckLake(has_explicit_schema);
 }
 
 void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction) {
