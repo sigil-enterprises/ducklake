@@ -90,6 +90,10 @@ struct SnapshotChangeInfo {
 	string tables_deleted_from;
 };
 
+struct DuckLakeCatalogInfo {
+	vector<DuckLakeSchemaInfo> schemas;
+};
+
 // The DuckLake metadata manger is the communication layer between the system and the metadata catalog
 class DuckLakeMetadataManager {
 public:
@@ -98,6 +102,7 @@ public:
 
 	DuckLakeMetadataManager &Get(DuckLakeTransaction &transaction);
 
+	virtual DuckLakeCatalogInfo GetCatalogForSnapshot(DuckLakeSnapshot snapshot);
 	virtual void DropSchemas(DuckLakeSnapshot commit_snapshot, unordered_set<idx_t> ids);
 	virtual void DropTables(DuckLakeSnapshot commit_snapshot, unordered_set<idx_t> ids);
 	virtual void WriteNewSchemas(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeSchemaInfo> &new_schemas);

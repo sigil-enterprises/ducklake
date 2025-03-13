@@ -165,30 +165,19 @@ LogicalType DuckLakeCatalog::ParseDuckLakeType(const string &type) {
 
 unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTransaction &transaction,
                                                                       DuckLakeSnapshot snapshot) {
-	auto result = transaction.Query(snapshot, R"(
-SELECT schema_id, schema_uuid::VARCHAR, schema_name
-FROM {METADATA_CATALOG}.ducklake_schema
-WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
-)");
-	if (result->HasError()) {
-		result->GetErrorObject().Throw("Failed to get schema information from DuckLake: ");
-	}
-
+	auto &metadata_manager = transaction.GetMetadataManager();
+	auto catalog = metadata_manager.GetCatalogForSnapshot(snapshot);
 	ducklake_entries_map_t schema_map;
 	unordered_map<idx_t, reference<DuckLakeSchemaEntry>> schema_id_map;
-	for (auto &row : *result) {
-		auto schema_id = row.GetValue<uint64_t>(0);
-		auto schema_uuid = row.GetValue<string>(1);
-		auto schema_name = row.GetValue<string>(2);
-
+	for (auto &schema : catalog.schemas) {
 		CreateSchemaInfo schema_info;
-		schema_info.schema = schema_name;
-		auto schema_entry = make_uniq<DuckLakeSchemaEntry>(*this, schema_info, schema_id, std::move(schema_uuid));
-		schema_id_map.insert(make_pair(schema_id, reference<DuckLakeSchemaEntry>(*schema_entry)));
-		schema_map.insert(make_pair(std::move(schema_name), std::move(schema_entry)));
+		schema_info.schema = schema.name;
+		auto schema_entry = make_uniq<DuckLakeSchemaEntry>(*this, schema_info, schema.id, std::move(schema.uuid));
+		schema_id_map.insert(make_pair(schema.id, reference<DuckLakeSchemaEntry>(*schema_entry)));
+		schema_map.insert(make_pair(std::move(schema.name), std::move(schema_entry)));
 	}
 
-	result = transaction.Query(snapshot, R"(
+	auto result = transaction.Query(snapshot, R"(
 SELECT schema_id, table_id, table_uuid::VARCHAR, table_name, column_id, column_name, column_type, default_value
 FROM {METADATA_CATALOG}.ducklake_table tbl
 LEFT JOIN {METADATA_CATALOG}.ducklake_column col USING (table_id)

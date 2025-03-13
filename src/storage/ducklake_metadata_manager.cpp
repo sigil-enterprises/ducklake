@@ -13,6 +13,27 @@ DuckLakeMetadataManager &DuckLakeMetadataManager::Get(DuckLakeTransaction &trans
 	return transaction.GetMetadataManager();
 }
 
+DuckLakeCatalogInfo DuckLakeMetadataManager::GetCatalogForSnapshot(DuckLakeSnapshot snapshot) {
+	DuckLakeCatalogInfo catalog;
+	// load the schema information
+	auto result = transaction.Query(snapshot, R"(
+SELECT schema_id, schema_uuid::VARCHAR, schema_name
+FROM {METADATA_CATALOG}.ducklake_schema
+WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
+)");
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to get schema information from DuckLake: ");
+	}
+	for (auto &row : *result) {
+		DuckLakeSchemaInfo schema;
+		schema.id = row.GetValue<uint64_t>(0);
+		schema.uuid = row.GetValue<string>(1);
+		schema.name = row.GetValue<string>(2);
+		catalog.schemas.push_back(std::move(schema));
+	}
+	return catalog;
+}
+
 void DuckLakeMetadataManager::DropSchemas(DuckLakeSnapshot commit_snapshot, unordered_set<idx_t> ids) {
 	FlushDrop(commit_snapshot, "ducklake_schema", "schema_id", ids);
 }
