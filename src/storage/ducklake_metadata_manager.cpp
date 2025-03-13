@@ -95,4 +95,44 @@ void DuckLakeMetadataManager::WriteNewTables(DuckLakeSnapshot commit_snapshot, c
 	}
 }
 
+void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeFileInfo> &new_files) {
+	string data_file_insert_query;
+	string column_stats_insert_query;
+
+	for(auto &file : new_files) {
+		if (!data_file_insert_query.empty()) {
+			data_file_insert_query += ",";
+		}
+		data_file_insert_query += StringUtil::Format(
+			"(%d, %d, {SNAPSHOT_ID}, NULL, NULL, %s, 'parquet', %d, %d, %d, NULL)", file.id, file.table_id,
+			SQLString(file.file_name), file.row_count, file.file_size_bytes, file.footer_size);
+		for(auto &column_stats : file.column_stats) {
+			if (!column_stats_insert_query.empty()) {
+				column_stats_insert_query += ",";
+			}
+
+			column_stats_insert_query +=
+				StringUtil::Format("(%d, %d, %d, NULL, %s, %s, NULL, %s, %s)", file.id, file.table_id, column_stats.column_id,
+								   column_stats.value_count, column_stats.null_count, column_stats.min_val, column_stats.max_val);
+		}
+	}
+	if (data_file_insert_query.empty()) {
+		throw InternalException("No files found!?");
+	}
+	// insert the data files
+	data_file_insert_query =
+		StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_data_file VALUES %s", data_file_insert_query);
+	auto result = transaction.Query(commit_snapshot, data_file_insert_query);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to write data file information to DuckLake: ");
+	}
+	// insert the column stats
+	column_stats_insert_query = StringUtil::Format(
+		"INSERT INTO {METADATA_CATALOG}.ducklake_file_column_statistics VALUES %s", column_stats_insert_query);
+	result = transaction.Query(commit_snapshot, column_stats_insert_query);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to write column stats information to DuckLake: ");
+	}
+}
+
 } // namespace duckdb
