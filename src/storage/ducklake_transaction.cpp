@@ -293,7 +293,14 @@ void DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot, 
 	partition_key.id = partition_id;
 	partition_data->partition_id = partition_id;
 	for (auto &field : partition_data->fields) {
-		partition_key.fields.push_back(field);
+		DuckLakePartitionFieldInfo partition_field;
+		partition_field.partition_key_index = field.partition_key_index;
+		partition_field.column_id = field.column_id;
+		if (field.transform.type != DuckLakeTransformType::IDENTITY) {
+			throw NotImplementedException("Unimplemented transform type for partition");
+		}
+		partition_field.transform = "identity";
+		partition_key.fields.push_back(std::move(partition_field));
 	}
 	new_partition_keys.push_back(std::move(partition_key));
 }

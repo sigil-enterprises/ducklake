@@ -71,6 +71,36 @@ ORDER BY table_id, column_order
 		table_entry.columns.push_back(std::move(column_info));
 	}
 
+	// load partition information
+	result = transaction.Query(snapshot, R"(
+SELECT partition_id, table_id, partition_key_index, column_id, transform
+FROM {METADATA_CATALOG}.ducklake_partition_info part
+JOIN {METADATA_CATALOG}.ducklake_partition_columns part_col USING (partition_id)
+WHERE {SNAPSHOT_ID} >= part.begin_snapshot AND ({SNAPSHOT_ID} < part.end_snapshot OR part.end_snapshot IS NULL)
+ORDER BY table_id, partition_id, partition_key_index
+)");
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to get partition information from DuckLake: ");
+	}
+	auto &partitions = catalog.partitions;
+	for (auto &row : *result) {
+		auto partition_id = row.GetValue<uint64_t>(0);
+		auto table_id = row.GetValue<uint64_t>(1);
+
+		if (partitions.empty() || partitions.back().table_id != table_id) {
+			DuckLakePartitionInfo partition_info;
+			partition_info.id = partition_id;
+			partition_info.table_id = table_id;
+			partitions.push_back(std::move(partition_info));
+		}
+		auto &partition_entry = partitions.back();
+
+		DuckLakePartitionFieldInfo partition_field;
+		partition_field.partition_key_index = row.GetValue<uint64_t>(2);
+		partition_field.column_id = row.GetValue<uint64_t>(3);
+		partition_field.transform = row.GetValue<string>(4);
+		partition_entry.fields.push_back(std::move(partition_field));
+	}
 	return catalog;
 }
 
@@ -303,11 +333,8 @@ void DuckLakeMetadataManager::WriteNewPartitionKeys(DuckLakeSnapshot commit_snap
 			if (!insert_partition_cols.empty()) {
 				insert_partition_cols += ", ";
 			}
-			if (field.transform.type != DuckLakeTransformType::IDENTITY) {
-				throw NotImplementedException("FIXME: non-identity transform");
-			}
-			insert_partition_cols += StringUtil::Format("(%d, %d, %d, 'identity')", partition_id,
-			                                            field.partition_key_index, field.column_id);
+			insert_partition_cols += StringUtil::Format("(%d, %d, %d, %s)", partition_id,
+			                                            field.partition_key_index, field.column_id, SQLString(field.transform));
 		}
 	}
 	// update old partition information for any tables that have been altered

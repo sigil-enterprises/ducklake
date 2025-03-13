@@ -60,10 +60,16 @@ struct DuckLakeFileInfo {
 	vector<DuckLakeColumnStatsInfo> column_stats;
 };
 
+struct DuckLakePartitionFieldInfo {
+	idx_t partition_key_index = 0;
+	idx_t column_id;
+	string transform;
+};
+
 struct DuckLakePartitionInfo {
 	optional_idx id;
 	idx_t table_id;
-	vector<DuckLakePartitionField> fields;
+	vector<DuckLakePartitionFieldInfo> fields;
 };
 
 struct DuckLakeGlobalColumnStatsInfo {
@@ -93,6 +99,7 @@ struct SnapshotChangeInfo {
 struct DuckLakeCatalogInfo {
 	vector<DuckLakeSchemaInfo> schemas;
 	vector<DuckLakeTableInfo> tables;
+	vector<DuckLakePartitionInfo> partitions;
 };
 
 // The DuckLake metadata manger is the communication layer between the system and the metadata catalog
