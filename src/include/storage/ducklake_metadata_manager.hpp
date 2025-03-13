@@ -82,6 +82,9 @@ public:
 	virtual void WriteNewDataFiles(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeFileInfo> &new_files);
 	virtual void InsertSnapshot(DuckLakeSnapshot commit_snapshot);
 	virtual void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, const SnapshotChangeInfo &change_info);
+	virtual SnapshotChangeInfo GetChangesMadeAfterSnapshot(DuckLakeSnapshot start_snapshot);
+
+	virtual unique_ptr<DuckLakeSnapshot> GetSnapshot();
 
 private:
 	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,

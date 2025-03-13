@@ -164,4 +164,51 @@ void DuckLakeMetadataManager::WriteSnapshotChanges(DuckLakeSnapshot commit_snaps
 	}
 }
 
+SnapshotChangeInfo DuckLakeMetadataManager::GetChangesMadeAfterSnapshot(DuckLakeSnapshot start_snapshot) {
+	// get all changes made to the system after the snapshot was started
+	auto result = transaction.Query(start_snapshot, R"(
+	SELECT COALESCE(STRING_AGG(schemas_created), ''),
+		   COALESCE(STRING_AGG(schemas_dropped), ''),
+		   COALESCE(STRING_AGG(tables_created), ''),
+		   COALESCE(STRING_AGG(tables_dropped), ''),
+		   COALESCE(STRING_AGG(tables_altered), ''),
+		   COALESCE(STRING_AGG(tables_inserted_into), ''),
+		   COALESCE(STRING_AGG(tables_deleted_from), '')
+	FROM {METADATA_CATALOG}.ducklake_snapshot_changes
+	WHERE snapshot_id > {SNAPSHOT_ID}
+	)");
+	if (result->HasError()) {
+		result->GetErrorObject().Throw(
+			"Failed to commit DuckLake transaction - failed to get snapshot changes for conflict resolution:");
+	}
+	// parse changes made by other transactions
+	SnapshotChangeInfo change_info;
+	for (auto &row : *result) {
+		change_info.schemas_created = row.GetValue<string>(0);
+		change_info.schemas_dropped = row.GetValue<string>(1);
+		change_info.tables_created = row.GetValue<string>(2);
+		change_info.tables_dropped = row.GetValue<string>(3);
+	}
+	return change_info;
+
+}
+
+unique_ptr<DuckLakeSnapshot> DuckLakeMetadataManager::GetSnapshot() {
+	auto result = transaction.Query(
+		R"(SELECT snapshot_id, schema_version, next_catalog_id, next_file_id FROM {METADATA_CATALOG}.ducklake_snapshot WHERE snapshot_id = (SELECT MAX(snapshot_id) FROM {METADATA_CATALOG}.ducklake_snapshot);)");
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to query most recent snapshot for DuckLake: ");
+	}
+	auto chunk = result->Fetch();
+	if (chunk->size() != 1) {
+		throw InvalidInputException("Corrupt DuckLake - multiple snapshots returned from database");
+	}
+
+	auto snapshot_id = chunk->GetValue(0, 0).GetValue<idx_t>();
+	auto schema_version = chunk->GetValue(1, 0).GetValue<idx_t>();
+	auto next_catalog_id = chunk->GetValue(2, 0).GetValue<idx_t>();
+	auto next_file_id = chunk->GetValue(3, 0).GetValue<idx_t>();
+	return make_uniq<DuckLakeSnapshot>(snapshot_id, schema_version, next_catalog_id, next_file_id);
+}
+
 } // namespace duckdb

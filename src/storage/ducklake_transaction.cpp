@@ -242,41 +242,21 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 
 void DuckLakeTransaction::CheckForConflicts(DuckLakeSnapshot transaction_snapshot,
                                             const TransactionChangeInformation &changes) {
+
 	// get all changes made to the system after the current snapshot was started
-	auto result = Query(transaction_snapshot, R"(
-	SELECT COALESCE(STRING_AGG(schemas_created), ''),
-		   COALESCE(STRING_AGG(schemas_dropped), ''),
-		   COALESCE(STRING_AGG(tables_created), ''),
-		   COALESCE(STRING_AGG(tables_dropped), ''),
-		   COALESCE(STRING_AGG(tables_altered), ''),
-		   COALESCE(STRING_AGG(tables_inserted_into), ''),
-		   COALESCE(STRING_AGG(tables_deleted_from), '')
-	FROM {METADATA_CATALOG}.ducklake_snapshot_changes
-	WHERE snapshot_id > {SNAPSHOT_ID}
-	)");
-	if (result->HasError()) {
-		result->GetErrorObject().Throw(
-		    "Failed to commit DuckLake transaction - failed to get snapshot changes for conflict resolution:");
-	}
+	auto changes_made = metadata_manager->GetChangesMadeAfterSnapshot(transaction_snapshot);
 	// parse changes made by other transactions
 	SnapshotChangeInformation other_changes;
-	for (auto &row : *result) {
-		auto created_schemas = row.GetValue<string>(0);
-		auto dropped_schemas = row.GetValue<string>(1);
-		auto created_tables = row.GetValue<string>(2);
-		auto dropped_tables = row.GetValue<string>(3);
-
-		auto created_schema_list = DuckLakeUtil::ParseQuotedList(created_schemas);
-		for (auto &created_schema : created_schema_list) {
-			other_changes.created_schemas.insert(created_schema);
-		}
-		auto created_table_list = DuckLakeUtil::ParseTableList(created_tables);
-		for (auto &entry : created_table_list) {
-			other_changes.created_tables[entry.schema].insert(entry.table);
-		}
-		other_changes.dropped_schemas = DuckLakeUtil::ParseDropList(dropped_schemas);
-		other_changes.dropped_tables = DuckLakeUtil::ParseDropList(dropped_tables);
+	auto created_schema_list = DuckLakeUtil::ParseQuotedList(changes_made.schemas_created);
+	for (auto &created_schema : created_schema_list) {
+		other_changes.created_schemas.insert(created_schema);
 	}
+	auto created_table_list = DuckLakeUtil::ParseTableList(changes_made.tables_created);
+	for (auto &entry : created_table_list) {
+		other_changes.created_tables[entry.schema].insert(entry.table);
+	}
+	other_changes.dropped_schemas = DuckLakeUtil::ParseDropList(changes_made.schemas_dropped);
+	other_changes.dropped_tables = DuckLakeUtil::ParseDropList(changes_made.tables_dropped);
 	CheckForConflicts(changes, other_changes);
 }
 
@@ -646,23 +626,8 @@ string DuckLakeTransaction::GetDefaultSchemaName() {
 
 DuckLakeSnapshot DuckLakeTransaction::GetSnapshot() {
 	if (!snapshot) {
-		// no snapshot loaded yet for this transaction
-		// query the snapshot id/schema version
-		auto result = Query(
-		    R"(SELECT snapshot_id, schema_version, next_catalog_id, next_file_id FROM {METADATA_CATALOG}.ducklake_snapshot WHERE snapshot_id = (SELECT MAX(snapshot_id) FROM {METADATA_CATALOG}.ducklake_snapshot);)");
-		if (result->HasError()) {
-			result->GetErrorObject().Throw("Failed to query most recent snapshot for DuckLake: ");
-		}
-		auto chunk = result->Fetch();
-		if (chunk->size() != 1) {
-			throw InvalidInputException("Corrupt DuckLake - multiple snapshots returned from database");
-		}
-
-		auto snapshot_id = chunk->GetValue(0, 0).GetValue<idx_t>();
-		auto schema_version = chunk->GetValue(1, 0).GetValue<idx_t>();
-		auto next_catalog_id = chunk->GetValue(2, 0).GetValue<idx_t>();
-		auto next_file_id = chunk->GetValue(3, 0).GetValue<idx_t>();
-		snapshot = make_uniq<DuckLakeSnapshot>(snapshot_id, schema_version, next_catalog_id, next_file_id);
+		// no snapshot loaded yet for this transaction - load it
+		snapshot = metadata_manager->GetSnapshot();
 	}
 	return *snapshot;
 }
