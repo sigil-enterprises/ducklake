@@ -1,0 +1,90 @@
+# name: test/sql/functions/ducklake_snapshots.test
+# description: View DuckLake Snapshots
+# group: [ducklake]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_snapshots.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_snapshots_files')
+
+# initial snapshot
+query III
+SELECT snapshot_id, schema_version, changes FROM ducklake_snapshots('ducklake')
+----
+0	0	{}
+
+# perform some operations in separate snapshots
+statement ok
+CREATE SCHEMA ducklake.s1
+
+statement ok
+CREATE TABLE ducklake.s1.tbl(i INT);
+
+statement ok
+INSERT INTO ducklake.s1.tbl VALUES (42);
+
+statement ok
+DROP TABLE ducklake.s1.tbl
+
+statement ok
+DROP SCHEMA ducklake.s1
+
+query III
+SELECT snapshot_id, schema_version, changes FROM ducklake_snapshots('ducklake')
+----
+0	0	{}
+1	1	{schemas_created=[s1]}
+2	2	{tables_created=[s1.tbl]}
+3	2	{tables_inserted_into=[2]}
+4	3	{tables_dropped=[2]}
+5	4	{schemas_dropped=[1]}
+
+# this transaction does nothing in a round-about way
+# no snapshot is created here
+statement ok
+BEGIN
+
+statement ok
+CREATE SCHEMA ducklake.s1
+
+statement ok
+CREATE TABLE ducklake.s1.tbl(i INT);
+
+statement ok
+INSERT INTO ducklake.s1.tbl VALUES (42);
+
+statement ok
+DROP TABLE ducklake.s1.tbl
+
+statement ok
+DROP SCHEMA ducklake.s1
+
+statement ok
+COMMIT
+
+query III
+SELECT snapshot_id, schema_version, changes FROM ducklake_snapshots('ducklake') WHERE snapshot_id=6
+----
+
+# this transaction actually makes some changes
+statement ok
+BEGIN
+
+statement ok
+CREATE SCHEMA ducklake.s1
+
+statement ok
+CREATE TABLE ducklake.s1.tbl(i INT);
+
+statement ok
+INSERT INTO ducklake.s1.tbl VALUES (42);
+
+statement ok
+COMMIT
+
+query III
+SELECT snapshot_id, schema_version, changes FROM ducklake_snapshots('ducklake') WHERE snapshot_id=6
+----
+6	5	{schemas_created=[s1], tables_created=[s1.tbl], tables_inserted_into=[4]}

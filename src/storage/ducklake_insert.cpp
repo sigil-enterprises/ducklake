@@ -197,7 +197,6 @@ unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCopyForInsert(ClientContext &c
 	auto physical_copy =
 	    make_uniq<PhysicalCopyToFile>(copy_return_types, copy_fun->function, std::move(function_data), 1);
 
-
 	physical_copy->use_tmp_file = false;
 	if (partition_data) {
 		vector<idx_t> partition_columns;

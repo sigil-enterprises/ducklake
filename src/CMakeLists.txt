@@ -1,4 +1,5 @@
 add_subdirectory(common)
+add_subdirectory(functions)
 add_subdirectory(storage)
 
 add_library(

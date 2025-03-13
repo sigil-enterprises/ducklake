@@ -44,6 +44,44 @@ vector<string> DuckLakeUtil::ParseQuotedList(const string &input, char list_sepa
 	return result;
 }
 
+vector<ParsedTableInfo> DuckLakeUtil::ParseTableList(const string &input) {
+	vector<ParsedTableInfo> result;
+	if (input.empty()) {
+		return result;
+	}
+	idx_t pos = 0;
+	while (true) {
+		ParsedTableInfo table_data;
+		table_data.schema = DuckLakeUtil::ParseQuotedValue(input, pos);
+		if (pos >= input.size() || input[pos] != '.') {
+			throw InvalidInputException("Failed to parse table list - expected a dot");
+		}
+		pos++;
+		table_data.table = DuckLakeUtil::ParseQuotedValue(input, pos);
+		result.push_back(std::move(table_data));
+		if (pos >= input.size()) {
+			break;
+		}
+		if (input[pos] != ',') {
+			throw InvalidInputException("Failed to parse table list - expected a comma");
+		}
+		pos++;
+	}
+	return result;
+}
+
+unordered_set<idx_t> DuckLakeUtil::ParseDropList(const string &input) {
+	unordered_set<idx_t> result;
+	if (input.empty()) {
+		return result;
+	}
+	auto splits = StringUtil::Split(input, ",");
+	for (auto &split : splits) {
+		result.insert(std::stoull(split));
+	}
+	return result;
+}
+
 string DuckLakeUtil::SQLIdentifierToString(const string &text) {
 	return "\"" + StringUtil::Replace(text, "\"", "\"\"") + "\"";
 }

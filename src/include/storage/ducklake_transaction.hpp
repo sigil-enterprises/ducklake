@@ -85,7 +85,7 @@ private:
 	void UpdateGlobalTableStats(idx_t table_id, DuckLakeTableStats new_stats);
 	void CheckForConflicts(DuckLakeSnapshot transaction_snapshot, const TransactionChangeInformation &changes);
 	void CheckForConflicts(const TransactionChangeInformation &changes, const SnapshotChangeInformation &other_changes);
-	void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, const TransactionChangeInformation &changes);
+	void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, TransactionChangeInformation &changes);
 	//! Return the set of changes made by this transaction
 	TransactionChangeInformation GetTransactionChanges();
 

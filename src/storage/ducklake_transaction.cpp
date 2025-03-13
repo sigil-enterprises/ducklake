@@ -115,6 +115,10 @@ TransactionChangeInformation DuckLakeTransaction::GetTransactionChanges() {
 	}
 	for (auto &entry : new_data_files) {
 		auto table_id = entry.first;
+		if (IsTransactionLocal(table_id)) {
+			// don't report transaction-local tables yet - these will get added later on
+			continue;
+		}
 		changes.inserted_tables.insert(table_id);
 	}
 	return changes;
@@ -128,7 +132,7 @@ string SQLStringOrNull(const string &str) {
 }
 
 void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
-                                               const TransactionChangeInformation &changes) {
+                                               TransactionChangeInformation &changes) {
 	string schemas_created;
 	string schemas_dropped;
 	string tables_created;
@@ -137,6 +141,11 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 	string tables_inserted_into;
 	string tables_deleted_from;
 
+	// re-add all inserted tables - transaction-local table identifiers should have been converted at this stage
+	for (auto &entry : new_data_files) {
+		auto table_id = entry.first;
+		changes.inserted_tables.insert(table_id);
+	}
 	for (auto &entry : changes.dropped_schemas) {
 		if (!schemas_dropped.empty()) {
 			schemas_dropped += ",";
@@ -165,6 +174,13 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 			tables_created += schema_prefix + KeywordHelper::WriteQuoted(created_table.get().name, '"');
 		}
 	}
+	for (auto &inserted_table_idx : changes.inserted_tables) {
+		if (!tables_inserted_into.empty()) {
+			tables_inserted_into += ",";
+		}
+		tables_inserted_into += to_string(inserted_table_idx);
+	}
+
 	// insert the snapshot changes
 	auto query = StringUtil::Format(
 	    R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot_changes VALUES ({SNAPSHOT_ID}, %s, %s, %s, %s, %s, %s, %s);)",
@@ -175,49 +191,6 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write new snapshot to DuckLake:");
 	}
-}
-
-struct ParsedTableInfo {
-	string schema;
-	string table;
-};
-
-vector<ParsedTableInfo> ParseTableList(const string &input) {
-	vector<ParsedTableInfo> result;
-	if (input.empty()) {
-		return result;
-	}
-	idx_t pos = 0;
-	while (true) {
-		ParsedTableInfo table_data;
-		table_data.schema = DuckLakeUtil::ParseQuotedValue(input, pos);
-		if (pos >= input.size() || input[pos] != '.') {
-			throw InvalidInputException("Failed to parse table list - expected a dot");
-		}
-		pos++;
-		table_data.table = DuckLakeUtil::ParseQuotedValue(input, pos);
-		result.push_back(std::move(table_data));
-		if (pos >= input.size()) {
-			break;
-		}
-		if (input[pos] != ',') {
-			throw InvalidInputException("Failed to parse table list - expected a comma");
-		}
-		pos++;
-	}
-	return result;
-}
-
-unordered_set<idx_t> ParseDropList(const string &input) {
-	unordered_set<idx_t> result;
-	if (input.empty()) {
-		return result;
-	}
-	auto splits = StringUtil::Split(input, ",");
-	for (auto &split : splits) {
-		result.insert(std::stoull(split));
-	}
-	return result;
 }
 
 void DuckLakeTransaction::CleanupFiles() {
@@ -337,12 +310,12 @@ void DuckLakeTransaction::CheckForConflicts(DuckLakeSnapshot transaction_snapsho
 		for (auto &created_schema : created_schema_list) {
 			other_changes.created_schemas.insert(created_schema);
 		}
-		auto created_table_list = ParseTableList(created_tables);
+		auto created_table_list = DuckLakeUtil::ParseTableList(created_tables);
 		for (auto &entry : created_table_list) {
 			other_changes.created_tables[entry.schema].insert(entry.table);
 		}
-		other_changes.dropped_schemas = ParseDropList(dropped_schemas);
-		other_changes.dropped_tables = ParseDropList(dropped_tables);
+		other_changes.dropped_schemas = DuckLakeUtil::ParseDropList(dropped_schemas);
+		other_changes.dropped_tables = DuckLakeUtil::ParseDropList(dropped_tables);
 	}
 	CheckForConflicts(changes, other_changes);
 }
@@ -350,6 +323,9 @@ void DuckLakeTransaction::CheckForConflicts(DuckLakeSnapshot transaction_snapsho
 void DuckLakeTransaction::FlushNewSchemas(DuckLakeSnapshot &commit_snapshot) {
 	if (!new_schemas) {
 		return;
+	}
+	if (new_schemas->GetEntries().size() == 0) {
+		throw InternalException("No schemas to create but new_schemas is set - should be cleaned up elsewhere");
 	}
 	string schema_insert_sql;
 	for (auto &entry : new_schemas->GetEntries()) {
@@ -580,6 +556,9 @@ void DuckLakeTransaction::FlushNewData(DuckLakeSnapshot &commit_snapshot) {
 		string data_file_insert_query;
 		string column_stats_insert_query;
 		auto table_id = entry.first;
+		if (IsTransactionLocal(table_id)) {
+			throw InternalException("Cannot commit transaction local files - these should have been cleaned up before");
+		}
 
 		DuckLakeTableStats new_stats;
 		for (auto &file : entry.second) {
@@ -822,6 +801,10 @@ void DuckLakeTransaction::DropSchema(DuckLakeSchemaEntry &schema) {
 			throw InternalException("Dropping a transaction local table that does not exist?");
 		}
 		new_schemas->DropEntry(schema.name);
+		if (new_schemas->GetEntries().size() == 0) {
+			// we have dropped all schemas created in this transaction - clear it
+			new_schemas.reset();
+		}
 	} else {
 		dropped_schemas.insert(make_pair(schema.GetSchemaId(), reference<DuckLakeSchemaEntry>(schema)));
 	}
@@ -834,7 +817,18 @@ void DuckLakeTransaction::DropTable(DuckLakeTableEntry &table) {
 		if (schema_entry == new_tables.end()) {
 			throw InternalException("Dropping a transaction local table that does not exist?");
 		}
+		auto table_id = table.GetTableId();
 		schema_entry->second->DropEntry(table.name);
+		// if we have written any files for this table - clean them up
+		auto table_entry = new_data_files.find(table_id);
+		if (table_entry != new_data_files.end()) {
+			auto &fs = FileSystem::GetFileSystem(db);
+			for (auto &file : table_entry->second) {
+				fs.RemoveFile(file.file_name);
+			}
+			new_data_files.erase(table_entry);
+		}
+		new_tables.erase(schema_entry);
 	} else {
 		auto table_id = table.GetTableId();
 		dropped_tables.insert(table_id);

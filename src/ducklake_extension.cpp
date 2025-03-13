@@ -5,12 +5,17 @@
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "storage/ducklake_storage.hpp"
+#include "functions/ducklake_table_functions.hpp"
+#include "duckdb/main/extension_util.hpp"
 
 namespace duckdb {
 
 static void LoadInternal(DatabaseInstance &instance) {
 	auto &config = DBConfig::GetConfig(instance);
 	config.storage_extensions["ducklake"] = make_uniq<DuckLakeStorageExtension>();
+
+	DuckLakeSnapshotsFunction snapshots;
+	ExtensionUtil::RegisterFunction(instance, snapshots);
 }
 
 void DucklakeExtension::Load(DuckDB &db) {
