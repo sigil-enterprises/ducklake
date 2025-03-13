@@ -15,6 +15,12 @@
 namespace duckdb {
 class DuckLakeTransaction;
 
+struct DuckLakeSchemaInfo {
+	idx_t id;
+	string uuid;
+	string name;
+};
+
 // The DuckLake metadata manger is the communication layer between the system and the metadata catalog
 class DuckLakeMetadataManager {
 public:
@@ -25,10 +31,11 @@ public:
 
 	virtual void DropSchemas(DuckLakeSnapshot commit_snapshot, unordered_set<idx_t> ids);
 	virtual void DropTables(DuckLakeSnapshot commit_snapshot, unordered_set<idx_t> ids);
+	virtual void WriteNewSchemas(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeSchemaInfo> &new_schemas);
 
 private:
-	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name,
-				   const string &id_name, unordered_set<idx_t> &dropped_entries);
+	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,
+	               unordered_set<idx_t> &dropped_entries);
 
 protected:
 	DuckLakeTransaction &transaction;

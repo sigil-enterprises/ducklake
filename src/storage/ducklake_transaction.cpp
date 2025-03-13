@@ -303,31 +303,22 @@ void DuckLakeTransaction::CheckForConflicts(DuckLakeSnapshot transaction_snapsho
 	CheckForConflicts(changes, other_changes);
 }
 
-void DuckLakeTransaction::FlushNewSchemas(DuckLakeSnapshot &commit_snapshot) {
-	if (!new_schemas) {
-		return;
-	}
-	if (new_schemas->GetEntries().size() == 0) {
-		throw InternalException("No schemas to create but new_schemas is set - should be cleaned up elsewhere");
-	}
-	string schema_insert_sql;
+vector<DuckLakeSchemaInfo> DuckLakeTransaction::GetNewSchemas(DuckLakeSnapshot &commit_snapshot) {
+	vector<DuckLakeSchemaInfo> schemas;
 	for (auto &entry : new_schemas->GetEntries()) {
 		auto &schema_entry = entry.second->Cast<DuckLakeSchemaEntry>();
-		auto schema_id = commit_snapshot.next_catalog_id++;
-		if (!schema_insert_sql.empty()) {
-			schema_insert_sql += ",";
-		}
-		schema_insert_sql += StringUtil::Format("(%d, '%s', {SNAPSHOT_ID}, NULL, %s)", schema_id,
-		                                        schema_entry.GetSchemaUUID(), SQLString(schema_entry.name));
+		DuckLakeSchemaInfo schema_info;
+		schema_info.id = commit_snapshot.next_catalog_id++;
+		schema_info.uuid = schema_entry.GetSchemaUUID();
+		schema_info.name = schema_entry.name;
 
 		// set the schema id of this schema entry so subsequent tables are written correctly
-		schema_entry.SetSchemaId(schema_id);
+		schema_entry.SetSchemaId(schema_info.id);
+
+		// add the schema to the list
+		schemas.push_back(std::move(schema_info));
 	}
-	schema_insert_sql = "INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES " + schema_insert_sql;
-	auto result = Query(commit_snapshot, schema_insert_sql);
-	if (result->HasError()) {
-		result->GetErrorObject().Throw("Failed to write new schemas to DuckLake: ");
-	}
+	return schemas;
 }
 
 void DuckLakeTransaction::FlushNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table) {
@@ -649,7 +640,10 @@ void DuckLakeTransaction::FlushChanges() {
 				metadata_manager->DropSchemas(commit_snapshot, dropped_schema_ids);
 			}
 			// write new schemas
-			FlushNewSchemas(commit_snapshot);
+			if (new_schemas) {
+				auto schema_list = GetNewSchemas(commit_snapshot);
+				metadata_manager->WriteNewSchemas(commit_snapshot, schema_list);
+			}
 
 			// write new tables
 			FlushNewTables(commit_snapshot);
