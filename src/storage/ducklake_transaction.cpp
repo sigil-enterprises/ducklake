@@ -366,12 +366,8 @@ VALUES (%d, %d, {SNAPSHOT_ID}, NULL);)",
 	}
 }
 
-void DuckLakeTransaction::FlushNewTables(DuckLakeSnapshot &commit_snapshot) {
-	if (new_tables.empty()) {
-		return;
-	}
-	string table_insert_sql;
-	string column_insert_sql;
+vector<DuckLakeTableInfo> DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &commit_snapshot) {
+	vector<DuckLakeTableInfo> tables;
 	for (auto &schema_entry : new_tables) {
 		for (auto &entry : schema_entry.second->GetEntries()) {
 			// write any new tables that we created
@@ -381,61 +377,44 @@ void DuckLakeTransaction::FlushNewTables(DuckLakeSnapshot &commit_snapshot) {
 				continue;
 			}
 			auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
+			DuckLakeTableInfo table_entry;
 			auto original_id = table.GetTableId();
-			idx_t table_id;
 			bool is_new_table;
 			if (IsTransactionLocal(original_id)) {
-				table_id = commit_snapshot.next_catalog_id++;
+				table_entry.id = commit_snapshot.next_catalog_id++;
 				is_new_table = true;
 			} else {
 				// this table already has an id - keep it
 				// this happens if e.g. this table is renamed
-				table_id = original_id;
+				table_entry.id = original_id;
 				is_new_table = false;
 			}
-			if (!table_insert_sql.empty()) {
-				table_insert_sql += ", ";
-			}
-			string table_uuid = table.GetTableUUID();
-			table_insert_sql += StringUtil::Format("(%d, '%s', {SNAPSHOT_ID}, NULL, %d, %s)", table_id, table_uuid,
-			                                       schema.GetSchemaId(), SQLString(table.name));
+			table_entry.uuid = table.GetTableUUID();
+			table_entry.schema_id = schema.GetSchemaId();
+			table_entry.name = table.name;
 			if (is_new_table) {
 				// if this is a new table - write the columns
 				idx_t column_id = 0;
+
 				for (auto &col : table.GetColumns().Logical()) {
-					if (!column_insert_sql.empty()) {
-						column_insert_sql += ", ";
-					}
-					column_insert_sql += StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, NULL)",
-					                                        column_id, table_id, column_id, SQLString(col.GetName()),
-					                                        SQLString(DuckLakeTypes::ToString(col.GetType())));
+					DuckLakeColumnInfo column_entry;
+					column_entry.id = column_id;
+					column_entry.name = col.GetName();
+					column_entry.type = DuckLakeTypes::ToString(col.GetType());
+					table_entry.columns.push_back(std::move(column_entry));
 					column_id++;
 				}
 				// if we have written any data to this table - move them to the new (correct) table id as well
 				auto data_file_entry = new_data_files.find(original_id);
 				if (data_file_entry != new_data_files.end()) {
-					new_data_files[table_id] = std::move(data_file_entry->second);
+					new_data_files[table_entry.id] = std::move(data_file_entry->second);
 					new_data_files.erase(original_id);
 				}
 			}
+			tables.push_back(std::move(table_entry));
 		}
 	}
-	if (!table_insert_sql.empty()) {
-		// insert table entries
-		table_insert_sql = "INSERT INTO {METADATA_CATALOG}.ducklake_table VALUES " + table_insert_sql;
-		auto result = Query(commit_snapshot, table_insert_sql);
-		if (result->HasError()) {
-			result->GetErrorObject().Throw("Failed to write new table to DuckLake: ");
-		}
-	}
-	if (!column_insert_sql.empty()) {
-		// insert column entries
-		column_insert_sql = "INSERT INTO {METADATA_CATALOG}.ducklake_column VALUES " + column_insert_sql;
-		auto result = Query(commit_snapshot, column_insert_sql);
-		if (result->HasError()) {
-			result->GetErrorObject().Throw("Failed to write column information to DuckLake: ");
-		}
-	}
+	return tables;
 }
 
 void DuckLakeTransaction::UpdateGlobalTableStats(idx_t table_id, DuckLakeTableStats new_stats) {
@@ -646,7 +625,10 @@ void DuckLakeTransaction::FlushChanges() {
 			}
 
 			// write new tables
-			FlushNewTables(commit_snapshot);
+			if (!new_tables.empty()) {
+				auto table_list = GetNewTables(commit_snapshot);
+				metadata_manager->WriteNewTables(commit_snapshot, table_list);
+			}
 
 			// write new data files
 			FlushNewData(commit_snapshot);

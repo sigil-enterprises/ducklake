@@ -59,4 +59,40 @@ void DuckLakeMetadataManager::WriteNewSchemas(DuckLakeSnapshot commit_snapshot,
 	}
 }
 
+void DuckLakeMetadataManager::WriteNewTables(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeTableInfo> &new_tables) {
+	string column_insert_sql;
+	string table_insert_sql;
+	for(auto &table : new_tables) {
+		if (!table_insert_sql.empty()) {
+			table_insert_sql += ", ";
+		}
+		table_insert_sql += StringUtil::Format("(%d, '%s', {SNAPSHOT_ID}, NULL, %d, %s)", table.id, table.uuid,
+											   table.schema_id, SQLString(table.name));
+		for(auto &column : table.columns) {
+			if (!column_insert_sql.empty()) {
+				column_insert_sql += ", ";
+			}
+			column_insert_sql += StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, NULL)",
+													column.id, table.id, column.id, SQLString(column.name),
+													SQLString(column.type));
+		}
+	}
+	if (!table_insert_sql.empty()) {
+		// insert table entries
+		table_insert_sql = "INSERT INTO {METADATA_CATALOG}.ducklake_table VALUES " + table_insert_sql;
+		auto result = transaction.Query(commit_snapshot, table_insert_sql);
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to write new table to DuckLake: ");
+		}
+	}
+	if (!column_insert_sql.empty()) {
+		// insert column entries
+		column_insert_sql = "INSERT INTO {METADATA_CATALOG}.ducklake_column VALUES " + column_insert_sql;
+		auto result = transaction.Query(commit_snapshot, column_insert_sql);
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to write column information to DuckLake: ");
+		}
+	}
+}
+
 } // namespace duckdb
