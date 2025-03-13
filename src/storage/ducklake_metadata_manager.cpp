@@ -135,4 +135,33 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
 	}
 }
 
+void DuckLakeMetadataManager::InsertSnapshot(DuckLakeSnapshot commit_snapshot) {
+	auto result = transaction.Query(
+		commit_snapshot,
+		R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES ({SNAPSHOT_ID}, NOW(), {SCHEMA_VERSION}, {NEXT_CATALOG_ID}, {NEXT_FILE_ID});)");
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to write new snapshot to DuckLake: ");
+	}
+}
+
+string SQLStringOrNull(const string &str) {
+	if (str.empty()) {
+		return "NULL";
+	}
+	return KeywordHelper::WriteQuoted(str, '\'');
+}
+
+void DuckLakeMetadataManager::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, const SnapshotChangeInfo &change_info) {
+	// insert the snapshot changes
+	auto query = StringUtil::Format(
+		R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot_changes VALUES ({SNAPSHOT_ID}, %s, %s, %s, %s, %s, %s, %s);)",
+		SQLStringOrNull(change_info.schemas_created), SQLStringOrNull(change_info.schemas_dropped), SQLStringOrNull(change_info.tables_created),
+		SQLStringOrNull(change_info.tables_dropped), SQLStringOrNull(change_info.tables_altered), SQLStringOrNull(change_info.tables_inserted_into),
+		SQLStringOrNull(change_info.tables_deleted_from));
+	auto result = transaction.Query(commit_snapshot, query);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to write new snapshot to DuckLake:");
+	}
+}
+
 } // namespace duckdb

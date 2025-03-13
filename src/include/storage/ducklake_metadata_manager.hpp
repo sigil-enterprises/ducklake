@@ -10,9 +10,13 @@
 
 #include "duckdb/common/common.hpp"
 #include "duckdb/common/unordered_set.hpp"
+#include "duckdb/common/case_insensitive_map.hpp"
+#include "duckdb/common/reference_map.hpp"
 #include "common/ducklake_snapshot.hpp"
 
 namespace duckdb {
+class DuckLakeSchemaEntry;
+class DuckLakeTableEntry;
 class DuckLakeTransaction;
 
 struct DuckLakeSchemaInfo {
@@ -53,6 +57,16 @@ struct DuckLakeFileInfo {
 	vector<DuckLakeColumnStatsInfo> column_stats;
 };
 
+struct SnapshotChangeInfo {
+	string schemas_created;
+	string schemas_dropped;
+	string tables_created;
+	string tables_dropped;
+	string tables_altered;
+	string tables_inserted_into;
+	string tables_deleted_from;
+};
+
 // The DuckLake metadata manger is the communication layer between the system and the metadata catalog
 class DuckLakeMetadataManager {
 public:
@@ -66,6 +80,8 @@ public:
 	virtual void WriteNewSchemas(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeSchemaInfo> &new_schemas);
 	virtual void WriteNewTables(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeTableInfo> &new_tables);
 	virtual void WriteNewDataFiles(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeFileInfo> &new_files);
+	virtual void InsertSnapshot(DuckLakeSnapshot commit_snapshot);
+	virtual void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, const SnapshotChangeInfo &change_info);
 
 private:
 	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,

@@ -107,22 +107,9 @@ TransactionChangeInformation DuckLakeTransaction::GetTransactionChanges() {
 	return changes;
 }
 
-string SQLStringOrNull(const string &str) {
-	if (str.empty()) {
-		return "NULL";
-	}
-	return KeywordHelper::WriteQuoted(str, '\'');
-}
-
 void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
                                                TransactionChangeInformation &changes) {
-	string schemas_created;
-	string schemas_dropped;
-	string tables_created;
-	string tables_dropped;
-	string tables_altered;
-	string tables_inserted_into;
-	string tables_deleted_from;
+	SnapshotChangeInfo change_info;
 
 	// re-add all inserted tables - transaction-local table identifiers should have been converted at this stage
 	for (auto &entry : new_data_files) {
@@ -130,50 +117,40 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 		changes.inserted_tables.insert(table_id);
 	}
 	for (auto &entry : changes.dropped_schemas) {
-		if (!schemas_dropped.empty()) {
-			schemas_dropped += ",";
+		if (!change_info.schemas_dropped.empty()) {
+			change_info.schemas_dropped += ",";
 		}
-		schemas_dropped += to_string(entry.first);
+		change_info.schemas_dropped += to_string(entry.first);
 	}
 	for (auto &dropped_table_idx : changes.dropped_tables) {
-		if (!tables_dropped.empty()) {
-			tables_dropped += ",";
+		if (!change_info.tables_dropped.empty()) {
+			change_info.tables_dropped += ",";
 		}
-		tables_dropped += to_string(dropped_table_idx);
+		change_info.tables_dropped += to_string(dropped_table_idx);
 	}
 	for (auto &created_schema : changes.created_schemas) {
-		if (!schemas_created.empty()) {
-			schemas_created += ",";
+		if (!change_info.schemas_created.empty()) {
+			change_info.schemas_created += ",";
 		}
-		schemas_created += KeywordHelper::WriteQuoted(created_schema, '"');
+		change_info.schemas_created += KeywordHelper::WriteQuoted(created_schema, '"');
 	}
 	for (auto &entry : changes.created_tables) {
 		auto &schema = entry.first;
 		auto schema_prefix = KeywordHelper::WriteQuoted(schema, '"') + ".";
 		for (auto &created_table : entry.second) {
-			if (!tables_created.empty()) {
-				tables_created += ",";
+			if (!change_info.tables_created.empty()) {
+				change_info.tables_created += ",";
 			}
-			tables_created += schema_prefix + KeywordHelper::WriteQuoted(created_table.get().name, '"');
+			change_info.tables_created += schema_prefix + KeywordHelper::WriteQuoted(created_table.get().name, '"');
 		}
 	}
 	for (auto &inserted_table_idx : changes.inserted_tables) {
-		if (!tables_inserted_into.empty()) {
-			tables_inserted_into += ",";
+		if (!change_info.tables_inserted_into.empty()) {
+			change_info.tables_inserted_into += ",";
 		}
-		tables_inserted_into += to_string(inserted_table_idx);
+		change_info.tables_inserted_into += to_string(inserted_table_idx);
 	}
-
-	// insert the snapshot changes
-	auto query = StringUtil::Format(
-	    R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot_changes VALUES ({SNAPSHOT_ID}, %s, %s, %s, %s, %s, %s, %s);)",
-	    SQLStringOrNull(schemas_created), SQLStringOrNull(schemas_dropped), SQLStringOrNull(tables_created),
-	    SQLStringOrNull(tables_dropped), SQLStringOrNull(tables_altered), SQLStringOrNull(tables_inserted_into),
-	    SQLStringOrNull(tables_deleted_from));
-	auto result = Query(commit_snapshot, query);
-	if (result->HasError()) {
-		result->GetErrorObject().Throw("Failed to write new snapshot to DuckLake:");
-	}
+	metadata_manager->WriteSnapshotChanges(commit_snapshot, change_info);
 }
 
 void DuckLakeTransaction::CleanupFiles() {
@@ -554,15 +531,6 @@ vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &
 	return result;
 }
 
-void DuckLakeTransaction::InsertSnapshot(DuckLakeSnapshot commit_snapshot) {
-	auto result = Query(
-	    commit_snapshot,
-	    R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES ({SNAPSHOT_ID}, NOW(), {SCHEMA_VERSION}, {NEXT_CATALOG_ID}, {NEXT_FILE_ID});)");
-	if (result->HasError()) {
-		result->GetErrorObject().Throw("Failed to write new snapshot to DuckLake: ");
-	}
-}
-
 void DuckLakeTransaction::FlushChanges() {
 	if (!ChangesMade()) {
 		// read-only transactions don't need to do anything
@@ -614,7 +582,7 @@ void DuckLakeTransaction::FlushChanges() {
 			}
 
 			// write the new snapshot
-			InsertSnapshot(commit_snapshot);
+			metadata_manager->InsertSnapshot(commit_snapshot);
 
 			WriteSnapshotChanges(commit_snapshot, transaction_changes);
 			connection->Commit();
