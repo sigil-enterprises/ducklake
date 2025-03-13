@@ -142,10 +142,6 @@ SinkFinalizeType DuckLakeInsert::Finalize(Pipeline &pipeline, Event &event, Clie
 }
 
 //===--------------------------------------------------------------------===//
-// GetData
-//===--------------------------------------------------------------------===//
-
-//===--------------------------------------------------------------------===//
 // Helpers
 //===--------------------------------------------------------------------===//
 string DuckLakeInsert::GetName() const {
@@ -201,7 +197,6 @@ unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCopyForInsert(ClientContext &c
 	auto physical_copy =
 	    make_uniq<PhysicalCopyToFile>(copy_return_types, copy_fun->function, std::move(function_data), 1);
 
-	auto current_write_uuid = UUID::ToString(UUID::GenerateRandomUUID());
 
 	physical_copy->use_tmp_file = false;
 	if (partition_data) {
@@ -209,11 +204,12 @@ unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCopyForInsert(ClientContext &c
 		for (auto &field : partition_data->fields) {
 			partition_columns.push_back(field.column_id);
 		}
-		physical_copy->filename_pattern.SetFilenamePattern("ducklake-" + current_write_uuid + "_{i}");
+		physical_copy->filename_pattern.SetFilenamePattern("ducklake-{uuid}");
 		physical_copy->file_path = data_path;
 		physical_copy->partition_output = true;
 		physical_copy->partition_columns = std::move(partition_columns);
 	} else {
+		auto current_write_uuid = UUID::ToString(UUID::GenerateRandomUUID());
 		physical_copy->file_path = data_path + "/duckdblake-" + current_write_uuid + ".parquet";
 		physical_copy->partition_output = false;
 	}

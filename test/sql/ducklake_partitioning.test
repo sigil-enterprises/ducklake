@@ -26,3 +26,43 @@ query I
 SELECT COUNT(*) FROM partitioned_tbl WHERE part_key=0
 ----
 5000
+
+# append to partition
+statement ok
+INSERT INTO partitioned_tbl SELECT (i%2) + 1, concat('thisisanotherstring_', i) FROM range(10000) t(i)
+
+query I
+SELECT COUNT(*) FROM partitioned_tbl WHERE part_key=2
+----
+5000
+
+# set partition and append in the same transaction
+statement ok
+CREATE TABLE partition_tbl2(part_key INTEGER, values VARCHAR);
+
+statement ok
+BEGIN
+
+statement ok
+ALTER TABLE partition_tbl2 SET PARTITIONED BY (part_key);
+
+statement ok
+INSERT INTO partition_tbl2 SELECT i%2, concat('thisisastring_', i) FROM range(10000) t(i)
+
+query I
+SELECT COUNT(*) FROM partition_tbl2 WHERE part_key=0
+----
+5000
+
+statement ok
+COMMIT
+
+query I
+SELECT COUNT(*) FROM partition_tbl2 WHERE part_key=0
+----
+5000
+
+# create table and set partition in the same transaction
+# create table, set partition and append in the same transaction
+# rename table and set partition in the same transaction
+# verify partition is actually used (function?)
