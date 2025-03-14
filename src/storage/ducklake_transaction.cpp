@@ -62,6 +62,7 @@ struct TransactionChangeInformation {
 	case_insensitive_set_t created_schemas;
 	unordered_map<idx_t, reference<DuckLakeSchemaEntry>> dropped_schemas;
 	case_insensitive_map_t<reference_set_t<DuckLakeTableEntry>> created_tables;
+	unordered_set<idx_t> altered_tables;
 	unordered_set<idx_t> dropped_tables;
 	unordered_set<idx_t> inserted_tables;
 };
@@ -90,10 +91,23 @@ TransactionChangeInformation DuckLakeTransaction::GetTransactionChanges() {
 	}
 	for (auto &schema_entry : new_tables) {
 		for (auto &entry : schema_entry.second->GetEntries()) {
-			// write any new tables that we created
-			auto &table = entry.second->Cast<DuckLakeTableEntry>();
-			auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
-			changes.created_tables[schema.name].insert(table);
+			reference<CatalogEntry> table_entry = *entry.second;
+			while (true) {
+				auto &table = table_entry.get().Cast<DuckLakeTableEntry>();
+				if (table.LocalChange() == TransactionLocalChange::SET_PARTITION_KEY) {
+					// this table was altered
+					changes.altered_tables.insert(table.GetTableId());
+				} else {
+					// write any new tables that we created
+					auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
+					changes.created_tables[schema.name].insert(table);
+				}
+
+				if (!table_entry.get().HasChild()) {
+					break;
+				}
+				table_entry = table_entry.get().Child();
+			}
 		}
 	}
 	for (auto &entry : new_data_files) {
@@ -149,6 +163,12 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 			change_info.tables_inserted_into += ",";
 		}
 		change_info.tables_inserted_into += to_string(inserted_table_idx);
+	}
+	for (auto &altered_table_idx : changes.altered_tables) {
+		if (!change_info.tables_altered.empty()) {
+			change_info.tables_altered += ",";
+		}
+		change_info.tables_altered += to_string(altered_table_idx);
 	}
 	metadata_manager->WriteSnapshotChanges(commit_snapshot, change_info);
 }

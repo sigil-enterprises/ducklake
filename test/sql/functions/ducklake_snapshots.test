@@ -88,3 +88,32 @@ query III
 SELECT snapshot_id, schema_version, changes FROM ducklake_snapshots('ducklake') WHERE snapshot_id=6
 ----
 6	5	{schemas_created=[s1], tables_created=[s1.tbl], tables_inserted_into=[4]}
+
+# alter table
+statement ok
+ALTER TABLE ducklake.s1.tbl SET PARTITIONED BY (i)
+
+query III
+SELECT snapshot_id, schema_version, changes FROM ducklake_snapshots('ducklake') WHERE snapshot_id=7
+----
+7	6	{tables_altered=[4]}
+
+# create a table and alter it
+
+statement ok
+BEGIN
+
+statement ok
+CREATE TABLE ducklake.s1.tbl2(i INT);
+
+statement ok
+ALTER TABLE ducklake.s1.tbl2 SET PARTITIONED BY (i)
+
+statement ok
+COMMIT
+
+# FIXME
+query III
+SELECT snapshot_id, schema_version, changes FROM ducklake_snapshots('ducklake') WHERE snapshot_id=8
+----
+8	7	{tables_created=[s1.tbl2], tables_altered=[5]}
