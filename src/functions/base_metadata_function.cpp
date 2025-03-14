@@ -1,6 +1,27 @@
 #include "functions/ducklake_table_functions.hpp"
+#include "duckdb/main/attached_database.hpp"
+#include "duckdb/main/database_manager.hpp"
 
 namespace duckdb {
+
+Catalog &BaseMetadataFunction::GetCatalog(ClientContext &context, const Value &input) {
+	if (input.IsNull()) {
+		throw BinderException("Catalog cannot be NULL");
+	}
+	// look up the database to query
+	auto db_name = input.GetValue<string>();
+	auto &db_manager = DatabaseManager::Get(context);
+	auto db = db_manager.GetDatabase(context, db_name);
+	if (!db) {
+		throw BinderException("Failed to find attached database \"%s\"", db_name);
+	}
+	auto &catalog = db->GetCatalog();
+	if (catalog.GetCatalogType() != "ducklake") {
+		throw BinderException("Attached database \"%s\" does not refer to a DuckLake database", db_name);
+	}
+	return catalog;
+}
+
 
 struct MetadataFunctionData : public GlobalTableFunctionState {
 	MetadataFunctionData() : offset(0) {
@@ -26,6 +47,9 @@ void MetadataFunctionExecute(ClientContext &context, TableFunctionInput &data_p,
 	idx_t count = 0;
 	while (state.offset < data.rows.size() && count < STANDARD_VECTOR_SIZE) {
 		auto &entry = data.rows[state.offset++];
+		if (entry.size() != output.ColumnCount()) {
+			throw InternalException("Unaligned metadata row in result");
+		}
 
 		for (idx_t c = 0; c < entry.size(); c++) {
 			output.SetValue(c, count, entry[c]);

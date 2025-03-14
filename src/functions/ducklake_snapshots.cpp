@@ -1,7 +1,5 @@
 #include "functions/ducklake_table_functions.hpp"
 #include "storage/ducklake_transaction.hpp"
-#include "duckdb/main/attached_database.hpp"
-#include "duckdb/main/database_manager.hpp"
 #include "common/ducklake_util.hpp"
 
 namespace duckdb {
@@ -37,20 +35,7 @@ Value TableListToValue(const string &list_val) {
 
 static unique_ptr<FunctionData> DuckLakeSnapshotsBind(ClientContext &context, TableFunctionBindInput &input,
                                                       vector<LogicalType> &return_types, vector<string> &names) {
-	if (input.inputs[0].IsNull()) {
-		throw BinderException("Parameters to ducklake_snaphots cannot be NULL");
-	}
-	// look up the database to query
-	auto db_name = input.inputs[0].GetValue<string>();
-	auto &db_manager = DatabaseManager::Get(context);
-	auto db = db_manager.GetDatabase(context, db_name);
-	if (!db) {
-		throw BinderException("Failed to find attached database \"%s\" referenced in ducklake_snapshots()", db_name);
-	}
-	auto &catalog = db->GetCatalog();
-	if (catalog.GetCatalogType() != "ducklake") {
-		throw BinderException("Attached database \"%s\" does not refer to a DuckLake database", db_name);
-	}
+	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
 	auto &transaction = DuckLakeTransaction::Get(context, catalog);
 
 	auto &metadata_manager = transaction.GetMetadataManager();

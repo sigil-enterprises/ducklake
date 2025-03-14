@@ -142,10 +142,9 @@ public:
 	virtual void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, const SnapshotChangeInfo &change_info);
 	virtual void UpdateGlobalTableStats(const DuckLakeGlobalStatsInfo &stats);
 	virtual SnapshotChangeInfo GetChangesMadeAfterSnapshot(DuckLakeSnapshot start_snapshot);
-	virtual vector<DuckLakeSnapshotInfo> GetAllSnapshots();
-
 	virtual unique_ptr<DuckLakeSnapshot> GetSnapshot();
 
+	virtual vector<DuckLakeSnapshotInfo> GetAllSnapshots();
 private:
 	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,
 	               unordered_set<idx_t> &dropped_entries);

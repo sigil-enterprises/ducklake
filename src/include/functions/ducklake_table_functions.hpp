@@ -11,6 +11,7 @@
 #include "duckdb/function/table_function.hpp"
 
 namespace duckdb {
+class DuckLakeCatalog;
 
 struct MetadataBindData : public TableFunctionData {
 	MetadataBindData() {
@@ -22,6 +23,8 @@ struct MetadataBindData : public TableFunctionData {
 class BaseMetadataFunction : public TableFunction {
 public:
 	BaseMetadataFunction(string name, table_function_bind_t bind);
+
+	static Catalog &GetCatalog(ClientContext &context, const Value &input);
 };
 
 class DuckLakeSnapshotsFunction : public BaseMetadataFunction {
