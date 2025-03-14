@@ -59,6 +59,7 @@ struct DuckLakeFileInfo {
 	idx_t row_count;
 	idx_t file_size_bytes;
 	idx_t footer_size;
+	optional_idx partition_id;
 	vector<DuckLakeColumnStatsInfo> column_stats;
 };
 
@@ -145,6 +146,7 @@ public:
 	virtual unique_ptr<DuckLakeSnapshot> GetSnapshot();
 
 	virtual vector<DuckLakeSnapshotInfo> GetAllSnapshots();
+
 private:
 	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,
 	               unordered_set<idx_t> &dropped_entries);

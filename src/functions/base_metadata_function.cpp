@@ -22,7 +22,6 @@ Catalog &BaseMetadataFunction::GetCatalog(ClientContext &context, const Value &i
 	return catalog;
 }
 
-
 struct MetadataFunctionData : public GlobalTableFunctionState {
 	MetadataFunctionData() : offset(0) {
 	}

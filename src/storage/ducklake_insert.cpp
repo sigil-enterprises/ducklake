@@ -16,9 +16,9 @@
 namespace duckdb {
 
 DuckLakeInsert::DuckLakeInsert(LogicalOperator &op, DuckLakeTableEntry &table,
-                               physical_index_vector_t<idx_t> column_index_map_p)
+                               physical_index_vector_t<idx_t> column_index_map_p, optional_idx partition_id)
     : PhysicalOperator(PhysicalOperatorType::EXTENSION, op.types, 1), table(&table), schema(nullptr),
-      column_index_map(std::move(column_index_map_p)) {
+      column_index_map(std::move(column_index_map_p)), partition_id(partition_id) {
 }
 
 DuckLakeInsert::DuckLakeInsert(LogicalOperator &op, SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info)
@@ -70,6 +70,9 @@ SinkResultType DuckLakeInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 		data_file.row_count = chunk.GetValue(1, r).GetValue<idx_t>();
 		data_file.file_size_bytes = chunk.GetValue(2, r).GetValue<idx_t>();
 		data_file.footer_size = chunk.GetValue(4, r).GetValue<idx_t>();
+		if (partition_id.IsValid()) {
+			data_file.partition_id = partition_id.GetIndex();
+		}
 
 		// extract the column stats
 		auto column_stats = chunk.GetValue(5, r);
@@ -237,9 +240,13 @@ unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanInsert(ClientContext &context,
 	auto &ducklake_table = op.table.Cast<DuckLakeTableEntry>();
 	auto &columns = ducklake_table.GetColumns();
 	auto partition_data = ducklake_table.GetPartitionData();
+	optional_idx partition_id;
+	if (partition_data) {
+		partition_id = partition_data->partition_id;
+	}
 
 	auto physical_copy = PlanCopyForInsert(context, columns, partition_data, std::move(plan));
-	auto insert = make_uniq<DuckLakeInsert>(op, ducklake_table, op.column_index_map);
+	auto insert = make_uniq<DuckLakeInsert>(op, ducklake_table, op.column_index_map, partition_id);
 	insert->children.push_back(std::move(physical_copy));
 	return std::move(insert);
 }

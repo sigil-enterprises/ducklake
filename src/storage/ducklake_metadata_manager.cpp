@@ -289,9 +289,10 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
 		if (!data_file_insert_query.empty()) {
 			data_file_insert_query += ",";
 		}
+		auto partition_id = file.partition_id.IsValid() ? to_string(file.partition_id.GetIndex()) : "NULL";
 		data_file_insert_query += StringUtil::Format(
-		    "(%d, %d, {SNAPSHOT_ID}, NULL, NULL, %s, 'parquet', %d, %d, %d, NULL)", file.id, file.table_id,
-		    SQLString(file.file_name), file.row_count, file.file_size_bytes, file.footer_size);
+		    "(%d, %d, {SNAPSHOT_ID}, NULL, NULL, %s, 'parquet', %d, %d, %d, %s)", file.id, file.table_id,
+		    SQLString(file.file_name), file.row_count, file.file_size_bytes, file.footer_size, partition_id);
 		for (auto &column_stats : file.column_stats) {
 			if (!column_stats_insert_query.empty()) {
 				column_stats_insert_query += ",";

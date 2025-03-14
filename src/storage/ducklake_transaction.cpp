@@ -413,6 +413,7 @@ vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &
 			data_file.row_count = file.row_count;
 			data_file.file_size_bytes = file.file_size_bytes;
 			data_file.footer_size = file.footer_size;
+			data_file.partition_id = file.partition_id;
 
 			new_stats.record_count += file.row_count;
 			new_stats.table_size_bytes += file.file_size_bytes;
