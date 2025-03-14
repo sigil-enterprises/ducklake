@@ -278,16 +278,18 @@ vector<DuckLakeSchemaInfo> DuckLakeTransaction::GetNewSchemas(DuckLakeSnapshot &
 	return schemas;
 }
 
-void DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table,
-                                             vector<DuckLakePartitionInfo> &new_partition_keys) {
+DuckLakePartitionInfo DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot,
+                                                              DuckLakeTableEntry &table, optional_idx table_id) {
 	DuckLakePartitionInfo partition_key;
-	partition_key.table_id = table.GetTableId();
+	partition_key.table_id = table_id.IsValid() ? table_id.GetIndex() : table.GetTableId();
+	if (IsTransactionLocal(partition_key.table_id)) {
+		throw InternalException("Trying to write partition with transaction local table-id");
+	}
 	// insert the new partition data
 	auto partition_data = table.GetPartitionData();
 	if (!partition_data) {
 		// dropping partition data - insert the empty partition key data for this table
-		new_partition_keys.push_back(std::move(partition_key));
-		return;
+		return partition_key;
 	}
 	auto local_partition_id = partition_data->partition_id;
 	auto partition_id = commit_snapshot.next_catalog_id++;
@@ -303,68 +305,90 @@ void DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot, 
 		partition_field.transform = "identity";
 		partition_key.fields.push_back(std::move(partition_field));
 	}
-	new_partition_keys.push_back(std::move(partition_key));
 
 	// if we wrote any data with this partition id - rewrite it to the latest partition id
-	for(auto &entry : new_data_files) {
-		for(auto &file : entry.second) {
+	for (auto &entry : new_data_files) {
+		for (auto &file : entry.second) {
 			if (file.partition_id.IsValid() && file.partition_id.GetIndex() == local_partition_id) {
 				file.partition_id = partition_id;
 			}
 		}
 	}
+	return partition_key;
+}
+
+DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table) {
+	auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
+	DuckLakeTableInfo table_entry;
+	auto original_id = table.GetTableId();
+	bool is_new_table;
+	if (IsTransactionLocal(original_id)) {
+		table_entry.id = commit_snapshot.next_catalog_id++;
+		is_new_table = true;
+	} else {
+		// this table already has an id - keep it
+		// this happens if e.g. this table is renamed
+		table_entry.id = original_id;
+		is_new_table = false;
+	}
+	table_entry.uuid = table.GetTableUUID();
+	table_entry.schema_id = schema.GetSchemaId();
+	table_entry.name = table.name;
+	if (is_new_table) {
+		// if this is a new table - write the columns
+		idx_t column_id = 0;
+
+		for (auto &col : table.GetColumns().Logical()) {
+			DuckLakeColumnInfo column_entry;
+			column_entry.id = column_id;
+			column_entry.name = col.GetName();
+			column_entry.type = DuckLakeTypes::ToString(col.GetType());
+			table_entry.columns.push_back(std::move(column_entry));
+			column_id++;
+		}
+		// if we have written any data to this table - move them to the new (correct) table id as well
+		auto data_file_entry = new_data_files.find(original_id);
+		if (data_file_entry != new_data_files.end()) {
+			new_data_files[table_entry.id] = std::move(data_file_entry->second);
+			new_data_files.erase(original_id);
+		}
+	}
+	return table_entry;
 }
 
 vector<DuckLakeTableInfo> DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &commit_snapshot,
                                                             vector<DuckLakePartitionInfo> &new_partition_keys) {
-	vector<DuckLakeTableInfo> tables;
+	vector<DuckLakeTableInfo> result;
 	for (auto &schema_entry : new_tables) {
 		for (auto &entry : schema_entry.second->GetEntries()) {
-			// write any new tables that we created
-			auto &table = entry.second->Cast<DuckLakeTableEntry>();
-			if (table.LocalChange() == TransactionLocalChange::SET_PARTITION_KEY) {
-				GetNewPartitionKey(commit_snapshot, table, new_partition_keys);
-				continue;
-			}
-			auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
-			DuckLakeTableInfo table_entry;
-			auto original_id = table.GetTableId();
-			bool is_new_table;
-			if (IsTransactionLocal(original_id)) {
-				table_entry.id = commit_snapshot.next_catalog_id++;
-				is_new_table = true;
-			} else {
-				// this table already has an id - keep it
-				// this happens if e.g. this table is renamed
-				table_entry.id = original_id;
-				is_new_table = false;
-			}
-			table_entry.uuid = table.GetTableUUID();
-			table_entry.schema_id = schema.GetSchemaId();
-			table_entry.name = table.name;
-			if (is_new_table) {
-				// if this is a new table - write the columns
-				idx_t column_id = 0;
-
-				for (auto &col : table.GetColumns().Logical()) {
-					DuckLakeColumnInfo column_entry;
-					column_entry.id = column_id;
-					column_entry.name = col.GetName();
-					column_entry.type = DuckLakeTypes::ToString(col.GetType());
-					table_entry.columns.push_back(std::move(column_entry));
-					column_id++;
+			// iterate over the table chain in reverse order when committing
+			// the latest entry is the root entry - but we need to commit starting from the first entry written
+			reference<CatalogEntry> table_entry = *entry.second;
+			// gather all tables
+			vector<reference<DuckLakeTableEntry>> tables;
+			while (true) {
+				tables.push_back(table_entry.get().Cast<DuckLakeTableEntry>());
+				if (!table_entry.get().HasChild()) {
+					break;
 				}
-				// if we have written any data to this table - move them to the new (correct) table id as well
-				auto data_file_entry = new_data_files.find(original_id);
-				if (data_file_entry != new_data_files.end()) {
-					new_data_files[table_entry.id] = std::move(data_file_entry->second);
-					new_data_files.erase(original_id);
+				table_entry = table_entry.get().Child();
+			}
+			// traverse in reverse order
+			optional_idx table_id;
+			for (idx_t table_idx = tables.size(); table_idx > 0; table_idx--) {
+				auto &table = tables[table_idx - 1].get();
+				if (table.LocalChange() == TransactionLocalChange::SET_PARTITION_KEY) {
+					auto partition_key = GetNewPartitionKey(commit_snapshot, table, table_id);
+					new_partition_keys.push_back(std::move(partition_key));
+				} else {
+					auto new_table = GetNewTable(commit_snapshot, table);
+					table_id = new_table.id;
+					result.push_back(std::move(new_table));
 				}
 			}
-			tables.push_back(std::move(table_entry));
 		}
 	}
-	return tables;
+	return result;
 }
 
 void DuckLakeTransaction::UpdateGlobalTableStats(idx_t table_id, DuckLakeTableStats new_stats) {
@@ -533,7 +557,7 @@ void DuckLakeTransaction::FlushChanges() {
 			if (!is_primary_key_error || finished_retrying) {
 				// we abort after the max retry count
 				CleanupFiles();
-				error.Throw("Failed to commit DuckLake transaction:");
+				error.Throw("Failed to commit DuckLake transaction: ");
 			}
 			// retry the transaction (with a new snapshot id)
 			connection->BeginTransaction();

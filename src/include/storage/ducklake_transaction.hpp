@@ -85,8 +85,9 @@ private:
 	vector<DuckLakeSchemaInfo> GetNewSchemas(DuckLakeSnapshot &commit_snapshot);
 	vector<DuckLakeTableInfo> GetNewTables(DuckLakeSnapshot &commit_snapshot,
 	                                       vector<DuckLakePartitionInfo> &new_partition_keys);
-	void GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table,
-	                        vector<DuckLakePartitionInfo> &new_partition_keys);
+	DuckLakePartitionInfo GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table,
+	                                         optional_idx table_id);
+	DuckLakeTableInfo GetNewTable(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table);
 	void FlushNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table);
 	vector<DuckLakeFileInfo> GetNewDataFiles(DuckLakeSnapshot &commit_snapshot);
 	void UpdateGlobalTableStats(idx_t table_id, DuckLakeTableStats new_stats);
