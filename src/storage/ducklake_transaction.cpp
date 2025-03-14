@@ -289,6 +289,7 @@ void DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot, 
 		new_partition_keys.push_back(std::move(partition_key));
 		return;
 	}
+	auto local_partition_id = partition_data->partition_id;
 	auto partition_id = commit_snapshot.next_catalog_id++;
 	partition_key.id = partition_id;
 	partition_data->partition_id = partition_id;
@@ -303,6 +304,15 @@ void DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot, 
 		partition_key.fields.push_back(std::move(partition_field));
 	}
 	new_partition_keys.push_back(std::move(partition_key));
+
+	// if we wrote any data with this partition id - rewrite it to the latest partition id
+	for(auto &entry : new_data_files) {
+		for(auto &file : entry.second) {
+			if (file.partition_id.IsValid() && file.partition_id.GetIndex() == local_partition_id) {
+				file.partition_id = partition_id;
+			}
+		}
+	}
 }
 
 vector<DuckLakeTableInfo> DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &commit_snapshot,
