@@ -19,10 +19,15 @@ class DuckLakeTransaction;
 
 enum class TransactionLocalChange { NONE, CREATED, RENAMED, SET_PARTITION_KEY };
 
+struct DuckLakeFieldId {
+	idx_t id;
+	vector<DuckLakeFieldId> children;
+};
+
 class DuckLakeTableEntry : public TableCatalogEntry {
 public:
 	DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info, idx_t table_id,
-	                   string table_uuid, TransactionLocalChange transaction_local_change);
+	                   string table_uuid, vector<DuckLakeFieldId> field_ids, TransactionLocalChange transaction_local_change);
 
 public:
 	idx_t GetTableId() const {
@@ -68,6 +73,7 @@ public:
 private:
 	idx_t table_id;
 	string table_uuid;
+	vector<DuckLakeFieldId> field_ids;
 	TransactionLocalChange transaction_local_change;
 	unique_ptr<DuckLakePartition> partition_data;
 };

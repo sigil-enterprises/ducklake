@@ -15,15 +15,17 @@ namespace duckdb {
 
 DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info,
                                        idx_t table_id, string table_uuid_p,
+                                       vector<DuckLakeFieldId> field_ids_p,
                                        TransactionLocalChange transaction_local_change)
     : TableCatalogEntry(catalog, schema, info), table_id(table_id), table_uuid(std::move(table_uuid_p)),
+    	field_ids(std::move(field_ids_p)),
       transaction_local_change(transaction_local_change) {
 }
 
 // ALTER TABLE RENAME
 DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info)
     : DuckLakeTableEntry(parent.ParentCatalog(), parent.ParentSchema(), info, parent.GetTableId(),
-                         parent.GetTableUUID(), TransactionLocalChange::RENAMED) {
+                         parent.GetTableUUID(), parent.field_ids, TransactionLocalChange::RENAMED) {
 	if (parent.partition_data) {
 		partition_data = make_uniq<DuckLakePartition>(*parent.partition_data);
 	}
@@ -33,7 +35,7 @@ DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableIn
 DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info,
                                        unique_ptr<DuckLakePartition> partition_data_p)
     : DuckLakeTableEntry(parent.ParentCatalog(), parent.ParentSchema(), info, parent.GetTableId(),
-                         parent.GetTableUUID(), TransactionLocalChange::SET_PARTITION_KEY) {
+                         parent.GetTableUUID(), parent.field_ids, TransactionLocalChange::SET_PARTITION_KEY) {
 	partition_data = std::move(partition_data_p);
 }
 

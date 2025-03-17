@@ -163,14 +163,17 @@ LogicalType DuckLakeCatalog::ParseDuckLakeType(const string &type) {
 	return type_id;
 }
 
-LogicalType TransformColumnType(const DuckLakeColumnInfo &col) {
+LogicalType TransformColumnType(DuckLakeColumnInfo &col, DuckLakeFieldId &field_id) {
+	field_id.id = col.id;
 	if (col.children.empty()) {
 		return DuckLakeTypes::FromString(col.type);
 	}
 	if (StringUtil::CIEquals(col.type, "struct")) {
 		child_list_t<LogicalType> child_types;
 		for(auto &child_col : col.children) {
-			child_types.emplace_back(make_pair(child_col.name, TransformColumnType(child_col)));
+			DuckLakeFieldId child_id;
+			child_types.emplace_back(make_pair(std::move(child_col.name), TransformColumnType(child_col, child_id)));
+			field_id.children.push_back(std::move(child_id));
 		}
 		return LogicalType::STRUCT(std::move(child_types));
 	}
@@ -204,14 +207,17 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 		auto &schema_entry = entry->second.get();
 		auto create_table_info = make_uniq<CreateTableInfo>(schema_entry, table.name);
 		// parse the columns
+		vector<DuckLakeFieldId> field_ids;
 		for (auto &col_info : table.columns) {
-			auto column_type = TransformColumnType(col_info);
+			DuckLakeFieldId field_id;
+			auto column_type = TransformColumnType(col_info, field_id);
 			ColumnDefinition column(std::move(col_info.name), std::move(column_type));
 			create_table_info->columns.AddColumn(std::move(column));
+			field_ids.push_back(std::move(field_id));
 		}
 		// create the table and add it to the schema set
 		auto table_entry = make_uniq<DuckLakeTableEntry>(*this, schema_entry, *create_table_info, table.id,
-		                                                 std::move(table.uuid), TransactionLocalChange::NONE);
+		                                                 std::move(table.uuid), std::move(field_ids), TransactionLocalChange::NONE);
 		schema_set->AddEntry(schema_entry, table.id, std::move(table_entry));
 	}
 

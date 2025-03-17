@@ -12,14 +12,48 @@ DuckLakeSchemaEntry::DuckLakeSchemaEntry(Catalog &catalog, CreateSchemaInfo &inf
     : SchemaCatalogEntry(catalog, info), schema_id(schema_id), schema_uuid(std::move(schema_uuid)) {
 }
 
+DuckLakeFieldId FieldIdFromType(const LogicalType &type, idx_t &column_id) {
+	DuckLakeFieldId field_id;
+	field_id.id = column_id++;
+	switch(type.id()) {
+	case LogicalTypeId::STRUCT: {
+		for(auto &entry : StructType::GetChildTypes(type)) {
+			field_id.children.push_back(FieldIdFromType(entry.second, column_id));
+		}
+		break;
+	}
+	case LogicalTypeId::LIST:
+		field_id.children.push_back(FieldIdFromType(ListType::GetChildType(type), column_id));
+		break;
+	case LogicalTypeId::ARRAY:
+		field_id.children.push_back(FieldIdFromType(ArrayType::GetChildType(type), column_id));
+		break;
+	case LogicalTypeId::MAP:
+		field_id.children.push_back(FieldIdFromType(MapType::KeyType(type), column_id));
+		field_id.children.push_back(FieldIdFromType(MapType::ValueType(type), column_id));
+		break;
+	default:
+		break;
+	}
+	return field_id;
+}
+
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction transaction,
                                                             BoundCreateTableInfo &info) {
+    auto &base_info = info.Base();
 	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
 	//! get a local table-id
 	idx_t table_id = duck_transaction.GetLocalCatalogId();
 	auto table_uuid = UUID::ToString(UUID::GenerateRandomUUID());
-	auto table_entry = make_uniq<DuckLakeTableEntry>(ParentCatalog(), *this, info.Base(), table_id,
-	                                                 std::move(table_uuid), TransactionLocalChange::CREATED);
+	// generate field ids based on the column ids
+	idx_t column_id = 0;
+	vector<DuckLakeFieldId> field_ids;
+	for(auto &col : base_info.columns.Logical()) {
+		auto field_id = FieldIdFromType(col.Type(), column_id);
+		field_ids.push_back(std::move(field_id));
+	}
+	auto table_entry = make_uniq<DuckLakeTableEntry>(ParentCatalog(), *this, base_info, table_id,
+	                                                 std::move(table_uuid), std::move(field_ids), TransactionLocalChange::CREATED);
 	auto result = table_entry.get();
 	duck_transaction.CreateEntry(std::move(table_entry));
 	return result;
