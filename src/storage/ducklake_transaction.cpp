@@ -337,6 +337,28 @@ DuckLakePartitionInfo DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &
 	return partition_key;
 }
 
+DuckLakeColumnInfo ConvertColumn(const string &name, const LogicalType &type, idx_t &column_id) {
+	DuckLakeColumnInfo column_entry;
+	column_entry.id = column_id++;
+	column_entry.name = name;
+	switch(type.id()) {
+	case LogicalTypeId::STRUCT: {
+		column_entry.type = "struct";
+		for(auto &child : StructType::GetChildTypes(type)) {
+			column_entry.children.push_back(ConvertColumn(child.first, child.second, column_id));
+		}
+		break;
+	}
+	case LogicalTypeId::LIST:
+	case LogicalTypeId::MAP:
+		throw InternalException("Unsupported nested type");
+	default:
+		column_entry.type = DuckLakeTypes::ToString(type);
+		break;
+	}
+	return column_entry;
+}
+
 DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table) {
 	auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
 	DuckLakeTableInfo table_entry;
@@ -359,12 +381,7 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 		idx_t column_id = 0;
 
 		for (auto &col : table.GetColumns().Logical()) {
-			DuckLakeColumnInfo column_entry;
-			column_entry.id = column_id;
-			column_entry.name = col.GetName();
-			column_entry.type = DuckLakeTypes::ToString(col.GetType());
-			table_entry.columns.push_back(std::move(column_entry));
-			column_id++;
+			table_entry.columns.push_back(ConvertColumn(col.GetName(), col.GetType(), column_id));
 		}
 		// if we have written any data to this table - move them to the new (correct) table id as well
 		auto data_file_entry = new_data_files.find(original_id);

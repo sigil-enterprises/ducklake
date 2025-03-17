@@ -110,15 +110,8 @@ LogicalType DuckLakeTypes::FromString(const string &type) {
 }
 
 string DuckLakeTypes::ToString(const LogicalType &type) {
-	if (type.id() == LogicalTypeId::LIST) {
-		return ToString(ListType::GetChildType(type)) + "[]";
-	}
-	// FIXME - map/struct types should really be handled differently (at the schema level)
-	if (type.id() == LogicalTypeId::MAP) {
-		return type.ToString();
-	}
-	if (type.id() == LogicalTypeId::STRUCT) {
-		return type.ToString();
+	if (type.IsNested()) {
+		throw InternalException("Nested types not supported in DuckLakeTypes::ToString");
 	}
 	if (type.id() == LogicalTypeId::DECIMAL) {
 		return "DECIMAL(" + to_string(DecimalType::GetWidth(type)) + "," + to_string(DecimalType::GetScale(type)) + ")";

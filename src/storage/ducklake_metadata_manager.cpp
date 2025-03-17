@@ -30,7 +30,7 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_table(table_id BIGINT, table_uuid UUID,
 CREATE TABLE {METADATA_CATALOG}.ducklake_data_file(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, file_order BIGINT, path VARCHAR, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, partition_id BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_file_column_statistics(data_file_id BIGINT, table_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, value_count BIGINT, null_count BIGINT, nan_count BIGINT, min_value VARCHAR, max_value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file(delete_file_id BIGINT PRIMARY KEY, begin_snapshot BIGINT, end_snapshot BIGINT, data_file_id BIGINT, path VARCHAR, format VARCHAR, delete_count BIGINT, file_size_bytes BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_column(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, column_order BIGINT, column_name VARCHAR, column_type VARCHAR, default_value VARCHAR);
+CREATE TABLE {METADATA_CATALOG}.ducklake_column(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, column_order BIGINT, column_name VARCHAR, column_type VARCHAR, default_value VARCHAR, parent_column BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_table_stats(table_id BIGINT, record_count BIGINT, file_size_bytes BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_table_column_stats(table_id BIGINT, column_id BIGINT, contains_null BOOLEAN, min_value VARCHAR, max_value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_partition_info(partition_id BIGINT, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT);
@@ -50,6 +50,19 @@ INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to initialize DuckLake:");
 	}
+}
+
+bool AddChildColumn(vector<DuckLakeColumnInfo> &columns, idx_t parent_id, DuckLakeColumnInfo &column_info) {
+	for(auto &col : columns) {
+		if (col.id == parent_id) {
+			col.children.push_back(std::move(column_info));
+			return true;
+		}
+		if (AddChildColumn(col.children, parent_id, column_info)) {
+			return true;
+		}
+	}
+	return false;
 }
 
 DuckLakeCatalogInfo DuckLakeMetadataManager::GetCatalogForSnapshot(DuckLakeSnapshot snapshot) {
@@ -73,12 +86,12 @@ WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_s
 
 	// load the table information
 	result = transaction.Query(snapshot, R"(
-SELECT schema_id, table_id, table_uuid::VARCHAR, table_name, column_id, column_name, column_type, default_value
+SELECT schema_id, table_id, table_uuid::VARCHAR, table_name, column_id, column_name, column_type, default_value, parent_column
 FROM {METADATA_CATALOG}.ducklake_table tbl
 LEFT JOIN {METADATA_CATALOG}.ducklake_column col USING (table_id)
 WHERE {SNAPSHOT_ID} >= tbl.begin_snapshot AND ({SNAPSHOT_ID} < tbl.end_snapshot OR tbl.end_snapshot IS NULL)
   AND (({SNAPSHOT_ID} >= col.begin_snapshot AND ({SNAPSHOT_ID} < col.end_snapshot OR col.end_snapshot IS NULL)) OR column_id IS NULL)
-ORDER BY table_id, column_order
+ORDER BY table_id, parent_column NULLS FIRST, column_order
 )");
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to get table information from DuckLake: ");
@@ -102,12 +115,21 @@ ORDER BY table_id, column_order
 			throw InvalidInputException("Failed to load DuckLake - Table entry \"%s\" does not have any columns",
 			                            table_entry.name);
 		}
-		// add the column to this table
 		DuckLakeColumnInfo column_info;
 		column_info.id = row.GetValue<uint64_t>(4);
 		column_info.name = row.GetValue<string>(5);
 		column_info.type = row.GetValue<string>(6);
-		table_entry.columns.push_back(std::move(column_info));
+
+		optional_idx parent_id = row.IsNull(8) ? optional_idx() : row.GetValue<idx_t>(8);
+		if (!parent_id.IsValid()) {
+			// base column - add the column to this table
+			table_entry.columns.push_back(std::move(column_info));
+		} else {
+			if (!AddChildColumn(table_entry.columns, parent_id.GetIndex(), column_info)) {
+				throw InvalidInputException("Failed to load DuckLake - Could not find parent column for column %s",
+											column_info.name);
+			}
+		}
 	}
 
 	// load partition information
@@ -243,6 +265,19 @@ void DuckLakeMetadataManager::WriteNewSchemas(DuckLakeSnapshot commit_snapshot,
 	}
 }
 
+void ColumnToSQLRecursive(const DuckLakeColumnInfo &column, idx_t table_id, optional_idx parent, string &result) {
+	if (!result.empty()) {
+		result += ",";
+	}
+	string parent_idx = parent.IsValid() ? to_string(parent.GetIndex()) : "NULL";
+	result +=
+		StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, NULL, %s)", column.id, table_id, column.id,
+						   SQLString(column.name), SQLString(column.type), parent_idx);
+	for(auto &child : column.children) {
+		ColumnToSQLRecursive(child, table_id, column.id, result);
+	}
+}
+
 void DuckLakeMetadataManager::WriteNewTables(DuckLakeSnapshot commit_snapshot,
                                              const vector<DuckLakeTableInfo> &new_tables) {
 	string column_insert_sql;
@@ -254,12 +289,7 @@ void DuckLakeMetadataManager::WriteNewTables(DuckLakeSnapshot commit_snapshot,
 		table_insert_sql += StringUtil::Format("(%d, '%s', {SNAPSHOT_ID}, NULL, %d, %s)", table.id, table.uuid,
 		                                       table.schema_id, SQLString(table.name));
 		for (auto &column : table.columns) {
-			if (!column_insert_sql.empty()) {
-				column_insert_sql += ", ";
-			}
-			column_insert_sql +=
-			    StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, NULL)", column.id, table.id, column.id,
-			                       SQLString(column.name), SQLString(column.type));
+			ColumnToSQLRecursive(column, table.id, optional_idx(), column_insert_sql);
 		}
 	}
 	if (!table_insert_sql.empty()) {

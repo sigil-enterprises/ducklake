@@ -1,0 +1,37 @@
+# name: test/sql/ducklake_struct.test
+# description: test storing struct types in ducklake
+# group: [ducklake]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_struct.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_struct_files')
+
+statement ok
+CREATE TABLE ducklake.test(s STRUCT(i INTEGER, j INTEGER));
+
+query I
+SELECT * FROM ducklake.test
+----
+
+statement ok
+INSERT INTO ducklake.test VALUES ({'i': 1, 'j': 2}), ({'i': NULL, 'j': 3}), (NULL);
+
+query I
+SELECT * FROM ducklake.test
+----
+1	2
+NULL	3
+
+statement ok
+INSERT INTO ducklake.test VALUES ({'i': 4, 'j': 5}), ({'i': 6, 'j': 7});
+
+query II
+SELECT * FROM ducklake.test
+----
+1	2
+NULL	3
+4	5
+6	7

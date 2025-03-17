@@ -34,6 +34,7 @@ struct DuckLakeColumnInfo {
 	idx_t id;
 	string name;
 	string type;
+	vector<DuckLakeColumnInfo> children;
 };
 
 struct DuckLakeTableInfo {

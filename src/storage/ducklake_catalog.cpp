@@ -163,6 +163,20 @@ LogicalType DuckLakeCatalog::ParseDuckLakeType(const string &type) {
 	return type_id;
 }
 
+LogicalType TransformColumnType(const DuckLakeColumnInfo &col) {
+	if (col.children.empty()) {
+		return DuckLakeTypes::FromString(col.type);
+	}
+	if (StringUtil::CIEquals(col.type, "struct")) {
+		child_list_t<LogicalType> child_types;
+		for(auto &child_col : col.children) {
+			child_types.emplace_back(make_pair(child_col.name, TransformColumnType(child_col)));
+		}
+		return LogicalType::STRUCT(std::move(child_types));
+	}
+	throw InvalidInputException("Unrecognized nested type \"%s\"", col.type);
+}
+
 unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTransaction &transaction,
                                                                       DuckLakeSnapshot snapshot) {
 	auto &metadata_manager = transaction.GetMetadataManager();
@@ -191,7 +205,7 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 		auto create_table_info = make_uniq<CreateTableInfo>(schema_entry, table.name);
 		// parse the columns
 		for (auto &col_info : table.columns) {
-			auto column_type = DuckLakeTypes::FromString(col_info.type);
+			auto column_type = TransformColumnType(col_info);
 			ColumnDefinition column(std::move(col_info.name), std::move(column_type));
 			create_table_info->columns.AddColumn(std::move(column));
 		}
