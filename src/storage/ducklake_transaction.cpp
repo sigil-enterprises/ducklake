@@ -493,7 +493,7 @@ vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &
 		DuckLakeTableStats new_stats;
 		for (auto &file : entry.second) {
 			DuckLakeFileInfo data_file;
-			data_file.id = commit_snapshot.next_file_id++;
+			data_file.id = DataFileIndex(commit_snapshot.next_file_id++);
 			data_file.table_id = table_id;
 			data_file.file_name = file.file_name;
 			data_file.row_count = file.row_count;

@@ -326,8 +326,10 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
 			data_file_insert_query += ",";
 		}
 		auto partition_id = file.partition_id.IsValid() ? to_string(file.partition_id.GetIndex()) : "NULL";
+		auto data_file_index = file.id.index;
+		auto table_id = file.table_id.index;
 		data_file_insert_query += StringUtil::Format(
-		    "(%d, %d, {SNAPSHOT_ID}, NULL, NULL, %s, 'parquet', %d, %d, %d, %s)", file.id, file.table_id.index,
+		    "(%d, %d, {SNAPSHOT_ID}, NULL, NULL, %s, 'parquet', %d, %d, %d, %s)", data_file_index, table_id,
 		    SQLString(file.file_name), file.row_count, file.file_size_bytes, file.footer_size, partition_id);
 		for (auto &column_stats : file.column_stats) {
 			if (!column_stats_insert_query.empty()) {
@@ -335,7 +337,7 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
 			}
 			auto column_id = column_stats.column_id.index;
 			column_stats_insert_query += StringUtil::Format(
-			    "(%d, %d, %d, NULL, %s, %s, NULL, %s, %s)", file.id, file.table_id.index, column_id,
+			    "(%d, %d, %d, NULL, %s, %s, NULL, %s, %s)", data_file_index, table_id, column_id,
 			    column_stats.value_count, column_stats.null_count, column_stats.min_val, column_stats.max_val);
 		}
 	}

@@ -64,4 +64,25 @@ struct FieldIndex {
 	}
 };
 
+struct DataFileIndex {
+	DataFileIndex() : index(DConstants::INVALID_INDEX) {}
+	explicit DataFileIndex(idx_t index) : index(index) {
+	}
+
+	idx_t index;
+
+	inline bool operator==(const DataFileIndex &rhs) const {
+		return index == rhs.index;
+	};
+	inline bool operator!=(const DataFileIndex &rhs) const {
+		return index != rhs.index;
+	};
+	inline bool operator<(const DataFileIndex &rhs) const {
+		return index < rhs.index;
+	};
+	bool IsValid() const {
+		return index != DConstants::INVALID_INDEX;
+	}
+};
+
 } // namespace duckdb

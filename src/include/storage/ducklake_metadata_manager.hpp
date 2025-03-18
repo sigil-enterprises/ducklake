@@ -55,7 +55,7 @@ struct DuckLakeColumnStatsInfo {
 };
 
 struct DuckLakeFileInfo {
-	idx_t id;
+	DataFileIndex id;
 	TableIndex table_id;
 	string file_name;
 	idx_t row_count;
