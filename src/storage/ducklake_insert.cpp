@@ -58,6 +58,41 @@ unique_ptr<GlobalSinkState> DuckLakeInsert::GetGlobalSinkState(ClientContext &co
 //     return physical_copy_to_file->GetLocalSinkState(context);
 // }
 
+struct ColumnFieldInfo {
+	ColumnFieldInfo(const LogicalType &type_p, FieldIndex id) : type(type_p), id(id) {}
+
+	const LogicalType &type;
+	FieldIndex id;
+};
+
+ColumnFieldInfo GetNestedFieldInfo(const vector<string> &column_names, const LogicalType &type, idx_t index, const DuckLakeFieldId &field_id) {
+	if (index >= column_names.size()) {
+		// primitive type - return directly
+		if (!field_id.children.empty()) {
+			throw InternalException("Failed to get nested field - ran out of column names but there are still field id children");
+		}
+		return ColumnFieldInfo(type, field_id.id);
+	}
+	// nested type
+	D_ASSERT(!field_id.children.empty());
+	auto &child_name = column_names[index];
+	switch (type.id()) {
+	case LogicalTypeId::STRUCT: {
+		auto &struct_children = StructType::GetChildTypes(type);
+		for(idx_t child_idx = 0; child_idx < struct_children.size(); ++child_idx) {
+			auto &child = struct_children[child_idx];
+			if (StringUtil::CIEquals(child_name, child.first)) {
+				// found a match - recurse
+				return GetNestedFieldInfo(column_names, child.second, index + 1, field_id.children[child_idx]);
+			}
+		}
+		throw NotImplementedException("Failed to get nested field - could not find child named %s in struct", child_name);
+	}
+	default:
+		throw NotImplementedException("Unsupported column type");
+	}
+}
+
 //===--------------------------------------------------------------------===//
 // Sink
 //===--------------------------------------------------------------------===//
@@ -77,18 +112,18 @@ SinkResultType DuckLakeInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 		// extract the column stats
 		auto column_stats = chunk.GetValue(5, r);
 		auto &map_children = MapValue::GetChildren(column_stats);
+		auto &field_ids = global_state.table.GetFieldIds();
 		for (idx_t col_idx = 0; col_idx < map_children.size(); col_idx++) {
 			auto &struct_children = StructValue::GetChildren(map_children[col_idx]);
 			auto &col_name = StringValue::Get(struct_children[0]);
 			auto &col_stats = MapValue::GetChildren(struct_children[1]);
 			auto column_names = DuckLakeUtil::ParseQuotedList(col_name, '.');
-			if (column_names.size() != 1) {
-				// FIXME: handle nested types
-				continue;
-			}
-			auto &column_def = global_state.table.GetColumn(column_names[0]);
 
-			DuckLakeColumnStats column_stats(column_def.Type());
+			auto &column_def = global_state.table.GetColumn(column_names[0]);
+			auto &root_id = field_ids[column_def.Oid()];
+			auto field_info = GetNestedFieldInfo(column_names, column_def.Type(), 1, root_id);
+
+			DuckLakeColumnStats column_stats(field_info.type);
 			for (idx_t stats_idx = 0; stats_idx < col_stats.size(); stats_idx++) {
 				auto &stats_children = StructValue::GetChildren(col_stats[stats_idx]);
 				auto &stats_name = StringValue::Get(stats_children[0]);
@@ -110,7 +145,7 @@ SinkResultType DuckLakeInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 				}
 			}
 
-			data_file.column_stats.insert(make_pair(column_def.Oid(), std::move(column_stats)));
+			data_file.column_stats.insert(make_pair(field_info.id, std::move(column_stats)));
 		}
 
 		global_state.written_files.push_back(std::move(data_file));

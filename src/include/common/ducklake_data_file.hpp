@@ -10,6 +10,7 @@
 
 #include "storage/ducklake_stats.hpp"
 #include "duckdb/common/optional_idx.hpp"
+#include "common/field_index.hpp"
 
 namespace duckdb {
 
@@ -19,7 +20,7 @@ struct DuckLakeDataFile {
 	idx_t file_size_bytes;
 	idx_t footer_size;
 	optional_idx partition_id;
-	map<idx_t, DuckLakeColumnStats> column_stats;
+	map<FieldIndex, DuckLakeColumnStats> column_stats;
 };
 
 } // namespace duckdb

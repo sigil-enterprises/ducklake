@@ -14,7 +14,7 @@ DuckLakeSchemaEntry::DuckLakeSchemaEntry(Catalog &catalog, CreateSchemaInfo &inf
 
 DuckLakeFieldId FieldIdFromType(const LogicalType &type, idx_t &column_id) {
 	DuckLakeFieldId field_id;
-	field_id.id = column_id++;
+	field_id.id = FieldIndex(column_id++);
 	switch(type.id()) {
 	case LogicalTypeId::STRUCT: {
 		for(auto &entry : StructType::GetChildTypes(type)) {

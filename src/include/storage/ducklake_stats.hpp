@@ -10,6 +10,7 @@
 
 #include "duckdb/common/case_insensitive_map.hpp"
 #include "duckdb/common/common.hpp"
+#include "common/field_index.hpp"
 
 namespace duckdb {
 class BaseStatistics;
@@ -39,9 +40,9 @@ private:
 struct DuckLakeTableStats {
 	idx_t record_count = 0;
 	idx_t table_size_bytes = 0;
-	map<idx_t, DuckLakeColumnStats> column_stats;
+	map<FieldIndex, DuckLakeColumnStats> column_stats;
 
-	void MergeStats(idx_t col_id, const DuckLakeColumnStats &file_stats);
+	void MergeStats(FieldIndex col_id, const DuckLakeColumnStats &file_stats);
 };
 
 struct DuckLakeStats {

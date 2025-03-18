@@ -39,7 +39,8 @@ unique_ptr<BaseStatistics> DuckLakeStatistics(ClientContext &context, const Func
 	if (!stats) {
 		return nullptr;
 	}
-	auto entry = stats->column_stats.find(column_index);
+	// FIXME: this is wrong
+	auto entry = stats->column_stats.find(FieldIndex(column_index));
 	if (entry == stats->column_stats.end()) {
 		return nullptr;
 	}

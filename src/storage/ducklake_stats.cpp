@@ -4,7 +4,7 @@
 
 namespace duckdb {
 
-void DuckLakeTableStats::MergeStats(idx_t col_id, const DuckLakeColumnStats &file_stats) {
+void DuckLakeTableStats::MergeStats(FieldIndex col_id, const DuckLakeColumnStats &file_stats) {
 	auto entry = column_stats.find(col_id);
 	if (entry == column_stats.end()) {
 		column_stats.insert(make_pair(col_id, file_stats));

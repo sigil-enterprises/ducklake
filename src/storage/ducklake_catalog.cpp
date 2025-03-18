@@ -277,7 +277,8 @@ unique_ptr<DuckLakeStats> DuckLakeCatalog::LoadStatsForSnapshot(DuckLakeTransact
 		table_stats->table_size_bytes = stats.table_size_bytes;
 		auto &table = table_entry->Cast<DuckLakeTableEntry>();
 		for (auto &col_stats : stats.column_stats) {
-			auto &col = table.GetColumn(LogicalIndex(col_stats.column_id));
+			// FIXME: this is wrong
+			auto &col = table.GetColumn(LogicalIndex(col_stats.column_id.index));
 			DuckLakeColumnStats column_stats(col.Type());
 			column_stats.has_null_count = col_stats.has_contains_null;
 			if (column_stats.has_null_count) {

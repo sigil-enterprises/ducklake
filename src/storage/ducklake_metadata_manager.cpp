@@ -52,7 +52,7 @@ INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main
 	}
 }
 
-bool AddChildColumn(vector<DuckLakeColumnInfo> &columns, idx_t parent_id, DuckLakeColumnInfo &column_info) {
+bool AddChildColumn(vector<DuckLakeColumnInfo> &columns, FieldIndex parent_id, DuckLakeColumnInfo &column_info) {
 	for(auto &col : columns) {
 		if (col.id == parent_id) {
 			col.children.push_back(std::move(column_info));
@@ -116,16 +116,16 @@ ORDER BY table_id, parent_column NULLS FIRST, column_order
 			                            table_entry.name);
 		}
 		DuckLakeColumnInfo column_info;
-		column_info.id = row.GetValue<uint64_t>(4);
+		column_info.id = FieldIndex(row.GetValue<uint64_t>(4));
 		column_info.name = row.GetValue<string>(5);
 		column_info.type = row.GetValue<string>(6);
 
-		optional_idx parent_id = row.IsNull(8) ? optional_idx() : row.GetValue<idx_t>(8);
-		if (!parent_id.IsValid()) {
+		if (row.IsNull(8)) {
 			// base column - add the column to this table
 			table_entry.columns.push_back(std::move(column_info));
 		} else {
-			if (!AddChildColumn(table_entry.columns, parent_id.GetIndex(), column_info)) {
+			auto parent_id = FieldIndex(row.GetValue<idx_t>(8));
+			if (!AddChildColumn(table_entry.columns, parent_id, column_info)) {
 				throw InvalidInputException("Failed to load DuckLake - Could not find parent column for column %s",
 											column_info.name);
 			}
@@ -194,7 +194,7 @@ ORDER BY table_id;
 		auto &stats_entry = global_stats.back();
 
 		DuckLakeGlobalColumnStatsInfo column_stats;
-		column_stats.column_id = row.GetValue<uint64_t>(1);
+		column_stats.column_id = FieldIndex(row.GetValue<uint64_t>(1));
 		if (row.IsNull(4)) {
 			column_stats.has_contains_null = false;
 		} else {
@@ -270,11 +270,13 @@ void ColumnToSQLRecursive(const DuckLakeColumnInfo &column, idx_t table_id, opti
 		result += ",";
 	}
 	string parent_idx = parent.IsValid() ? to_string(parent.GetIndex()) : "NULL";
+	auto column_id = column.id.index;
+	auto column_order = column_id;
 	result +=
-		StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, NULL, %s)", column.id, table_id, column.id,
+		StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, NULL, %s)", column_id, table_id, column_order,
 						   SQLString(column.name), SQLString(column.type), parent_idx);
 	for(auto &child : column.children) {
-		ColumnToSQLRecursive(child, table_id, column.id, result);
+		ColumnToSQLRecursive(child, table_id, column_id, result);
 	}
 }
 
@@ -327,9 +329,9 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
 			if (!column_stats_insert_query.empty()) {
 				column_stats_insert_query += ",";
 			}
-
+			auto column_id = column_stats.column_id.index;
 			column_stats_insert_query += StringUtil::Format(
-			    "(%d, %d, %d, NULL, %s, %s, NULL, %s, %s)", file.id, file.table_id, column_stats.column_id,
+			    "(%d, %d, %d, NULL, %s, %s, NULL, %s, %s)", file.id, file.table_id, column_id,
 			    column_stats.value_count, column_stats.null_count, column_stats.min_val, column_stats.max_val);
 		}
 	}
@@ -503,7 +505,7 @@ void DuckLakeMetadataManager::UpdateGlobalTableStats(const DuckLakeGlobalStatsIn
 		}
 		string min_val = col_stats.has_min ? DuckLakeUtil::SQLLiteralToString(col_stats.min_val) : "NULL";
 		string max_val = col_stats.has_max ? DuckLakeUtil::SQLLiteralToString(col_stats.max_val) : "NULL";
-		column_stats_values += StringUtil::Format("(%d, %d, %s, %s, %s)", stats.table_id, col_stats.column_id,
+		column_stats_values += StringUtil::Format("(%d, %d, %s, %s, %s)", stats.table_id, col_stats.column_id.index,
 		                                          contains_null, min_val, max_val);
 	}
 

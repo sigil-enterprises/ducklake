@@ -11,6 +11,7 @@
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 #include "storage/ducklake_stats.hpp"
 #include "storage/ducklake_partition_data.hpp"
+#include "common/field_index.hpp"
 
 namespace duckdb {
 struct AlterTableInfo;
@@ -20,7 +21,7 @@ class DuckLakeTransaction;
 enum class TransactionLocalChange { NONE, CREATED, RENAMED, SET_PARTITION_KEY };
 
 struct DuckLakeFieldId {
-	idx_t id;
+	FieldIndex id;
 	vector<DuckLakeFieldId> children;
 };
 

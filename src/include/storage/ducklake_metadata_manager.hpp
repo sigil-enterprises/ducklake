@@ -17,6 +17,7 @@
 #include "storage/ducklake_partition_data.hpp"
 #include "storage/ducklake_stats.hpp"
 #include "duckdb/common/types/timestamp.hpp"
+#include "common/field_index.hpp"
 
 namespace duckdb {
 class DuckLakeCatalogSet;
@@ -31,7 +32,7 @@ struct DuckLakeSchemaInfo {
 };
 
 struct DuckLakeColumnInfo {
-	idx_t id;
+	FieldIndex id;
 	string name;
 	string type;
 	vector<DuckLakeColumnInfo> children;
@@ -46,7 +47,7 @@ struct DuckLakeTableInfo {
 };
 
 struct DuckLakeColumnStatsInfo {
-	idx_t column_id;
+	FieldIndex column_id;
 	string value_count;
 	string null_count;
 	string min_val;
@@ -77,7 +78,7 @@ struct DuckLakePartitionInfo {
 };
 
 struct DuckLakeGlobalColumnStatsInfo {
-	idx_t column_id;
+	FieldIndex column_id;
 
 	bool contains_null;
 	bool has_contains_null;
