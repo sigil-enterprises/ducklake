@@ -1,0 +1,56 @@
+# name: test/sql/ducklake_list.test
+# description: test storing list types in ducklake
+# group: [ducklake]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_list.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_list_files')
+
+statement ok
+CREATE TABLE ducklake.test(l INTEGER[]);
+
+query I
+SELECT * FROM ducklake.test
+----
+
+statement ok
+INSERT INTO ducklake.test VALUES ([1]), ([NULL]), (NULL), ([3]);
+
+query I
+SELECT * FROM ducklake.test
+----
+[1]
+[NULL]
+NULL
+[3]
+
+query I
+SELECT * FROM ducklake.test WHERE l[1]=1
+----
+[1]
+
+query I
+SELECT * FROM ducklake.test WHERE l[1]=100
+----
+
+statement ok
+INSERT INTO ducklake.test VALUES ([4, 5]), ([6, 7]);
+
+query I
+SELECT * FROM ducklake.test
+----
+[1]
+[NULL]
+NULL
+[3]
+[4, 5]
+[6, 7]
+
+# stats
+query I
+SELECT stats(l[1]) FROM ducklake.test LIMIT 1
+----
+<REGEX>:.*Min.*1.*Max.*7.*Has Null.*true.*

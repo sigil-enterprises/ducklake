@@ -11,6 +11,7 @@
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 #include "duckdb/parser/expression/columnref_expression.hpp"
 #include "duckdb/storage/statistics/struct_stats.hpp"
+#include "duckdb/storage/statistics/list_stats.hpp"
 
 namespace duckdb {
 
@@ -73,6 +74,12 @@ unique_ptr<BaseStatistics> GetColumnStats(const DuckLakeFieldId &field_id, const
 			StructStats::SetChildStats(struct_stats, child_idx, std::move(child_stats));
 		}
 		return struct_stats.ToUnique();
+	}
+	case LogicalTypeId::LIST: {
+		auto list_stats = ListStats::CreateUnknown(field_id.Type());
+		auto child_stats = GetColumnStats(*field_children[0], table_stats);
+		ListStats::SetChildStats(list_stats, std::move(child_stats));
+		return list_stats.ToUnique();
 	}
 	default:
 		// unsupported nested type

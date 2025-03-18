@@ -177,6 +177,16 @@ unique_ptr<DuckLakeFieldId> TransformColumnType(DuckLakeColumnInfo &col) {
 		}
 		return make_uniq<DuckLakeFieldId>(col.id, col.name, LogicalType::STRUCT(std::move(child_types)), std::move(child_fields));
 	}
+	if (StringUtil::CIEquals(col.type, "list")) {
+		if (col.children.size() != 1) {
+			throw InvalidInputException("Lists must have a single child entry");
+		}
+		auto child_id = TransformColumnType(col.children[0]);
+		auto child_type = child_id->Type();
+		vector<unique_ptr<DuckLakeFieldId>> child_fields;
+		child_fields.push_back(std::move(child_id));
+		return make_uniq<DuckLakeFieldId>(col.id, col.name, LogicalType::LIST(std::move(child_type)), std::move(child_fields));
+	}
 	throw InvalidInputException("Unrecognized nested type \"%s\"", col.type);
 }
 

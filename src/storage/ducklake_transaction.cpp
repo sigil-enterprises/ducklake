@@ -366,7 +366,18 @@ DuckLakeColumnInfo ConvertColumn(const string &name, const LogicalType &type, co
 		}
 		break;
 	}
-	case LogicalTypeId::LIST:
+	case LogicalTypeId::LIST: {
+		column_entry.type = "list";
+		auto &child_id = field_id.GetChildByIndex(0);
+		column_entry.children.push_back(ConvertColumn("element", ListType::GetChildType(type), child_id));
+		break;
+	}
+	case LogicalTypeId::ARRAY: {
+		column_entry.type = "list";
+		auto &child_id = field_id.GetChildByIndex(0);
+		column_entry.children.push_back(ConvertColumn("element", ArrayType::GetChildType(type), child_id));
+		break;
+	}
 	case LogicalTypeId::MAP:
 		throw InternalException("Unsupported nested type");
 	default:
