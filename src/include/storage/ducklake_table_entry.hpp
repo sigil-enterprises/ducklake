@@ -12,6 +12,7 @@
 #include "storage/ducklake_stats.hpp"
 #include "storage/ducklake_partition_data.hpp"
 #include "common/index.hpp"
+#include "storage/ducklake_field_data.hpp"
 
 namespace duckdb {
 struct AlterTableInfo;
@@ -20,15 +21,10 @@ class DuckLakeTransaction;
 
 enum class TransactionLocalChange { NONE, CREATED, RENAMED, SET_PARTITION_KEY };
 
-struct DuckLakeFieldId {
-	FieldIndex id;
-	vector<DuckLakeFieldId> children;
-};
-
 class DuckLakeTableEntry : public TableCatalogEntry {
 public:
 	DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info, TableIndex table_id,
-	                   string table_uuid, vector<DuckLakeFieldId> field_ids, TransactionLocalChange transaction_local_change);
+	                   string table_uuid, shared_ptr<DuckLakeFieldData> field_data, TransactionLocalChange transaction_local_change);
 
 public:
 	TableIndex GetTableId() const {
@@ -46,9 +42,12 @@ public:
 	optional_ptr<DuckLakePartition> GetPartitionData() {
 		return partition_data.get();
 	}
-	const vector<DuckLakeFieldId> &GetFieldIds() const {
-		return field_ids;
-	}
+	//! Returns the root field id of a column
+	const DuckLakeFieldId &GetFieldId(LogicalIndex column_index) const;
+	//! Returns the field id of a column by a column path
+	const DuckLakeFieldId &GetFieldId(const vector<string> &column_names) const;
+	//! Returns the field id of a column by a field index
+	const DuckLakeFieldId &GetFieldId(FieldIndex field_index) const;
 	void SetPartitionData(unique_ptr<DuckLakePartition> partition_data);
 	optional_ptr<DuckLakeTableStats> GetTableStats(ClientContext &context);
 
@@ -77,7 +76,7 @@ public:
 private:
 	TableIndex table_id;
 	string table_uuid;
-	vector<DuckLakeFieldId> field_ids;
+	shared_ptr<DuckLakeFieldData> field_data;
 	TransactionLocalChange transaction_local_change;
 	unique_ptr<DuckLakePartition> partition_data;
 };

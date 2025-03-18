@@ -15,17 +15,17 @@ namespace duckdb {
 
 DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info,
                                        TableIndex table_id, string table_uuid_p,
-                                       vector<DuckLakeFieldId> field_ids_p,
+                                       shared_ptr<DuckLakeFieldData> field_data_p,
                                        TransactionLocalChange transaction_local_change)
     : TableCatalogEntry(catalog, schema, info), table_id(table_id), table_uuid(std::move(table_uuid_p)),
-    	field_ids(std::move(field_ids_p)),
+    	field_data(std::move(field_data_p)),
       transaction_local_change(transaction_local_change) {
 }
 
 // ALTER TABLE RENAME
 DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info)
     : DuckLakeTableEntry(parent.ParentCatalog(), parent.ParentSchema(), info, parent.GetTableId(),
-                         parent.GetTableUUID(), parent.field_ids, TransactionLocalChange::RENAMED) {
+                         parent.GetTableUUID(), parent.field_data, TransactionLocalChange::RENAMED) {
 	if (parent.partition_data) {
 		partition_data = make_uniq<DuckLakePartition>(*parent.partition_data);
 	}
@@ -35,8 +35,21 @@ DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableIn
 DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info,
                                        unique_ptr<DuckLakePartition> partition_data_p)
     : DuckLakeTableEntry(parent.ParentCatalog(), parent.ParentSchema(), info, parent.GetTableId(),
-                         parent.GetTableUUID(), parent.field_ids, TransactionLocalChange::SET_PARTITION_KEY) {
+                         parent.GetTableUUID(), parent.field_data, TransactionLocalChange::SET_PARTITION_KEY) {
 	partition_data = std::move(partition_data_p);
+}
+
+const DuckLakeFieldId &DuckLakeTableEntry::GetFieldId(LogicalIndex column_index) const {
+	return field_data->GetByRootIndex(column_index);
+}
+
+const DuckLakeFieldId &DuckLakeTableEntry::GetFieldId(FieldIndex field_index) const {
+	return field_data->GetByFieldIndex(field_index);
+}
+
+const DuckLakeFieldId &DuckLakeTableEntry::GetFieldId(const vector<string> &column_names) const {
+	auto &root_col = columns.GetColumn(column_names[0]);
+	return field_data->GetByNames(root_col.Logical(), column_names);
 }
 
 unique_ptr<BaseStatistics> DuckLakeTableEntry::GetStatistics(ClientContext &context, column_t column_id) {

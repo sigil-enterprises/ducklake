@@ -353,7 +353,7 @@ DuckLakePartitionInfo DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &
 
 DuckLakeColumnInfo ConvertColumn(const string &name, const LogicalType &type, const DuckLakeFieldId &field_id) {
 	DuckLakeColumnInfo column_entry;
-	column_entry.id = field_id.id;
+	column_entry.id = field_id.GetFieldIndex();
 	column_entry.name = name;
 	switch(type.id()) {
 	case LogicalTypeId::STRUCT: {
@@ -361,7 +361,7 @@ DuckLakeColumnInfo ConvertColumn(const string &name, const LogicalType &type, co
 		auto &struct_children = StructType::GetChildTypes(type);
 		for(idx_t child_idx = 0; child_idx < struct_children.size(); ++child_idx) {
 			auto &child = struct_children[child_idx];
-			auto &child_id = field_id.children[child_idx];
+			auto &child_id = field_id.GetChildByIndex(child_idx);
 			column_entry.children.push_back(ConvertColumn(child.first, child.second, child_id));
 		}
 		break;
@@ -395,9 +395,8 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 	table_entry.name = table.name;
 	if (is_new_table) {
 		// if this is a new table - write the columns
-		auto &field_ids = table.GetFieldIds();
 		for (auto &col : table.GetColumns().Logical()) {
-			table_entry.columns.push_back(ConvertColumn(col.GetName(), col.GetType(), field_ids[col.Oid()]));
+			table_entry.columns.push_back(ConvertColumn(col.GetName(), col.GetType(), table.GetFieldId(col.Logical())));
 		}
 		// if we have written any data to this table - move them to the new (correct) table id as well
 		auto data_file_entry = new_data_files.find(original_id);

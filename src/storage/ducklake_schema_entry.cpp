@@ -12,30 +12,30 @@ DuckLakeSchemaEntry::DuckLakeSchemaEntry(Catalog &catalog, CreateSchemaInfo &inf
     : SchemaCatalogEntry(catalog, info), schema_id(schema_id), schema_uuid(std::move(schema_uuid)) {
 }
 
-DuckLakeFieldId FieldIdFromType(const LogicalType &type, idx_t &column_id) {
-	DuckLakeFieldId field_id;
-	field_id.id = FieldIndex(column_id++);
+unique_ptr<DuckLakeFieldId> FieldIdFromType(const string &name, const LogicalType &type, idx_t &column_id) {
+	auto field_index = FieldIndex(column_id++);
+	vector<unique_ptr<DuckLakeFieldId>> field_children;
 	switch(type.id()) {
 	case LogicalTypeId::STRUCT: {
 		for(auto &entry : StructType::GetChildTypes(type)) {
-			field_id.children.push_back(FieldIdFromType(entry.second, column_id));
+			field_children.push_back(FieldIdFromType(entry.first, entry.second, column_id));
 		}
 		break;
 	}
 	case LogicalTypeId::LIST:
-		field_id.children.push_back(FieldIdFromType(ListType::GetChildType(type), column_id));
+		field_children.push_back(FieldIdFromType("element", ListType::GetChildType(type), column_id));
 		break;
 	case LogicalTypeId::ARRAY:
-		field_id.children.push_back(FieldIdFromType(ArrayType::GetChildType(type), column_id));
+		field_children.push_back(FieldIdFromType("element", ArrayType::GetChildType(type), column_id));
 		break;
 	case LogicalTypeId::MAP:
-		field_id.children.push_back(FieldIdFromType(MapType::KeyType(type), column_id));
-		field_id.children.push_back(FieldIdFromType(MapType::ValueType(type), column_id));
+		field_children.push_back(FieldIdFromType("key", MapType::KeyType(type), column_id));
+		field_children.push_back(FieldIdFromType("value", MapType::ValueType(type), column_id));
 		break;
 	default:
 		break;
 	}
-	return field_id;
+	return make_uniq<DuckLakeFieldId>(field_index, name, type, std::move(field_children));
 }
 
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction transaction,
@@ -47,13 +47,13 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction t
 	auto table_uuid = UUID::ToString(UUID::GenerateRandomUUID());
 	// generate field ids based on the column ids
 	idx_t column_id = 0;
-	vector<DuckLakeFieldId> field_ids;
+	auto field_data = make_shared_ptr<DuckLakeFieldData>();
 	for(auto &col : base_info.columns.Logical()) {
-		auto field_id = FieldIdFromType(col.Type(), column_id);
-		field_ids.push_back(std::move(field_id));
+		auto field_id = FieldIdFromType(col.Name(), col.Type(), column_id);
+		field_data->Add(std::move(field_id));
 	}
 	auto table_entry = make_uniq<DuckLakeTableEntry>(ParentCatalog(), *this, base_info, table_id,
-	                                                 std::move(table_uuid), std::move(field_ids), TransactionLocalChange::CREATED);
+	                                                 std::move(table_uuid), std::move(field_data), TransactionLocalChange::CREATED);
 	auto result = table_entry.get();
 	duck_transaction.CreateEntry(std::move(table_entry));
 	return result;

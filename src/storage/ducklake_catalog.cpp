@@ -163,19 +163,19 @@ LogicalType DuckLakeCatalog::ParseDuckLakeType(const string &type) {
 	return type_id;
 }
 
-LogicalType TransformColumnType(DuckLakeColumnInfo &col, DuckLakeFieldId &field_id) {
-	field_id.id = col.id;
+unique_ptr<DuckLakeFieldId> TransformColumnType(DuckLakeColumnInfo &col) {
 	if (col.children.empty()) {
-		return DuckLakeTypes::FromString(col.type);
+		return make_uniq<DuckLakeFieldId>(col.id, col.name, DuckLakeTypes::FromString(col.type));
 	}
 	if (StringUtil::CIEquals(col.type, "struct")) {
 		child_list_t<LogicalType> child_types;
+		vector<unique_ptr<DuckLakeFieldId>> child_fields;
 		for(auto &child_col : col.children) {
-			DuckLakeFieldId child_id;
-			child_types.emplace_back(make_pair(std::move(child_col.name), TransformColumnType(child_col, child_id)));
-			field_id.children.push_back(std::move(child_id));
+			auto child_id = TransformColumnType(child_col);
+			child_types.emplace_back(make_pair(std::move(child_col.name), child_id->Type()));
+			child_fields.push_back(std::move(child_id));
 		}
-		return LogicalType::STRUCT(std::move(child_types));
+		return make_uniq<DuckLakeFieldId>(col.id, col.name, LogicalType::STRUCT(std::move(child_types)), std::move(child_fields));
 	}
 	throw InvalidInputException("Unrecognized nested type \"%s\"", col.type);
 }
@@ -207,17 +207,16 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 		auto &schema_entry = entry->second.get();
 		auto create_table_info = make_uniq<CreateTableInfo>(schema_entry, table.name);
 		// parse the columns
-		vector<DuckLakeFieldId> field_ids;
+		auto field_data = make_shared_ptr<DuckLakeFieldData>();
 		for (auto &col_info : table.columns) {
-			DuckLakeFieldId field_id;
-			auto column_type = TransformColumnType(col_info, field_id);
-			ColumnDefinition column(std::move(col_info.name), std::move(column_type));
+			auto field_id = TransformColumnType(col_info);
+			ColumnDefinition column(std::move(col_info.name), field_id->Type());
 			create_table_info->columns.AddColumn(std::move(column));
-			field_ids.push_back(std::move(field_id));
+			field_data->Add(std::move(field_id));
 		}
 		// create the table and add it to the schema set
 		auto table_entry = make_uniq<DuckLakeTableEntry>(*this, schema_entry, *create_table_info, table.id,
-		                                                 std::move(table.uuid), std::move(field_ids), TransactionLocalChange::NONE);
+		                                                 std::move(table.uuid), std::move(field_data), TransactionLocalChange::NONE);
 		schema_set->AddEntry(schema_entry, table.id, std::move(table_entry));
 	}
 
@@ -277,9 +276,8 @@ unique_ptr<DuckLakeStats> DuckLakeCatalog::LoadStatsForSnapshot(DuckLakeTransact
 		table_stats->table_size_bytes = stats.table_size_bytes;
 		auto &table = table_entry->Cast<DuckLakeTableEntry>();
 		for (auto &col_stats : stats.column_stats) {
-			// FIXME: this is wrong
-			auto &col = table.GetColumn(LogicalIndex(col_stats.column_id.index));
-			DuckLakeColumnStats column_stats(col.Type());
+			auto &field = table.GetFieldId(col_stats.column_id);
+			DuckLakeColumnStats column_stats(field.Type());
 			column_stats.has_null_count = col_stats.has_contains_null;
 			if (column_stats.has_null_count) {
 				column_stats.null_count = col_stats.contains_null ? 1 : 0;
