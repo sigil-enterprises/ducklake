@@ -24,7 +24,8 @@ enum class TransactionLocalChange { NONE, CREATED, RENAMED, SET_PARTITION_KEY };
 class DuckLakeTableEntry : public TableCatalogEntry {
 public:
 	DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info, TableIndex table_id,
-	                   string table_uuid, shared_ptr<DuckLakeFieldData> field_data, TransactionLocalChange transaction_local_change);
+	                   string table_uuid, shared_ptr<DuckLakeFieldData> field_data,
+	                   TransactionLocalChange transaction_local_change);
 
 public:
 	TableIndex GetTableId() const {

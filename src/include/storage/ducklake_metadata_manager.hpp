@@ -150,7 +150,7 @@ public:
 	virtual vector<DuckLakeSnapshotInfo> GetAllSnapshots();
 
 private:
-	template<class T>
+	template <class T>
 	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,
 	               set<T> &dropped_entries);
 

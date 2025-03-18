@@ -71,8 +71,10 @@ struct SnapshotChangeInformation {
 	case_insensitive_set_t created_schemas;
 	set<SchemaIndex> dropped_schemas;
 	case_insensitive_map_t<case_insensitive_set_t> created_tables;
+	set<TableIndex> altered_tables;
 	set<TableIndex> dropped_tables;
 	set<TableIndex> inserted_tables;
+	set<TableIndex> tables_deleted_from;
 };
 
 TransactionChangeInformation DuckLakeTransaction::GetTransactionChanges() {
@@ -255,17 +257,40 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 		}
 	}
 	for (auto &table_id : changes.inserted_tables) {
-		auto other_entry = other_changes.dropped_tables.find(table_id);
-		if (other_entry != other_changes.dropped_tables.end()) {
+		auto dropped_entry = other_changes.dropped_tables.find(table_id);
+		if (dropped_entry != other_changes.dropped_tables.end()) {
 			// trying to insert into a table that was dropped
 			throw TransactionException("Transaction conflict - attempting to insert into table with id %d"
 			                           "- but this table has been dropped by another transaction",
 			                           table_id.index);
 		}
+		auto alter_entry = other_changes.altered_tables.find(table_id);
+		if (alter_entry != other_changes.altered_tables.end()) {
+			// trying to insert into a table that was dropped
+			throw TransactionException("Transaction conflict - attempting to insert into table with id %d"
+			                           "- but this table has been altered by another transaction",
+			                           table_id.index);
+		}
+	}
+	for (auto &table_id : changes.altered_tables) {
+		auto dropped_entry = other_changes.dropped_tables.find(table_id);
+		if (dropped_entry != other_changes.dropped_tables.end()) {
+			// trying to insert into a table that was dropped
+			throw TransactionException("Transaction conflict - attempting to alter table with id %d"
+			                           "- but this table has been dropped by another transaction",
+			                           table_id.index);
+		}
+		auto alter_entry = other_changes.altered_tables.find(table_id);
+		if (alter_entry != other_changes.altered_tables.end()) {
+			// trying to insert into a table that was dropped
+			throw TransactionException("Transaction conflict - attempting to alter table with id %d"
+			                           "- but this table has been altered by another transaction",
+			                           table_id.index);
+		}
 	}
 }
 
-template<class T>
+template <class T>
 set<T> ParseDropList(const string &input) {
 	set<T> result;
 	if (input.empty()) {
@@ -295,6 +320,9 @@ void DuckLakeTransaction::CheckForConflicts(DuckLakeSnapshot transaction_snapsho
 	}
 	other_changes.dropped_schemas = ParseDropList<SchemaIndex>(changes_made.schemas_dropped);
 	other_changes.dropped_tables = ParseDropList<TableIndex>(changes_made.tables_dropped);
+	other_changes.altered_tables = ParseDropList<TableIndex>(changes_made.tables_altered);
+	other_changes.inserted_tables = ParseDropList<TableIndex>(changes_made.tables_inserted_into);
+	other_changes.tables_deleted_from = ParseDropList<TableIndex>(changes_made.tables_deleted_from);
 	CheckForConflicts(changes, other_changes);
 }
 
@@ -359,11 +387,11 @@ DuckLakeColumnInfo ConvertColumn(const string &name, const LogicalType &type, co
 	DuckLakeColumnInfo column_entry;
 	column_entry.id = field_id.GetFieldIndex();
 	column_entry.name = name;
-	switch(type.id()) {
+	switch (type.id()) {
 	case LogicalTypeId::STRUCT: {
 		column_entry.type = "struct";
 		auto &struct_children = StructType::GetChildTypes(type);
-		for(idx_t child_idx = 0; child_idx < struct_children.size(); ++child_idx) {
+		for (idx_t child_idx = 0; child_idx < struct_children.size(); ++child_idx) {
 			auto &child = struct_children[child_idx];
 			auto &child_id = field_id.GetChildByIndex(child_idx);
 			column_entry.children.push_back(ConvertColumn(child.first, child.second, child_id));
@@ -382,7 +410,7 @@ DuckLakeColumnInfo ConvertColumn(const string &name, const LogicalType &type, co
 		column_entry.children.push_back(ConvertColumn("element", ArrayType::GetChildType(type), child_id));
 		break;
 	}
-	case LogicalTypeId::MAP:{
+	case LogicalTypeId::MAP: {
 		column_entry.type = "map";
 		auto &key_id = field_id.GetChildByIndex(0);
 		auto &value_id = field_id.GetChildByIndex(1);
@@ -404,7 +432,6 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 	bool is_new_table;
 	if (original_id.IsTransactionLocal()) {
 		table_entry.id = TableIndex(commit_snapshot.next_catalog_id++);
-		table.SetTableId(table_entry.id);
 		is_new_table = true;
 	} else {
 		// this table already has an id - keep it
@@ -418,7 +445,8 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 	if (is_new_table) {
 		// if this is a new table - write the columns
 		for (auto &col : table.GetColumns().Logical()) {
-			table_entry.columns.push_back(ConvertColumn(col.GetName(), col.GetType(), table.GetFieldId(col.Physical())));
+			table_entry.columns.push_back(
+			    ConvertColumn(col.GetName(), col.GetType(), table.GetFieldId(col.Physical())));
 		}
 		// if we have written any data to this table - move them to the new (correct) table id as well
 		auto data_file_entry = new_data_files.find(original_id);
@@ -431,7 +459,8 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 }
 
 vector<DuckLakeTableInfo> DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &commit_snapshot,
-                                                            vector<DuckLakePartitionInfo> &new_partition_keys, TransactionChangeInformation &transaction_changes) {
+                                                            vector<DuckLakePartitionInfo> &new_partition_keys,
+                                                            TransactionChangeInformation &transaction_changes) {
 	vector<DuckLakeTableInfo> result;
 	for (auto &schema_entry : new_tables) {
 		for (auto &entry : schema_entry.second->GetEntries()) {

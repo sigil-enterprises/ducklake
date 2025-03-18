@@ -20,8 +20,7 @@ DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &sch
                                        shared_ptr<DuckLakeFieldData> field_data_p,
                                        TransactionLocalChange transaction_local_change)
     : TableCatalogEntry(catalog, schema, info), table_id(table_id), table_uuid(std::move(table_uuid_p)),
-    	field_data(std::move(field_data_p)),
-      transaction_local_change(transaction_local_change) {
+      field_data(std::move(field_data_p)), transaction_local_change(transaction_local_change) {
 	D_ASSERT(field_data->GetColumnCount() == GetColumns().PhysicalColumnCount());
 }
 
@@ -66,10 +65,10 @@ unique_ptr<BaseStatistics> GetColumnStats(const DuckLakeFieldId &field_id, const
 		return entry->second.ToStats();
 	}
 	// nested type
-	switch(field_id.Type().id()) {
+	switch (field_id.Type().id()) {
 	case LogicalTypeId::STRUCT: {
 		auto struct_stats = StructStats::CreateUnknown(field_id.Type());
-		for(idx_t child_idx = 0; child_idx < field_children.size(); ++child_idx) {
+		for (idx_t child_idx = 0; child_idx < field_children.size(); ++child_idx) {
 			auto child_stats = GetColumnStats(*field_children[child_idx], table_stats);
 			StructStats::SetChildStats(struct_stats, child_idx, std::move(child_stats));
 		}

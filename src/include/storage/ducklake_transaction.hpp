@@ -81,7 +81,8 @@ private:
 	               unordered_set<idx_t> &dropped_entries);
 	vector<DuckLakeSchemaInfo> GetNewSchemas(DuckLakeSnapshot &commit_snapshot);
 	vector<DuckLakeTableInfo> GetNewTables(DuckLakeSnapshot &commit_snapshot,
-	                                       vector<DuckLakePartitionInfo> &new_partition_keys, TransactionChangeInformation &transaction_changes);
+	                                       vector<DuckLakePartitionInfo> &new_partition_keys,
+	                                       TransactionChangeInformation &transaction_changes);
 	DuckLakePartitionInfo GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &tabletable_id);
 	DuckLakeTableInfo GetNewTable(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table);
 	void FlushNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table);

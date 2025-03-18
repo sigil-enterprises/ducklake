@@ -53,7 +53,7 @@ INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main
 }
 
 bool AddChildColumn(vector<DuckLakeColumnInfo> &columns, FieldIndex parent_id, DuckLakeColumnInfo &column_info) {
-	for(auto &col : columns) {
+	for (auto &col : columns) {
 		if (col.id == parent_id) {
 			col.children.push_back(std::move(column_info));
 			return true;
@@ -127,7 +127,7 @@ ORDER BY table_id, parent_column NULLS FIRST, column_order
 			auto parent_id = FieldIndex(row.GetValue<idx_t>(8));
 			if (!AddChildColumn(table_entry.columns, parent_id, column_info)) {
 				throw InvalidInputException("Failed to load DuckLake - Could not find parent column for column %s",
-											column_info.name);
+				                            column_info.name);
 			}
 		}
 	}
@@ -219,8 +219,9 @@ ORDER BY table_id;
 	return global_stats;
 }
 
-template<class T>
-void DuckLakeMetadataManager::FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name, set<T> &dropped_entries) {
+template <class T>
+void DuckLakeMetadataManager::FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name,
+                                        const string &id_name, set<T> &dropped_entries) {
 	string dropped_id_list;
 	for (auto &dropped_id : dropped_entries) {
 		if (!dropped_id_list.empty()) {
@@ -229,8 +230,8 @@ void DuckLakeMetadataManager::FlushDrop(DuckLakeSnapshot commit_snapshot, const 
 		dropped_id_list += to_string(dropped_id.index);
 	}
 	auto dropped_id_query =
-		StringUtil::Format(R"(UPDATE {METADATA_CATALOG}.%s SET end_snapshot = {SNAPSHOT_ID} WHERE %s IN (%s);)",
-						   metadata_table_name, id_name, dropped_id_list);
+	    StringUtil::Format(R"(UPDATE {METADATA_CATALOG}.%s SET end_snapshot = {SNAPSHOT_ID} WHERE %s IN (%s);)",
+	                       metadata_table_name, id_name, dropped_id_list);
 	auto result = transaction.Query(commit_snapshot, dropped_id_query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write dropped table information to DuckLake:");
@@ -273,10 +274,9 @@ void ColumnToSQLRecursive(const DuckLakeColumnInfo &column, TableIndex table_id,
 	string parent_idx = parent.IsValid() ? to_string(parent.GetIndex()) : "NULL";
 	auto column_id = column.id.index;
 	auto column_order = column_id;
-	result +=
-		StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, NULL, %s)", column_id, table_id.index, column_order,
-						   SQLString(column.name), SQLString(column.type), parent_idx);
-	for(auto &child : column.children) {
+	result += StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, NULL, %s)", column_id, table_id.index,
+	                             column_order, SQLString(column.name), SQLString(column.type), parent_idx);
+	for (auto &child : column.children) {
 		ColumnToSQLRecursive(child, table_id, column_id, result);
 	}
 }
@@ -413,6 +413,9 @@ SnapshotChangeInfo DuckLakeMetadataManager::GetChangesMadeAfterSnapshot(DuckLake
 		change_info.schemas_dropped = row.GetValue<string>(1);
 		change_info.tables_created = row.GetValue<string>(2);
 		change_info.tables_dropped = row.GetValue<string>(3);
+		change_info.tables_altered = row.GetValue<string>(4);
+		change_info.tables_inserted_into = row.GetValue<string>(5);
+		change_info.tables_deleted_from = row.GetValue<string>(6);
 	}
 	return change_info;
 }
@@ -509,8 +512,8 @@ void DuckLakeMetadataManager::UpdateGlobalTableStats(const DuckLakeGlobalStatsIn
 		}
 		string min_val = col_stats.has_min ? DuckLakeUtil::SQLLiteralToString(col_stats.min_val) : "NULL";
 		string max_val = col_stats.has_max ? DuckLakeUtil::SQLLiteralToString(col_stats.max_val) : "NULL";
-		column_stats_values += StringUtil::Format("(%d, %d, %s, %s, %s)", stats.table_id.index, col_stats.column_id.index,
-		                                          contains_null, min_val, max_val);
+		column_stats_values += StringUtil::Format("(%d, %d, %s, %s, %s)", stats.table_id.index,
+		                                          col_stats.column_id.index, contains_null, min_val, max_val);
 	}
 
 	if (!stats.initialized) {

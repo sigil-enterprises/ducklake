@@ -18,7 +18,8 @@ struct DuckLakeConstants {
 };
 
 struct SchemaIndex {
-	SchemaIndex() : index(DConstants::INVALID_INDEX) {}
+	SchemaIndex() : index(DConstants::INVALID_INDEX) {
+	}
 	explicit SchemaIndex(idx_t index) : index(index) {
 	}
 
@@ -43,7 +44,8 @@ struct SchemaIndex {
 };
 
 struct TableIndex {
-	TableIndex() : index(DConstants::INVALID_INDEX) {}
+	TableIndex() : index(DConstants::INVALID_INDEX) {
+	}
 	explicit TableIndex(idx_t index) : index(index) {
 	}
 
@@ -68,7 +70,8 @@ struct TableIndex {
 };
 
 struct FieldIndex {
-	FieldIndex() : index(DConstants::INVALID_INDEX) {}
+	FieldIndex() : index(DConstants::INVALID_INDEX) {
+	}
 	explicit FieldIndex(idx_t index) : index(index) {
 	}
 
@@ -89,7 +92,8 @@ struct FieldIndex {
 };
 
 struct DataFileIndex {
-	DataFileIndex() : index(DConstants::INVALID_INDEX) {}
+	DataFileIndex() : index(DConstants::INVALID_INDEX) {
+	}
 	explicit DataFileIndex(idx_t index) : index(index) {
 	}
 

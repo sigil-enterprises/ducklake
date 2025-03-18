@@ -4,23 +4,27 @@ namespace duckdb {
 
 void DuckLakeFieldData::Add(unique_ptr<DuckLakeFieldId> field_info) {
 	// add field references' to the map
-	vector<const_reference<DuckLakeFieldId>> active_fields { *field_info };
-	for(idx_t i = 0; i < active_fields.size(); i++) {
+	vector<const_reference<DuckLakeFieldId>> active_fields {*field_info};
+	for (idx_t i = 0; i < active_fields.size(); i++) {
 		auto &current_field = active_fields[i].get();
-		for(auto &child_field : current_field.Children()) {
+		for (auto &child_field : current_field.Children()) {
 			active_fields.push_back(const_reference<DuckLakeFieldId>(*child_field));
 		}
-		field_references.insert(make_pair(current_field.GetFieldIndex(), const_reference<DuckLakeFieldId>(current_field)));
+		field_references.insert(
+		    make_pair(current_field.GetFieldIndex(), const_reference<DuckLakeFieldId>(current_field)));
 	}
 
 	field_ids.push_back(std::move(field_info));
 }
 
-DuckLakeFieldId::DuckLakeFieldId(FieldIndex index, string name_p, LogicalType type_p) : id(index), name(std::move(name_p)), type(std::move(type_p)) {
+DuckLakeFieldId::DuckLakeFieldId(FieldIndex index, string name_p, LogicalType type_p)
+    : id(index), name(std::move(name_p)), type(std::move(type_p)) {
 }
 
-DuckLakeFieldId::DuckLakeFieldId(FieldIndex index, string name_p, LogicalType type_p, vector<unique_ptr<DuckLakeFieldId>> children_p) : id(index), name(std::move(name_p)), type(std::move(type_p)), children(std::move(children_p)) {
-	for(idx_t child_idx = 0; child_idx < children.size(); ++child_idx) {
+DuckLakeFieldId::DuckLakeFieldId(FieldIndex index, string name_p, LogicalType type_p,
+                                 vector<unique_ptr<DuckLakeFieldId>> children_p)
+    : id(index), name(std::move(name_p)), type(std::move(type_p)), children(std::move(children_p)) {
+	for (idx_t child_idx = 0; child_idx < children.size(); ++child_idx) {
 		auto &child = children[child_idx];
 		auto entry = child_map.find(child->name);
 		if (entry != child_map.end()) {
@@ -56,11 +60,11 @@ const DuckLakeFieldId &DuckLakeFieldId::GetChildByIndex(idx_t index) const {
 
 const DuckLakeFieldId &DuckLakeFieldData::GetByNames(PhysicalIndex id, const vector<string> &column_names) const {
 	const_reference<DuckLakeFieldId> result = GetByRootIndex(id);
-	for(idx_t i = 1; i < column_names.size(); ++i) {
+	for (idx_t i = 1; i < column_names.size(); ++i) {
 		auto &current = result.get();
 		result = current.GetChildByName(column_names[i]);
 	}
 	return result.get();
 }
 
-}
+} // namespace duckdb
