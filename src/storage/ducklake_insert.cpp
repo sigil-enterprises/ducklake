@@ -205,7 +205,9 @@ unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCopyForInsert(ClientContext &c
 		generated_ids = DuckLakeFieldData::FromColumns(columns);
 	}
 	auto &field_ids = field_data ? *field_data : *generated_ids;
-	info->options["field_ids"] = vector<Value> {WrittenFieldIds(field_ids)};
+	vector<Value> field_input;
+	field_input.push_back(WrittenFieldIds(field_ids));
+	info->options["field_ids"] = std::move(field_input);
 
 	// Get Parquet Copy function
 	auto copy_fun = TryGetCopyFunction(*context.db, "parquet");
