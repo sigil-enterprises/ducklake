@@ -34,17 +34,18 @@ optional_ptr<CatalogEntry> DuckLakeCatalogSet::GetEntry(const string &name) {
 	return entry->second.get();
 }
 
-optional_ptr<CatalogEntry> DuckLakeCatalogSet::GetEntryById(idx_t index) {
-	auto entry = id_to_entry_map.find(index);
-	if (entry == id_to_entry_map.end()) {
+optional_ptr<CatalogEntry> DuckLakeCatalogSet::GetEntryById(TableIndex index) {
+	auto entry = table_entry_map.find(index);
+	if (entry == table_entry_map.end()) {
 		return nullptr;
 	}
+	D_ASSERT(entry->second.get().type == CatalogType::TABLE_ENTRY);
 	return entry->second.get();
 }
 
-void DuckLakeCatalogSet::AddEntry(DuckLakeSchemaEntry &schema, idx_t id, unique_ptr<CatalogEntry> entry) {
+void DuckLakeCatalogSet::AddEntry(DuckLakeSchemaEntry &schema, TableIndex id, unique_ptr<CatalogEntry> entry) {
 	auto catalog_type = entry->type;
-	id_to_entry_map.insert(make_pair(id, reference<CatalogEntry>(*entry)));
+	table_entry_map.insert(make_pair(id, reference<CatalogEntry>(*entry)));
 	schema.AddEntry(catalog_type, std::move(entry));
 }
 

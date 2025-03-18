@@ -39,7 +39,7 @@ struct DuckLakeColumnInfo {
 };
 
 struct DuckLakeTableInfo {
-	idx_t id;
+	TableIndex id;
 	idx_t schema_id;
 	string uuid;
 	string name;
@@ -56,7 +56,7 @@ struct DuckLakeColumnStatsInfo {
 
 struct DuckLakeFileInfo {
 	idx_t id;
-	idx_t table_id;
+	TableIndex table_id;
 	string file_name;
 	idx_t row_count;
 	idx_t file_size_bytes;
@@ -73,7 +73,7 @@ struct DuckLakePartitionFieldInfo {
 
 struct DuckLakePartitionInfo {
 	optional_idx id;
-	idx_t table_id;
+	TableIndex table_id;
 	vector<DuckLakePartitionFieldInfo> fields;
 };
 
@@ -91,7 +91,7 @@ struct DuckLakeGlobalColumnStatsInfo {
 };
 
 struct DuckLakeGlobalStatsInfo {
-	idx_t table_id;
+	TableIndex table_id;
 	bool initialized;
 	idx_t record_count;
 	idx_t table_size_bytes;
@@ -135,7 +135,7 @@ public:
 	virtual DuckLakeCatalogInfo GetCatalogForSnapshot(DuckLakeSnapshot snapshot);
 	virtual vector<DuckLakeGlobalStatsInfo> GetGlobalTableStats(DuckLakeSnapshot snapshot);
 	virtual void DropSchemas(DuckLakeSnapshot commit_snapshot, unordered_set<idx_t> ids);
-	virtual void DropTables(DuckLakeSnapshot commit_snapshot, unordered_set<idx_t> ids);
+	virtual void DropTables(DuckLakeSnapshot commit_snapshot, set<TableIndex> ids);
 	virtual void WriteNewSchemas(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeSchemaInfo> &new_schemas);
 	virtual void WriteNewTables(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeTableInfo> &new_tables);
 	virtual void WriteNewPartitionKeys(DuckLakeSnapshot commit_snapshot,

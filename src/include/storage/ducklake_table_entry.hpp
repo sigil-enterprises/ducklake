@@ -27,11 +27,11 @@ struct DuckLakeFieldId {
 
 class DuckLakeTableEntry : public TableCatalogEntry {
 public:
-	DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info, idx_t table_id,
+	DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info, TableIndex table_id,
 	                   string table_uuid, vector<DuckLakeFieldId> field_ids, TransactionLocalChange transaction_local_change);
 
 public:
-	idx_t GetTableId() const {
+	TableIndex GetTableId() const {
 		return table_id;
 	}
 	const string &GetTableUUID() const {
@@ -75,7 +75,7 @@ public:
 	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, unique_ptr<DuckLakePartition> partition_data);
 
 private:
-	idx_t table_id;
+	TableIndex table_id;
 	string table_uuid;
 	vector<DuckLakeFieldId> field_ids;
 	TransactionLocalChange transaction_local_change;

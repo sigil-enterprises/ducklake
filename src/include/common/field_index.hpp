@@ -13,6 +13,36 @@
 
 namespace duckdb {
 
+struct DuckLakeConstants {
+	static constexpr const idx_t TRANSACTION_LOCAL_ID_START = 9223372036854775808ULL;
+};
+
+
+struct TableIndex {
+	TableIndex() : index(DConstants::INVALID_INDEX) {}
+	explicit TableIndex(idx_t index) : index(index) {
+	}
+
+	idx_t index;
+
+	inline bool operator==(const TableIndex &rhs) const {
+		return index == rhs.index;
+	};
+	inline bool operator!=(const TableIndex &rhs) const {
+		return index != rhs.index;
+	};
+	inline bool operator<(const TableIndex &rhs) const {
+		return index < rhs.index;
+	};
+	bool IsValid() const {
+		return index != DConstants::INVALID_INDEX;
+	}
+	bool IsTransactionLocal() const {
+		D_ASSERT(IsValid());
+		return index >= DuckLakeConstants::TRANSACTION_LOCAL_ID_START;
+	}
+};
+
 struct FieldIndex {
 	FieldIndex() : index(DConstants::INVALID_INDEX) {}
 	explicit FieldIndex(idx_t index) : index(index) {
@@ -29,7 +59,7 @@ struct FieldIndex {
 	inline bool operator<(const FieldIndex &rhs) const {
 		return index < rhs.index;
 	};
-	bool IsValid() {
+	bool IsValid() const {
 		return index != DConstants::INVALID_INDEX;
 	}
 };

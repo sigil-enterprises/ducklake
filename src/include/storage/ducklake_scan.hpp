@@ -10,6 +10,7 @@
 
 #include "duckdb/function/table_function.hpp"
 #include "common/ducklake_snapshot.hpp"
+#include "common/field_index.hpp"
 
 namespace duckdb {
 class DuckLakeMultiFileList;
@@ -30,7 +31,7 @@ struct DuckLakeFunctionInfo : public TableFunctionInfo {
 	vector<string> column_names;
 	vector<LogicalType> column_types;
 	DuckLakeSnapshot snapshot;
-	idx_t table_id;
+	TableIndex table_id;
 };
 
 } // namespace duckdb

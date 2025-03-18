@@ -28,9 +28,6 @@ struct TransactionChangeInformation;
 
 class DuckLakeTransaction : public Transaction {
 public:
-	static constexpr const idx_t TRANSACTION_LOCAL_ID_START = 9223372036854775808ULL;
-
-public:
 	DuckLakeTransaction(DuckLakeCatalog &ducklake_catalog, TransactionManager &manager, ClientContext &context);
 	~DuckLakeTransaction() override;
 
@@ -62,8 +59,8 @@ public:
 	optional_ptr<DuckLakeCatalogSet> GetTransactionLocalEntries(CatalogType type, const string &schema_name);
 	optional_ptr<CatalogEntry> GetTransactionLocalEntry(CatalogType catalog_type, const string &schema_name,
 	                                                    const string &entry_name);
-	vector<DuckLakeDataFile> GetTransactionLocalFiles(idx_t table_id);
-	void AppendFiles(idx_t table_id, const vector<DuckLakeDataFile> &files);
+	vector<DuckLakeDataFile> GetTransactionLocalFiles(TableIndex table_id);
+	void AppendFiles(TableIndex table_id, const vector<DuckLakeDataFile> &files);
 
 	void DropSchema(DuckLakeSchemaEntry &schema);
 	void DropTable(DuckLakeTableEntry &table);
@@ -72,7 +69,7 @@ public:
 	bool ChangesMade();
 	idx_t GetLocalCatalogId();
 	static bool IsTransactionLocal(idx_t id) {
-		return id >= TRANSACTION_LOCAL_ID_START;
+		return id >= DuckLakeConstants::TRANSACTION_LOCAL_ID_START;
 	}
 
 	string GetDefaultSchemaName();
@@ -86,11 +83,11 @@ private:
 	vector<DuckLakeTableInfo> GetNewTables(DuckLakeSnapshot &commit_snapshot,
 	                                       vector<DuckLakePartitionInfo> &new_partition_keys);
 	DuckLakePartitionInfo GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table,
-	                                         optional_idx table_id);
+	                                         TableIndex table_id);
 	DuckLakeTableInfo GetNewTable(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table);
 	void FlushNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table);
 	vector<DuckLakeFileInfo> GetNewDataFiles(DuckLakeSnapshot &commit_snapshot);
-	void UpdateGlobalTableStats(idx_t table_id, DuckLakeTableStats new_stats);
+	void UpdateGlobalTableStats(TableIndex table_id, DuckLakeTableStats new_stats);
 	void CheckForConflicts(DuckLakeSnapshot transaction_snapshot, const TransactionChangeInformation &changes);
 	void CheckForConflicts(const TransactionChangeInformation &changes, const SnapshotChangeInformation &other_changes);
 	void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, TransactionChangeInformation &changes);
@@ -106,12 +103,12 @@ private:
 	idx_t local_catalog_id;
 	//! New tables added by this transaction
 	case_insensitive_map_t<unique_ptr<DuckLakeCatalogSet>> new_tables;
-	unordered_set<idx_t> dropped_tables;
+	set<TableIndex> dropped_tables;
 	//! Schemas added by this transaction
 	unique_ptr<DuckLakeCatalogSet> new_schemas;
 	unordered_map<idx_t, reference<DuckLakeSchemaEntry>> dropped_schemas;
 	//! Data files added by this transaction
-	unordered_map<idx_t, vector<DuckLakeDataFile>> new_data_files;
+	map<TableIndex, vector<DuckLakeDataFile>> new_data_files;
 };
 
 } // namespace duckdb

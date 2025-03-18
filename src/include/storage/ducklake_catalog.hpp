@@ -64,9 +64,9 @@ public:
 	                                            unique_ptr<LogicalOperator> plan) override;
 
 	DatabaseSize GetDatabaseSize(ClientContext &context) override;
-	optional_ptr<DuckLakeTableStats> GetTableStats(DuckLakeTransaction &transaction, idx_t table_id);
+	optional_ptr<DuckLakeTableStats> GetTableStats(DuckLakeTransaction &transaction, TableIndex table_id);
 	optional_ptr<DuckLakeTableStats> GetTableStats(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
-	                                               idx_t table_id);
+	                                               TableIndex table_id);
 
 	bool InMemory() override;
 	string GetDBPath() override;

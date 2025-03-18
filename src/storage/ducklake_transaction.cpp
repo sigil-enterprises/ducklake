@@ -13,7 +13,7 @@ namespace duckdb {
 DuckLakeTransaction::DuckLakeTransaction(DuckLakeCatalog &ducklake_catalog, TransactionManager &manager,
                                          ClientContext &context)
     : Transaction(manager, context), ducklake_catalog(ducklake_catalog), db(*context.db),
-      local_catalog_id(TRANSACTION_LOCAL_ID_START) {
+      local_catalog_id(DuckLakeConstants::TRANSACTION_LOCAL_ID_START) {
 	metadata_manager = make_uniq<DuckLakeMetadataManager>(*this);
 }
 
@@ -62,17 +62,17 @@ struct TransactionChangeInformation {
 	case_insensitive_set_t created_schemas;
 	unordered_map<idx_t, reference<DuckLakeSchemaEntry>> dropped_schemas;
 	case_insensitive_map_t<reference_set_t<DuckLakeTableEntry>> created_tables;
-	unordered_set<idx_t> altered_tables;
-	unordered_set<idx_t> dropped_tables;
-	unordered_set<idx_t> inserted_tables;
+	set<TableIndex> altered_tables;
+	set<TableIndex> dropped_tables;
+	set<TableIndex> inserted_tables;
 };
 
 struct SnapshotChangeInformation {
 	case_insensitive_set_t created_schemas;
 	unordered_set<idx_t> dropped_schemas;
 	case_insensitive_map_t<case_insensitive_set_t> created_tables;
-	unordered_set<idx_t> dropped_tables;
-	unordered_set<idx_t> inserted_tables;
+	set<TableIndex> dropped_tables;
+	set<TableIndex> inserted_tables;
 };
 
 TransactionChangeInformation DuckLakeTransaction::GetTransactionChanges() {
@@ -112,7 +112,7 @@ TransactionChangeInformation DuckLakeTransaction::GetTransactionChanges() {
 	}
 	for (auto &entry : new_data_files) {
 		auto table_id = entry.first;
-		if (IsTransactionLocal(table_id)) {
+		if (table_id.IsTransactionLocal()) {
 			// don't report transaction-local tables yet - these will get added later on
 			continue;
 		}
@@ -140,7 +140,7 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 		if (!change_info.tables_dropped.empty()) {
 			change_info.tables_dropped += ",";
 		}
-		change_info.tables_dropped += to_string(dropped_table_idx);
+		change_info.tables_dropped += to_string(dropped_table_idx.index);
 	}
 	for (auto &created_schema : changes.created_schemas) {
 		if (!change_info.schemas_created.empty()) {
@@ -162,13 +162,13 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 		if (!change_info.tables_inserted_into.empty()) {
 			change_info.tables_inserted_into += ",";
 		}
-		change_info.tables_inserted_into += to_string(inserted_table_idx);
+		change_info.tables_inserted_into += to_string(inserted_table_idx.index);
 	}
 	for (auto &altered_table_idx : changes.altered_tables) {
 		if (!change_info.tables_altered.empty()) {
 			change_info.tables_altered += ",";
 		}
-		change_info.tables_altered += to_string(altered_table_idx);
+		change_info.tables_altered += to_string(altered_table_idx.index);
 	}
 	metadata_manager->WriteSnapshotChanges(commit_snapshot, change_info);
 }
@@ -194,7 +194,7 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 		if (other_changes.dropped_tables.find(dropped_idx) != other_changes.dropped_tables.end()) {
 			throw TransactionException("Transaction conflict - attempting to drop table with table index \"%s\""
 			                           "- but this has been dropped by another transaction already",
-			                           dropped_idx);
+			                           dropped_idx.index);
 		}
 	}
 	// check if we are dropping the same schema as another transaction
@@ -255,9 +255,22 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 			// trying to insert into a table that was dropped
 			throw TransactionException("Transaction conflict - attempting to insert into table with id %d"
 			                           "- but this table has been dropped by another transaction",
-			                           table_id);
+			                           table_id.index);
 		}
 	}
+}
+
+template<class T>
+set<T> ParseDropList(const string &input) {
+	set<T> result;
+	if (input.empty()) {
+		return result;
+	}
+	auto splits = StringUtil::Split(input, ",");
+	for (auto &split : splits) {
+		result.insert(T(std::stoull(split)));
+	}
+	return result;
 }
 
 void DuckLakeTransaction::CheckForConflicts(DuckLakeSnapshot transaction_snapshot,
@@ -276,7 +289,7 @@ void DuckLakeTransaction::CheckForConflicts(DuckLakeSnapshot transaction_snapsho
 		other_changes.created_tables[entry.schema].insert(entry.table);
 	}
 	other_changes.dropped_schemas = DuckLakeUtil::ParseDropList(changes_made.schemas_dropped);
-	other_changes.dropped_tables = DuckLakeUtil::ParseDropList(changes_made.tables_dropped);
+	other_changes.dropped_tables = ParseDropList<TableIndex>(changes_made.tables_dropped);
 	CheckForConflicts(changes, other_changes);
 }
 
@@ -299,10 +312,10 @@ vector<DuckLakeSchemaInfo> DuckLakeTransaction::GetNewSchemas(DuckLakeSnapshot &
 }
 
 DuckLakePartitionInfo DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot,
-                                                              DuckLakeTableEntry &table, optional_idx table_id) {
+                                                              DuckLakeTableEntry &table, TableIndex table_id) {
 	DuckLakePartitionInfo partition_key;
-	partition_key.table_id = table_id.IsValid() ? table_id.GetIndex() : table.GetTableId();
-	if (IsTransactionLocal(partition_key.table_id)) {
+	partition_key.table_id = table_id.IsValid() ? table_id : table.GetTableId();
+	if (partition_key.table_id.IsTransactionLocal()) {
 		throw InternalException("Trying to write partition with transaction local table-id");
 	}
 	// insert the new partition data
@@ -367,8 +380,8 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 	DuckLakeTableInfo table_entry;
 	auto original_id = table.GetTableId();
 	bool is_new_table;
-	if (IsTransactionLocal(original_id)) {
-		table_entry.id = commit_snapshot.next_catalog_id++;
+	if (original_id.IsTransactionLocal()) {
+		table_entry.id = TableIndex(commit_snapshot.next_catalog_id++);
 		is_new_table = true;
 	} else {
 		// this table already has an id - keep it
@@ -413,7 +426,7 @@ vector<DuckLakeTableInfo> DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &co
 				table_entry = table_entry.get().Child();
 			}
 			// traverse in reverse order
-			optional_idx table_id;
+			TableIndex table_id;
 			for (idx_t table_idx = tables.size(); table_idx > 0; table_idx--) {
 				auto &table = tables[table_idx - 1].get();
 				if (table.LocalChange() == TransactionLocalChange::SET_PARTITION_KEY) {
@@ -430,7 +443,7 @@ vector<DuckLakeTableInfo> DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &co
 	return result;
 }
 
-void DuckLakeTransaction::UpdateGlobalTableStats(idx_t table_id, DuckLakeTableStats new_stats) {
+void DuckLakeTransaction::UpdateGlobalTableStats(TableIndex table_id, DuckLakeTableStats new_stats) {
 	DuckLakeGlobalStatsInfo stats;
 	stats.table_id = table_id;
 
@@ -473,7 +486,7 @@ vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &
 	vector<DuckLakeFileInfo> result;
 	for (auto &entry : new_data_files) {
 		auto table_id = entry.first;
-		if (IsTransactionLocal(table_id)) {
+		if (table_id.IsTransactionLocal()) {
 			throw InternalException("Cannot commit transaction local files - these should have been cleaned up before");
 		}
 
@@ -650,7 +663,7 @@ idx_t DuckLakeTransaction::GetLocalCatalogId() {
 	return local_catalog_id++;
 }
 
-vector<DuckLakeDataFile> DuckLakeTransaction::GetTransactionLocalFiles(idx_t table_id) {
+vector<DuckLakeDataFile> DuckLakeTransaction::GetTransactionLocalFiles(TableIndex table_id) {
 	auto entry = new_data_files.find(table_id);
 	if (entry == new_data_files.end()) {
 		return vector<DuckLakeDataFile>();
@@ -659,7 +672,7 @@ vector<DuckLakeDataFile> DuckLakeTransaction::GetTransactionLocalFiles(idx_t tab
 	}
 }
 
-void DuckLakeTransaction::AppendFiles(idx_t table_id, const vector<DuckLakeDataFile> &files) {
+void DuckLakeTransaction::AppendFiles(TableIndex table_id, const vector<DuckLakeDataFile> &files) {
 	auto entry = new_data_files.find(table_id);
 	if (entry != new_data_files.end()) {
 		// already exists - append

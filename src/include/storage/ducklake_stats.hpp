@@ -46,7 +46,7 @@ struct DuckLakeTableStats {
 };
 
 struct DuckLakeStats {
-	unordered_map<idx_t, unique_ptr<DuckLakeTableStats>> table_stats;
+	map<TableIndex, unique_ptr<DuckLakeTableStats>> table_stats;
 };
 
 } // namespace duckdb

@@ -14,7 +14,7 @@
 namespace duckdb {
 
 DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info,
-                                       idx_t table_id, string table_uuid_p,
+                                       TableIndex table_id, string table_uuid_p,
                                        vector<DuckLakeFieldId> field_ids_p,
                                        TransactionLocalChange transaction_local_change)
     : TableCatalogEntry(catalog, schema, info), table_id(table_id), table_uuid(std::move(table_uuid_p)),

@@ -98,7 +98,7 @@ ORDER BY table_id, parent_column NULLS FIRST, column_order
 	}
 	auto &tables = catalog.tables;
 	for (auto &row : *result) {
-		auto table_id = row.GetValue<uint64_t>(1);
+		auto table_id = TableIndex(row.GetValue<uint64_t>(1));
 
 		// check if this column belongs to the current table or not
 		if (tables.empty() || tables.back().id != table_id) {
@@ -146,7 +146,7 @@ ORDER BY table_id, partition_id, partition_key_index
 	auto &partitions = catalog.partitions;
 	for (auto &row : *result) {
 		auto partition_id = row.GetValue<uint64_t>(0);
-		auto table_id = row.GetValue<uint64_t>(1);
+		auto table_id = TableIndex(row.GetValue<uint64_t>(1));
 
 		if (partitions.empty() || partitions.back().table_id != table_id) {
 			DuckLakePartitionInfo partition_info;
@@ -179,7 +179,7 @@ ORDER BY table_id;
 	}
 	vector<DuckLakeGlobalStatsInfo> global_stats;
 	for (auto &row : *result) {
-		auto table_id = row.GetValue<uint64_t>(0);
+		auto table_id = TableIndex(row.GetValue<uint64_t>(0));
 		if (global_stats.empty() || global_stats.back().table_id != table_id) {
 			// new stats
 			DuckLakeGlobalStatsInfo new_entry;
@@ -223,8 +223,12 @@ void DuckLakeMetadataManager::DropSchemas(DuckLakeSnapshot commit_snapshot, unor
 	FlushDrop(commit_snapshot, "ducklake_schema", "schema_id", ids);
 }
 
-void DuckLakeMetadataManager::DropTables(DuckLakeSnapshot commit_snapshot, unordered_set<idx_t> ids) {
-	FlushDrop(commit_snapshot, "ducklake_table", "table_id", ids);
+void DuckLakeMetadataManager::DropTables(DuckLakeSnapshot commit_snapshot, set<TableIndex> ids) {
+	unordered_set<idx_t> drop_ids;
+	for(auto &id : ids) {
+		drop_ids.insert(id.index);
+	}
+	FlushDrop(commit_snapshot, "ducklake_table", "table_id", drop_ids);
 }
 
 void DuckLakeMetadataManager::FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name,
@@ -265,7 +269,7 @@ void DuckLakeMetadataManager::WriteNewSchemas(DuckLakeSnapshot commit_snapshot,
 	}
 }
 
-void ColumnToSQLRecursive(const DuckLakeColumnInfo &column, idx_t table_id, optional_idx parent, string &result) {
+void ColumnToSQLRecursive(const DuckLakeColumnInfo &column, TableIndex table_id, optional_idx parent, string &result) {
 	if (!result.empty()) {
 		result += ",";
 	}
@@ -273,7 +277,7 @@ void ColumnToSQLRecursive(const DuckLakeColumnInfo &column, idx_t table_id, opti
 	auto column_id = column.id.index;
 	auto column_order = column_id;
 	result +=
-		StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, NULL, %s)", column_id, table_id, column_order,
+		StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, NULL, %s)", column_id, table_id.index, column_order,
 						   SQLString(column.name), SQLString(column.type), parent_idx);
 	for(auto &child : column.children) {
 		ColumnToSQLRecursive(child, table_id, column_id, result);
@@ -288,7 +292,7 @@ void DuckLakeMetadataManager::WriteNewTables(DuckLakeSnapshot commit_snapshot,
 		if (!table_insert_sql.empty()) {
 			table_insert_sql += ", ";
 		}
-		table_insert_sql += StringUtil::Format("(%d, '%s', {SNAPSHOT_ID}, NULL, %d, %s)", table.id, table.uuid,
+		table_insert_sql += StringUtil::Format("(%d, '%s', {SNAPSHOT_ID}, NULL, %d, %s)", table.id.index, table.uuid,
 		                                       table.schema_id, SQLString(table.name));
 		for (auto &column : table.columns) {
 			ColumnToSQLRecursive(column, table.id, optional_idx(), column_insert_sql);
@@ -323,7 +327,7 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
 		}
 		auto partition_id = file.partition_id.IsValid() ? to_string(file.partition_id.GetIndex()) : "NULL";
 		data_file_insert_query += StringUtil::Format(
-		    "(%d, %d, {SNAPSHOT_ID}, NULL, NULL, %s, 'parquet', %d, %d, %d, %s)", file.id, file.table_id,
+		    "(%d, %d, {SNAPSHOT_ID}, NULL, NULL, %s, 'parquet', %d, %d, %d, %s)", file.id, file.table_id.index,
 		    SQLString(file.file_name), file.row_count, file.file_size_bytes, file.footer_size, partition_id);
 		for (auto &column_stats : file.column_stats) {
 			if (!column_stats_insert_query.empty()) {
@@ -331,7 +335,7 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
 			}
 			auto column_id = column_stats.column_id.index;
 			column_stats_insert_query += StringUtil::Format(
-			    "(%d, %d, %d, NULL, %s, %s, NULL, %s, %s)", file.id, file.table_id, column_id,
+			    "(%d, %d, %d, NULL, %s, %s, NULL, %s, %s)", file.id, file.table_id.index, column_id,
 			    column_stats.value_count, column_stats.null_count, column_stats.min_val, column_stats.max_val);
 		}
 	}
@@ -444,7 +448,7 @@ void DuckLakeMetadataManager::WriteNewPartitionKeys(DuckLakeSnapshot commit_snap
 		if (!old_partition_table_ids.empty()) {
 			old_partition_table_ids += ", ";
 		}
-		old_partition_table_ids += to_string(partition.table_id);
+		old_partition_table_ids += to_string(partition.table_id.index);
 		if (!partition.id.IsValid()) {
 			// dropping partition data - we don't need to do anything
 			return;
@@ -454,7 +458,7 @@ void DuckLakeMetadataManager::WriteNewPartitionKeys(DuckLakeSnapshot commit_snap
 			new_partition_values += ", ";
 		}
 		new_partition_values +=
-		    StringUtil::Format(R"((%d, %d, {SNAPSHOT_ID}, NULL);)", partition_id, partition.table_id);
+		    StringUtil::Format(R"((%d, %d, {SNAPSHOT_ID}, NULL);)", partition_id, partition.table_id.index);
 		for (auto &field : partition.fields) {
 			if (!insert_partition_cols.empty()) {
 				insert_partition_cols += ", ";
@@ -505,7 +509,7 @@ void DuckLakeMetadataManager::UpdateGlobalTableStats(const DuckLakeGlobalStatsIn
 		}
 		string min_val = col_stats.has_min ? DuckLakeUtil::SQLLiteralToString(col_stats.min_val) : "NULL";
 		string max_val = col_stats.has_max ? DuckLakeUtil::SQLLiteralToString(col_stats.max_val) : "NULL";
-		column_stats_values += StringUtil::Format("(%d, %d, %s, %s, %s)", stats.table_id, col_stats.column_id.index,
+		column_stats_values += StringUtil::Format("(%d, %d, %s, %s, %s)", stats.table_id.index, col_stats.column_id.index,
 		                                          contains_null, min_val, max_val);
 	}
 
@@ -513,7 +517,7 @@ void DuckLakeMetadataManager::UpdateGlobalTableStats(const DuckLakeGlobalStatsIn
 		// stats have not been initialized yet - insert them
 		auto result = transaction.Query(
 		    StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_table_stats VALUES (%d, %d, %d);",
-		                       stats.table_id, stats.record_count, stats.table_size_bytes));
+		                       stats.table_id.index, stats.record_count, stats.table_size_bytes));
 		if (result->HasError()) {
 			result->GetErrorObject().Throw("Failed to insert stats information in DuckLake: ");
 		}
@@ -528,7 +532,7 @@ void DuckLakeMetadataManager::UpdateGlobalTableStats(const DuckLakeGlobalStatsIn
 	// stats have been initialized - update them
 	auto result = transaction.Query(StringUtil::Format(
 	    "UPDATE {METADATA_CATALOG}.ducklake_table_stats SET record_count=%d, file_size_bytes=%d WHERE table_id=%d;",
-	    stats.record_count, stats.table_size_bytes, stats.table_id));
+	    stats.record_count, stats.table_size_bytes, stats.table_id.index));
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to update stats information in DuckLake: ");
 	}

@@ -166,7 +166,7 @@ DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const Multi
 		}
 		// generate the final filter for this column
 		string final_filter;
-		final_filter = "table_id=" + to_string(read_info.table_id);
+		final_filter = "table_id=" + to_string(read_info.table_id.index);
 		final_filter += " AND ";
 		final_filter += "column_id=" + to_string(table_column_id);
 		final_filter += " AND ";
@@ -224,14 +224,14 @@ const vector<string> &DuckLakeMultiFileList::GetFiles() {
 	lock_guard<mutex> l(file_lock);
 	if (!read_file_list) {
 		// we have not read the file list yet - read it
-		if (!DuckLakeTransaction::IsTransactionLocal(read_info.table_id)) {
+		if (!read_info.table_id.IsTransactionLocal()) {
 			// not a transaction local table - read the file list from the metadata store
 			auto query = StringUtil::Format(R"(
 SELECT path
 FROM {METADATA_CATALOG}.ducklake_data_file
 WHERE table_id=%d AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
 		)",
-			                                read_info.table_id);
+			                                read_info.table_id.index);
 			if (!filter.empty()) {
 				query += "\nAND " + filter;
 			}

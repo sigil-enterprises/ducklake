@@ -267,7 +267,7 @@ unique_ptr<DuckLakeStats> DuckLakeCatalog::LoadStatsForSnapshot(DuckLakeTransact
 	for (auto &stats : global_stats) {
 		// find the referenced table entry
 		auto table_entry = schema.GetEntryById(stats.table_id);
-		if (!table_entry || table_entry->type != CatalogType::TABLE_ENTRY) {
+		if (!table_entry) {
 			// failed to find the referenced table entry - this means the table does not exist for this snapshot
 			// since the global stats are not versioned this is not an error - just skip
 			continue;
@@ -299,12 +299,12 @@ unique_ptr<DuckLakeStats> DuckLakeCatalog::LoadStatsForSnapshot(DuckLakeTransact
 	return lake_stats;
 }
 
-optional_ptr<DuckLakeTableStats> DuckLakeCatalog::GetTableStats(DuckLakeTransaction &transaction, idx_t table_id) {
+optional_ptr<DuckLakeTableStats> DuckLakeCatalog::GetTableStats(DuckLakeTransaction &transaction, TableIndex table_id) {
 	return GetTableStats(transaction, transaction.GetSnapshot(), table_id);
 }
 
 optional_ptr<DuckLakeTableStats> DuckLakeCatalog::GetTableStats(DuckLakeTransaction &transaction,
-                                                                DuckLakeSnapshot snapshot, idx_t table_id) {
+                                                                DuckLakeSnapshot snapshot, TableIndex table_id) {
 	auto &lake_stats = GetStatsForSnapshot(transaction, snapshot);
 	auto entry = lake_stats.table_stats.find(table_id);
 	if (entry == lake_stats.table_stats.end()) {
