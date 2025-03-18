@@ -30,7 +30,7 @@ DuckLakeFieldId::DuckLakeFieldId(FieldIndex index, string name_p, LogicalType ty
 	}
 }
 
-const DuckLakeFieldId &DuckLakeFieldData::GetByRootIndex(LogicalIndex id) const {
+const DuckLakeFieldId &DuckLakeFieldData::GetByRootIndex(PhysicalIndex id) const {
 	return *field_ids[id.index];
 }
 
@@ -54,7 +54,7 @@ const DuckLakeFieldId &DuckLakeFieldId::GetChildByIndex(idx_t index) const {
 	return *children[index];
 }
 
-const DuckLakeFieldId &DuckLakeFieldData::GetByNames(LogicalIndex id, const vector<string> &column_names) const {
+const DuckLakeFieldId &DuckLakeFieldData::GetByNames(PhysicalIndex id, const vector<string> &column_names) const {
 	const_reference<DuckLakeFieldId> result = GetByRootIndex(id);
 	for(idx_t i = 1; i < column_names.size(); ++i) {
 		auto &current = result.get();

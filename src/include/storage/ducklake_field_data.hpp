@@ -57,9 +57,12 @@ public:
 
 public:
 	void Add(unique_ptr<DuckLakeFieldId> field_info);
-	const DuckLakeFieldId &GetByRootIndex(LogicalIndex id) const;
+	const DuckLakeFieldId &GetByRootIndex(PhysicalIndex id) const;
 	const DuckLakeFieldId &GetByFieldIndex(FieldIndex id) const;
-	const DuckLakeFieldId &GetByNames(LogicalIndex id, const vector<string> &column_names) const;
+	const DuckLakeFieldId &GetByNames(PhysicalIndex id, const vector<string> &column_names) const;
+	idx_t GetColumnCount() {
+		return field_ids.size();
+	}
 
 private:
 	vector<unique_ptr<DuckLakeFieldId>> field_ids;

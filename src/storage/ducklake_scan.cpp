@@ -35,16 +35,7 @@ unique_ptr<BaseStatistics> DuckLakeStatistics(ClientContext &context, const Func
 		return nullptr;
 	}
 	auto &table = file_list.GetTable();
-	auto stats = table.GetTableStats(context);
-	if (!stats) {
-		return nullptr;
-	}
-	// FIXME: this is wrong
-	auto entry = stats->column_stats.find(FieldIndex(column_index));
-	if (entry == stats->column_stats.end()) {
-		return nullptr;
-	}
-	return entry->second.ToStats();
+	return table.GetStatistics(context, column_index);
 }
 
 TableFunction DuckLakeFunctions::GetDuckLakeScanFunction(DatabaseInstance &instance) {

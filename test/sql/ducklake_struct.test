@@ -46,3 +46,9 @@ SELECT * FROM ducklake.test
 NULL
 {'i': 4, 'j': 5}
 {'i': 6, 'j': 7}
+
+# stats
+query I
+SELECT stats(s.i) FROM ducklake.test LIMIT 1
+----
+<REGEX>:.*Min.*1.*Max.*6.*Has Null.*true.*

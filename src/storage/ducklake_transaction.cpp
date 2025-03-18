@@ -396,7 +396,7 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 	if (is_new_table) {
 		// if this is a new table - write the columns
 		for (auto &col : table.GetColumns().Logical()) {
-			table_entry.columns.push_back(ConvertColumn(col.GetName(), col.GetType(), table.GetFieldId(col.Logical())));
+			table_entry.columns.push_back(ConvertColumn(col.GetName(), col.GetType(), table.GetFieldId(col.Physical())));
 		}
 		// if we have written any data to this table - move them to the new (correct) table id as well
 		auto data_file_entry = new_data_files.find(original_id);

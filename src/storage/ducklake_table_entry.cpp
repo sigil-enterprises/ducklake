@@ -10,6 +10,7 @@
 #include "duckdb/parser/tableref/table_function_ref.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 #include "duckdb/parser/expression/columnref_expression.hpp"
+#include "duckdb/storage/statistics/struct_stats.hpp"
 
 namespace duckdb {
 
@@ -20,6 +21,7 @@ DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &sch
     : TableCatalogEntry(catalog, schema, info), table_id(table_id), table_uuid(std::move(table_uuid_p)),
     	field_data(std::move(field_data_p)),
       transaction_local_change(transaction_local_change) {
+	D_ASSERT(field_data->GetColumnCount() == GetColumns().PhysicalColumnCount());
 }
 
 // ALTER TABLE RENAME
@@ -39,7 +41,7 @@ DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableIn
 	partition_data = std::move(partition_data_p);
 }
 
-const DuckLakeFieldId &DuckLakeTableEntry::GetFieldId(LogicalIndex column_index) const {
+const DuckLakeFieldId &DuckLakeTableEntry::GetFieldId(PhysicalIndex column_index) const {
 	return field_data->GetByRootIndex(column_index);
 }
 
@@ -49,11 +51,42 @@ const DuckLakeFieldId &DuckLakeTableEntry::GetFieldId(FieldIndex field_index) co
 
 const DuckLakeFieldId &DuckLakeTableEntry::GetFieldId(const vector<string> &column_names) const {
 	auto &root_col = columns.GetColumn(column_names[0]);
-	return field_data->GetByNames(root_col.Logical(), column_names);
+	return field_data->GetByNames(root_col.Physical(), column_names);
+}
+
+unique_ptr<BaseStatistics> GetColumnStats(const DuckLakeFieldId &field_id, const DuckLakeTableStats &table_stats) {
+	auto &field_children = field_id.Children();
+	if (field_children.empty()) {
+		// non-nested type - lookup the field id in the stats map
+		auto entry = table_stats.column_stats.find(field_id.GetFieldIndex());
+		if (entry == table_stats.column_stats.end()) {
+			return nullptr;
+		}
+		return entry->second.ToStats();
+	}
+	// nested type
+	switch(field_id.Type().id()) {
+	case LogicalTypeId::STRUCT: {
+		auto struct_stats = StructStats::CreateUnknown(field_id.Type());
+		for(idx_t child_idx = 0; child_idx < field_children.size(); ++child_idx) {
+			auto child_stats = GetColumnStats(*field_children[child_idx], table_stats);
+			StructStats::SetChildStats(struct_stats, child_idx, std::move(child_stats));
+		}
+		return struct_stats.ToUnique();
+	}
+	default:
+		// unsupported nested type
+		return nullptr;
+	}
 }
 
 unique_ptr<BaseStatistics> DuckLakeTableEntry::GetStatistics(ClientContext &context, column_t column_id) {
-	return nullptr;
+	auto table_stats = GetTableStats(context);
+	if (!table_stats) {
+		return nullptr;
+	}
+	auto &field_id = field_data->GetByRootIndex(PhysicalIndex(column_id));
+	return GetColumnStats(field_id, *table_stats);
 }
 
 TableFunction DuckLakeTableEntry::GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data) {

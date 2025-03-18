@@ -43,7 +43,7 @@ public:
 		return partition_data.get();
 	}
 	//! Returns the root field id of a column
-	const DuckLakeFieldId &GetFieldId(LogicalIndex column_index) const;
+	const DuckLakeFieldId &GetFieldId(PhysicalIndex column_index) const;
 	//! Returns the field id of a column by a column path
 	const DuckLakeFieldId &GetFieldId(const vector<string> &column_names) const;
 	//! Returns the field id of a column by a field index
