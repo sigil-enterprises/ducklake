@@ -17,6 +17,7 @@
 #include "duckdb/planner/filter/constant_filter.hpp"
 #include "duckdb/planner/filter/conjunction_filter.hpp"
 #include "duckdb/planner/filter/null_filter.hpp"
+#include "storage/ducklake_table_entry.hpp"
 
 namespace duckdb {
 
@@ -204,8 +205,11 @@ idx_t DuckLakeMultiFileList::GetTotalFileCount() {
 }
 
 unique_ptr<NodeStatistics> DuckLakeMultiFileList::GetCardinality(ClientContext &context) {
-	// FIXME: get cardinality from table stats here...
-	return make_uniq<NodeStatistics>(1);
+	auto stats = read_info.table.GetTableStats(context);
+	if (!stats) {
+		return nullptr;
+	}
+	return make_uniq<NodeStatistics>(stats->record_count);
 }
 
 DuckLakeTableEntry &DuckLakeMultiFileList::GetTable() {
