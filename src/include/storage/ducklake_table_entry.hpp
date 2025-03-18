@@ -46,6 +46,9 @@ public:
 	optional_ptr<DuckLakePartition> GetPartitionData() {
 		return partition_data.get();
 	}
+	DuckLakeFieldData &GetFieldData() {
+		return *field_data;
+	}
 	//! Returns the root field id of a column
 	const DuckLakeFieldId &GetFieldId(PhysicalIndex column_index) const;
 	//! Returns the field id of a column by a column path

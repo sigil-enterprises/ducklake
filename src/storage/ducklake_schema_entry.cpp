@@ -13,32 +13,6 @@ DuckLakeSchemaEntry::DuckLakeSchemaEntry(Catalog &catalog, CreateSchemaInfo &inf
     : SchemaCatalogEntry(catalog, info), schema_id(schema_id), schema_uuid(std::move(schema_uuid)) {
 }
 
-unique_ptr<DuckLakeFieldId> FieldIdFromType(const string &name, const LogicalType &type, idx_t &column_id) {
-	auto field_index = FieldIndex(column_id++);
-	vector<unique_ptr<DuckLakeFieldId>> field_children;
-	switch (type.id()) {
-	case LogicalTypeId::STRUCT: {
-		for (auto &entry : StructType::GetChildTypes(type)) {
-			field_children.push_back(FieldIdFromType(entry.first, entry.second, column_id));
-		}
-		break;
-	}
-	case LogicalTypeId::LIST:
-		field_children.push_back(FieldIdFromType("element", ListType::GetChildType(type), column_id));
-		break;
-	case LogicalTypeId::ARRAY:
-		field_children.push_back(FieldIdFromType("element", ArrayType::GetChildType(type), column_id));
-		break;
-	case LogicalTypeId::MAP:
-		field_children.push_back(FieldIdFromType("key", MapType::KeyType(type), column_id));
-		field_children.push_back(FieldIdFromType("value", MapType::ValueType(type), column_id));
-		break;
-	default:
-		break;
-	}
-	return make_uniq<DuckLakeFieldId>(field_index, name, type, std::move(field_children));
-}
-
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction transaction,
                                                             BoundCreateTableInfo &info) {
 	auto &base_info = info.Base();
@@ -47,12 +21,7 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction t
 	auto table_id = TableIndex(duck_transaction.GetLocalCatalogId());
 	auto table_uuid = UUID::ToString(UUID::GenerateRandomUUID());
 	// generate field ids based on the column ids
-	idx_t column_id = 0;
-	auto field_data = make_shared_ptr<DuckLakeFieldData>();
-	for (auto &col : base_info.columns.Logical()) {
-		auto field_id = FieldIdFromType(col.Name(), col.Type(), column_id);
-		field_data->Add(std::move(field_id));
-	}
+	auto field_data = DuckLakeFieldData::FromColumns(base_info.columns);
 	auto table_entry = make_uniq<DuckLakeTableEntry>(ParentCatalog(), *this, base_info, table_id, std::move(table_uuid),
 	                                                 std::move(field_data), TransactionLocalChange::CREATED);
 	auto result = table_entry.get();

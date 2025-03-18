@@ -1,4 +1,5 @@
 #include "storage/ducklake_catalog.hpp"
+#include "storage/ducklake_field_data.hpp"
 #include "storage/ducklake_insert.hpp"
 #include "storage/ducklake_table_entry.hpp"
 #include "storage/ducklake_transaction.hpp"
@@ -165,13 +166,46 @@ static optional_ptr<CopyFunctionCatalogEntry> TryGetCopyFunction(DatabaseInstanc
 	return schema.GetEntry(data, CatalogType::COPY_FUNCTION_ENTRY, name)->Cast<CopyFunctionCatalogEntry>();
 }
 
+Value GetFieldIdValue(const DuckLakeFieldId &field_id) {
+	auto field_id_value = Value::BIGINT(field_id.GetFieldIndex().index);
+	if (!field_id.HasChildren()) {
+		// primitive type - return the field-id directly
+		return field_id_value;
+	}
+	// nested type - generate a struct and recurse into children
+	child_list_t<Value> values;
+	values.emplace_back("__duckdb_field_id", std::move(field_id_value));
+	for (auto &child : field_id.Children()) {
+		values.emplace_back(child->Name(), GetFieldIdValue(*child));
+	}
+	return Value::STRUCT(std::move(values));
+}
+
+Value WrittenFieldIds(DuckLakeFieldData &field_data) {
+	child_list_t<Value> values;
+	for (idx_t c_idx = 0; c_idx < field_data.GetColumnCount(); c_idx++) {
+		auto &field_id = field_data.GetByRootIndex(PhysicalIndex(c_idx));
+		values.emplace_back(field_id.Name(), GetFieldIdValue(field_id));
+	}
+	return Value::STRUCT(std::move(values));
+}
+
 unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
                                                                 optional_ptr<DuckLakePartition> partition_data,
+                                                                optional_ptr<DuckLakeFieldData> field_data,
                                                                 unique_ptr<PhysicalOperator> plan) {
 	auto info = make_uniq<CopyInfo>();
 	info->file_path = DataPath();
 	info->format = "parquet";
 	info->is_from = false;
+	// generate the field ids to be written by the parquet writer
+	shared_ptr<DuckLakeFieldData> generated_ids;
+	if (!field_data) {
+		// CTAS - generate new ids from columns
+		generated_ids = DuckLakeFieldData::FromColumns(columns);
+	}
+	auto &field_ids = field_data ? *field_data : *generated_ids;
+	info->options["field_ids"] = vector<Value> {WrittenFieldIds(field_ids)};
 
 	// Get Parquet Copy function
 	auto copy_fun = TryGetCopyFunction(*context.db, "parquet");
@@ -241,8 +275,9 @@ unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanInsert(ClientContext &context,
 	if (partition_data) {
 		partition_id = partition_data->partition_id;
 	}
+	auto &field_data = ducklake_table.GetFieldData();
 
-	auto physical_copy = PlanCopyForInsert(context, columns, partition_data, std::move(plan));
+	auto physical_copy = PlanCopyForInsert(context, columns, partition_data, field_data, std::move(plan));
 	auto insert = make_uniq<DuckLakeInsert>(op, ducklake_table, op.column_index_map, partition_id);
 	insert->children.push_back(std::move(physical_copy));
 	return std::move(insert);
@@ -253,7 +288,7 @@ unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCreateTableAs(ClientContext &c
 	auto &create_info = op.info->Base();
 	auto &columns = create_info.columns;
 	// FIXME: if table already exists and we are doing CREATE IF NOT EXISTS - skip
-	auto physical_copy = PlanCopyForInsert(context, columns, nullptr, std::move(plan));
+	auto physical_copy = PlanCopyForInsert(context, columns, nullptr, nullptr, std::move(plan));
 	auto insert = make_uniq<DuckLakeInsert>(op, op.schema, std::move(op.info));
 	insert->children.push_back(std::move(physical_copy));
 	return std::move(insert);

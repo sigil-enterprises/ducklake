@@ -15,6 +15,7 @@
 
 namespace duckdb {
 class ColumnList;
+class DuckLakeFieldData;
 
 class DuckLakeCatalog : public Catalog {
 public:
@@ -79,6 +80,7 @@ private:
 	unique_ptr<DuckLakeCatalogSet> LoadSchemaForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
 	unique_ptr<PhysicalOperator> PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
 	                                               optional_ptr<DuckLakePartition> partition_data,
+	                                               optional_ptr<DuckLakeFieldData> field_data,
 	                                               unique_ptr<PhysicalOperator> plan);
 	DuckLakeStats &GetStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
 	unique_ptr<DuckLakeStats> LoadStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,

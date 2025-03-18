@@ -1,4 +1,5 @@
 #include "storage/ducklake_field_data.hpp"
+#include "duckdb/parser/column_list.hpp"
 
 namespace duckdb {
 
@@ -32,6 +33,43 @@ DuckLakeFieldId::DuckLakeFieldId(FieldIndex index, string name_p, LogicalType ty
 		}
 		child_map.insert(make_pair(child->name, child_idx));
 	}
+}
+unique_ptr<DuckLakeFieldId> DuckLakeFieldId::FieldIdFromType(const string &name, const LogicalType &type,
+                                                             idx_t &column_id) {
+	auto field_index = FieldIndex(column_id++);
+	vector<unique_ptr<DuckLakeFieldId>> field_children;
+	switch (type.id()) {
+	case LogicalTypeId::STRUCT: {
+		for (auto &entry : StructType::GetChildTypes(type)) {
+			field_children.push_back(FieldIdFromType(entry.first, entry.second, column_id));
+		}
+		break;
+	}
+	case LogicalTypeId::LIST:
+		field_children.push_back(FieldIdFromType("element", ListType::GetChildType(type), column_id));
+		break;
+	case LogicalTypeId::ARRAY:
+		field_children.push_back(FieldIdFromType("element", ArrayType::GetChildType(type), column_id));
+		break;
+	case LogicalTypeId::MAP:
+		field_children.push_back(FieldIdFromType("key", MapType::KeyType(type), column_id));
+		field_children.push_back(FieldIdFromType("value", MapType::ValueType(type), column_id));
+		break;
+	default:
+		break;
+	}
+	return make_uniq<DuckLakeFieldId>(field_index, name, type, std::move(field_children));
+}
+
+shared_ptr<DuckLakeFieldData> DuckLakeFieldData::FromColumns(const ColumnList &columns) {
+	// generate field ids based on the column ids
+	idx_t column_id = 1;
+	auto field_data = make_shared_ptr<DuckLakeFieldData>();
+	for (auto &col : columns.Logical()) {
+		auto field_id = DuckLakeFieldId::FieldIdFromType(col.Name(), col.Type(), column_id);
+		field_data->Add(std::move(field_id));
+	}
+	return field_data;
 }
 
 const DuckLakeFieldId &DuckLakeFieldData::GetByRootIndex(PhysicalIndex id) const {

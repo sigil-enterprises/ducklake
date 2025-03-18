@@ -16,6 +16,7 @@ namespace duckdb {
 struct AlterTableInfo;
 struct SetPartitionedByInfo;
 class DuckLakeTransaction;
+class ColumnList;
 
 class DuckLakeFieldId {
 public:
@@ -31,11 +32,16 @@ public:
 	const LogicalType &Type() const {
 		return type;
 	}
+	bool HasChildren() const {
+		return !children.empty();
+	}
 	const vector<unique_ptr<DuckLakeFieldId>> &Children() const {
 		return children;
 	}
 	const DuckLakeFieldId &GetChildByIndex(idx_t index) const;
 	const DuckLakeFieldId &GetChildByName(const string &name) const;
+
+	static unique_ptr<DuckLakeFieldId> FieldIdFromType(const string &name, const LogicalType &type, idx_t &column_id);
 
 private:
 	FieldIndex id;
@@ -63,6 +69,8 @@ public:
 	idx_t GetColumnCount() {
 		return field_ids.size();
 	}
+
+	static shared_ptr<DuckLakeFieldData> FromColumns(const ColumnList &columns);
 
 private:
 	vector<unique_ptr<DuckLakeFieldId>> field_ids;
