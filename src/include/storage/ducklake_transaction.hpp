@@ -106,7 +106,7 @@ private:
 	set<TableIndex> dropped_tables;
 	//! Schemas added by this transaction
 	unique_ptr<DuckLakeCatalogSet> new_schemas;
-	unordered_map<idx_t, reference<DuckLakeSchemaEntry>> dropped_schemas;
+	map<SchemaIndex, reference<DuckLakeSchemaEntry>> dropped_schemas;
 	//! Data files added by this transaction
 	map<TableIndex, vector<DuckLakeDataFile>> new_data_files;
 };

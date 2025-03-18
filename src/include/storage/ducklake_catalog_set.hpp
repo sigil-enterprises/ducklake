@@ -12,7 +12,7 @@
 #include "duckdb/common/case_insensitive_map.hpp"
 #include "duckdb/catalog/catalog_entry.hpp"
 #include "common/ducklake_snapshot.hpp"
-#include "common/field_index.hpp"
+#include "common/index.hpp"
 
 namespace duckdb {
 class DuckLakeTransaction;

@@ -16,16 +16,16 @@ class DuckLakeTransaction;
 
 class DuckLakeSchemaEntry : public SchemaCatalogEntry {
 public:
-	DuckLakeSchemaEntry(Catalog &catalog, CreateSchemaInfo &info, idx_t schema_id, string schema_uuid);
+	DuckLakeSchemaEntry(Catalog &catalog, CreateSchemaInfo &info, SchemaIndex schema_id, string schema_uuid);
 
 public:
-	idx_t GetSchemaId() const {
+	SchemaIndex GetSchemaId() const {
 		return schema_id;
 	}
 	const string &GetSchemaUUID() const {
 		return schema_uuid;
 	}
-	void SetSchemaId(idx_t new_schema_id) {
+	void SetSchemaId(SchemaIndex new_schema_id) {
 		schema_id = new_schema_id;
 	}
 
@@ -59,7 +59,7 @@ private:
 	DuckLakeCatalogSet &GetCatalogSet(CatalogType type);
 
 private:
-	idx_t schema_id;
+	SchemaIndex schema_id;
 	string schema_uuid;
 	DuckLakeCatalogSet tables;
 };

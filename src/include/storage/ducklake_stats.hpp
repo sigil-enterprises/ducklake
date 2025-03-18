@@ -10,7 +10,7 @@
 
 #include "duckdb/common/case_insensitive_map.hpp"
 #include "duckdb/common/common.hpp"
-#include "common/field_index.hpp"
+#include "common/index.hpp"
 
 namespace duckdb {
 class BaseStatistics;

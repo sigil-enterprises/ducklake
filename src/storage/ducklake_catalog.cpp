@@ -52,7 +52,7 @@ optional_ptr<CatalogEntry> DuckLakeCatalog::CreateSchema(CatalogTransaction tran
 	}
 	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
 	//! get a local table-id
-	idx_t schema_id = duck_transaction.GetLocalCatalogId();
+	auto schema_id = SchemaIndex(duck_transaction.GetLocalCatalogId());
 	auto schema_uuid = UUID::ToString(UUID::GenerateRandomUUID());
 	auto schema_entry = make_uniq<DuckLakeSchemaEntry>(*this, info, schema_id, std::move(schema_uuid));
 	auto result = schema_entry.get();
@@ -185,7 +185,7 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 	auto &metadata_manager = transaction.GetMetadataManager();
 	auto catalog = metadata_manager.GetCatalogForSnapshot(snapshot);
 	ducklake_entries_map_t schema_map;
-	unordered_map<idx_t, reference<DuckLakeSchemaEntry>> schema_id_map;
+	map<SchemaIndex, reference<DuckLakeSchemaEntry>> schema_id_map;
 	for (auto &schema : catalog.schemas) {
 		CreateSchemaInfo schema_info;
 		schema_info.schema = schema.name;

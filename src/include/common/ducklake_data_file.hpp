@@ -10,7 +10,7 @@
 
 #include "storage/ducklake_stats.hpp"
 #include "duckdb/common/optional_idx.hpp"
-#include "common/field_index.hpp"
+#include "common/index.hpp"
 
 namespace duckdb {
 

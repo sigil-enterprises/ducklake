@@ -1,7 +1,7 @@
 //===----------------------------------------------------------------------===//
 //                         DuckDB
 //
-// common/field_index.hpp
+// common/index.hpp
 //
 //
 //===----------------------------------------------------------------------===//
@@ -17,6 +17,30 @@ struct DuckLakeConstants {
 	static constexpr const idx_t TRANSACTION_LOCAL_ID_START = 9223372036854775808ULL;
 };
 
+struct SchemaIndex {
+	SchemaIndex() : index(DConstants::INVALID_INDEX) {}
+	explicit SchemaIndex(idx_t index) : index(index) {
+	}
+
+	idx_t index;
+
+	inline bool operator==(const SchemaIndex &rhs) const {
+		return index == rhs.index;
+	};
+	inline bool operator!=(const SchemaIndex &rhs) const {
+		return index != rhs.index;
+	};
+	inline bool operator<(const SchemaIndex &rhs) const {
+		return index < rhs.index;
+	};
+	bool IsValid() const {
+		return index != DConstants::INVALID_INDEX;
+	}
+	bool IsTransactionLocal() const {
+		D_ASSERT(IsValid());
+		return index >= DuckLakeConstants::TRANSACTION_LOCAL_ID_START;
+	}
+};
 
 struct TableIndex {
 	TableIndex() : index(DConstants::INVALID_INDEX) {}

@@ -10,7 +10,7 @@
 
 #include "duckdb/function/table_function.hpp"
 #include "common/ducklake_snapshot.hpp"
-#include "common/field_index.hpp"
+#include "common/index.hpp"
 
 namespace duckdb {
 class DuckLakeMultiFileList;

@@ -11,7 +11,7 @@
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 #include "storage/ducklake_stats.hpp"
 #include "storage/ducklake_partition_data.hpp"
-#include "common/field_index.hpp"
+#include "common/index.hpp"
 
 namespace duckdb {
 struct AlterTableInfo;

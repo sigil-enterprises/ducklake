@@ -17,7 +17,7 @@
 #include "storage/ducklake_partition_data.hpp"
 #include "storage/ducklake_stats.hpp"
 #include "duckdb/common/types/timestamp.hpp"
-#include "common/field_index.hpp"
+#include "common/index.hpp"
 
 namespace duckdb {
 class DuckLakeCatalogSet;
@@ -26,7 +26,7 @@ class DuckLakeTableEntry;
 class DuckLakeTransaction;
 
 struct DuckLakeSchemaInfo {
-	idx_t id;
+	SchemaIndex id;
 	string uuid;
 	string name;
 };
@@ -40,7 +40,7 @@ struct DuckLakeColumnInfo {
 
 struct DuckLakeTableInfo {
 	TableIndex id;
-	idx_t schema_id;
+	SchemaIndex schema_id;
 	string uuid;
 	string name;
 	vector<DuckLakeColumnInfo> columns;
@@ -134,7 +134,7 @@ public:
 	//! Get the catalog information for a specific snapshot
 	virtual DuckLakeCatalogInfo GetCatalogForSnapshot(DuckLakeSnapshot snapshot);
 	virtual vector<DuckLakeGlobalStatsInfo> GetGlobalTableStats(DuckLakeSnapshot snapshot);
-	virtual void DropSchemas(DuckLakeSnapshot commit_snapshot, unordered_set<idx_t> ids);
+	virtual void DropSchemas(DuckLakeSnapshot commit_snapshot, set<SchemaIndex> ids);
 	virtual void DropTables(DuckLakeSnapshot commit_snapshot, set<TableIndex> ids);
 	virtual void WriteNewSchemas(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeSchemaInfo> &new_schemas);
 	virtual void WriteNewTables(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeTableInfo> &new_tables);
@@ -150,8 +150,9 @@ public:
 	virtual vector<DuckLakeSnapshotInfo> GetAllSnapshots();
 
 private:
+	template<class T>
 	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,
-	               unordered_set<idx_t> &dropped_entries);
+	               set<T> &dropped_entries);
 
 protected:
 	DuckLakeTransaction &transaction;

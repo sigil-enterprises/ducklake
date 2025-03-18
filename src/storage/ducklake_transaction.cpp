@@ -60,7 +60,7 @@ bool DuckLakeTransaction::ChangesMade() {
 
 struct TransactionChangeInformation {
 	case_insensitive_set_t created_schemas;
-	unordered_map<idx_t, reference<DuckLakeSchemaEntry>> dropped_schemas;
+	map<SchemaIndex, reference<DuckLakeSchemaEntry>> dropped_schemas;
 	case_insensitive_map_t<reference_set_t<DuckLakeTableEntry>> created_tables;
 	set<TableIndex> altered_tables;
 	set<TableIndex> dropped_tables;
@@ -69,7 +69,7 @@ struct TransactionChangeInformation {
 
 struct SnapshotChangeInformation {
 	case_insensitive_set_t created_schemas;
-	unordered_set<idx_t> dropped_schemas;
+	set<SchemaIndex> dropped_schemas;
 	case_insensitive_map_t<case_insensitive_set_t> created_tables;
 	set<TableIndex> dropped_tables;
 	set<TableIndex> inserted_tables;
@@ -134,7 +134,8 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 		if (!change_info.schemas_dropped.empty()) {
 			change_info.schemas_dropped += ",";
 		}
-		change_info.schemas_dropped += to_string(entry.first);
+		auto schema_id = entry.first.index;
+		change_info.schemas_dropped += to_string(schema_id);
 	}
 	for (auto &dropped_table_idx : changes.dropped_tables) {
 		if (!change_info.tables_dropped.empty()) {
@@ -288,7 +289,7 @@ void DuckLakeTransaction::CheckForConflicts(DuckLakeSnapshot transaction_snapsho
 	for (auto &entry : created_table_list) {
 		other_changes.created_tables[entry.schema].insert(entry.table);
 	}
-	other_changes.dropped_schemas = DuckLakeUtil::ParseDropList(changes_made.schemas_dropped);
+	other_changes.dropped_schemas = ParseDropList<SchemaIndex>(changes_made.schemas_dropped);
 	other_changes.dropped_tables = ParseDropList<TableIndex>(changes_made.tables_dropped);
 	CheckForConflicts(changes, other_changes);
 }
@@ -298,7 +299,7 @@ vector<DuckLakeSchemaInfo> DuckLakeTransaction::GetNewSchemas(DuckLakeSnapshot &
 	for (auto &entry : new_schemas->GetEntries()) {
 		auto &schema_entry = entry.second->Cast<DuckLakeSchemaEntry>();
 		DuckLakeSchemaInfo schema_info;
-		schema_info.id = commit_snapshot.next_catalog_id++;
+		schema_info.id = SchemaIndex(commit_snapshot.next_catalog_id++);
 		schema_info.uuid = schema_entry.GetSchemaUUID();
 		schema_info.name = schema_entry.name;
 
@@ -562,7 +563,7 @@ void DuckLakeTransaction::FlushChanges() {
 				metadata_manager->DropTables(commit_snapshot, dropped_tables);
 			}
 			if (!dropped_schemas.empty()) {
-				unordered_set<idx_t> dropped_schema_ids;
+				set<SchemaIndex> dropped_schema_ids;
 				for (auto &entry : dropped_schemas) {
 					dropped_schema_ids.insert(entry.first);
 				}
@@ -694,7 +695,7 @@ void DuckLakeTransaction::CreateEntry(unique_ptr<CatalogEntry> entry) {
 
 void DuckLakeTransaction::DropSchema(DuckLakeSchemaEntry &schema) {
 	auto schema_id = schema.GetSchemaId();
-	if (IsTransactionLocal(schema_id)) {
+	if (schema_id.IsTransactionLocal()) {
 		// schema is transaction-local - drop it from the transaction local changes
 		if (!new_schemas) {
 			throw InternalException("Dropping a transaction local table that does not exist?");
