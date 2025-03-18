@@ -158,7 +158,8 @@ DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const Multi
 	for (auto &entry : filters.filters) {
 		auto column_id = entry.first;
 		// FIXME: handle structs
-		auto table_column_id = column_ids[column_id];
+		auto column_index = PhysicalIndex(column_ids[column_id]);
+		auto &root_id = read_info.table.GetFieldId(column_index);
 		unordered_set<string> referenced_stats;
 		auto new_filter = GenerateFilterPushdown(*entry.second, referenced_stats);
 		if (new_filter.empty()) {
@@ -169,7 +170,7 @@ DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const Multi
 		string final_filter;
 		final_filter = "table_id=" + to_string(read_info.table_id.index);
 		final_filter += " AND ";
-		final_filter += "column_id=" + to_string(table_column_id);
+		final_filter += "column_id=" + to_string(root_id.GetFieldIndex().index);
 		final_filter += " AND ";
 		final_filter += "(";
 		// if any of the referenced stats are NULL we cannot prune
