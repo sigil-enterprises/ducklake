@@ -61,12 +61,6 @@ TableFunction DuckLakeFunctions::GetDuckLakeScanFunction(DatabaseInstance &insta
 
 	function.to_string = DuckLakeFunctionToString;
 
-	// Schema param is just confusing here
-	function.named_parameters.erase("schema");
-
-	function.named_parameters["pushdown_partition_info"] = LogicalType::BOOLEAN;
-	function.named_parameters["pushdown_filters"] = LogicalType::VARCHAR;
-
 	function.name = "ducklake_scan";
 	return function;
 }

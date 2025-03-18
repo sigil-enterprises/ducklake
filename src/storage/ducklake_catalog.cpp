@@ -187,6 +187,19 @@ unique_ptr<DuckLakeFieldId> TransformColumnType(DuckLakeColumnInfo &col) {
 		child_fields.push_back(std::move(child_id));
 		return make_uniq<DuckLakeFieldId>(col.id, col.name, LogicalType::LIST(std::move(child_type)), std::move(child_fields));
 	}
+	if (StringUtil::CIEquals(col.type, "map")) {
+		if (col.children.size() != 2) {
+			throw InvalidInputException("Maps must have two child entries");
+		}
+		auto key_id = TransformColumnType(col.children[0]);
+		auto value_id = TransformColumnType(col.children[1]);
+		auto key_type = key_id->Type();
+		auto value_type = value_id->Type();
+		vector<unique_ptr<DuckLakeFieldId>> child_fields;
+		child_fields.push_back(std::move(key_id));
+		child_fields.push_back(std::move(value_id));
+		return make_uniq<DuckLakeFieldId>(col.id, col.name, LogicalType::MAP(std::move(key_type), std::move(value_type)), std::move(child_fields));
+	}
 	throw InvalidInputException("Unrecognized nested type \"%s\"", col.type);
 }
 

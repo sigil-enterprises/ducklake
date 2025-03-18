@@ -378,8 +378,14 @@ DuckLakeColumnInfo ConvertColumn(const string &name, const LogicalType &type, co
 		column_entry.children.push_back(ConvertColumn("element", ArrayType::GetChildType(type), child_id));
 		break;
 	}
-	case LogicalTypeId::MAP:
-		throw InternalException("Unsupported nested type");
+	case LogicalTypeId::MAP:{
+		column_entry.type = "map";
+		auto &key_id = field_id.GetChildByIndex(0);
+		auto &value_id = field_id.GetChildByIndex(1);
+		column_entry.children.push_back(ConvertColumn("key", MapType::KeyType(type), key_id));
+		column_entry.children.push_back(ConvertColumn("value", MapType::ValueType(type), value_id));
+		break;
+	}
 	default:
 		column_entry.type = DuckLakeTypes::ToString(type);
 		break;
