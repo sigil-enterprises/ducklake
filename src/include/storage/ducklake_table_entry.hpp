@@ -45,6 +45,9 @@ public:
 	optional_ptr<DuckLakePartition> GetPartitionData() {
 		return partition_data.get();
 	}
+	const vector<DuckLakeFieldId> &GetFieldIds() const {
+		return field_ids;
+	}
 	void SetPartitionData(unique_ptr<DuckLakePartition> partition_data);
 	optional_ptr<DuckLakeTableStats> GetTableStats(ClientContext &context);
 
