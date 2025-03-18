@@ -96,7 +96,11 @@ TransactionChangeInformation DuckLakeTransaction::GetTransactionChanges() {
 				auto &table = table_entry.get().Cast<DuckLakeTableEntry>();
 				if (table.LocalChange() == TransactionLocalChange::SET_PARTITION_KEY) {
 					// this table was altered
-					changes.altered_tables.insert(table.GetTableId());
+					auto table_id = table.GetTableId();
+					// don't report transaction-local tables yet - these will get added later on
+					if (!table_id.IsTransactionLocal()) {
+						changes.altered_tables.insert(table_id);
+					}
 				} else {
 					// write any new tables that we created
 					auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
@@ -313,9 +317,9 @@ vector<DuckLakeSchemaInfo> DuckLakeTransaction::GetNewSchemas(DuckLakeSnapshot &
 }
 
 DuckLakePartitionInfo DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot,
-                                                              DuckLakeTableEntry &table, TableIndex table_id) {
+                                                              DuckLakeTableEntry &table) {
 	DuckLakePartitionInfo partition_key;
-	partition_key.table_id = table_id.IsValid() ? table_id : table.GetTableId();
+	partition_key.table_id = table.GetTableId();
 	if (partition_key.table_id.IsTransactionLocal()) {
 		throw InternalException("Trying to write partition with transaction local table-id");
 	}
@@ -400,6 +404,7 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 	bool is_new_table;
 	if (original_id.IsTransactionLocal()) {
 		table_entry.id = TableIndex(commit_snapshot.next_catalog_id++);
+		table.SetTableId(table_entry.id);
 		is_new_table = true;
 	} else {
 		// this table already has an id - keep it
@@ -426,7 +431,7 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 }
 
 vector<DuckLakeTableInfo> DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &commit_snapshot,
-                                                            vector<DuckLakePartitionInfo> &new_partition_keys) {
+                                                            vector<DuckLakePartitionInfo> &new_partition_keys, TransactionChangeInformation &transaction_changes) {
 	vector<DuckLakeTableInfo> result;
 	for (auto &schema_entry : new_tables) {
 		for (auto &entry : schema_entry.second->GetEntries()) {
@@ -443,15 +448,20 @@ vector<DuckLakeTableInfo> DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &co
 				table_entry = table_entry.get().Child();
 			}
 			// traverse in reverse order
-			TableIndex table_id;
+			TableIndex new_table_id;
 			for (idx_t table_idx = tables.size(); table_idx > 0; table_idx--) {
 				auto &table = tables[table_idx - 1].get();
+				if (new_table_id.IsValid()) {
+					table.SetTableId(new_table_id);
+				}
 				if (table.LocalChange() == TransactionLocalChange::SET_PARTITION_KEY) {
-					auto partition_key = GetNewPartitionKey(commit_snapshot, table, table_id);
+					auto partition_key = GetNewPartitionKey(commit_snapshot, table);
 					new_partition_keys.push_back(std::move(partition_key));
+
+					transaction_changes.altered_tables.insert(table.GetTableId());
 				} else {
 					auto new_table = GetNewTable(commit_snapshot, table);
-					table_id = new_table.id;
+					new_table_id = new_table.id;
 					result.push_back(std::move(new_table));
 				}
 			}
@@ -594,7 +604,7 @@ void DuckLakeTransaction::FlushChanges() {
 			// write new tables
 			if (!new_tables.empty()) {
 				vector<DuckLakePartitionInfo> partition_keys;
-				auto table_list = GetNewTables(commit_snapshot, partition_keys);
+				auto table_list = GetNewTables(commit_snapshot, partition_keys, transaction_changes);
 				metadata_manager->WriteNewTables(commit_snapshot, table_list);
 				metadata_manager->WriteNewPartitionKeys(commit_snapshot, partition_keys);
 			}

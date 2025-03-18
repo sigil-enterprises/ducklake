@@ -33,6 +33,9 @@ public:
 	const string &GetTableUUID() const {
 		return table_uuid;
 	}
+	void SetTableId(TableIndex new_table_id) {
+		table_id = new_table_id;
+	}
 	bool IsTransactionLocal() const {
 		return transaction_local_change != TransactionLocalChange::NONE;
 	}
