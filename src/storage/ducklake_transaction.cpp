@@ -715,6 +715,14 @@ DuckLakeSnapshot DuckLakeTransaction::GetSnapshot() {
 	return *snapshot;
 }
 
+DuckLakeSnapshot DuckLakeTransaction::GetSnapshot(optional_ptr<BoundAtClause> at_clause) {
+	if (!at_clause) {
+		// no AT-clause - get the latest snapshot
+		return GetSnapshot();
+	}
+	return *metadata_manager->GetSnapshot(*at_clause);
+}
+
 idx_t DuckLakeTransaction::GetLocalCatalogId() {
 	return local_catalog_id++;
 }

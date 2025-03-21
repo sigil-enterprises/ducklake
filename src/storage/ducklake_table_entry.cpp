@@ -96,10 +96,14 @@ unique_ptr<BaseStatistics> DuckLakeTableEntry::GetStatistics(ClientContext &cont
 }
 
 TableFunction DuckLakeTableEntry::GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data) {
+	throw InternalException("DuckLakeTableEntry::GetScanFunction called without entry lookup info");
+}
+
+TableFunction DuckLakeTableEntry::GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data, const EntryLookupInfo &lookup_info) {
 	auto function = DuckLakeFunctions::GetDuckLakeScanFunction(*context.db);
 	auto &transaction = DuckLakeTransaction::Get(context, ParentCatalog());
 
-	auto function_info = make_shared_ptr<DuckLakeFunctionInfo>(*this, transaction.GetSnapshot());
+	auto function_info = make_shared_ptr<DuckLakeFunctionInfo>(*this, transaction.GetSnapshot(lookup_info.GetAtClause()));
 	function_info->table_name = name;
 	for (auto &col : columns.Logical()) {
 		function_info->column_names.push_back(col.Name());

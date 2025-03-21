@@ -24,6 +24,7 @@ class DuckLakeCatalogSet;
 class DuckLakeSchemaEntry;
 class DuckLakeTableEntry;
 class DuckLakeTransaction;
+class BoundAtClause;
 
 struct DuckLakeSchemaInfo {
 	SchemaIndex id;
@@ -146,6 +147,7 @@ public:
 	virtual void UpdateGlobalTableStats(const DuckLakeGlobalStatsInfo &stats);
 	virtual SnapshotChangeInfo GetChangesMadeAfterSnapshot(DuckLakeSnapshot start_snapshot);
 	virtual unique_ptr<DuckLakeSnapshot> GetSnapshot();
+	virtual unique_ptr<DuckLakeSnapshot> GetSnapshot(BoundAtClause &at_clause);
 
 	virtual vector<DuckLakeSnapshotInfo> GetAllSnapshots();
 

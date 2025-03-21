@@ -341,16 +341,20 @@ optional_ptr<DuckLakeTableStats> DuckLakeCatalog::GetTableStats(DuckLakeTransact
 optional_ptr<SchemaCatalogEntry> DuckLakeCatalog::LookupSchema(CatalogTransaction transaction, const EntryLookupInfo &schema_lookup,
                                                             OnEntryNotFound if_not_found) {
     auto &schema_name = schema_lookup.GetEntryName();
+    auto at_clause = schema_lookup.GetAtClause();
 	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
-	// look for the schema in the set of transaction-local schemas
-	auto set = duck_transaction.GetTransactionLocalSchemas();
-	if (set) {
-		auto entry = set->GetEntry<SchemaCatalogEntry>(schema_name);
-		if (entry) {
-			return entry;
+	if (!at_clause) {
+		// if we have an AT clause we can never read transaction-local changes
+		// look for the schema in the set of transaction-local schemas
+		auto set = duck_transaction.GetTransactionLocalSchemas();
+		if (set) {
+			auto entry = set->GetEntry<SchemaCatalogEntry>(schema_name);
+			if (entry) {
+				return entry;
+			}
 		}
-	}
-	auto snapshot = duck_transaction.GetSnapshot();
+    }
+	auto snapshot = duck_transaction.GetSnapshot(at_clause);
 	auto &schemas = GetSchemaForSnapshot(duck_transaction, snapshot);
 	auto entry = schemas.GetEntry<SchemaCatalogEntry>(schema_name);
 	if (!entry) {
@@ -359,7 +363,7 @@ optional_ptr<SchemaCatalogEntry> DuckLakeCatalog::LookupSchema(CatalogTransactio
 		}
 		return nullptr;
 	}
-	if (duck_transaction.IsDeleted(*entry)) {
+	if (!at_clause && duck_transaction.IsDeleted(*entry)) {
 		return nullptr;
 	}
 	return entry;

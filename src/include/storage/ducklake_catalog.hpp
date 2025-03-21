@@ -71,6 +71,10 @@ public:
 	bool InMemory() override;
 	string GetDBPath() override;
 
+	bool SupportsTimeTravel() const override {
+		return true;
+	}
+
 private:
 	void DropSchema(ClientContext &context, DropInfo &info) override;
 

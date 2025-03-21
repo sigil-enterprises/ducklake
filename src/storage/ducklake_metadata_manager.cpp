@@ -1,6 +1,7 @@
 #include "storage/ducklake_metadata_manager.hpp"
 #include "storage/ducklake_transaction.hpp"
 #include "common/ducklake_util.hpp"
+#include "duckdb/planner/tableref/bound_at_clause.hpp"
 #include "duckdb.hpp"
 
 namespace duckdb {
@@ -420,6 +421,17 @@ SnapshotChangeInfo DuckLakeMetadataManager::GetChangesMadeAfterSnapshot(DuckLake
 	return change_info;
 }
 
+unique_ptr<DuckLakeSnapshot> GetSnapshotInternal(DataChunk &chunk) {
+	if (chunk.size() != 1) {
+		throw InvalidInputException("Corrupt DuckLake - multiple snapshots returned from database");
+	}
+	auto snapshot_id = chunk.GetValue(0, 0).GetValue<idx_t>();
+	auto schema_version = chunk.GetValue(1, 0).GetValue<idx_t>();
+	auto next_catalog_id = chunk.GetValue(2, 0).GetValue<idx_t>();
+	auto next_file_id = chunk.GetValue(3, 0).GetValue<idx_t>();
+	return make_uniq<DuckLakeSnapshot>(snapshot_id, schema_version, next_catalog_id, next_file_id);
+}
+
 unique_ptr<DuckLakeSnapshot> DuckLakeMetadataManager::GetSnapshot() {
 	auto result = transaction.Query(
 	    R"(SELECT snapshot_id, schema_version, next_catalog_id, next_file_id FROM {METADATA_CATALOG}.ducklake_snapshot WHERE snapshot_id = (SELECT MAX(snapshot_id) FROM {METADATA_CATALOG}.ducklake_snapshot);)");
@@ -427,15 +439,42 @@ unique_ptr<DuckLakeSnapshot> DuckLakeMetadataManager::GetSnapshot() {
 		result->GetErrorObject().Throw("Failed to query most recent snapshot for DuckLake: ");
 	}
 	auto chunk = result->Fetch();
-	if (chunk->size() != 1) {
-		throw InvalidInputException("Corrupt DuckLake - multiple snapshots returned from database");
+	if (!chunk) {
+		throw InvalidInputException("No snapshot found in DuckLake");
 	}
+	return GetSnapshotInternal(*chunk);
+}
 
-	auto snapshot_id = chunk->GetValue(0, 0).GetValue<idx_t>();
-	auto schema_version = chunk->GetValue(1, 0).GetValue<idx_t>();
-	auto next_catalog_id = chunk->GetValue(2, 0).GetValue<idx_t>();
-	auto next_file_id = chunk->GetValue(3, 0).GetValue<idx_t>();
-	return make_uniq<DuckLakeSnapshot>(snapshot_id, schema_version, next_catalog_id, next_file_id);
+unique_ptr<DuckLakeSnapshot> DuckLakeMetadataManager::GetSnapshot(BoundAtClause &at_clause) {
+	auto &unit = at_clause.Unit();
+	auto &val = at_clause.GetValue();
+	unique_ptr<QueryResult> result;
+	if (StringUtil::CIEquals(unit, "version")) {
+		result = transaction.Query(
+			StringUtil::Format(R"(
+SELECT snapshot_id, schema_version, next_catalog_id, next_file_id
+FROM {METADATA_CATALOG}.ducklake_snapshot
+WHERE snapshot_id = %llu;)", val.DefaultCastAs(LogicalType::UBIGINT).GetValue<idx_t>()));
+	} else if (StringUtil::CIEquals(unit, "timestamp")) {
+		result = transaction.Query(
+			StringUtil::Format(R"(
+SELECT snapshot_id, schema_version, next_catalog_id, next_file_id
+FROM {METADATA_CATALOG}.ducklake_snapshot
+WHERE snapshot_id = (
+	SELECT MAX_BY(snapshot_id, snapshot_time)
+	FROM {METADATA_CATALOG}.ducklake_snapshot
+	WHERE snapshot_time < %s);)", val.DefaultCastAs(LogicalType::TIMESTAMP).ToSQLString()));
+	} else {
+		throw InvalidInputException("Unsupported AT clause unit - %s", unit);
+	}
+	if (result->HasError()) {
+		result->GetErrorObject().Throw(StringUtil::Format("Failed to query snapshot at %s %s for DuckLake: ", StringUtil::Lower(unit), val.ToString()));
+	}
+	auto chunk = result->Fetch();
+	if (!chunk || chunk->size() == 0) {
+		throw InvalidInputException("No snapshot found at %s %s", StringUtil::Lower(unit), val.ToString());
+	}
+	return GetSnapshotInternal(*chunk);
 }
 
 void DuckLakeMetadataManager::WriteNewPartitionKeys(DuckLakeSnapshot commit_snapshot,

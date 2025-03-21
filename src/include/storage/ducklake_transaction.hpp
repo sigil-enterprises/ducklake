@@ -46,6 +46,7 @@ public:
 	Connection &GetConnection();
 
 	DuckLakeSnapshot GetSnapshot();
+	DuckLakeSnapshot GetSnapshot(optional_ptr<BoundAtClause> at_clause);
 
 	static DuckLakeTransaction &Get(ClientContext &context, Catalog &catalog);
 
