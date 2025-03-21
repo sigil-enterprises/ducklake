@@ -70,13 +70,13 @@ SinkResultType DuckLakeInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 		data_file.file_name = chunk.GetValue(0, r).GetValue<string>();
 		data_file.row_count = chunk.GetValue(1, r).GetValue<idx_t>();
 		data_file.file_size_bytes = chunk.GetValue(2, r).GetValue<idx_t>();
-		data_file.footer_size = chunk.GetValue(4, r).GetValue<idx_t>();
+		data_file.footer_size = chunk.GetValue(3, r).GetValue<idx_t>();
 		if (partition_id.IsValid()) {
 			data_file.partition_id = partition_id.GetIndex();
 		}
 
 		// extract the column stats
-		auto column_stats = chunk.GetValue(5, r);
+		auto column_stats = chunk.GetValue(4, r);
 		auto &map_children = MapValue::GetChildren(column_stats);
 		for (idx_t col_idx = 0; col_idx < map_children.size(); col_idx++) {
 			auto &struct_children = StructValue::GetChildren(map_children[col_idx]);
@@ -103,8 +103,11 @@ SinkResultType DuckLakeInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 					D_ASSERT(!column_stats.has_null_count);
 					column_stats.has_null_count = true;
 					column_stats.null_count = std::stoull(stats_value);
+				} else if (stats_name == "column_size_bytes") {
+					// TODO
+				} else if (stats_name == "contains_nan") {
 				} else {
-					throw NotImplementedException("Unsupported stats type in DuckLakeInsert::Sink()");
+					throw NotImplementedException("Unsupported stats type \"%s\" in DuckLakeInsert::Sink()", stats_name);
 				}
 			}
 
@@ -190,10 +193,11 @@ Value WrittenFieldIds(DuckLakeFieldData &field_data) {
 	return Value::STRUCT(std::move(values));
 }
 
-unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
+PhysicalOperator &DuckLakeCatalog::PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
+																PhysicalPlanGenerator &planner,
                                                                 optional_ptr<DuckLakePartition> partition_data,
                                                                 optional_ptr<DuckLakeFieldData> field_data,
-                                                                unique_ptr<PhysicalOperator> plan) {
+                                                                optional_ptr<PhysicalOperator> plan) {
 	auto info = make_uniq<CopyInfo>();
 	info->file_path = DataPath();
 	info->format = "parquet";
@@ -230,40 +234,43 @@ unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCopyForInsert(ClientContext &c
 	auto function_data = copy_fun->function.copy_to_bind(context, bind_input, names_to_write, types_to_write);
 
 	auto copy_return_types = GetCopyFunctionReturnLogicalTypes(CopyFunctionReturnType::WRITTEN_FILE_STATISTICS);
-	auto physical_copy =
-	    make_uniq<PhysicalCopyToFile>(copy_return_types, copy_fun->function, std::move(function_data), 1);
+	auto &physical_copy =
+	    planner.Make<PhysicalCopyToFile>(copy_return_types, copy_fun->function, std::move(function_data), 1).Cast<PhysicalCopyToFile>();
 
-	physical_copy->use_tmp_file = false;
+	physical_copy.use_tmp_file = false;
 	if (partition_data) {
 		vector<idx_t> partition_columns;
 		for (auto &field : partition_data->fields) {
 			partition_columns.push_back(field.column_id);
 		}
-		physical_copy->filename_pattern.SetFilenamePattern("ducklake-{uuid}");
-		physical_copy->file_path = data_path;
-		physical_copy->partition_output = true;
-		physical_copy->partition_columns = std::move(partition_columns);
+		physical_copy.filename_pattern.SetFilenamePattern("ducklake-{uuid}");
+		physical_copy.file_path = data_path;
+		physical_copy.partition_output = true;
+		physical_copy.partition_columns = std::move(partition_columns);
 	} else {
 		auto current_write_uuid = UUID::ToString(UUID::GenerateRandomUUID());
-		physical_copy->file_path = data_path + "/duckdblake-" + current_write_uuid + ".parquet";
-		physical_copy->partition_output = false;
+		physical_copy.file_path = data_path + "/duckdblake-" + current_write_uuid + ".parquet";
+		physical_copy.partition_output = false;
 	}
 
-	physical_copy->file_extension = "parquet";
-	physical_copy->overwrite_mode = CopyOverwriteMode::COPY_OVERWRITE_OR_IGNORE;
-	physical_copy->per_thread_output = false;
-	physical_copy->rotate = false;
-	physical_copy->return_type = CopyFunctionReturnType::WRITTEN_FILE_STATISTICS;
-	physical_copy->write_partition_columns = true;
-	physical_copy->children.push_back(std::move(plan));
-	physical_copy->names = names_to_write;
-	physical_copy->expected_types = types_to_write;
+	physical_copy.file_extension = "parquet";
+	physical_copy.overwrite_mode = CopyOverwriteMode::COPY_OVERWRITE_OR_IGNORE;
+	physical_copy.per_thread_output = false;
+	physical_copy.rotate = false;
+	physical_copy.return_type = CopyFunctionReturnType::WRITTEN_FILE_STATISTICS;
+	physical_copy.write_partition_columns = true;
+	if (plan) {
+		physical_copy.children.push_back(*plan);
+	}
+	physical_copy.names = names_to_write;
+	physical_copy.expected_types = types_to_write;
+	physical_copy.write_empty_file = false;
 
-	return std::move(physical_copy);
+	return physical_copy;
 }
 
-unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanInsert(ClientContext &context, LogicalInsert &op,
-                                                         unique_ptr<PhysicalOperator> plan) {
+PhysicalOperator &DuckLakeCatalog::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner, LogicalInsert &op,
+										 optional_ptr<PhysicalOperator> plan) {
 	if (op.return_chunk) {
 		throw BinderException("RETURNING clause not yet supported for insertion into DuckLake table");
 	}
@@ -279,21 +286,21 @@ unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanInsert(ClientContext &context,
 	}
 	auto &field_data = ducklake_table.GetFieldData();
 
-	auto physical_copy = PlanCopyForInsert(context, columns, partition_data, field_data, std::move(plan));
-	auto insert = make_uniq<DuckLakeInsert>(op, ducklake_table, op.column_index_map, partition_id);
-	insert->children.push_back(std::move(physical_copy));
-	return std::move(insert);
+	auto &physical_copy = PlanCopyForInsert(context, columns, planner, partition_data, field_data, plan);
+	auto &insert = planner.Make<DuckLakeInsert>(op, ducklake_table, op.column_index_map, partition_id);
+	insert.children.push_back(physical_copy);
+	return insert;
 }
 
-unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanCreateTableAs(ClientContext &context, LogicalCreateTable &op,
-                                                                unique_ptr<PhysicalOperator> plan) {
+PhysicalOperator &DuckLakeCatalog::PlanCreateTableAs(ClientContext &context, PhysicalPlanGenerator &planner,
+												LogicalCreateTable &op, PhysicalOperator &plan) {
 	auto &create_info = op.info->Base();
 	auto &columns = create_info.columns;
 	// FIXME: if table already exists and we are doing CREATE IF NOT EXISTS - skip
-	auto physical_copy = PlanCopyForInsert(context, columns, nullptr, nullptr, std::move(plan));
-	auto insert = make_uniq<DuckLakeInsert>(op, op.schema, std::move(op.info));
-	insert->children.push_back(std::move(physical_copy));
-	return std::move(insert);
+	auto &physical_copy = PlanCopyForInsert(context, columns, planner, nullptr, nullptr, plan);
+	auto &insert = planner.Make<DuckLakeInsert>(op, op.schema, std::move(op.info));
+	insert.children.push_back(physical_copy);
+	return insert;
 }
 
 } // namespace duckdb

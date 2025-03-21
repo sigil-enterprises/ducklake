@@ -138,18 +138,19 @@ void DuckLakeSchemaEntry::DropEntry(ClientContext &context, DropInfo &info) {
 	transaction.DropEntry(*catalog_entry);
 }
 
-optional_ptr<CatalogEntry> DuckLakeSchemaEntry::GetEntry(CatalogTransaction transaction, CatalogType type,
-                                                         const string &entry_name) {
-	if (!CatalogTypeIsSupported(type)) {
+optional_ptr<CatalogEntry> DuckLakeSchemaEntry::LookupEntry(CatalogTransaction transaction, const EntryLookupInfo &lookup_info) {
+	auto catalog_type = lookup_info.GetCatalogType();
+	auto &entry_name = lookup_info.GetEntryName();
+	if (!CatalogTypeIsSupported(catalog_type)) {
 		return nullptr;
 	}
 	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
 	//! search in transaction local storage first
-	auto transaction_entry = duck_transaction.GetTransactionLocalEntry(type, name, entry_name);
+	auto transaction_entry = duck_transaction.GetTransactionLocalEntry(catalog_type, name, entry_name);
 	if (transaction_entry) {
 		return transaction_entry;
 	}
-	auto &catalog_set = GetCatalogSet(type);
+	auto &catalog_set = GetCatalogSet(catalog_type);
 	auto entry = catalog_set.GetEntry(entry_name);
 	if (!entry) {
 		return nullptr;

@@ -338,9 +338,9 @@ optional_ptr<DuckLakeTableStats> DuckLakeCatalog::GetTableStats(DuckLakeTransact
 	return entry->second.get();
 }
 
-optional_ptr<SchemaCatalogEntry> DuckLakeCatalog::GetSchema(CatalogTransaction transaction, const string &schema_name,
-                                                            OnEntryNotFound if_not_found,
-                                                            QueryErrorContext error_context) {
+optional_ptr<SchemaCatalogEntry> DuckLakeCatalog::LookupSchema(CatalogTransaction transaction, const EntryLookupInfo &schema_lookup,
+                                                            OnEntryNotFound if_not_found) {
+    auto &schema_name = schema_lookup.GetEntryName();
 	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
 	// look for the schema in the set of transaction-local schemas
 	auto set = duck_transaction.GetTransactionLocalSchemas();
@@ -365,8 +365,8 @@ optional_ptr<SchemaCatalogEntry> DuckLakeCatalog::GetSchema(CatalogTransaction t
 	return entry;
 }
 
-unique_ptr<PhysicalOperator> DuckLakeCatalog::PlanUpdate(ClientContext &context, LogicalUpdate &op,
-                                                         unique_ptr<PhysicalOperator> plan) {
+PhysicalOperator &DuckLakeCatalog::PlanUpdate(ClientContext &context, PhysicalPlanGenerator &planner, LogicalUpdate &op,
+											PhysicalOperator &plan) {
 	throw InternalException("Unsupported DuckLake function");
 }
 unique_ptr<LogicalOperator> DuckLakeCatalog::BindCreateIndex(Binder &binder, CreateStatement &stmt,

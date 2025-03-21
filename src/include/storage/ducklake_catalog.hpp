@@ -47,20 +47,19 @@ public:
 
 	void ScanSchemas(ClientContext &context, std::function<void(SchemaCatalogEntry &)> callback) override;
 
-	optional_ptr<SchemaCatalogEntry> GetSchema(CatalogTransaction transaction, const string &schema_name,
-	                                           OnEntryNotFound if_not_found,
-	                                           QueryErrorContext error_context = QueryErrorContext()) override;
+	optional_ptr<SchemaCatalogEntry> LookupSchema(CatalogTransaction transaction, const EntryLookupInfo &schema_lookup,
+	                                           OnEntryNotFound if_not_found) override;
 
-	unique_ptr<PhysicalOperator> PlanInsert(ClientContext &context, LogicalInsert &op,
-	                                        unique_ptr<PhysicalOperator> plan) override;
-	unique_ptr<PhysicalOperator> PlanCreateTableAs(ClientContext &context, LogicalCreateTable &op,
-	                                               unique_ptr<PhysicalOperator> plan) override;
-	unique_ptr<PhysicalOperator> PlanDelete(ClientContext &context, LogicalDelete &op,
-	                                        unique_ptr<PhysicalOperator> plan) override;
-	unique_ptr<PhysicalOperator> PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner,
+	PhysicalOperator &PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner, LogicalInsert &op,
+										 optional_ptr<PhysicalOperator> plan) override;
+	PhysicalOperator &PlanCreateTableAs(ClientContext &context, PhysicalPlanGenerator &planner,
+												LogicalCreateTable &op, PhysicalOperator &plan) override;
+	PhysicalOperator &PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op,
+	                                        PhysicalOperator &plan) override;
+	PhysicalOperator &PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner,
 	                                        LogicalDelete &op) override;
-	unique_ptr<PhysicalOperator> PlanUpdate(ClientContext &context, LogicalUpdate &op,
-	                                        unique_ptr<PhysicalOperator> plan) override;
+	PhysicalOperator &PlanUpdate(ClientContext &context, PhysicalPlanGenerator &planner, LogicalUpdate &op,
+	                                        PhysicalOperator &plan) override;
 	unique_ptr<LogicalOperator> BindCreateIndex(Binder &binder, CreateStatement &stmt, TableCatalogEntry &table,
 	                                            unique_ptr<LogicalOperator> plan) override;
 
@@ -78,10 +77,11 @@ private:
 	//! Return the schema for the given snapshot - loading it if it is not yet loaded
 	DuckLakeCatalogSet &GetSchemaForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
 	unique_ptr<DuckLakeCatalogSet> LoadSchemaForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
-	unique_ptr<PhysicalOperator> PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
+	PhysicalOperator &PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
+												   PhysicalPlanGenerator &planner,
 	                                               optional_ptr<DuckLakePartition> partition_data,
 	                                               optional_ptr<DuckLakeFieldData> field_data,
-	                                               unique_ptr<PhysicalOperator> plan);
+	                                               optional_ptr<PhysicalOperator> plan);
 	DuckLakeStats &GetStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
 	unique_ptr<DuckLakeStats> LoadStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
 	                                               DuckLakeCatalogSet &schema);
