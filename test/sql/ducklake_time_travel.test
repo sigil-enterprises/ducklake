@@ -65,3 +65,34 @@ SELECT * FROM ducklake.test AT (VERSION => 2)
 {'i': 1, 'j': 2}
 {'i': NULL, 'j': 3}
 NULL
+
+# get a changeset
+query I rowsort
+SELECT * FROM ducklake.test AT (version => 2) EXCEPT SELECT * FROM ducklake.test AT (version => 1)
+----
+NULL
+{'i': 1, 'j': 2}
+{'i': NULL, 'j': 3}
+
+# time travel with schemas
+statement ok
+CREATE SCHEMA ducklake.s1
+
+statement ok
+CREATE TABLE ducklake.s1.tbl(i INT);
+
+statement ok
+INSERT INTO ducklake.s1.tbl VALUES (42);
+
+statement ok
+DROP SCHEMA ducklake.s1 CASCADE
+
+query I
+SELECT * FROM ducklake.s1.tbl AT (version => 6)
+----
+42
+
+statement error
+SELECT * FROM ducklake.s1.tbl AT (version => 7)
+----
+does not exist
