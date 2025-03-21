@@ -48,18 +48,17 @@ public:
 	void ScanSchemas(ClientContext &context, std::function<void(SchemaCatalogEntry &)> callback) override;
 
 	optional_ptr<SchemaCatalogEntry> LookupSchema(CatalogTransaction transaction, const EntryLookupInfo &schema_lookup,
-	                                           OnEntryNotFound if_not_found) override;
+	                                              OnEntryNotFound if_not_found) override;
 
 	PhysicalOperator &PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner, LogicalInsert &op,
-										 optional_ptr<PhysicalOperator> plan) override;
-	PhysicalOperator &PlanCreateTableAs(ClientContext &context, PhysicalPlanGenerator &planner,
-												LogicalCreateTable &op, PhysicalOperator &plan) override;
+	                             optional_ptr<PhysicalOperator> plan) override;
+	PhysicalOperator &PlanCreateTableAs(ClientContext &context, PhysicalPlanGenerator &planner, LogicalCreateTable &op,
+	                                    PhysicalOperator &plan) override;
 	PhysicalOperator &PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op,
-	                                        PhysicalOperator &plan) override;
-	PhysicalOperator &PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner,
-	                                        LogicalDelete &op) override;
+	                             PhysicalOperator &plan) override;
+	PhysicalOperator &PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op) override;
 	PhysicalOperator &PlanUpdate(ClientContext &context, PhysicalPlanGenerator &planner, LogicalUpdate &op,
-	                                        PhysicalOperator &plan) override;
+	                             PhysicalOperator &plan) override;
 	unique_ptr<LogicalOperator> BindCreateIndex(Binder &binder, CreateStatement &stmt, TableCatalogEntry &table,
 	                                            unique_ptr<LogicalOperator> plan) override;
 
@@ -82,10 +81,9 @@ private:
 	DuckLakeCatalogSet &GetSchemaForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
 	unique_ptr<DuckLakeCatalogSet> LoadSchemaForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
 	PhysicalOperator &PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
-												   PhysicalPlanGenerator &planner,
-	                                               optional_ptr<DuckLakePartition> partition_data,
-	                                               optional_ptr<DuckLakeFieldData> field_data,
-	                                               optional_ptr<PhysicalOperator> plan);
+	                                    PhysicalPlanGenerator &planner, optional_ptr<DuckLakePartition> partition_data,
+	                                    optional_ptr<DuckLakeFieldData> field_data,
+	                                    optional_ptr<PhysicalOperator> plan);
 	DuckLakeStats &GetStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
 	unique_ptr<DuckLakeStats> LoadStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
 	                                               DuckLakeCatalogSet &schema);

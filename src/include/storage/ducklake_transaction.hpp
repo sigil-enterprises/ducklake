@@ -15,6 +15,7 @@
 #include "storage/ducklake_metadata_manager.hpp"
 #include "common/ducklake_snapshot.hpp"
 #include "common/ducklake_data_file.hpp"
+#include "duckdb/common/types/value_map.hpp"
 
 namespace duckdb {
 class DuckLakeCatalog;
@@ -100,6 +101,7 @@ private:
 	DatabaseInstance &db;
 	unique_ptr<DuckLakeMetadataManager> metadata_manager;
 	unique_ptr<Connection> connection;
+	//! The snapshot of the transaction (latest snapshot in DuckLake)
 	unique_ptr<DuckLakeSnapshot> snapshot;
 	idx_t local_catalog_id;
 	//! New tables added by this transaction
@@ -110,6 +112,8 @@ private:
 	map<SchemaIndex, reference<DuckLakeSchemaEntry>> dropped_schemas;
 	//! Data files added by this transaction
 	map<TableIndex, vector<DuckLakeDataFile>> new_data_files;
+	//! Snapshot cache for the AT (...) conditions that are referenced in the transaction
+	value_map_t<DuckLakeSnapshot> snapshot_cache;
 };
 
 } // namespace duckdb

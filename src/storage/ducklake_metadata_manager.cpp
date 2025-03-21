@@ -450,25 +450,26 @@ unique_ptr<DuckLakeSnapshot> DuckLakeMetadataManager::GetSnapshot(BoundAtClause 
 	auto &val = at_clause.GetValue();
 	unique_ptr<QueryResult> result;
 	if (StringUtil::CIEquals(unit, "version")) {
-		result = transaction.Query(
-			StringUtil::Format(R"(
+		result = transaction.Query(StringUtil::Format(R"(
 SELECT snapshot_id, schema_version, next_catalog_id, next_file_id
 FROM {METADATA_CATALOG}.ducklake_snapshot
-WHERE snapshot_id = %llu;)", val.DefaultCastAs(LogicalType::UBIGINT).GetValue<idx_t>()));
+WHERE snapshot_id = %llu;)",
+		                                              val.DefaultCastAs(LogicalType::UBIGINT).GetValue<idx_t>()));
 	} else if (StringUtil::CIEquals(unit, "timestamp")) {
-		result = transaction.Query(
-			StringUtil::Format(R"(
+		result = transaction.Query(StringUtil::Format(R"(
 SELECT snapshot_id, schema_version, next_catalog_id, next_file_id
 FROM {METADATA_CATALOG}.ducklake_snapshot
 WHERE snapshot_id = (
 	SELECT MAX_BY(snapshot_id, snapshot_time)
 	FROM {METADATA_CATALOG}.ducklake_snapshot
-	WHERE snapshot_time < %s);)", val.DefaultCastAs(LogicalType::TIMESTAMP).ToSQLString()));
+	WHERE snapshot_time < %s);)",
+		                                              val.DefaultCastAs(LogicalType::TIMESTAMP).ToSQLString()));
 	} else {
 		throw InvalidInputException("Unsupported AT clause unit - %s", unit);
 	}
 	if (result->HasError()) {
-		result->GetErrorObject().Throw(StringUtil::Format("Failed to query snapshot at %s %s for DuckLake: ", StringUtil::Lower(unit), val.ToString()));
+		result->GetErrorObject().Throw(StringUtil::Format(
+		    "Failed to query snapshot at %s %s for DuckLake: ", StringUtil::Lower(unit), val.ToString()));
 	}
 	auto chunk = result->Fetch();
 	if (!chunk || chunk->size() == 0) {

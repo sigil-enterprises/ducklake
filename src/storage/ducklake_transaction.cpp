@@ -7,6 +7,7 @@
 
 #include "duckdb/main/database_manager.hpp"
 #include "duckdb/main/attached_database.hpp"
+#include "duckdb/planner/tableref/bound_at_clause.hpp"
 
 namespace duckdb {
 
@@ -720,7 +721,20 @@ DuckLakeSnapshot DuckLakeTransaction::GetSnapshot(optional_ptr<BoundAtClause> at
 		// no AT-clause - get the latest snapshot
 		return GetSnapshot();
 	}
-	return *metadata_manager->GetSnapshot(*at_clause);
+	// construct a struct value from the AT clause in the form of {"unit": value} (e.g. {"version": 2}
+	// this is used as a caching key for the snapshot
+	child_list_t<Value> values;
+	values.push_back(make_pair(at_clause->Unit(), at_clause->GetValue()));
+	auto snapshot_value = Value::STRUCT(std::move(values));
+	auto entry = snapshot_cache.find(snapshot_value);
+	if (entry != snapshot_cache.end()) {
+		// we already found this snapshot - return it
+		return entry->second;
+	}
+	// find the snapshot and cache it
+	auto result_snapshot = *metadata_manager->GetSnapshot(*at_clause);
+	snapshot_cache.insert(make_pair(std::move(snapshot_value), result_snapshot));
+	return result_snapshot;
 }
 
 idx_t DuckLakeTransaction::GetLocalCatalogId() {

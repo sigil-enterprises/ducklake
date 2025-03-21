@@ -338,10 +338,11 @@ optional_ptr<DuckLakeTableStats> DuckLakeCatalog::GetTableStats(DuckLakeTransact
 	return entry->second.get();
 }
 
-optional_ptr<SchemaCatalogEntry> DuckLakeCatalog::LookupSchema(CatalogTransaction transaction, const EntryLookupInfo &schema_lookup,
-                                                            OnEntryNotFound if_not_found) {
-    auto &schema_name = schema_lookup.GetEntryName();
-    auto at_clause = schema_lookup.GetAtClause();
+optional_ptr<SchemaCatalogEntry> DuckLakeCatalog::LookupSchema(CatalogTransaction transaction,
+                                                               const EntryLookupInfo &schema_lookup,
+                                                               OnEntryNotFound if_not_found) {
+	auto &schema_name = schema_lookup.GetEntryName();
+	auto at_clause = schema_lookup.GetAtClause();
 	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
 	if (!at_clause) {
 		// if we have an AT clause we can never read transaction-local changes
@@ -353,7 +354,7 @@ optional_ptr<SchemaCatalogEntry> DuckLakeCatalog::LookupSchema(CatalogTransactio
 				return entry;
 			}
 		}
-    }
+	}
 	auto snapshot = duck_transaction.GetSnapshot(at_clause);
 	auto &schemas = GetSchemaForSnapshot(duck_transaction, snapshot);
 	auto entry = schemas.GetEntry<SchemaCatalogEntry>(schema_name);
@@ -370,7 +371,7 @@ optional_ptr<SchemaCatalogEntry> DuckLakeCatalog::LookupSchema(CatalogTransactio
 }
 
 PhysicalOperator &DuckLakeCatalog::PlanUpdate(ClientContext &context, PhysicalPlanGenerator &planner, LogicalUpdate &op,
-											PhysicalOperator &plan) {
+                                              PhysicalOperator &plan) {
 	throw InternalException("Unsupported DuckLake function");
 }
 unique_ptr<LogicalOperator> DuckLakeCatalog::BindCreateIndex(Binder &binder, CreateStatement &stmt,

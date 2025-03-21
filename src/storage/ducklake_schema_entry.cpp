@@ -138,7 +138,8 @@ void DuckLakeSchemaEntry::DropEntry(ClientContext &context, DropInfo &info) {
 	transaction.DropEntry(*catalog_entry);
 }
 
-optional_ptr<CatalogEntry> DuckLakeSchemaEntry::LookupEntry(CatalogTransaction transaction, const EntryLookupInfo &lookup_info) {
+optional_ptr<CatalogEntry> DuckLakeSchemaEntry::LookupEntry(CatalogTransaction transaction,
+                                                            const EntryLookupInfo &lookup_info) {
 	auto catalog_type = lookup_info.GetCatalogType();
 	auto &entry_name = lookup_info.GetEntryName();
 	if (!CatalogTypeIsSupported(catalog_type)) {

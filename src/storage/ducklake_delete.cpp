@@ -22,7 +22,7 @@ LogicalGet &ExtractLogicalGet(reference<LogicalOperator> op) {
 }
 
 PhysicalOperator &DuckLakeCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner,
-										LogicalDelete &op) {
+                                              LogicalDelete &op) {
 	auto &get = ExtractLogicalGet(*op.children[0]);
 	auto &bind_data = get.bind_data->Cast<MultiFileBindData>();
 	auto files = bind_data.file_list->GetAllFiles();
@@ -31,7 +31,7 @@ PhysicalOperator &DuckLakeCatalog::PlanDelete(ClientContext &context, PhysicalPl
 }
 
 PhysicalOperator &DuckLakeCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op,
-										PhysicalOperator &plan) {
+                                              PhysicalOperator &plan) {
 	throw InternalException("Unsupported DuckLake function");
 }
 

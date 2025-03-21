@@ -107,7 +107,8 @@ SinkResultType DuckLakeInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 					// TODO
 				} else if (stats_name == "contains_nan") {
 				} else {
-					throw NotImplementedException("Unsupported stats type \"%s\" in DuckLakeInsert::Sink()", stats_name);
+					throw NotImplementedException("Unsupported stats type \"%s\" in DuckLakeInsert::Sink()",
+					                              stats_name);
 				}
 			}
 
@@ -194,10 +195,10 @@ Value WrittenFieldIds(DuckLakeFieldData &field_data) {
 }
 
 PhysicalOperator &DuckLakeCatalog::PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
-																PhysicalPlanGenerator &planner,
-                                                                optional_ptr<DuckLakePartition> partition_data,
-                                                                optional_ptr<DuckLakeFieldData> field_data,
-                                                                optional_ptr<PhysicalOperator> plan) {
+                                                     PhysicalPlanGenerator &planner,
+                                                     optional_ptr<DuckLakePartition> partition_data,
+                                                     optional_ptr<DuckLakeFieldData> field_data,
+                                                     optional_ptr<PhysicalOperator> plan) {
 	auto info = make_uniq<CopyInfo>();
 	info->file_path = DataPath();
 	info->format = "parquet";
@@ -235,7 +236,8 @@ PhysicalOperator &DuckLakeCatalog::PlanCopyForInsert(ClientContext &context, con
 
 	auto copy_return_types = GetCopyFunctionReturnLogicalTypes(CopyFunctionReturnType::WRITTEN_FILE_STATISTICS);
 	auto &physical_copy =
-	    planner.Make<PhysicalCopyToFile>(copy_return_types, copy_fun->function, std::move(function_data), 1).Cast<PhysicalCopyToFile>();
+	    planner.Make<PhysicalCopyToFile>(copy_return_types, copy_fun->function, std::move(function_data), 1)
+	        .Cast<PhysicalCopyToFile>();
 
 	physical_copy.use_tmp_file = false;
 	if (partition_data) {
@@ -271,7 +273,7 @@ PhysicalOperator &DuckLakeCatalog::PlanCopyForInsert(ClientContext &context, con
 }
 
 PhysicalOperator &DuckLakeCatalog::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner, LogicalInsert &op,
-										 optional_ptr<PhysicalOperator> plan) {
+                                              optional_ptr<PhysicalOperator> plan) {
 	if (op.return_chunk) {
 		throw BinderException("RETURNING clause not yet supported for insertion into DuckLake table");
 	}
@@ -294,7 +296,7 @@ PhysicalOperator &DuckLakeCatalog::PlanInsert(ClientContext &context, PhysicalPl
 }
 
 PhysicalOperator &DuckLakeCatalog::PlanCreateTableAs(ClientContext &context, PhysicalPlanGenerator &planner,
-												LogicalCreateTable &op, PhysicalOperator &plan) {
+                                                     LogicalCreateTable &op, PhysicalOperator &plan) {
 	auto &create_info = op.info->Base();
 	auto &columns = create_info.columns;
 	// FIXME: if table already exists and we are doing CREATE IF NOT EXISTS - skip
