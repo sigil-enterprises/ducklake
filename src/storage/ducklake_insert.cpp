@@ -247,10 +247,12 @@ PhysicalOperator &DuckLakeCatalog::PlanCopyForInsert(ClientContext &context, con
 		physical_copy.file_path = data_path;
 		physical_copy.partition_output = true;
 		physical_copy.partition_columns = std::move(partition_columns);
+		physical_copy.write_empty_file = true;
 	} else {
 		auto current_write_uuid = UUID::ToString(UUID::GenerateRandomUUID());
 		physical_copy.file_path = data_path + "/duckdblake-" + current_write_uuid + ".parquet";
 		physical_copy.partition_output = false;
+		physical_copy.write_empty_file = false;
 	}
 
 	physical_copy.file_extension = "parquet";
@@ -264,7 +266,6 @@ PhysicalOperator &DuckLakeCatalog::PlanCopyForInsert(ClientContext &context, con
 	}
 	physical_copy.names = names_to_write;
 	physical_copy.expected_types = types_to_write;
-	physical_copy.write_empty_file = true;
 
 	return physical_copy;
 }
