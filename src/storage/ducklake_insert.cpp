@@ -264,7 +264,7 @@ PhysicalOperator &DuckLakeCatalog::PlanCopyForInsert(ClientContext &context, con
 	}
 	physical_copy.names = names_to_write;
 	physical_copy.expected_types = types_to_write;
-	physical_copy.write_empty_file = false;
+	physical_copy.write_empty_file = true;
 
 	return physical_copy;
 }
