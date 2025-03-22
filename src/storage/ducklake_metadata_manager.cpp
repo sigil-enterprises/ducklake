@@ -268,6 +268,10 @@ void DuckLakeMetadataManager::DropTables(DuckLakeSnapshot commit_snapshot, set<T
 	FlushDrop(commit_snapshot, "ducklake_table", "table_id", ids);
 }
 
+void DuckLakeMetadataManager::DropViews(DuckLakeSnapshot commit_snapshot, set<TableIndex> ids) {
+	FlushDrop(commit_snapshot, "ducklake_view", "view_id", ids);
+}
+
 void DuckLakeMetadataManager::WriteNewSchemas(DuckLakeSnapshot commit_snapshot,
                                               const vector<DuckLakeSchemaInfo> &new_schemas) {
 	if (new_schemas.empty()) {

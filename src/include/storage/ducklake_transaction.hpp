@@ -68,6 +68,7 @@ public:
 
 	void DropSchema(DuckLakeSchemaEntry &schema);
 	void DropTable(DuckLakeTableEntry &table);
+	void DropView(DuckLakeViewEntry &view);
 
 	bool SchemaChangesMade();
 	bool ChangesMade();
@@ -111,6 +112,7 @@ private:
 	//! New tables added by this transaction
 	case_insensitive_map_t<unique_ptr<DuckLakeCatalogSet>> new_tables;
 	set<TableIndex> dropped_tables;
+	set<TableIndex> dropped_views;
 	//! Schemas added by this transaction
 	unique_ptr<DuckLakeCatalogSet> new_schemas;
 	map<SchemaIndex, reference<DuckLakeSchemaEntry>> dropped_schemas;

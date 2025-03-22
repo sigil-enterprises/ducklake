@@ -15,32 +15,41 @@ DuckLakeSchemaEntry::DuckLakeSchemaEntry(Catalog &catalog, CreateSchemaInfo &inf
     : SchemaCatalogEntry(catalog, info), schema_id(schema_id), schema_uuid(std::move(schema_uuid)) {
 }
 
+bool DuckLakeSchemaEntry::HandleCreateConflict(CatalogTransaction transaction, CatalogType catalog_type, const string &entry_name, OnCreateConflict on_conflict) {
+	auto existing_entry = GetEntry(transaction, catalog_type, entry_name);
+	if (!existing_entry) {
+		// no conflict
+		return true;
+	}
+	switch(on_conflict) {
+	case OnCreateConflict::ERROR_ON_CONFLICT:
+		throw CatalogException("%s with name \"%s\" already exists", CatalogTypeToString(existing_entry->type), entry_name);
+    case OnCreateConflict::IGNORE_ON_CONFLICT:
+        // ignore - skip without throwing an error
+        return false;
+    case OnCreateConflict::REPLACE_ON_CONFLICT: {
+        // try to drop the entry prior to creating
+        DropInfo info;
+        info.type = catalog_type;
+        info.name = entry_name;
+        DropEntry(transaction.GetContext(), info);
+        break;
+    }
+	default:
+		throw InternalException("Unsupported conflict type");
+	}
+	return true;
+}
+
+
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction transaction,
                                                             BoundCreateTableInfo &info) {
 	auto &base_info = info.Base();
 	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
 	// check if we have an existing entry with this name
-	auto existing_entry = GetEntry(transaction, CatalogType::TABLE_ENTRY, base_info.table);
-	if (existing_entry) {
-		switch(base_info.on_conflict) {
-		case OnCreateConflict::ERROR_ON_CONFLICT:
-			throw CatalogException("%s with name \"%s\" already exists", CatalogTypeToString(existing_entry->type), base_info.table);
-        case OnCreateConflict::IGNORE_ON_CONFLICT:
-        	// ignore - skip without throwing an error
-        	return nullptr;
-        case OnCreateConflict::REPLACE_ON_CONFLICT: {
-        	// try to drop the entry prior to creating
-        	DropInfo info;
-        	info.type = CatalogType::TABLE_ENTRY;
-        	info.name = base_info.table;
-        	DropEntry(transaction.GetContext(), info);
-        	break;
-        }
-		default:
-			throw InternalException("Unsupported conflict type");
-		}
+	if (!HandleCreateConflict(transaction, CatalogType::TABLE_ENTRY, base_info.table, base_info.on_conflict)) {
+		return nullptr;
 	}
-
 	//! get a local table-id
 	auto table_id = TableIndex(duck_transaction.GetLocalCatalogId());
 	auto table_uuid = UUID::ToString(UUID::GenerateRandomUUID());
@@ -74,6 +83,10 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateIndex(CatalogTransaction t
 }
 
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateView(CatalogTransaction transaction, CreateViewInfo &info) {
+	// check if we have an existing entry with this name
+	if (!HandleCreateConflict(transaction, CatalogType::VIEW_ENTRY, info.view_name, info.on_conflict)) {
+		return nullptr;
+	}
 	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
 	//! get a local view-id
 	auto view_id = TableIndex(duck_transaction.GetLocalCatalogId());

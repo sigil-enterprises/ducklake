@@ -53,7 +53,7 @@ Connection &DuckLakeTransaction::GetConnection() {
 }
 
 bool DuckLakeTransaction::SchemaChangesMade() {
-	return !new_tables.empty() || !dropped_tables.empty() || new_schemas || !dropped_schemas.empty();
+	return !new_tables.empty() || !dropped_tables.empty() || new_schemas || !dropped_schemas.empty() || !dropped_views.empty();
 }
 
 bool DuckLakeTransaction::ChangesMade() {
@@ -687,6 +687,9 @@ void DuckLakeTransaction::FlushChanges() {
 			if (!dropped_tables.empty()) {
 				metadata_manager->DropTables(commit_snapshot, dropped_tables);
 			}
+			if (!dropped_views.empty()) {
+				metadata_manager->DropViews(commit_snapshot, dropped_views);
+			}
 			if (!dropped_schemas.empty()) {
 				set<SchemaIndex> dropped_schema_ids;
 				for (auto &entry : dropped_schemas) {
@@ -881,10 +884,28 @@ void DuckLakeTransaction::DropTable(DuckLakeTableEntry &table) {
 	}
 }
 
+void DuckLakeTransaction::DropView(DuckLakeViewEntry &view) {
+	if (view.IsTransactionLocal()) {
+		// table is transaction-local - drop it from the transaction local changes
+		auto schema_entry = new_tables.find(view.ParentSchema().name);
+		if (schema_entry == new_tables.end()) {
+			throw InternalException("Dropping a transaction local view that does not exist?");
+		}
+		schema_entry->second->DropEntry(view.name);
+		new_tables.erase(schema_entry);
+	} else {
+		auto view_id = view.GetViewId();
+		dropped_views.insert(view_id);
+	}
+}
+
 void DuckLakeTransaction::DropEntry(CatalogEntry &entry) {
 	switch (entry.type) {
 	case CatalogType::TABLE_ENTRY:
 		DropTable(entry.Cast<DuckLakeTableEntry>());
+		break;
+	case CatalogType::VIEW_ENTRY:
+		DropView(entry.Cast<DuckLakeViewEntry>());
 		break;
 	case CatalogType::SCHEMA_ENTRY:
 		DropSchema(entry.Cast<DuckLakeSchemaEntry>());
