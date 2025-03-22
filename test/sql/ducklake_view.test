@@ -27,3 +27,34 @@ statement error
 SELECT * FROM ducklake.v1
 ----
 does not exist
+
+# transaction-local view drop and re-create
+statement ok
+CREATE VIEW ducklake.v1 AS SELECT 42
+
+statement ok
+BEGIN
+
+statement ok
+DROP VIEW ducklake.v1
+
+statement error
+FROM ducklake.v1
+----
+does not exist
+
+statement ok
+CREATE VIEW ducklake.v1 AS SELECT 84
+
+query I
+FROM ducklake.v1
+----
+84
+
+statement ok
+COMMIT
+
+query I
+FROM ducklake.v1
+----
+84

@@ -25,7 +25,7 @@ void DuckLakeMetadataManager::InitializeDuckLake(bool has_explicit_schema) {
 	initialize_query += StringUtil::Format(R"(
 CREATE TABLE {METADATA_CATALOG}.ducklake_info(version BIGINT, data_path VARCHAR, created_by VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot(snapshot_id BIGINT PRIMARY KEY, snapshot_time TIMESTAMPTZ, schema_version BIGINT, next_catalog_id BIGINT, next_file_id BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot_changes(snapshot_id BIGINT PRIMARY KEY, schemas_created VARCHAR, schemas_dropped VARCHAR, tables_created VARCHAR, tables_dropped VARCHAR, tables_altered VARCHAR, tables_inserted_into VARCHAR, tables_deleted_from VARCHAR);
+CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot_changes(snapshot_id BIGINT PRIMARY KEY, schemas_created VARCHAR, schemas_dropped VARCHAR, tables_created VARCHAR, tables_dropped VARCHAR, tables_altered VARCHAR, tables_inserted_into VARCHAR, tables_deleted_from VARCHAR, views_dropped VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_schema(schema_id BIGINT PRIMARY KEY, schema_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_name VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_table(table_id BIGINT, table_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, table_name VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_view(view_id BIGINT, view_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, view_name VARCHAR, dialect VARCHAR, sql VARCHAR);
@@ -425,11 +425,11 @@ void DuckLakeMetadataManager::WriteSnapshotChanges(DuckLakeSnapshot commit_snaps
                                                    const SnapshotChangeInfo &change_info) {
 	// insert the snapshot changes
 	auto query = StringUtil::Format(
-	    R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot_changes VALUES ({SNAPSHOT_ID}, %s, %s, %s, %s, %s, %s, %s);)",
+	    R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot_changes VALUES ({SNAPSHOT_ID}, %s, %s, %s, %s, %s, %s, %s, %s);)",
 	    SQLStringOrNull(change_info.schemas_created), SQLStringOrNull(change_info.schemas_dropped),
 	    SQLStringOrNull(change_info.tables_created), SQLStringOrNull(change_info.tables_dropped),
 	    SQLStringOrNull(change_info.tables_altered), SQLStringOrNull(change_info.tables_inserted_into),
-	    SQLStringOrNull(change_info.tables_deleted_from));
+	    SQLStringOrNull(change_info.tables_deleted_from), SQLStringOrNull(change_info.views_dropped));
 	auto result = transaction.Query(commit_snapshot, query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write new snapshot to DuckLake:");
@@ -445,7 +445,8 @@ SnapshotChangeInfo DuckLakeMetadataManager::GetChangesMadeAfterSnapshot(DuckLake
 		   COALESCE(STRING_AGG(tables_dropped), ''),
 		   COALESCE(STRING_AGG(tables_altered), ''),
 		   COALESCE(STRING_AGG(tables_inserted_into), ''),
-		   COALESCE(STRING_AGG(tables_deleted_from), '')
+		   COALESCE(STRING_AGG(tables_deleted_from), ''),
+		   COALESCE(STRING_AGG(views_dropped), '')
 	FROM {METADATA_CATALOG}.ducklake_snapshot_changes
 	WHERE snapshot_id > {SNAPSHOT_ID}
 	)");
@@ -463,6 +464,7 @@ SnapshotChangeInfo DuckLakeMetadataManager::GetChangesMadeAfterSnapshot(DuckLake
 		change_info.tables_altered = row.GetValue<string>(4);
 		change_info.tables_inserted_into = row.GetValue<string>(5);
 		change_info.tables_deleted_from = row.GetValue<string>(6);
+		change_info.views_dropped = row.GetValue<string>(7);
 	}
 	return change_info;
 }
@@ -642,7 +644,7 @@ WHERE table_id=tid AND column_id=cid
 
 vector<DuckLakeSnapshotInfo> DuckLakeMetadataManager::GetAllSnapshots() {
 	auto res = transaction.Query(R"(
-SELECT snapshot_id, snapshot_time, schema_version, schemas_created, schemas_dropped, tables_created, tables_dropped, tables_altered, tables_inserted_into, tables_deleted_from
+SELECT snapshot_id, snapshot_time, schema_version, schemas_created, schemas_dropped, tables_created, tables_dropped, tables_altered, tables_inserted_into, tables_deleted_from, views_dropped
 FROM {METADATA_CATALOG}.ducklake_snapshot
 LEFT JOIN {METADATA_CATALOG}.ducklake_snapshot_changes USING (snapshot_id)
 ORDER BY snapshot_id
@@ -663,6 +665,7 @@ ORDER BY snapshot_id
 		snapshot_info.change_info.tables_altered = row.IsNull(7) ? string() : row.GetValue<string>(7);
 		snapshot_info.change_info.tables_inserted_into = row.IsNull(8) ? string() : row.GetValue<string>(8);
 		snapshot_info.change_info.tables_deleted_from = row.IsNull(9) ? string() : row.GetValue<string>(9);
+		snapshot_info.change_info.views_dropped = row.IsNull(10) ? string() : row.GetValue<string>(10);
 
 		snapshots.push_back(std::move(snapshot_info));
 	}

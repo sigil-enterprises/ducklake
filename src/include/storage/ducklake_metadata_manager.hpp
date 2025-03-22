@@ -107,6 +107,7 @@ struct SnapshotChangeInfo {
 	string tables_altered;
 	string tables_inserted_into;
 	string tables_deleted_from;
+	string views_dropped;
 };
 
 struct DuckLakeSnapshotInfo {

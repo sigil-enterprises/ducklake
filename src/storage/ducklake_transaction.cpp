@@ -66,6 +66,7 @@ struct TransactionChangeInformation {
 	case_insensitive_map_t<reference_set_t<CatalogEntry>> created_tables;
 	set<TableIndex> altered_tables;
 	set<TableIndex> dropped_tables;
+	set<TableIndex> dropped_views;
 	set<TableIndex> inserted_tables;
 };
 
@@ -75,6 +76,7 @@ struct SnapshotChangeInformation {
 	case_insensitive_map_t<case_insensitive_set_t> created_tables;
 	set<TableIndex> altered_tables;
 	set<TableIndex> dropped_tables;
+	set<TableIndex> dropped_views;
 	set<TableIndex> inserted_tables;
 	set<TableIndex> tables_deleted_from;
 };
@@ -120,6 +122,9 @@ TransactionChangeInformation DuckLakeTransaction::GetTransactionChanges() {
 	TransactionChangeInformation changes;
 	for (auto &dropped_table_idx : dropped_tables) {
 		changes.dropped_tables.insert(dropped_table_idx);
+	}
+	for (auto &dropped_view_idx : dropped_views) {
+		changes.dropped_views.insert(dropped_view_idx);
 	}
 	for (auto &entry : dropped_schemas) {
 		changes.dropped_schemas.insert(entry);
@@ -176,6 +181,12 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 			change_info.tables_dropped += ",";
 		}
 		change_info.tables_dropped += to_string(dropped_table_idx.index);
+	}
+	for (auto &dropped_view_idx : changes.dropped_views) {
+		if (!change_info.views_dropped.empty()) {
+			change_info.views_dropped += ",";
+		}
+		change_info.views_dropped += to_string(dropped_view_idx.index);
 	}
 	for (auto &created_schema : changes.created_schemas) {
 		if (!change_info.schemas_created.empty()) {
@@ -351,6 +362,7 @@ void DuckLakeTransaction::CheckForConflicts(DuckLakeSnapshot transaction_snapsho
 	other_changes.altered_tables = ParseDropList<TableIndex>(changes_made.tables_altered);
 	other_changes.inserted_tables = ParseDropList<TableIndex>(changes_made.tables_inserted_into);
 	other_changes.tables_deleted_from = ParseDropList<TableIndex>(changes_made.tables_deleted_from);
+	other_changes.dropped_views = ParseDropList<TableIndex>(changes_made.views_dropped);
 	CheckForConflicts(changes, other_changes);
 }
 
@@ -922,7 +934,7 @@ bool DuckLakeTransaction::IsDeleted(CatalogEntry &entry) {
 	}
 	case CatalogType::VIEW_ENTRY: {
 		auto &view_entry = entry.Cast<DuckLakeViewEntry>();
-		return dropped_tables.find(view_entry.GetViewId()) != dropped_tables.end();
+		return dropped_views.find(view_entry.GetViewId()) != dropped_views.end();
 	}
 	case CatalogType::SCHEMA_ENTRY: {
 		auto &schema_entry = entry.Cast<DuckLakeSchemaEntry>();
