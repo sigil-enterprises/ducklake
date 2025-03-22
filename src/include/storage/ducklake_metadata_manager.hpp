@@ -100,14 +100,7 @@ struct DuckLakeGlobalStatsInfo {
 };
 
 struct SnapshotChangeInfo {
-	string schemas_created;
-	string schemas_dropped;
-	string tables_created;
-	string tables_dropped;
-	string tables_altered;
-	string tables_inserted_into;
-	string tables_deleted_from;
-	string views_dropped;
+	string changes_made;
 };
 
 struct DuckLakeSnapshotInfo {

@@ -13,9 +13,9 @@
 
 namespace duckdb {
 
-struct ParsedTableInfo {
+struct ParsedCatalogEntry {
 	string schema;
-	string table;
+	string name;
 };
 
 class DuckLakeUtil {
@@ -25,8 +25,7 @@ public:
 	static string SQLIdentifierToString(const string &text);
 	static string SQLLiteralToString(const string &text);
 
-	static vector<ParsedTableInfo> ParseTableList(const string &input);
-	static unordered_set<idx_t> ParseDropList(const string &input);
+	static ParsedCatalogEntry ParseCatalogEntry(const string &input);
 };
 
 } // namespace duckdb

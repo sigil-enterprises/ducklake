@@ -9,6 +9,7 @@
 #include "duckdb/main/database_manager.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/planner/tableref/bound_at_clause.hpp"
+#include "storage/ducklake_transaction_changes.hpp"
 
 namespace duckdb {
 
@@ -68,17 +69,6 @@ struct TransactionChangeInformation {
 	set<TableIndex> dropped_tables;
 	set<TableIndex> dropped_views;
 	set<TableIndex> inserted_tables;
-};
-
-struct SnapshotChangeInformation {
-	case_insensitive_set_t created_schemas;
-	set<SchemaIndex> dropped_schemas;
-	case_insensitive_map_t<case_insensitive_set_t> created_tables;
-	set<TableIndex> altered_tables;
-	set<TableIndex> dropped_tables;
-	set<TableIndex> dropped_views;
-	set<TableIndex> inserted_tables;
-	set<TableIndex> tables_deleted_from;
 };
 
 void GetTransactionTableChanges(reference<CatalogEntry> table_entry, TransactionChangeInformation &changes) {
@@ -170,51 +160,59 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 		changes.inserted_tables.insert(table_id);
 	}
 	for (auto &entry : changes.dropped_schemas) {
-		if (!change_info.schemas_dropped.empty()) {
-			change_info.schemas_dropped += ",";
+		if (!change_info.changes_made.empty()) {
+			change_info.changes_made += ",";
 		}
 		auto schema_id = entry.first.index;
-		change_info.schemas_dropped += to_string(schema_id);
+		change_info.changes_made += "dropped_schema:";
+		change_info.changes_made += to_string(schema_id);
 	}
 	for (auto &dropped_table_idx : changes.dropped_tables) {
-		if (!change_info.tables_dropped.empty()) {
-			change_info.tables_dropped += ",";
+		if (!change_info.changes_made.empty()) {
+			change_info.changes_made += ",";
 		}
-		change_info.tables_dropped += to_string(dropped_table_idx.index);
+		change_info.changes_made += "dropped_table:";
+		change_info.changes_made += to_string(dropped_table_idx.index);
 	}
 	for (auto &dropped_view_idx : changes.dropped_views) {
-		if (!change_info.views_dropped.empty()) {
-			change_info.views_dropped += ",";
+		if (!change_info.changes_made.empty()) {
+			change_info.changes_made += ",";
 		}
-		change_info.views_dropped += to_string(dropped_view_idx.index);
+		change_info.changes_made += "dropped_view:";
+		change_info.changes_made += to_string(dropped_view_idx.index);
 	}
 	for (auto &created_schema : changes.created_schemas) {
-		if (!change_info.schemas_created.empty()) {
-			change_info.schemas_created += ",";
+		if (!change_info.changes_made.empty()) {
+			change_info.changes_made += ",";
 		}
-		change_info.schemas_created += KeywordHelper::WriteQuoted(created_schema, '"');
+		change_info.changes_made += "created_schema:";
+		change_info.changes_made += KeywordHelper::WriteQuoted(created_schema, '"');
 	}
 	for (auto &entry : changes.created_tables) {
 		auto &schema = entry.first;
 		auto schema_prefix = KeywordHelper::WriteQuoted(schema, '"') + ".";
 		for (auto &created_table : entry.second) {
-			if (!change_info.tables_created.empty()) {
-				change_info.tables_created += ",";
+			if (!change_info.changes_made.empty()) {
+				change_info.changes_made += ",";
 			}
-			change_info.tables_created += schema_prefix + KeywordHelper::WriteQuoted(created_table.get().name, '"');
+			auto is_view = created_table.get().type == CatalogType::VIEW_ENTRY;
+			change_info.changes_made += is_view ? "created_view:" : "created_table:";
+			change_info.changes_made += schema_prefix + KeywordHelper::WriteQuoted(created_table.get().name, '"');
 		}
 	}
 	for (auto &inserted_table_idx : changes.inserted_tables) {
-		if (!change_info.tables_inserted_into.empty()) {
-			change_info.tables_inserted_into += ",";
+		if (!change_info.changes_made.empty()) {
+			change_info.changes_made += ",";
 		}
-		change_info.tables_inserted_into += to_string(inserted_table_idx.index);
+		change_info.changes_made += "inserted_into_table:";
+		change_info.changes_made += to_string(inserted_table_idx.index);
 	}
 	for (auto &altered_table_idx : changes.altered_tables) {
-		if (!change_info.tables_altered.empty()) {
-			change_info.tables_altered += ",";
+		if (!change_info.changes_made.empty()) {
+			change_info.changes_made += ",";
 		}
-		change_info.tables_altered += to_string(altered_table_idx.index);
+		change_info.changes_made += "altered_table:";
+		change_info.changes_made += to_string(altered_table_idx.index);
 	}
 	metadata_manager->WriteSnapshotChanges(commit_snapshot, change_info);
 }
@@ -329,40 +327,15 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 	}
 }
 
-template <class T>
-set<T> ParseDropList(const string &input) {
-	set<T> result;
-	if (input.empty()) {
-		return result;
-	}
-	auto splits = StringUtil::Split(input, ",");
-	for (auto &split : splits) {
-		result.insert(T(std::stoull(split)));
-	}
-	return result;
-}
-
 void DuckLakeTransaction::CheckForConflicts(DuckLakeSnapshot transaction_snapshot,
                                             const TransactionChangeInformation &changes) {
 
 	// get all changes made to the system after the current snapshot was started
 	auto changes_made = metadata_manager->GetChangesMadeAfterSnapshot(transaction_snapshot);
 	// parse changes made by other transactions
-	SnapshotChangeInformation other_changes;
-	auto created_schema_list = DuckLakeUtil::ParseQuotedList(changes_made.schemas_created);
-	for (auto &created_schema : created_schema_list) {
-		other_changes.created_schemas.insert(created_schema);
-	}
-	auto created_table_list = DuckLakeUtil::ParseTableList(changes_made.tables_created);
-	for (auto &entry : created_table_list) {
-		other_changes.created_tables[entry.schema].insert(entry.table);
-	}
-	other_changes.dropped_schemas = ParseDropList<SchemaIndex>(changes_made.schemas_dropped);
-	other_changes.dropped_tables = ParseDropList<TableIndex>(changes_made.tables_dropped);
-	other_changes.altered_tables = ParseDropList<TableIndex>(changes_made.tables_altered);
-	other_changes.inserted_tables = ParseDropList<TableIndex>(changes_made.tables_inserted_into);
-	other_changes.tables_deleted_from = ParseDropList<TableIndex>(changes_made.tables_deleted_from);
-	other_changes.dropped_views = ParseDropList<TableIndex>(changes_made.views_dropped);
+	auto other_changes = SnapshotChangeInformation::ParseChangesMade(changes_made.changes_made);
+
+	// now check for conflicts
 	CheckForConflicts(changes, other_changes);
 }
 

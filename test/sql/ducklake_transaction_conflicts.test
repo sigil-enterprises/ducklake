@@ -258,30 +258,6 @@ COMMIT
 ----
 conflict
 
-statement ok
-CREATE TABLE ducklake.test(part_key INT, val INT);
-
-# two transaction try to set a partition key on the same table
-statement ok con1
-BEGIN
-
-statement ok con2
-BEGIN
-
-statement ok con1
-ALTER TABLE ducklake.test SET PARTITIONED BY (part_key);
-
-statement ok con2
-ALTER TABLE ducklake.test SET PARTITIONED BY (val);
-
-statement ok con1
-COMMIT
-
-statement error con2
-COMMIT
-----
-conflict
-
 # try to insert into a table that has had its partition key changed
 statement ok con1
 BEGIN

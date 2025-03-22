@@ -1,34 +1,35 @@
 #include "functions/ducklake_table_functions.hpp"
 #include "storage/ducklake_transaction.hpp"
 #include "common/ducklake_util.hpp"
+#include "storage/ducklake_transaction_changes.hpp"
 
 namespace duckdb {
 
-Value IDListToValue(const string &list_val) {
+template<class T>
+Value IDListToValue(const set<T> &id_list) {
 	vector<Value> list_values;
-	auto drop_list = DuckLakeUtil::ParseDropList(list_val);
-	for (auto &drop_entry : drop_list) {
-		list_values.emplace_back(to_string(drop_entry));
+	for (auto &id_entry : id_list) {
+		list_values.emplace_back(to_string(id_entry.index));
 	}
 	return Value::LIST(LogicalType::VARCHAR, std::move(list_values));
 }
 
-Value QuotedListToValue(const string &list_val) {
+Value NameListToValue(const case_insensitive_set_t &list_val) {
 	vector<Value> list_values;
-	auto change_list = DuckLakeUtil::ParseQuotedList(list_val);
-	for (auto &change_entry : change_list) {
-		list_values.emplace_back(change_entry);
+	for (auto &entry_name : list_val) {
+		list_values.emplace_back(entry_name);
 	}
 	return Value::LIST(LogicalType::VARCHAR, std::move(list_values));
 }
 
-Value TableListToValue(const string &list_val) {
+Value CatalogListToValue(const case_insensitive_map_t<case_insensitive_set_t> &list_val) {
 	vector<Value> list_values;
-	auto created_list = DuckLakeUtil::ParseTableList(list_val);
-	for (auto &entry : created_list) {
-		auto schema = KeywordHelper::WriteOptionallyQuoted(entry.schema);
-		auto table = KeywordHelper::WriteOptionallyQuoted(entry.table);
-		list_values.emplace_back(schema + "." + table);
+	for (auto &entry : list_val) {
+		auto schema = KeywordHelper::WriteOptionallyQuoted(entry.first);
+		for(auto &entry_name : entry.second) {
+			auto table = KeywordHelper::WriteOptionallyQuoted(entry_name);
+			list_values.emplace_back(schema + "." + table);
+		}
 	}
 	return Value::LIST(LogicalType::VARCHAR, std::move(list_values));
 }
@@ -47,39 +48,40 @@ static unique_ptr<FunctionData> DuckLakeSnapshotsBind(ClientContext &context, Ta
 		row_values.push_back(Value::TIMESTAMPTZ(snapshot.time));
 		row_values.push_back(Value::BIGINT(snapshot.schema_version));
 
+		auto other_changes = SnapshotChangeInformation::ParseChangesMade(snapshot.change_info.changes_made);
 		vector<Value> change_keys;
 		vector<Value> change_values;
-		if (!snapshot.change_info.schemas_created.empty()) {
+		if (!other_changes.created_schemas.empty()) {
 			change_keys.emplace_back("schemas_created");
-			change_values.push_back(QuotedListToValue(snapshot.change_info.schemas_created));
+			change_values.push_back(NameListToValue(other_changes.created_schemas));
 		}
-		if (!snapshot.change_info.schemas_dropped.empty()) {
+		if (!other_changes.dropped_schemas.empty()) {
 			change_keys.emplace_back("schemas_dropped");
-			change_values.push_back(IDListToValue(snapshot.change_info.schemas_dropped));
+			change_values.push_back(IDListToValue(other_changes.dropped_schemas));
 		}
-		if (!snapshot.change_info.tables_created.empty()) {
+		if (!other_changes.created_tables.empty()) {
 			change_keys.emplace_back("tables_created");
-			change_values.push_back(TableListToValue(snapshot.change_info.tables_created));
+			change_values.push_back(CatalogListToValue(other_changes.created_tables));
 		}
-		if (!snapshot.change_info.tables_dropped.empty()) {
+		if (!other_changes.dropped_tables.empty()) {
 			change_keys.emplace_back("tables_dropped");
-			change_values.push_back(IDListToValue(snapshot.change_info.tables_dropped));
+			change_values.push_back(IDListToValue(other_changes.dropped_tables));
 		}
-		if (!snapshot.change_info.tables_altered.empty()) {
+		if (!other_changes.altered_tables.empty()) {
 			change_keys.emplace_back("tables_altered");
-			change_values.push_back(IDListToValue(snapshot.change_info.tables_altered));
+			change_values.push_back(IDListToValue(other_changes.altered_tables));
 		}
-		if (!snapshot.change_info.tables_inserted_into.empty()) {
+		if (!other_changes.inserted_tables.empty()) {
 			change_keys.emplace_back("tables_inserted_into");
-			change_values.push_back(IDListToValue(snapshot.change_info.tables_inserted_into));
+			change_values.push_back(IDListToValue(other_changes.inserted_tables));
 		}
-		if (!snapshot.change_info.tables_deleted_from.empty()) {
+		if (!other_changes.tables_deleted_from.empty()) {
 			change_keys.emplace_back("tables_deleted_from");
-			change_values.push_back(IDListToValue(snapshot.change_info.tables_deleted_from));
+			change_values.push_back(IDListToValue(other_changes.tables_deleted_from));
 		}
-		if (!snapshot.change_info.views_dropped.empty()) {
+		if (!other_changes.dropped_views.empty()) {
 			change_keys.emplace_back("views_dropped");
-			change_values.push_back(IDListToValue(snapshot.change_info.views_dropped));
+			change_values.push_back(IDListToValue(other_changes.dropped_views));
 		}
 		row_values.push_back(Value::MAP(LogicalType::VARCHAR, LogicalType::LIST(LogicalType::VARCHAR),
 		                                std::move(change_keys), std::move(change_values)));
