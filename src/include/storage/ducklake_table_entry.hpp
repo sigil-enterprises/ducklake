@@ -13,13 +13,12 @@
 #include "storage/ducklake_partition_data.hpp"
 #include "common/index.hpp"
 #include "storage/ducklake_field_data.hpp"
+#include "common/enum.hpp"
 
 namespace duckdb {
 struct AlterTableInfo;
 struct SetPartitionedByInfo;
 class DuckLakeTransaction;
-
-enum class TransactionLocalChange { NONE, CREATED, RENAMED, SET_PARTITION_KEY };
 
 class DuckLakeTableEntry : public TableCatalogEntry {
 public:

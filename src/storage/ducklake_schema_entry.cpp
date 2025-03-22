@@ -1,8 +1,10 @@
 #include "storage/ducklake_schema_entry.hpp"
 #include "storage/ducklake_table_entry.hpp"
 #include "storage/ducklake_transaction.hpp"
+#include "storage/ducklake_view_entry.hpp"
 
 #include "duckdb/planner/parsed_data/bound_create_table_info.hpp"
+#include "duckdb/parser/parsed_data/create_view_info.hpp"
 #include "duckdb/common/types/uuid.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 
@@ -32,6 +34,7 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction t
 bool DuckLakeSchemaEntry::CatalogTypeIsSupported(CatalogType type) {
 	switch (type) {
 	case CatalogType::TABLE_ENTRY:
+	case CatalogType::VIEW_ENTRY:
 		return true;
 	default:
 		return false;
@@ -49,7 +52,15 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateIndex(CatalogTransaction t
 }
 
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateView(CatalogTransaction transaction, CreateViewInfo &info) {
-	throw InternalException("Unsupported schema operation");
+	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
+	//! get a local view-id
+	auto view_id = TableIndex(duck_transaction.GetLocalCatalogId());
+	auto view_uuid = UUID::ToString(UUID::GenerateRandomUUID());
+
+	auto view_entry = make_uniq<DuckLakeViewEntry>(ParentCatalog(), *this, info, view_id, std::move(view_uuid), info.query->ToString(), TransactionLocalChange::CREATED);
+	auto result = view_entry.get();
+	duck_transaction.CreateEntry(std::move(view_entry));
+	return result;
 }
 
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateSequence(CatalogTransaction transaction,
@@ -194,6 +205,7 @@ void DuckLakeSchemaEntry::TryDropSchema(DuckLakeTransaction &transaction, bool c
 DuckLakeCatalogSet &DuckLakeSchemaEntry::GetCatalogSet(CatalogType type) {
 	switch (type) {
 	case CatalogType::TABLE_ENTRY:
+	case CatalogType::VIEW_ENTRY:
 		return tables;
 	default:
 		throw NotImplementedException("Unimplemented catalog type for schema");

@@ -23,9 +23,11 @@ class DuckLakeCatalogSet;
 class DuckLakeMetadataManager;
 class DuckLakeSchemaEntry;
 class DuckLakeTableEntry;
+class DuckLakeViewEntry;
 struct DuckLakeTableStats;
 struct SnapshotChangeInformation;
 struct TransactionChangeInformation;
+struct NewTableInfo;
 
 class DuckLakeTransaction : public Transaction {
 public:
@@ -82,11 +84,11 @@ private:
 	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,
 	               unordered_set<idx_t> &dropped_entries);
 	vector<DuckLakeSchemaInfo> GetNewSchemas(DuckLakeSnapshot &commit_snapshot);
-	vector<DuckLakeTableInfo> GetNewTables(DuckLakeSnapshot &commit_snapshot,
-	                                       vector<DuckLakePartitionInfo> &new_partition_keys,
+	NewTableInfo GetNewTables(DuckLakeSnapshot &commit_snapshot,
 	                                       TransactionChangeInformation &transaction_changes);
 	DuckLakePartitionInfo GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &tabletable_id);
 	DuckLakeTableInfo GetNewTable(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table);
+	DuckLakeViewInfo GetNewView(DuckLakeSnapshot &commit_snapshot, DuckLakeViewEntry &view);
 	void FlushNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table);
 	vector<DuckLakeFileInfo> GetNewDataFiles(DuckLakeSnapshot &commit_snapshot);
 	void UpdateGlobalTableStats(TableIndex table_id, DuckLakeTableStats new_stats);
@@ -95,6 +97,8 @@ private:
 	void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, TransactionChangeInformation &changes);
 	//! Return the set of changes made by this transaction
 	TransactionChangeInformation GetTransactionChanges();
+	void GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> table_entry, NewTableInfo &result, TransactionChangeInformation &transaction_changes);
+	void GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> table_entry, NewTableInfo &result, TransactionChangeInformation &transaction_changes);
 
 private:
 	DuckLakeCatalog &ducklake_catalog;

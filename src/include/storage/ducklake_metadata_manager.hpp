@@ -116,9 +116,19 @@ struct DuckLakeSnapshotInfo {
 	SnapshotChangeInfo change_info;
 };
 
+struct DuckLakeViewInfo {
+	TableIndex id;
+	SchemaIndex schema_id;
+	string uuid;
+	string name;
+	string dialect;
+	string sql;
+};
+
 struct DuckLakeCatalogInfo {
 	vector<DuckLakeSchemaInfo> schemas;
 	vector<DuckLakeTableInfo> tables;
+	vector<DuckLakeViewInfo> views;
 	vector<DuckLakePartitionInfo> partitions;
 };
 
@@ -139,6 +149,7 @@ public:
 	virtual void DropTables(DuckLakeSnapshot commit_snapshot, set<TableIndex> ids);
 	virtual void WriteNewSchemas(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeSchemaInfo> &new_schemas);
 	virtual void WriteNewTables(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeTableInfo> &new_tables);
+	virtual void WriteNewViews(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeViewInfo> &new_views);
 	virtual void WriteNewPartitionKeys(DuckLakeSnapshot commit_snapshot,
 	                                   const vector<DuckLakePartitionInfo> &new_partitions);
 	virtual void WriteNewDataFiles(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeFileInfo> &new_files);

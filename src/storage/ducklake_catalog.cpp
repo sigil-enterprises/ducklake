@@ -2,6 +2,7 @@
 #include "storage/ducklake_initializer.hpp"
 #include "storage/ducklake_schema_entry.hpp"
 #include "storage/ducklake_table_entry.hpp"
+#include "storage/ducklake_view_entry.hpp"
 #include "storage/ducklake_transaction.hpp"
 #include "common/ducklake_types.hpp"
 
@@ -11,6 +12,7 @@
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
+#include "duckdb/parser/parsed_data/create_view_info.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "duckdb/common/types/uuid.hpp"
 
@@ -245,6 +247,22 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 		    make_uniq<DuckLakeTableEntry>(*this, schema_entry, *create_table_info, table.id, std::move(table.uuid),
 		                                  std::move(field_data), TransactionLocalChange::NONE);
 		schema_set->AddEntry(schema_entry, table.id, std::move(table_entry));
+	}
+
+	// load the view entries
+	for(auto &view : catalog.views) {
+		// find the schema for the view
+		auto entry = schema_id_map.find(view.schema_id);
+		if (entry == schema_id_map.end()) {
+			throw InvalidInputException(
+				"Failed to load DuckLake - could not find schema that corresponds to the view entry \"%s\"",
+				view.name);
+		}
+		auto &schema_entry = entry->second.get();
+		auto create_view_info = make_uniq<CreateViewInfo>(schema_entry, view.name);
+		auto view_entry =
+			make_uniq<DuckLakeViewEntry>(*this, schema_entry, *create_view_info, view.id, std::move(view.uuid), std::move(view.sql), TransactionLocalChange::NONE);
+		schema_set->AddEntry(schema_entry, view.id, std::move(view_entry));
 	}
 
 	// load the partition entries

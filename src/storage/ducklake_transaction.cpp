@@ -2,6 +2,7 @@
 #include "storage/ducklake_catalog.hpp"
 #include "storage/ducklake_schema_entry.hpp"
 #include "storage/ducklake_table_entry.hpp"
+#include "storage/ducklake_view_entry.hpp"
 #include "common/ducklake_types.hpp"
 #include "common/ducklake_util.hpp"
 
@@ -62,7 +63,7 @@ bool DuckLakeTransaction::ChangesMade() {
 struct TransactionChangeInformation {
 	case_insensitive_set_t created_schemas;
 	map<SchemaIndex, reference<DuckLakeSchemaEntry>> dropped_schemas;
-	case_insensitive_map_t<reference_set_t<DuckLakeTableEntry>> created_tables;
+	case_insensitive_map_t<reference_set_t<CatalogEntry>> created_tables;
 	set<TableIndex> altered_tables;
 	set<TableIndex> dropped_tables;
 	set<TableIndex> inserted_tables;
@@ -77,6 +78,43 @@ struct SnapshotChangeInformation {
 	set<TableIndex> inserted_tables;
 	set<TableIndex> tables_deleted_from;
 };
+
+void GetTransactionTableChanges(reference<CatalogEntry> table_entry, TransactionChangeInformation &changes) {
+	while (true) {
+		auto &table = table_entry.get().Cast<DuckLakeTableEntry>();
+		if (table.LocalChange() == TransactionLocalChange::SET_PARTITION_KEY) {
+			// this table was altered
+			auto table_id = table.GetTableId();
+			// don't report transaction-local tables yet - these will get added later on
+			if (!table_id.IsTransactionLocal()) {
+				changes.altered_tables.insert(table_id);
+			}
+		} else {
+			// write any new tables that we created
+			auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
+			changes.created_tables[schema.name].insert(table);
+		}
+
+		if (!table_entry.get().HasChild()) {
+			break;
+		}
+		table_entry = table_entry.get().Child();
+	}
+}
+
+void GetTransactionViewChanges(reference<CatalogEntry> view_entry, TransactionChangeInformation &changes) {
+	while (true) {
+		auto &view = view_entry.get().Cast<DuckLakeViewEntry>();
+		// write any new view that we created
+		auto &schema = view.ParentSchema().Cast<DuckLakeSchemaEntry>();
+		changes.created_tables[schema.name].insert(view);
+
+		if (!view_entry.get().HasChild()) {
+			break;
+		}
+		view_entry = view_entry.get().Child();
+	}
+}
 
 TransactionChangeInformation DuckLakeTransaction::GetTransactionChanges() {
 	TransactionChangeInformation changes;
@@ -94,26 +132,16 @@ TransactionChangeInformation DuckLakeTransaction::GetTransactionChanges() {
 	}
 	for (auto &schema_entry : new_tables) {
 		for (auto &entry : schema_entry.second->GetEntries()) {
-			reference<CatalogEntry> table_entry = *entry.second;
-			while (true) {
-				auto &table = table_entry.get().Cast<DuckLakeTableEntry>();
-				if (table.LocalChange() == TransactionLocalChange::SET_PARTITION_KEY) {
-					// this table was altered
-					auto table_id = table.GetTableId();
-					// don't report transaction-local tables yet - these will get added later on
-					if (!table_id.IsTransactionLocal()) {
-						changes.altered_tables.insert(table_id);
-					}
-				} else {
-					// write any new tables that we created
-					auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
-					changes.created_tables[schema.name].insert(table);
-				}
+			switch(entry.second->type) {
+			case CatalogType::TABLE_ENTRY:
+				GetTransactionTableChanges(*entry.second, changes);
+				break;
+			case CatalogType::VIEW_ENTRY:
+				GetTransactionViewChanges(*entry.second, changes);
+				break;
+			default:
+				throw InternalException("Unsupported type found in new_tables");
 
-				if (!table_entry.get().HasChild()) {
-					break;
-				}
-				table_entry = table_entry.get().Child();
 			}
 		}
 	}
@@ -459,41 +487,82 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 	return table_entry;
 }
 
-vector<DuckLakeTableInfo> DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &commit_snapshot,
-                                                            vector<DuckLakePartitionInfo> &new_partition_keys,
+struct NewTableInfo {
+	vector<DuckLakeTableInfo> new_tables;
+	vector<DuckLakeViewInfo> new_views;
+	vector<DuckLakePartitionInfo> new_partition_keys;
+};
+
+void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> table_entry, NewTableInfo &result, TransactionChangeInformation &transaction_changes) {
+	// iterate over the table chain in reverse order when committing
+	// the latest entry is the root entry - but we need to commit starting from the first entry written
+	// gather all tables
+	vector<reference<DuckLakeTableEntry>> tables;
+	while (true) {
+		tables.push_back(table_entry.get().Cast<DuckLakeTableEntry>());
+		if (!table_entry.get().HasChild()) {
+			break;
+		}
+		table_entry = table_entry.get().Child();
+	}
+	// traverse in reverse order
+	TableIndex new_table_id;
+	for (idx_t table_idx = tables.size(); table_idx > 0; table_idx--) {
+		auto &table = tables[table_idx - 1].get();
+		if (new_table_id.IsValid()) {
+			table.SetTableId(new_table_id);
+		}
+		if (table.LocalChange() == TransactionLocalChange::SET_PARTITION_KEY) {
+			auto partition_key = GetNewPartitionKey(commit_snapshot, table);
+			result.new_partition_keys.push_back(std::move(partition_key));
+
+			transaction_changes.altered_tables.insert(table.GetTableId());
+		} else {
+			auto new_table = GetNewTable(commit_snapshot, table);
+			new_table_id = new_table.id;
+			result.new_tables.push_back(std::move(new_table));
+		}
+	}
+}
+
+DuckLakeViewInfo DuckLakeTransaction::GetNewView(DuckLakeSnapshot &commit_snapshot, DuckLakeViewEntry &view) {
+	auto &schema = view.ParentSchema().Cast<DuckLakeSchemaEntry>();
+	DuckLakeViewInfo view_entry;
+	auto original_id = view.GetViewId();
+	if (original_id.IsTransactionLocal()) {
+		view_entry.id = TableIndex(commit_snapshot.next_catalog_id++);
+	} else {
+		// this view already has an id - keep it
+		// this happens if e.g. this view is renamed
+		view_entry.id = original_id;
+	}
+	view_entry.uuid = view.GetViewUUID();
+	view_entry.schema_id = schema.GetSchemaId();
+	view_entry.name = view.name;
+	view_entry.dialect = "duckdb";
+	view_entry.sql = view.GetQuerySQL();
+	return view_entry;
+}
+
+void DuckLakeTransaction::GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> view_entry, NewTableInfo &result, TransactionChangeInformation &transaction_changes) {
+	auto &view = view_entry.get().Cast<DuckLakeViewEntry>();
+	result.new_views.push_back(GetNewView(commit_snapshot, view));
+}
+
+NewTableInfo DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &commit_snapshot,
                                                             TransactionChangeInformation &transaction_changes) {
-	vector<DuckLakeTableInfo> result;
+	NewTableInfo result;
 	for (auto &schema_entry : new_tables) {
 		for (auto &entry : schema_entry.second->GetEntries()) {
-			// iterate over the table chain in reverse order when committing
-			// the latest entry is the root entry - but we need to commit starting from the first entry written
-			reference<CatalogEntry> table_entry = *entry.second;
-			// gather all tables
-			vector<reference<DuckLakeTableEntry>> tables;
-			while (true) {
-				tables.push_back(table_entry.get().Cast<DuckLakeTableEntry>());
-				if (!table_entry.get().HasChild()) {
-					break;
-				}
-				table_entry = table_entry.get().Child();
-			}
-			// traverse in reverse order
-			TableIndex new_table_id;
-			for (idx_t table_idx = tables.size(); table_idx > 0; table_idx--) {
-				auto &table = tables[table_idx - 1].get();
-				if (new_table_id.IsValid()) {
-					table.SetTableId(new_table_id);
-				}
-				if (table.LocalChange() == TransactionLocalChange::SET_PARTITION_KEY) {
-					auto partition_key = GetNewPartitionKey(commit_snapshot, table);
-					new_partition_keys.push_back(std::move(partition_key));
-
-					transaction_changes.altered_tables.insert(table.GetTableId());
-				} else {
-					auto new_table = GetNewTable(commit_snapshot, table);
-					new_table_id = new_table.id;
-					result.push_back(std::move(new_table));
-				}
+			switch(entry.second->type) {
+			case CatalogType::TABLE_ENTRY:
+				GetNewTableInfo(commit_snapshot, *entry.second, result, transaction_changes);
+				break;
+			case CatalogType::VIEW_ENTRY:
+				GetNewViewInfo(commit_snapshot, *entry.second, result, transaction_changes);
+				break;
+			default:
+				throw InternalException("Unknown type in new_tables");
 			}
 		}
 	}
@@ -633,10 +702,10 @@ void DuckLakeTransaction::FlushChanges() {
 
 			// write new tables
 			if (!new_tables.empty()) {
-				vector<DuckLakePartitionInfo> partition_keys;
-				auto table_list = GetNewTables(commit_snapshot, partition_keys, transaction_changes);
-				metadata_manager->WriteNewTables(commit_snapshot, table_list);
-				metadata_manager->WriteNewPartitionKeys(commit_snapshot, partition_keys);
+				auto result = GetNewTables(commit_snapshot, transaction_changes);
+				metadata_manager->WriteNewTables(commit_snapshot, result.new_tables);
+				metadata_manager->WriteNewPartitionKeys(commit_snapshot, result.new_partition_keys);
+				metadata_manager->WriteNewViews(commit_snapshot, result.new_views);
 			}
 
 			// write new data files
@@ -831,6 +900,10 @@ bool DuckLakeTransaction::IsDeleted(CatalogEntry &entry) {
 		auto &table_entry = entry.Cast<DuckLakeTableEntry>();
 		return dropped_tables.find(table_entry.GetTableId()) != dropped_tables.end();
 	}
+	case CatalogType::VIEW_ENTRY: {
+		auto &view_entry = entry.Cast<DuckLakeViewEntry>();
+		return dropped_tables.find(view_entry.GetViewId()) != dropped_tables.end();
+	}
 	case CatalogType::SCHEMA_ENTRY: {
 		auto &schema_entry = entry.Cast<DuckLakeSchemaEntry>();
 		return dropped_schemas.find(schema_entry.GetSchemaId()) != dropped_schemas.end();
@@ -881,14 +954,17 @@ DuckLakeCatalogSet &DuckLakeTransaction::GetOrCreateTransactionLocalEntries(Cata
 	if (local_entry) {
 		return *local_entry;
 	}
-	if (catalog_type != CatalogType::TABLE_ENTRY) {
+	switch(catalog_type) {
+	case CatalogType::TABLE_ENTRY:
+	case CatalogType::VIEW_ENTRY: {
+		auto new_table_list = make_uniq<DuckLakeCatalogSet>();
+		auto &result = *new_table_list;
+		new_tables.insert(make_pair(schema_name, std::move(new_table_list)));
+		return result;
+	}
+	default:
 		throw InternalException("Catalog type not supported for transaction local storage");
 	}
-	// need to create it
-	auto new_table_list = make_uniq<DuckLakeCatalogSet>();
-	auto &result = *new_table_list;
-	new_tables.insert(make_pair(schema_name, std::move(new_table_list)));
-	return result;
 }
 
 optional_ptr<DuckLakeCatalogSet> DuckLakeTransaction::GetTransactionLocalSchemas() {
@@ -907,14 +983,18 @@ optional_ptr<CatalogEntry> DuckLakeTransaction::GetTransactionLocalEntry(Catalog
 
 optional_ptr<DuckLakeCatalogSet> DuckLakeTransaction::GetTransactionLocalEntries(CatalogType catalog_type,
                                                                                  const string &schema_name) {
-	if (catalog_type != CatalogType::TABLE_ENTRY) {
-		return nullptr;
-	}
-	auto entry = new_tables.find(schema_name);
-	if (entry == new_tables.end()) {
-		return nullptr;
-	}
-	return entry->second;
+    switch(catalog_type) {
+    case CatalogType::TABLE_ENTRY:
+    case CatalogType::VIEW_ENTRY: {
+    	auto entry = new_tables.find(schema_name);
+    	if (entry == new_tables.end()) {
+    		return nullptr;
+    	}
+    	return entry->second;
+    }
+    default:
+	    return nullptr;
+    }
 }
 
 } // namespace duckdb
