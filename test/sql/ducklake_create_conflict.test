@@ -1,0 +1,36 @@
+# name: test/sql/ducklake_create_conflict.test
+# description: test conflict handling on CREATE
+# group: [ducklake]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_files', METADATA_CATALOG 'ducklake_meta')
+
+statement ok
+CREATE TABLE ducklake.test(i INTEGER, j INTEGER);
+
+# default behavior: table already exists (error)
+statement error
+CREATE TABLE ducklake.test(i VARCHAR);
+----
+already exists
+
+# ignore if exists
+statement ok
+CREATE TABLE IF NOT EXISTS ducklake.test(i VARCHAR);
+
+query II
+FROM ducklake.test
+----
+
+# replace table
+statement ok
+CREATE OR REPLACE TABLE ducklake.test(i VARCHAR);
+
+query I
+FROM ducklake.test
+----
+

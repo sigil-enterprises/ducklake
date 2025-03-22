@@ -19,6 +19,28 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction t
                                                             BoundCreateTableInfo &info) {
 	auto &base_info = info.Base();
 	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
+	// check if we have an existing entry with this name
+	auto existing_entry = GetEntry(transaction, CatalogType::TABLE_ENTRY, base_info.table);
+	if (existing_entry) {
+		switch(base_info.on_conflict) {
+		case OnCreateConflict::ERROR_ON_CONFLICT:
+			throw CatalogException("%s with name \"%s\" already exists", CatalogTypeToString(existing_entry->type), base_info.table);
+        case OnCreateConflict::IGNORE_ON_CONFLICT:
+        	// ignore - skip without throwing an error
+        	return nullptr;
+        case OnCreateConflict::REPLACE_ON_CONFLICT: {
+        	// try to drop the entry prior to creating
+        	DropInfo info;
+        	info.type = CatalogType::TABLE_ENTRY;
+        	info.name = base_info.table;
+        	DropEntry(transaction.GetContext(), info);
+        	break;
+        }
+		default:
+			throw InternalException("Unsupported conflict type");
+		}
+	}
+
 	//! get a local table-id
 	auto table_id = TableIndex(duck_transaction.GetLocalCatalogId());
 	auto table_uuid = UUID::ToString(UUID::GenerateRandomUUID());
