@@ -141,7 +141,6 @@ TransactionChangeInformation DuckLakeTransaction::GetTransactionChanges() {
 				break;
 			default:
 				throw InternalException("Unsupported type found in new_tables");
-
 			}
 		}
 	}
