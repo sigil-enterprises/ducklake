@@ -57,7 +57,8 @@ public:
 
 private:
 	DuckLakeCatalogSet &GetCatalogSet(CatalogType type);
-	bool HandleCreateConflict(CatalogTransaction transaction, CatalogType type, const string &name, OnCreateConflict on_conflict);
+	bool HandleCreateConflict(CatalogTransaction transaction, CatalogType type, const string &name,
+	                          OnCreateConflict on_conflict);
 
 private:
 	SchemaIndex schema_id;

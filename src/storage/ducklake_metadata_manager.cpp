@@ -341,15 +341,16 @@ void DuckLakeMetadataManager::WriteNewTables(DuckLakeSnapshot commit_snapshot,
 }
 
 void DuckLakeMetadataManager::WriteNewViews(DuckLakeSnapshot commit_snapshot,
-                                             const vector<DuckLakeViewInfo> &new_views) {
+                                            const vector<DuckLakeViewInfo> &new_views) {
 	string view_insert_sql;
 	for (auto &view : new_views) {
 		if (!view_insert_sql.empty()) {
 			view_insert_sql += ", ";
 		}
 		auto schema_id = view.schema_id.index;
-		view_insert_sql += StringUtil::Format("(%d, '%s', {SNAPSHOT_ID}, NULL, %d, %s, %s, %s)", view.id.index, view.uuid,
-		                                       schema_id, SQLString(view.name), SQLString(view.dialect), SQLString(view.sql));
+		view_insert_sql +=
+		    StringUtil::Format("(%d, '%s', {SNAPSHOT_ID}, NULL, %d, %s, %s, %s)", view.id.index, view.uuid, schema_id,
+		                       SQLString(view.name), SQLString(view.dialect), SQLString(view.sql));
 	}
 	if (!view_insert_sql.empty()) {
 		// insert table entries
@@ -424,9 +425,9 @@ string SQLStringOrNull(const string &str) {
 void DuckLakeMetadataManager::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
                                                    const SnapshotChangeInfo &change_info) {
 	// insert the snapshot changes
-	auto query = StringUtil::Format(
-	    R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot_changes VALUES ({SNAPSHOT_ID}, %s);)",
-	    SQLStringOrNull(change_info.changes_made));
+	auto query =
+	    StringUtil::Format(R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot_changes VALUES ({SNAPSHOT_ID}, %s);)",
+	                       SQLStringOrNull(change_info.changes_made));
 	auto result = transaction.Query(commit_snapshot, query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write new snapshot to DuckLake:");

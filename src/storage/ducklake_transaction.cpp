@@ -54,7 +54,8 @@ Connection &DuckLakeTransaction::GetConnection() {
 }
 
 bool DuckLakeTransaction::SchemaChangesMade() {
-	return !new_tables.empty() || !dropped_tables.empty() || new_schemas || !dropped_schemas.empty() || !dropped_views.empty();
+	return !new_tables.empty() || !dropped_tables.empty() || new_schemas || !dropped_schemas.empty() ||
+	       !dropped_views.empty();
 }
 
 bool DuckLakeTransaction::ChangesMade() {
@@ -127,7 +128,7 @@ TransactionChangeInformation DuckLakeTransaction::GetTransactionChanges() {
 	}
 	for (auto &schema_entry : new_tables) {
 		for (auto &entry : schema_entry.second->GetEntries()) {
-			switch(entry.second->type) {
+			switch (entry.second->type) {
 			case CatalogType::TABLE_ENTRY:
 				GetTransactionTableChanges(*entry.second, changes);
 				break;
@@ -477,7 +478,8 @@ struct NewTableInfo {
 	vector<DuckLakePartitionInfo> new_partition_keys;
 };
 
-void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> table_entry, NewTableInfo &result, TransactionChangeInformation &transaction_changes) {
+void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> table_entry,
+                                          NewTableInfo &result, TransactionChangeInformation &transaction_changes) {
 	// iterate over the table chain in reverse order when committing
 	// the latest entry is the root entry - but we need to commit starting from the first entry written
 	// gather all tables
@@ -528,17 +530,18 @@ DuckLakeViewInfo DuckLakeTransaction::GetNewView(DuckLakeSnapshot &commit_snapsh
 	return view_entry;
 }
 
-void DuckLakeTransaction::GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> view_entry, NewTableInfo &result, TransactionChangeInformation &transaction_changes) {
+void DuckLakeTransaction::GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> view_entry,
+                                         NewTableInfo &result, TransactionChangeInformation &transaction_changes) {
 	auto &view = view_entry.get().Cast<DuckLakeViewEntry>();
 	result.new_views.push_back(GetNewView(commit_snapshot, view));
 }
 
 NewTableInfo DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &commit_snapshot,
-                                                            TransactionChangeInformation &transaction_changes) {
+                                               TransactionChangeInformation &transaction_changes) {
 	NewTableInfo result;
 	for (auto &schema_entry : new_tables) {
 		for (auto &entry : schema_entry.second->GetEntries()) {
-			switch(entry.second->type) {
+			switch (entry.second->type) {
 			case CatalogType::TABLE_ENTRY:
 				GetNewTableInfo(commit_snapshot, *entry.second, result, transaction_changes);
 				break;
@@ -959,7 +962,7 @@ DuckLakeCatalogSet &DuckLakeTransaction::GetOrCreateTransactionLocalEntries(Cata
 	if (local_entry) {
 		return *local_entry;
 	}
-	switch(catalog_type) {
+	switch (catalog_type) {
 	case CatalogType::TABLE_ENTRY:
 	case CatalogType::VIEW_ENTRY: {
 		auto new_table_list = make_uniq<DuckLakeCatalogSet>();
@@ -988,18 +991,18 @@ optional_ptr<CatalogEntry> DuckLakeTransaction::GetTransactionLocalEntry(Catalog
 
 optional_ptr<DuckLakeCatalogSet> DuckLakeTransaction::GetTransactionLocalEntries(CatalogType catalog_type,
                                                                                  const string &schema_name) {
-    switch(catalog_type) {
-    case CatalogType::TABLE_ENTRY:
-    case CatalogType::VIEW_ENTRY: {
-    	auto entry = new_tables.find(schema_name);
-    	if (entry == new_tables.end()) {
-    		return nullptr;
-    	}
-    	return entry->second;
-    }
-    default:
-	    return nullptr;
-    }
+	switch (catalog_type) {
+	case CatalogType::TABLE_ENTRY:
+	case CatalogType::VIEW_ENTRY: {
+		auto entry = new_tables.find(schema_name);
+		if (entry == new_tables.end()) {
+			return nullptr;
+		}
+		return entry->second;
+	}
+	default:
+		return nullptr;
+	}
 }
 
 } // namespace duckdb

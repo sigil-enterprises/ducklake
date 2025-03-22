@@ -21,7 +21,7 @@ struct ChangeInfo {
 
 ChangeType ParseChangeType(const string &changes_made, idx_t &pos) {
 	idx_t start_pos = pos;
-	for(; pos < changes_made.size(); pos++) {
+	for (; pos < changes_made.size(); pos++) {
 		if (changes_made[pos] == ':') {
 			break;
 		}
@@ -52,7 +52,7 @@ string ParseChangeValue(const string &changes_made, idx_t &pos) {
 	// parse until we find an unquoted comma
 	bool in_quotes = false;
 	idx_t start_pos = pos;
-	for(; pos < changes_made.size(); pos++) {
+	for (; pos < changes_made.size(); pos++) {
 		if (!in_quotes && changes_made[pos] == ',') {
 			// found an unquoted comma
 			break;
@@ -78,7 +78,7 @@ ChangeInfo ParseChangeEntry(const string &changes_made, idx_t &pos) {
 vector<ChangeInfo> ParseChangesList(const string &changes_made) {
 	vector<ChangeInfo> result;
 	idx_t pos = 0;
-	while(pos < changes_made.size()) {
+	while (pos < changes_made.size()) {
 		result.push_back(ParseChangeEntry(changes_made, pos));
 		if (pos >= changes_made.size()) {
 			break;
@@ -95,8 +95,8 @@ SnapshotChangeInformation SnapshotChangeInformation::ParseChangesMade(const stri
 	auto change_list = ParseChangesList(changes_made);
 
 	SnapshotChangeInformation result;
-	for(auto &entry : change_list) {
-		switch(entry.change_type) {
+	for (auto &entry : change_list) {
+		switch (entry.change_type) {
 		case ChangeType::CREATED_TABLE: {
 			auto catalog_value = DuckLakeUtil::ParseCatalogEntry(entry.change_value);
 			result.created_tables[catalog_value.schema].insert(std::move(catalog_value.name));
@@ -108,7 +108,7 @@ SnapshotChangeInformation SnapshotChangeInformation::ParseChangesMade(const stri
 			break;
 		}
 		case ChangeType::CREATED_SCHEMA: {
-		 	idx_t pos = 0;
+			idx_t pos = 0;
 			auto schema_name = DuckLakeUtil::ParseQuotedValue(entry.change_value, pos);
 			result.created_schemas.insert(std::move(schema_name));
 			break;
@@ -135,4 +135,4 @@ SnapshotChangeInformation SnapshotChangeInformation::ParseChangesMade(const stri
 	return result;
 }
 
-}
+} // namespace duckdb

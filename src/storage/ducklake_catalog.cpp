@@ -250,18 +250,18 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 	}
 
 	// load the view entries
-	for(auto &view : catalog.views) {
+	for (auto &view : catalog.views) {
 		// find the schema for the view
 		auto entry = schema_id_map.find(view.schema_id);
 		if (entry == schema_id_map.end()) {
 			throw InvalidInputException(
-				"Failed to load DuckLake - could not find schema that corresponds to the view entry \"%s\"",
-				view.name);
+			    "Failed to load DuckLake - could not find schema that corresponds to the view entry \"%s\"", view.name);
 		}
 		auto &schema_entry = entry->second.get();
 		auto create_view_info = make_uniq<CreateViewInfo>(schema_entry, view.name);
 		auto view_entry =
-			make_uniq<DuckLakeViewEntry>(*this, schema_entry, *create_view_info, view.id, std::move(view.uuid), std::move(view.sql), TransactionLocalChange::NONE);
+		    make_uniq<DuckLakeViewEntry>(*this, schema_entry, *create_view_info, view.id, std::move(view.uuid),
+		                                 std::move(view.sql), TransactionLocalChange::NONE);
 		schema_set->AddEntry(schema_entry, view.id, std::move(view_entry));
 	}
 

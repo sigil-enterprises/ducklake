@@ -15,32 +15,33 @@ DuckLakeSchemaEntry::DuckLakeSchemaEntry(Catalog &catalog, CreateSchemaInfo &inf
     : SchemaCatalogEntry(catalog, info), schema_id(schema_id), schema_uuid(std::move(schema_uuid)) {
 }
 
-bool DuckLakeSchemaEntry::HandleCreateConflict(CatalogTransaction transaction, CatalogType catalog_type, const string &entry_name, OnCreateConflict on_conflict) {
+bool DuckLakeSchemaEntry::HandleCreateConflict(CatalogTransaction transaction, CatalogType catalog_type,
+                                               const string &entry_name, OnCreateConflict on_conflict) {
 	auto existing_entry = GetEntry(transaction, catalog_type, entry_name);
 	if (!existing_entry) {
 		// no conflict
 		return true;
 	}
-	switch(on_conflict) {
+	switch (on_conflict) {
 	case OnCreateConflict::ERROR_ON_CONFLICT:
-		throw CatalogException("%s with name \"%s\" already exists", CatalogTypeToString(existing_entry->type), entry_name);
-    case OnCreateConflict::IGNORE_ON_CONFLICT:
-        // ignore - skip without throwing an error
-        return false;
-    case OnCreateConflict::REPLACE_ON_CONFLICT: {
-        // try to drop the entry prior to creating
-        DropInfo info;
-        info.type = catalog_type;
-        info.name = entry_name;
-        DropEntry(transaction.GetContext(), info);
-        break;
-    }
+		throw CatalogException("%s with name \"%s\" already exists", CatalogTypeToString(existing_entry->type),
+		                       entry_name);
+	case OnCreateConflict::IGNORE_ON_CONFLICT:
+		// ignore - skip without throwing an error
+		return false;
+	case OnCreateConflict::REPLACE_ON_CONFLICT: {
+		// try to drop the entry prior to creating
+		DropInfo info;
+		info.type = catalog_type;
+		info.name = entry_name;
+		DropEntry(transaction.GetContext(), info);
+		break;
+	}
 	default:
 		throw InternalException("Unsupported conflict type");
 	}
 	return true;
 }
-
 
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction transaction,
                                                             BoundCreateTableInfo &info) {
@@ -92,7 +93,8 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateView(CatalogTransaction tr
 	auto view_id = TableIndex(duck_transaction.GetLocalCatalogId());
 	auto view_uuid = UUID::ToString(UUID::GenerateRandomUUID());
 
-	auto view_entry = make_uniq<DuckLakeViewEntry>(ParentCatalog(), *this, info, view_id, std::move(view_uuid), info.query->ToString(), TransactionLocalChange::CREATED);
+	auto view_entry = make_uniq<DuckLakeViewEntry>(ParentCatalog(), *this, info, view_id, std::move(view_uuid),
+	                                               info.query->ToString(), TransactionLocalChange::CREATED);
 	auto result = view_entry.get();
 	duck_transaction.CreateEntry(std::move(view_entry));
 	return result;

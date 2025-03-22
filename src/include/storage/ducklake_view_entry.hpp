@@ -18,7 +18,7 @@ namespace duckdb {
 class DuckLakeViewEntry : public ViewCatalogEntry {
 public:
 	DuckLakeViewEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateViewInfo &info, TableIndex view_id,
-	                   string view_uuid, string query_sql, TransactionLocalChange transaction_local_change);
+	                  string view_uuid, string query_sql, TransactionLocalChange transaction_local_change);
 
 public:
 	TableIndex GetViewId() const {

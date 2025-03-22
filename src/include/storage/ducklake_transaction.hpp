@@ -85,8 +85,7 @@ private:
 	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,
 	               unordered_set<idx_t> &dropped_entries);
 	vector<DuckLakeSchemaInfo> GetNewSchemas(DuckLakeSnapshot &commit_snapshot);
-	NewTableInfo GetNewTables(DuckLakeSnapshot &commit_snapshot,
-	                                       TransactionChangeInformation &transaction_changes);
+	NewTableInfo GetNewTables(DuckLakeSnapshot &commit_snapshot, TransactionChangeInformation &transaction_changes);
 	DuckLakePartitionInfo GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &tabletable_id);
 	DuckLakeTableInfo GetNewTable(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table);
 	DuckLakeViewInfo GetNewView(DuckLakeSnapshot &commit_snapshot, DuckLakeViewEntry &view);
@@ -98,8 +97,10 @@ private:
 	void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, TransactionChangeInformation &changes);
 	//! Return the set of changes made by this transaction
 	TransactionChangeInformation GetTransactionChanges();
-	void GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> table_entry, NewTableInfo &result, TransactionChangeInformation &transaction_changes);
-	void GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> table_entry, NewTableInfo &result, TransactionChangeInformation &transaction_changes);
+	void GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> table_entry, NewTableInfo &result,
+	                     TransactionChangeInformation &transaction_changes);
+	void GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> table_entry, NewTableInfo &result,
+	                    TransactionChangeInformation &transaction_changes);
 
 private:
 	DuckLakeCatalog &ducklake_catalog;
