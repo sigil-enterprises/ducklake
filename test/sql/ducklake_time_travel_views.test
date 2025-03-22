@@ -53,4 +53,55 @@ SELECT * FROM ducklake.v1 AT (VERSION => 4)
 300	400
 500	600
 
-# now time travel
+# time travel with schemas
+statement ok
+BEGIN
+
+statement ok
+CREATE SCHEMA ducklake.s1
+
+statement ok
+CREATE TABLE ducklake.s1.test(i INT)
+
+statement ok
+CREATE VIEW ducklake.s1_view AS SELECT * FROM s1.test
+
+statement ok
+COMMIT
+
+statement ok
+INSERT INTO ducklake.s1.test VALUES (42), (84);
+
+statement ok
+DROP SCHEMA ducklake.s1 CASCADE
+
+statement error
+SELECT * FROM ducklake.s1_view
+----
+Table with name test does not exist
+
+query I
+SELECT * FROM ducklake.s1_view AT (VERSION => 5)
+----
+
+query I rowsort
+SELECT * FROM ducklake.s1_view AT (VERSION => 6)
+----
+42
+84
+
+# explicit time travel clause mentioned in view takes priority over any versioning over the view itself
+statement ok
+CREATE VIEW ducklake.my_view AS SELECT * FROM ducklake.test AT (VERSION => 3)
+
+query II rowsort
+FROM ducklake.my_view
+----
+1	2
+2	3
+
+query II rowsort
+FROM ducklake.my_view AT (VERSION => 8)
+----
+1	2
+2	3
