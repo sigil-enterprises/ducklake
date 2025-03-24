@@ -130,15 +130,34 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateType(CatalogTransaction tr
 }
 
 void DuckLakeSchemaEntry::Alter(CatalogTransaction catalog_transaction, AlterInfo &info) {
-	if (info.type != AlterType::ALTER_TABLE) {
-		throw BinderException("Only altering tables is supported for now");
-	}
-	auto &alter = info.Cast<AlterTableInfo>();
 	auto &transaction = DuckLakeTransaction::Get(catalog_transaction.GetContext(), catalog);
-	auto table_entry = GetEntry(catalog_transaction, CatalogType::TABLE_ENTRY, alter.name);
-	auto &table = table_entry->Cast<DuckLakeTableEntry>();
-	auto new_table = table.Alter(transaction, alter);
-	transaction.AlterEntry(table, std::move(new_table));
+	switch (info.type) {
+	case AlterType::ALTER_TABLE: {
+		auto &alter = info.Cast<AlterTableInfo>();
+		auto table_entry = GetEntry(catalog_transaction, CatalogType::TABLE_ENTRY, alter.name);
+		auto &table = table_entry->Cast<DuckLakeTableEntry>();
+		auto new_table = table.Alter(transaction, alter);
+		transaction.AlterEntry(table, std::move(new_table));
+		break;
+	}
+	case AlterType::SET_COMMENT: {
+		auto &alter = info.Cast<SetCommentInfo>();
+		switch (alter.entry_catalog_type) {
+		case CatalogType::TABLE_ENTRY: {
+			auto table_entry = GetEntry(catalog_transaction, CatalogType::TABLE_ENTRY, alter.name);
+			auto &table = table_entry->Cast<DuckLakeTableEntry>();
+			auto new_table = table.Alter(transaction, alter);
+			transaction.AlterEntry(table, std::move(new_table));
+			break;
+		}
+		default:
+			throw BinderException("Unsupported catalog type for SET COMMENT in DuckLake");
+		}
+		break;
+	}
+	default:
+		throw BinderException("Unsupported ALTER type for DuckLake");
+	}
 }
 
 void DuckLakeSchemaEntry::Scan(ClientContext &context, CatalogType type,
@@ -148,9 +167,9 @@ void DuckLakeSchemaEntry::Scan(ClientContext &context, CatalogType type,
 	}
 	// scan transaction-local entries
 	auto &duck_transaction = DuckLakeTransaction::Get(context, ParentCatalog());
-	auto set = duck_transaction.GetTransactionLocalEntries(type, name);
-	if (set) {
-		for (auto &entry : set->GetEntries()) {
+	auto local_set = duck_transaction.GetTransactionLocalEntries(type, name);
+	if (local_set) {
+		for (auto &entry : local_set->GetEntries()) {
 			callback(*entry.second);
 		}
 	}
@@ -158,6 +177,10 @@ void DuckLakeSchemaEntry::Scan(ClientContext &context, CatalogType type,
 	auto &catalog_set = GetCatalogSet(type);
 	for (auto &entry : catalog_set.GetEntries()) {
 		if (duck_transaction.IsDeleted(*entry.second)) {
+			continue;
+		}
+		if (local_set && local_set->GetEntry(entry.second->name)) {
+			// this entry exists in both the local and global set - emit only the transaction-local entry
 			continue;
 		}
 		callback(*entry.second);

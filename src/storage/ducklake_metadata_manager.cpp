@@ -29,6 +29,8 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot_changes(snapshot_id BIGINT PRI
 CREATE TABLE {METADATA_CATALOG}.ducklake_schema(schema_id BIGINT PRIMARY KEY, schema_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_name VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_table(table_id BIGINT, table_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, table_name VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_view(view_id BIGINT, view_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, view_name VARCHAR, dialect VARCHAR, sql VARCHAR, column_aliases VARCHAR);
+CREATE TABLE {METADATA_CATALOG}.ducklake_tag(object_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, key VARCHAR, value VARCHAR);
+CREATE TABLE {METADATA_CATALOG}.ducklake_column_tag(table_id BIGINT, column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, key VARCHAR, value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_data_file(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, file_order BIGINT, path VARCHAR, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, partition_id BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_file_column_statistics(data_file_id BIGINT, table_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, value_count BIGINT, null_count BIGINT, nan_count BIGINT, min_value VARCHAR, max_value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file(delete_file_id BIGINT PRIMARY KEY, begin_snapshot BIGINT, end_snapshot BIGINT, data_file_id BIGINT, path VARCHAR, format VARCHAR, delete_count BIGINT, file_size_bytes BIGINT);
@@ -88,7 +90,13 @@ WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_s
 
 	// load the table information
 	result = transaction.Query(snapshot, R"(
-SELECT schema_id, table_id, table_uuid::VARCHAR, table_name, column_id, column_name, column_type, default_value, parent_column
+SELECT schema_id, table_id, table_uuid::VARCHAR, table_name, column_id, column_name, column_type, default_value, parent_column,
+	(
+		SELECT LIST({'key': key, 'value': value})
+		FROM {METADATA_CATALOG}.ducklake_tag tag
+		WHERE object_id=table_id AND
+		      {SNAPSHOT_ID} >= tag.begin_snapshot AND ({SNAPSHOT_ID} < tag.end_snapshot OR tag.end_snapshot IS NULL)
+	) AS tag
 FROM {METADATA_CATALOG}.ducklake_table tbl
 LEFT JOIN {METADATA_CATALOG}.ducklake_column col USING (table_id)
 WHERE {SNAPSHOT_ID} >= tbl.begin_snapshot AND ({SNAPSHOT_ID} < tbl.end_snapshot OR tbl.end_snapshot IS NULL)
@@ -110,6 +118,19 @@ ORDER BY table_id, parent_column NULLS FIRST, column_order
 			table_info.schema_id = SchemaIndex(row.GetValue<uint64_t>(0));
 			table_info.uuid = row.GetValue<string>(2);
 			table_info.name = row.GetValue<string>(3);
+			if (!row.IsNull(9)) {
+				auto tags = row.GetValue<Value>(9);
+				for (auto &tag : ListValue::GetChildren(tags)) {
+					auto &struct_children = StructValue::GetChildren(tag);
+					if (struct_children[1].IsNull()) {
+						continue;
+					}
+					DuckLakeTag tag_info;
+					tag_info.key = struct_children[0].ToString();
+					tag_info.value = struct_children[1].ToString();
+					table_info.tags.push_back(std::move(tag_info));
+				}
+			}
 			tables.push_back(std::move(table_info));
 		}
 		auto &table_entry = tables.back();
@@ -350,8 +371,9 @@ void DuckLakeMetadataManager::WriteNewViews(DuckLakeSnapshot commit_snapshot,
 		}
 		auto schema_id = view.schema_id.index;
 		view_insert_sql +=
-		    StringUtil::Format("(%d, '%s', {SNAPSHOT_ID}, NULL, %d, %s, %s, %s, %s)", view.id.index, view.uuid, schema_id,
-		                       SQLString(view.name), SQLString(view.dialect), SQLString(view.sql), SQLString(DuckLakeUtil::ToQuotedList(view.column_aliases)));
+		    StringUtil::Format("(%d, '%s', {SNAPSHOT_ID}, NULL, %d, %s, %s, %s, %s)", view.id.index, view.uuid,
+		                       schema_id, SQLString(view.name), SQLString(view.dialect), SQLString(view.sql),
+		                       SQLString(DuckLakeUtil::ToQuotedList(view.column_aliases)));
 	}
 	if (!view_insert_sql.empty()) {
 		// insert table entries
@@ -568,6 +590,55 @@ WHERE table_id IN (%s) AND end_snapshot IS NULL)",
 		if (result->HasError()) {
 			result->GetErrorObject().Throw("Failed to insert new partition information in DuckLake:");
 		}
+	}
+}
+
+void DuckLakeMetadataManager::WriteNewTags(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeTagInfo> &new_tags) {
+	if (new_tags.empty()) {
+		return;
+	}
+	// update old tags (if there were any)
+	// get a list of all tags
+	string tags_list;
+	for (auto &tag : new_tags) {
+		if (!tags_list.empty()) {
+			tags_list += ", ";
+		}
+		tags_list += "(";
+		tags_list += to_string(tag.id);
+		tags_list += ", ";
+		tags_list += tag.value.ToSQLString();
+		tags_list += ")";
+	}
+	// overwrite the snapshot for the old tags
+	auto result = transaction.Query(commit_snapshot, StringUtil::Format(R"(
+WITH overwritten_tags(tid, key) AS (
+VALUES %s
+)
+UPDATE {METADATA_CATALOG}.ducklake_tag
+SET end_snapshot = {SNAPSHOT_ID}
+FROM overwritten_tags
+WHERE object_id=tid
+)",
+	                                                                    tags_list));
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to update tag information in DuckLake: ");
+	}
+	// now insert the new tags
+	string new_tag_query;
+	for (auto &tag : new_tags) {
+		if (!new_tag_query.empty()) {
+			new_tag_query += ", ";
+		}
+		new_tag_query += StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %s, %s)", tag.id, SQLString(tag.key),
+		                                    tag.value.ToSQLString());
+	}
+
+	new_tag_query = "INSERT INTO {METADATA_CATALOG}.ducklake_tag VALUES " + new_tag_query;
+
+	result = transaction.Query(commit_snapshot, new_tag_query);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to insert new tag information in DuckLake:");
 	}
 }
 

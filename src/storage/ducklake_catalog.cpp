@@ -234,6 +234,13 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 		}
 		auto &schema_entry = entry->second.get();
 		auto create_table_info = make_uniq<CreateTableInfo>(schema_entry, table.name);
+		for (auto &tag : table.tags) {
+			if (tag.key == "comment") {
+				create_table_info->comment = tag.value;
+			} else {
+				create_table_info->tags[tag.key] = tag.value;
+			}
+		}
 		// parse the columns
 		auto field_data = make_shared_ptr<DuckLakeFieldData>();
 		for (auto &col_info : table.columns) {

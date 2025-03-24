@@ -28,7 +28,7 @@ string DuckLakeUtil::ParseQuotedValue(const string &input, idx_t &pos) {
 
 string DuckLakeUtil::ToQuotedList(const vector<string> &input, char list_separator) {
 	string result;
-	for(auto &str : input) {
+	for (auto &str : input) {
 		if (!result.empty()) {
 			result += list_separator;
 		}

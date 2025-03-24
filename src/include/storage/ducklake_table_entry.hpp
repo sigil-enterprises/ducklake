@@ -18,6 +18,7 @@
 namespace duckdb {
 struct AlterTableInfo;
 struct SetPartitionedByInfo;
+struct SetCommentInfo;
 class DuckLakeTransaction;
 
 class DuckLakeTableEntry : public TableCatalogEntry {
@@ -67,6 +68,7 @@ public:
 	TableStorageInfo GetStorageInfo(ClientContext &context) override;
 
 	unique_ptr<CatalogEntry> Alter(DuckLakeTransaction &transaction, AlterTableInfo &info);
+	unique_ptr<CatalogEntry> Alter(DuckLakeTransaction &transaction, SetCommentInfo &info);
 
 	void BindUpdateConstraints(Binder &binder, LogicalGet &get, LogicalProjection &proj, LogicalUpdate &update,
 	                           ClientContext &context) override;
@@ -76,8 +78,9 @@ private:
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, SetPartitionedByInfo &info);
 
 public:
-	// ! Create a DuckLakeTableEntry from a RENAME
-	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info);
+	// ! Create a DuckLakeTableEntry from an ALTER
+	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info,
+	                   TransactionLocalChange transaction_local_change);
 	// ! Create a DuckLakeTableEntry from a SET PARTITION KEY
 	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, unique_ptr<DuckLakePartition> partition_data);
 

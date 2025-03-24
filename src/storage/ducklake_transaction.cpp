@@ -75,19 +75,28 @@ struct TransactionChangeInformation {
 void GetTransactionTableChanges(reference<CatalogEntry> table_entry, TransactionChangeInformation &changes) {
 	while (true) {
 		auto &table = table_entry.get().Cast<DuckLakeTableEntry>();
-		if (table.LocalChange() == TransactionLocalChange::SET_PARTITION_KEY) {
+		switch (table.LocalChange()) {
+		case TransactionLocalChange::SET_PARTITION_KEY:
+		case TransactionLocalChange::SET_COMMENT: {
 			// this table was altered
 			auto table_id = table.GetTableId();
 			// don't report transaction-local tables yet - these will get added later on
 			if (!table_id.IsTransactionLocal()) {
 				changes.altered_tables.insert(table_id);
 			}
-		} else {
+			break;
+		}
+		case TransactionLocalChange::NONE:
+		case TransactionLocalChange::CREATED:
+		case TransactionLocalChange::RENAMED: {
 			// write any new tables that we created
 			auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
 			changes.created_tables[schema.name].insert(table);
+			break;
 		}
-
+		default:
+			throw NotImplementedException("Unsupported transaction local change in GetTransactionTableChanges");
+		}
 		if (!table_entry.get().HasChild()) {
 			break;
 		}
@@ -476,6 +485,7 @@ struct NewTableInfo {
 	vector<DuckLakeTableInfo> new_tables;
 	vector<DuckLakeViewInfo> new_views;
 	vector<DuckLakePartitionInfo> new_partition_keys;
+	vector<DuckLakeTagInfo> new_tags;
 };
 
 void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> table_entry,
@@ -498,15 +508,34 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 		if (new_table_id.IsValid()) {
 			table.SetTableId(new_table_id);
 		}
-		if (table.LocalChange() == TransactionLocalChange::SET_PARTITION_KEY) {
+		switch (table.LocalChange()) {
+		case TransactionLocalChange::SET_PARTITION_KEY: {
 			auto partition_key = GetNewPartitionKey(commit_snapshot, table);
 			result.new_partition_keys.push_back(std::move(partition_key));
 
 			transaction_changes.altered_tables.insert(table.GetTableId());
-		} else {
+			break;
+		}
+		case TransactionLocalChange::SET_COMMENT: {
+			DuckLakeTagInfo comment_info;
+			comment_info.id = table.GetTableId().index;
+			comment_info.key = "comment";
+			comment_info.value = table.comment;
+			result.new_tags.push_back(std::move(comment_info));
+
+			transaction_changes.altered_tables.insert(table.GetTableId());
+			break;
+		}
+		case TransactionLocalChange::NONE:
+		case TransactionLocalChange::CREATED:
+		case TransactionLocalChange::RENAMED: {
 			auto new_table = GetNewTable(commit_snapshot, table);
 			new_table_id = new_table.id;
 			result.new_tables.push_back(std::move(new_table));
+			break;
+		}
+		default:
+			throw NotImplementedException("Unsupported transaction local change");
 		}
 	}
 }
@@ -697,6 +726,7 @@ void DuckLakeTransaction::FlushChanges() {
 				metadata_manager->WriteNewTables(commit_snapshot, result.new_tables);
 				metadata_manager->WriteNewPartitionKeys(commit_snapshot, result.new_partition_keys);
 				metadata_manager->WriteNewViews(commit_snapshot, result.new_views);
+				metadata_manager->WriteNewTags(commit_snapshot, result.new_tags);
 			}
 
 			// write new data files
@@ -944,6 +974,7 @@ void DuckLakeTransaction::AlterEntry(CatalogEntry &entry, unique_ptr<CatalogEntr
 		break;
 	}
 	case TransactionLocalChange::SET_PARTITION_KEY:
+	case TransactionLocalChange::SET_COMMENT:
 		break;
 	default:
 		throw NotImplementedException("Alter type not supported in DuckLakeTransaction::AlterEntry");

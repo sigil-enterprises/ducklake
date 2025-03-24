@@ -25,9 +25,10 @@ DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &sch
 }
 
 // ALTER TABLE RENAME
-DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info)
+DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info,
+                                       TransactionLocalChange transaction_local_change)
     : DuckLakeTableEntry(parent.ParentCatalog(), parent.ParentSchema(), info, parent.GetTableId(),
-                         parent.GetTableUUID(), parent.field_data, TransactionLocalChange::RENAMED) {
+                         parent.GetTableUUID(), parent.field_data, transaction_local_change) {
 	if (parent.partition_data) {
 		partition_data = make_uniq<DuckLakePartition>(*parent.partition_data);
 	}
@@ -147,7 +148,7 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	auto &table_info = create_info->Cast<CreateTableInfo>();
 	table_info.table = info.new_table_name;
 	// create a complete copy of this table with only the name changed
-	return make_uniq<DuckLakeTableEntry>(*this, table_info);
+	return make_uniq<DuckLakeTableEntry>(*this, table_info, TransactionLocalChange::RENAMED);
 }
 
 DuckLakePartitionField GetPartitionField(DuckLakeTableEntry &table, ParsedExpression &expr) {
@@ -189,8 +190,17 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transact
 	case AlterTableType::SET_PARTITIONED_BY:
 		return AlterTable(transaction, info.Cast<SetPartitionedByInfo>());
 	default:
-		throw BinderException("Unsupported ALTER TABLE type - DuckLake tables only support RENAME TABLE for now");
+		throw BinderException("Unsupported ALTER TABLE type in DuckLake");
 	}
+}
+
+unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transaction, SetCommentInfo &info) {
+	auto create_info = GetInfo();
+	create_info->comment = info.comment_value;
+	auto &table_info = create_info->Cast<CreateTableInfo>();
+
+	auto new_entry = make_uniq<DuckLakeTableEntry>(*this, table_info, TransactionLocalChange::SET_COMMENT);
+	return std::move(new_entry);
 }
 
 TableStorageInfo DuckLakeTableEntry::GetStorageInfo(ClientContext &context) {

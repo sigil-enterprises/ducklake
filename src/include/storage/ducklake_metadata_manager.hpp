@@ -13,6 +13,7 @@
 #include "duckdb/common/case_insensitive_map.hpp"
 #include "duckdb/common/optional_idx.hpp"
 #include "duckdb/common/reference_map.hpp"
+#include "duckdb/common/types/value.hpp"
 #include "common/ducklake_snapshot.hpp"
 #include "storage/ducklake_partition_data.hpp"
 #include "storage/ducklake_stats.hpp"
@@ -26,10 +27,16 @@ class DuckLakeTableEntry;
 class DuckLakeTransaction;
 class BoundAtClause;
 
+struct DuckLakeTag {
+	string key;
+	string value;
+};
+
 struct DuckLakeSchemaInfo {
 	SchemaIndex id;
 	string uuid;
 	string name;
+	vector<DuckLakeTag> tags;
 };
 
 struct DuckLakeColumnInfo {
@@ -37,6 +44,7 @@ struct DuckLakeColumnInfo {
 	string name;
 	string type;
 	vector<DuckLakeColumnInfo> children;
+	vector<DuckLakeTag> tags;
 };
 
 struct DuckLakeTableInfo {
@@ -45,6 +53,7 @@ struct DuckLakeTableInfo {
 	string uuid;
 	string name;
 	vector<DuckLakeColumnInfo> columns;
+	vector<DuckLakeTag> tags;
 };
 
 struct DuckLakeColumnStatsInfo {
@@ -116,8 +125,15 @@ struct DuckLakeViewInfo {
 	string uuid;
 	string name;
 	string dialect;
-	string sql;
 	vector<string> column_aliases;
+	string sql;
+	vector<DuckLakeTag> tags;
+};
+
+struct DuckLakeTagInfo {
+	idx_t id;
+	string key;
+	Value value;
 };
 
 struct DuckLakeCatalogInfo {
@@ -148,6 +164,7 @@ public:
 	virtual void WriteNewViews(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeViewInfo> &new_views);
 	virtual void WriteNewPartitionKeys(DuckLakeSnapshot commit_snapshot,
 	                                   const vector<DuckLakePartitionInfo> &new_partitions);
+	virtual void WriteNewTags(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeTagInfo> &new_tags);
 	virtual void WriteNewDataFiles(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeFileInfo> &new_files);
 	virtual void InsertSnapshot(DuckLakeSnapshot commit_snapshot);
 	virtual void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, const SnapshotChangeInfo &change_info);
