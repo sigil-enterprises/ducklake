@@ -1,4 +1,4 @@
-# name: test/sql/ducklake_transaction_conflicts.test
+# name: test/sql/ducklake_transaction_conflicts_view.test
 # description: Test transaction conflicts in DuckLake
 # group: [ducklake]
 
@@ -93,3 +93,32 @@ statement error con2
 COMMIT
 ----
 Conflict
+
+statement ok
+CREATE VIEW ducklake.comment_view AS SELECT 42;
+
+# two transactions try to alter the same view: conflict
+statement ok con1
+BEGIN
+
+statement ok con2
+BEGIN
+
+statement ok con1
+COMMENT ON VIEW ducklake.comment_view IS 'con1 comment'
+
+statement ok con2
+COMMENT ON VIEW ducklake.comment_view IS 'con2 comment'
+
+statement ok con1
+COMMIT
+
+statement error con2
+COMMIT
+----
+altered by another transaction
+
+query I
+SELECT comment FROM duckdb_views WHERE view_name='comment_view'
+----
+con1 comment

@@ -108,9 +108,27 @@ void GetTransactionTableChanges(reference<CatalogEntry> table_entry, Transaction
 void GetTransactionViewChanges(reference<CatalogEntry> view_entry, TransactionChangeInformation &changes) {
 	while (true) {
 		auto &view = view_entry.get().Cast<DuckLakeViewEntry>();
-		// write any new view that we created
-		auto &schema = view.ParentSchema().Cast<DuckLakeSchemaEntry>();
-		changes.created_tables[schema.name].insert(view);
+		switch (view.LocalChange()) {
+		case TransactionLocalChange::SET_COMMENT: {
+			// this table was altered
+			auto view_id = view.GetViewId();
+			// don't report transaction-local views yet - these will get added later on
+			if (!view_id.IsTransactionLocal()) {
+				changes.altered_views.insert(view_id);
+			}
+			break;
+		}
+		case TransactionLocalChange::NONE:
+		case TransactionLocalChange::CREATED:
+		case TransactionLocalChange::RENAMED: {
+			// write any new view that we created
+			auto &schema = view.ParentSchema().Cast<DuckLakeSchemaEntry>();
+			changes.created_tables[schema.name].insert(view);
+			break;
+		}
+		default:
+			throw NotImplementedException("Unsupported transaction local change in GetTransactionTableChanges");
+		}
 
 		if (!view_entry.get().HasChild()) {
 			break;
@@ -225,6 +243,13 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 		change_info.changes_made += "altered_table:";
 		change_info.changes_made += to_string(altered_table_idx.index);
 	}
+	for (auto &altered_view_idx : changes.altered_views) {
+		if (!change_info.changes_made.empty()) {
+			change_info.changes_made += ",";
+		}
+		change_info.changes_made += "altered_view:";
+		change_info.changes_made += to_string(altered_view_idx.index);
+	}
 	metadata_manager->WriteSnapshotChanges(commit_snapshot, change_info);
 }
 
@@ -334,6 +359,15 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 			throw TransactionException("Transaction conflict - attempting to alter table with id %d"
 			                           "- but this table has been altered by another transaction",
 			                           table_id.index);
+		}
+	}
+	for (auto &view_id : changes.altered_views) {
+		auto alter_entry = other_changes.altered_views.find(view_id);
+		if (alter_entry != other_changes.altered_views.end()) {
+			// trying to insert into a table that was dropped
+			throw TransactionException("Transaction conflict - attempting to alter view with id %d"
+			                           "- but this view has been altered by another transaction",
+			                           view_id.index);
 		}
 	}
 }
@@ -574,8 +608,6 @@ void DuckLakeTransaction::GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, refe
 		}
 		view_entry = view_entry.get().Child();
 	}
-	auto &view = view_entry.get().Cast<DuckLakeViewEntry>();
-	result.new_views.push_back(GetNewView(commit_snapshot, view));
 	// traverse in reverse order
 	TableIndex new_view_id;
 	for (idx_t view_idx = views.size(); view_idx > 0; view_idx--) {

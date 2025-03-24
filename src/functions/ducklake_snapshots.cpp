@@ -83,6 +83,10 @@ static unique_ptr<FunctionData> DuckLakeSnapshotsBind(ClientContext &context, Ta
 			change_keys.emplace_back("views_dropped");
 			change_values.push_back(IDListToValue(other_changes.dropped_views));
 		}
+		if (!other_changes.altered_views.empty()) {
+			change_keys.emplace_back("views_altered");
+			change_values.push_back(IDListToValue(other_changes.altered_views));
+		}
 		row_values.push_back(Value::MAP(LogicalType::VARCHAR, LogicalType::LIST(LogicalType::VARCHAR),
 		                                std::move(change_keys), std::move(change_values)));
 		result->rows.push_back(std::move(row_values));

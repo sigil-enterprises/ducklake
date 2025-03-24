@@ -21,6 +21,7 @@ struct SnapshotChangeInformation {
 	set<SchemaIndex> dropped_schemas;
 	case_insensitive_map_t<case_insensitive_set_t> created_tables;
 	set<TableIndex> altered_tables;
+	set<TableIndex> altered_views;
 	set<TableIndex> dropped_tables;
 	set<TableIndex> dropped_views;
 	set<TableIndex> inserted_tables;

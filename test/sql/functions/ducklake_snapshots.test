@@ -133,3 +133,15 @@ query III
 SELECT snapshot_id, schema_version, changes FROM ducklake_snapshots('ducklake') WHERE snapshot_id=10
 ----
 10	9	{views_dropped=[8]}
+
+# comments
+statement ok
+CREATE VIEW ducklake.comment_view AS SELECT 42;
+
+statement ok con1
+COMMENT ON VIEW ducklake.comment_view IS 'con1'
+
+query III
+SELECT snapshot_id, schema_version, changes FROM ducklake_snapshots('ducklake') WHERE snapshot_id=12
+----
+12	11	{views_altered=[9]}
