@@ -50,19 +50,29 @@ select comment from duckdb_tables() where table_name='test';
 ----
 NULL
 
-### Comment on view
-# statement ok
-# CREATE VIEW ducklake.test_view as SELECT 1 as test_view_column
-#
-# query I
-# select comment from duckdb_views() where view_name='test_view';
-# ----
-# NULL
-#
-# statement ok
-# COMMENT ON VIEW ducklake.test_view IS 'very gezellige view'
-#
-# query I
-# select comment from duckdb_views() where view_name='test_view';
-# ----
-# very gezellige view
+## Comment on view
+statement ok
+CREATE VIEW ducklake.test_view as SELECT 1 as test_view_column
+
+query I
+select comment from duckdb_views() where view_name='test_view';
+----
+NULL
+
+statement ok
+COMMENT ON VIEW ducklake.test_view IS 'very gezellige view'
+
+query I
+select comment from duckdb_views() where view_name='test_view';
+----
+very gezellige view
+
+statement error
+COMMENT ON VIEW ducklake.test IS '123'
+----
+not a view
+
+statement error
+COMMENT ON TABLE ducklake.test_view IS '123'
+----
+not a table

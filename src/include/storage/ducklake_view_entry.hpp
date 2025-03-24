@@ -14,6 +14,8 @@
 #include "common/enum.hpp"
 
 namespace duckdb {
+struct SetCommentInfo;
+class DuckLakeTransaction;
 
 class DuckLakeViewEntry : public ViewCatalogEntry {
 public:

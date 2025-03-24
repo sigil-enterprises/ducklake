@@ -267,6 +267,13 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 		auto &schema_entry = entry->second.get();
 		auto create_view_info = make_uniq<CreateViewInfo>(schema_entry, view.name);
 		create_view_info->aliases = view.column_aliases;
+		for (auto &tag : view.tags) {
+			if (tag.key == "comment") {
+				create_view_info->comment = tag.value;
+			} else {
+				create_view_info->tags[tag.key] = tag.value;
+			}
+		}
 		auto view_entry =
 		    make_uniq<DuckLakeViewEntry>(*this, schema_entry, *create_view_info, view.id, std::move(view.uuid),
 		                                 std::move(view.sql), TransactionLocalChange::NONE);

@@ -1,6 +1,8 @@
 #include "storage/ducklake_view_entry.hpp"
 #include "duckdb/parser/parsed_data/create_view_info.hpp"
 #include "duckdb/parser/parser.hpp"
+#include "duckdb/parser/parsed_data/alter_info.hpp"
+#include "duckdb/parser/parsed_data/alter_table_info.hpp"
 
 namespace duckdb {
 
@@ -12,7 +14,20 @@ DuckLakeViewEntry::DuckLakeViewEntry(Catalog &catalog, SchemaCatalogEntry &schem
 }
 
 unique_ptr<CatalogEntry> DuckLakeViewEntry::AlterEntry(ClientContext &context, AlterInfo &info) {
-	throw NotImplementedException("ALTER ducklake entry");
+	switch (info.type) {
+	case AlterType::SET_COMMENT: {
+		auto &alter = info.Cast<SetCommentInfo>();
+		auto info = GetInfo();
+		info->comment = alter.comment_value;
+		auto &view_info = info->Cast<CreateViewInfo>();
+		auto new_view = make_uniq<DuckLakeViewEntry>(catalog, schema, view_info, GetViewId(), GetViewUUID(), query_sql,
+		                                             TransactionLocalChange::SET_COMMENT);
+		return std::move(new_view);
+		break;
+	}
+	default:
+		throw NotImplementedException("Unsupported ALTER type for VIEW");
+	}
 }
 
 unique_ptr<CatalogEntry> DuckLakeViewEntry::Copy(ClientContext &context) const {

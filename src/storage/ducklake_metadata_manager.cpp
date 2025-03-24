@@ -69,6 +69,21 @@ bool AddChildColumn(vector<DuckLakeColumnInfo> &columns, FieldIndex parent_id, D
 	return false;
 }
 
+vector<DuckLakeTag> LoadTags(const Value &tag_map) {
+	vector<DuckLakeTag> result;
+	for (auto &tag : ListValue::GetChildren(tag_map)) {
+		auto &struct_children = StructValue::GetChildren(tag);
+		if (struct_children[1].IsNull()) {
+			continue;
+		}
+		DuckLakeTag tag_info;
+		tag_info.key = struct_children[0].ToString();
+		tag_info.value = struct_children[1].ToString();
+		result.push_back(std::move(tag_info));
+	}
+	return result;
+}
+
 DuckLakeCatalogInfo DuckLakeMetadataManager::GetCatalogForSnapshot(DuckLakeSnapshot snapshot) {
 	DuckLakeCatalogInfo catalog;
 	// load the schema information
@@ -120,16 +135,7 @@ ORDER BY table_id, parent_column NULLS FIRST, column_order
 			table_info.name = row.GetValue<string>(3);
 			if (!row.IsNull(9)) {
 				auto tags = row.GetValue<Value>(9);
-				for (auto &tag : ListValue::GetChildren(tags)) {
-					auto &struct_children = StructValue::GetChildren(tag);
-					if (struct_children[1].IsNull()) {
-						continue;
-					}
-					DuckLakeTag tag_info;
-					tag_info.key = struct_children[0].ToString();
-					tag_info.value = struct_children[1].ToString();
-					table_info.tags.push_back(std::move(tag_info));
-				}
+				table_info.tags = LoadTags(tags);
 			}
 			tables.push_back(std::move(table_info));
 		}
@@ -156,7 +162,13 @@ ORDER BY table_id, parent_column NULLS FIRST, column_order
 	}
 	// load view information
 	result = transaction.Query(snapshot, R"(
-SELECT view_id, view_uuid, schema_id, view_name, dialect, sql, column_aliases
+SELECT view_id, view_uuid, schema_id, view_name, dialect, sql, column_aliases,
+	(
+		SELECT LIST({'key': key, 'value': value})
+		FROM {METADATA_CATALOG}.ducklake_tag tag
+		WHERE object_id=view_id AND
+		      {SNAPSHOT_ID} >= tag.begin_snapshot AND ({SNAPSHOT_ID} < tag.end_snapshot OR tag.end_snapshot IS NULL)
+	) AS tag
 FROM {METADATA_CATALOG}.ducklake_view
 WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
 )");
@@ -173,6 +185,10 @@ WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_s
 		view_info.dialect = row.GetValue<string>(4);
 		view_info.sql = row.GetValue<string>(5);
 		view_info.column_aliases = DuckLakeUtil::ParseQuotedList(row.GetValue<string>(6));
+		if (!row.IsNull(7)) {
+			auto tags = row.GetValue<Value>(7);
+			view_info.tags = LoadTags(tags);
+		}
 		views.push_back(std::move(view_info));
 	}
 

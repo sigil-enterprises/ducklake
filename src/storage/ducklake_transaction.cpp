@@ -67,6 +67,7 @@ struct TransactionChangeInformation {
 	map<SchemaIndex, reference<DuckLakeSchemaEntry>> dropped_schemas;
 	case_insensitive_map_t<reference_set_t<CatalogEntry>> created_tables;
 	set<TableIndex> altered_tables;
+	set<TableIndex> altered_views;
 	set<TableIndex> dropped_tables;
 	set<TableIndex> dropped_views;
 	set<TableIndex> inserted_tables;
@@ -562,8 +563,49 @@ DuckLakeViewInfo DuckLakeTransaction::GetNewView(DuckLakeSnapshot &commit_snapsh
 
 void DuckLakeTransaction::GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> view_entry,
                                          NewTableInfo &result, TransactionChangeInformation &transaction_changes) {
+	// iterate over the view chain in reverse order when committing
+	// the latest entry is the root entry - but we need to commit starting from the first entry written
+	// gather all views
+	vector<reference<DuckLakeViewEntry>> views;
+	while (true) {
+		views.push_back(view_entry.get().Cast<DuckLakeViewEntry>());
+		if (!view_entry.get().HasChild()) {
+			break;
+		}
+		view_entry = view_entry.get().Child();
+	}
 	auto &view = view_entry.get().Cast<DuckLakeViewEntry>();
 	result.new_views.push_back(GetNewView(commit_snapshot, view));
+	// traverse in reverse order
+	TableIndex new_view_id;
+	for (idx_t view_idx = views.size(); view_idx > 0; view_idx--) {
+		auto &view = views[view_idx - 1].get();
+		if (new_view_id.IsValid()) {
+			view.SetViewId(new_view_id);
+		}
+		switch (view.LocalChange()) {
+		case TransactionLocalChange::SET_COMMENT: {
+			DuckLakeTagInfo comment_info;
+			comment_info.id = view.GetViewId().index;
+			comment_info.key = "comment";
+			comment_info.value = view.comment;
+			result.new_tags.push_back(std::move(comment_info));
+
+			transaction_changes.altered_views.insert(view.GetViewId());
+			break;
+		}
+		case TransactionLocalChange::NONE:
+		case TransactionLocalChange::CREATED:
+		case TransactionLocalChange::RENAMED: {
+			auto new_view = GetNewView(commit_snapshot, view);
+			new_view_id = new_view.id;
+			result.new_views.push_back(std::move(new_view));
+			break;
+		}
+		default:
+			throw NotImplementedException("Unsupported transaction local change");
+		}
+	}
 }
 
 NewTableInfo DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &commit_snapshot,
@@ -953,19 +995,28 @@ bool DuckLakeTransaction::IsDeleted(CatalogEntry &entry) {
 }
 
 void DuckLakeTransaction::AlterEntry(CatalogEntry &entry, unique_ptr<CatalogEntry> new_entry) {
-	if (entry.type != CatalogType::TABLE_ENTRY) {
-		throw InternalException("Rename of this type not yet supported");
+	switch (entry.type) {
+	case CatalogType::TABLE_ENTRY:
+		AlterEntry(entry.Cast<DuckLakeTableEntry>(), std::move(new_entry));
+		break;
+	case CatalogType::VIEW_ENTRY:
+		AlterEntry(entry.Cast<DuckLakeViewEntry>(), std::move(new_entry));
+		break;
+	default:
+		throw NotImplementedException("Unsupported catalog type for AlterEntry");
 	}
-	auto &table = entry.Cast<DuckLakeTableEntry>();
+}
+
+void DuckLakeTransaction::AlterEntry(DuckLakeTableEntry &table, unique_ptr<CatalogEntry> new_entry) {
 	auto &new_table = new_entry->Cast<DuckLakeTableEntry>();
-	auto &entries = GetOrCreateTransactionLocalEntries(entry);
+	auto &entries = GetOrCreateTransactionLocalEntries(table);
 	entries.CreateEntry(std::move(new_entry));
 	switch (new_table.LocalChange()) {
 	case TransactionLocalChange::RENAMED: {
 		// rename - take care of the old table
 		if (table.IsTransactionLocal()) {
 			// table is transaction local - delete the old table from there
-			entries.DropEntry(entry.name);
+			entries.DropEntry(table.name);
 		} else {
 			// table is not transaction local - add to drop list
 			auto table_id = table.GetTableId();
@@ -974,6 +1025,18 @@ void DuckLakeTransaction::AlterEntry(CatalogEntry &entry, unique_ptr<CatalogEntr
 		break;
 	}
 	case TransactionLocalChange::SET_PARTITION_KEY:
+	case TransactionLocalChange::SET_COMMENT:
+		break;
+	default:
+		throw NotImplementedException("Alter type not supported in DuckLakeTransaction::AlterEntry");
+	}
+}
+
+void DuckLakeTransaction::AlterEntry(DuckLakeViewEntry &view, unique_ptr<CatalogEntry> new_entry) {
+	auto &new_view = new_entry->Cast<DuckLakeViewEntry>();
+	auto &entries = GetOrCreateTransactionLocalEntries(view);
+	entries.CreateEntry(std::move(new_entry));
+	switch (new_view.LocalChange()) {
 	case TransactionLocalChange::SET_COMMENT:
 		break;
 	default:

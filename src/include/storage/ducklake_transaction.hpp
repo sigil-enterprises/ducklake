@@ -34,6 +34,7 @@ public:
 	DuckLakeTransaction(DuckLakeCatalog &ducklake_catalog, TransactionManager &manager, ClientContext &context);
 	~DuckLakeTransaction() override;
 
+public:
 	void Start();
 	void Commit();
 	void Rollback();
@@ -56,7 +57,10 @@ public:
 	void CreateEntry(unique_ptr<CatalogEntry> entry);
 	void DropEntry(CatalogEntry &entry);
 	bool IsDeleted(CatalogEntry &entry);
+
 	void AlterEntry(CatalogEntry &old_entry, unique_ptr<CatalogEntry> new_entry);
+	void AlterEntry(DuckLakeTableEntry &old_entry, unique_ptr<CatalogEntry> new_entry);
+	void AlterEntry(DuckLakeViewEntry &old_entry, unique_ptr<CatalogEntry> new_entry);
 
 	DuckLakeCatalogSet &GetOrCreateTransactionLocalEntries(CatalogEntry &entry);
 	optional_ptr<DuckLakeCatalogSet> GetTransactionLocalSchemas();
