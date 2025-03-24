@@ -58,3 +58,12 @@ query I
 FROM ducklake.v1
 ----
 84
+
+# view with explicit column aliases
+statement ok
+CREATE VIEW ducklake.aliased_view(a) AS SELECT 42 AS X, 84 as Y
+
+query I
+SELECT a FROM ducklake.aliased_view
+----
+42

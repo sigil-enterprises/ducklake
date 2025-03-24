@@ -1,5 +1,6 @@
 #include "common/ducklake_util.hpp"
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/parser/keyword_helper.hpp"
 
 namespace duckdb {
 
@@ -23,6 +24,17 @@ string DuckLakeUtil::ParseQuotedValue(const string &input, idx_t &pos) {
 		result += input[pos];
 	}
 	throw InvalidInputException("Failed to parse quoted value - unterminated quote");
+}
+
+string DuckLakeUtil::ToQuotedList(const vector<string> &input, char list_separator) {
+	string result;
+	for(auto &str : input) {
+		if (!result.empty()) {
+			result += list_separator;
+		}
+		result += KeywordHelper::WriteQuoted(str, '"');
+	}
+	return result;
 }
 
 vector<string> DuckLakeUtil::ParseQuotedList(const string &input, char list_separator) {

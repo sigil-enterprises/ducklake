@@ -117,6 +117,7 @@ struct DuckLakeViewInfo {
 	string name;
 	string dialect;
 	string sql;
+	vector<string> column_aliases;
 };
 
 struct DuckLakeCatalogInfo {

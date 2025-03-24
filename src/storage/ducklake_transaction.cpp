@@ -527,6 +527,7 @@ DuckLakeViewInfo DuckLakeTransaction::GetNewView(DuckLakeSnapshot &commit_snapsh
 	view_entry.name = view.name;
 	view_entry.dialect = "duckdb";
 	view_entry.sql = view.GetQuerySQL();
+	view_entry.column_aliases = view.aliases;
 	return view_entry;
 }
 
