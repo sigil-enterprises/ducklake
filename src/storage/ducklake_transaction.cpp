@@ -76,9 +76,10 @@ struct TransactionChangeInformation {
 void GetTransactionTableChanges(reference<CatalogEntry> table_entry, TransactionChangeInformation &changes) {
 	while (true) {
 		auto &table = table_entry.get().Cast<DuckLakeTableEntry>();
-		switch (table.LocalChange()) {
-		case TransactionLocalChange::SET_PARTITION_KEY:
-		case TransactionLocalChange::SET_COMMENT: {
+		switch (table.GetLocalChange().type) {
+		case LocalChangeType::SET_PARTITION_KEY:
+		case LocalChangeType::SET_COMMENT:
+		case LocalChangeType::SET_COLUMN_COMMENT: {
 			// this table was altered
 			auto table_id = table.GetTableId();
 			// don't report transaction-local tables yet - these will get added later on
@@ -87,9 +88,9 @@ void GetTransactionTableChanges(reference<CatalogEntry> table_entry, Transaction
 			}
 			break;
 		}
-		case TransactionLocalChange::NONE:
-		case TransactionLocalChange::CREATED:
-		case TransactionLocalChange::RENAMED: {
+		case LocalChangeType::NONE:
+		case LocalChangeType::CREATED:
+		case LocalChangeType::RENAMED: {
 			// write any new tables that we created
 			auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
 			changes.created_tables[schema.name].insert(table);
@@ -108,8 +109,8 @@ void GetTransactionTableChanges(reference<CatalogEntry> table_entry, Transaction
 void GetTransactionViewChanges(reference<CatalogEntry> view_entry, TransactionChangeInformation &changes) {
 	while (true) {
 		auto &view = view_entry.get().Cast<DuckLakeViewEntry>();
-		switch (view.LocalChange()) {
-		case TransactionLocalChange::SET_COMMENT: {
+		switch (view.GetLocalChange().type) {
+		case LocalChangeType::SET_COMMENT: {
 			// this table was altered
 			auto view_id = view.GetViewId();
 			// don't report transaction-local views yet - these will get added later on
@@ -118,9 +119,9 @@ void GetTransactionViewChanges(reference<CatalogEntry> view_entry, TransactionCh
 			}
 			break;
 		}
-		case TransactionLocalChange::NONE:
-		case TransactionLocalChange::CREATED:
-		case TransactionLocalChange::RENAMED: {
+		case LocalChangeType::NONE:
+		case LocalChangeType::CREATED:
+		case LocalChangeType::RENAMED: {
 			// write any new view that we created
 			auto &schema = view.ParentSchema().Cast<DuckLakeSchemaEntry>();
 			changes.created_tables[schema.name].insert(view);
@@ -521,6 +522,7 @@ struct NewTableInfo {
 	vector<DuckLakeViewInfo> new_views;
 	vector<DuckLakePartitionInfo> new_partition_keys;
 	vector<DuckLakeTagInfo> new_tags;
+	vector<DuckLakeColumnTagInfo> new_column_tags;
 };
 
 void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> table_entry,
@@ -543,15 +545,16 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 		if (new_table_id.IsValid()) {
 			table.SetTableId(new_table_id);
 		}
-		switch (table.LocalChange()) {
-		case TransactionLocalChange::SET_PARTITION_KEY: {
+		auto local_change = table.GetLocalChange();
+		switch (local_change.type) {
+		case LocalChangeType::SET_PARTITION_KEY: {
 			auto partition_key = GetNewPartitionKey(commit_snapshot, table);
 			result.new_partition_keys.push_back(std::move(partition_key));
 
 			transaction_changes.altered_tables.insert(table.GetTableId());
 			break;
 		}
-		case TransactionLocalChange::SET_COMMENT: {
+		case LocalChangeType::SET_COMMENT: {
 			DuckLakeTagInfo comment_info;
 			comment_info.id = table.GetTableId().index;
 			comment_info.key = "comment";
@@ -561,9 +564,20 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 			transaction_changes.altered_tables.insert(table.GetTableId());
 			break;
 		}
-		case TransactionLocalChange::NONE:
-		case TransactionLocalChange::CREATED:
-		case TransactionLocalChange::RENAMED: {
+		case LocalChangeType::SET_COLUMN_COMMENT: {
+			DuckLakeColumnTagInfo comment_info;
+			comment_info.table_id = table.GetTableId();
+			comment_info.field_index = local_change.field_index;
+			comment_info.key = "comment";
+			comment_info.value = table.GetColumnByFieldId(local_change.field_index).Comment();
+			result.new_column_tags.push_back(std::move(comment_info));
+
+			transaction_changes.altered_tables.insert(table.GetTableId());
+			break;
+		}
+		case LocalChangeType::NONE:
+		case LocalChangeType::CREATED:
+		case LocalChangeType::RENAMED: {
 			auto new_table = GetNewTable(commit_snapshot, table);
 			new_table_id = new_table.id;
 			result.new_tables.push_back(std::move(new_table));
@@ -615,8 +629,8 @@ void DuckLakeTransaction::GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, refe
 		if (new_view_id.IsValid()) {
 			view.SetViewId(new_view_id);
 		}
-		switch (view.LocalChange()) {
-		case TransactionLocalChange::SET_COMMENT: {
+		switch (view.GetLocalChange().type) {
+		case LocalChangeType::SET_COMMENT: {
 			DuckLakeTagInfo comment_info;
 			comment_info.id = view.GetViewId().index;
 			comment_info.key = "comment";
@@ -626,9 +640,9 @@ void DuckLakeTransaction::GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, refe
 			transaction_changes.altered_views.insert(view.GetViewId());
 			break;
 		}
-		case TransactionLocalChange::NONE:
-		case TransactionLocalChange::CREATED:
-		case TransactionLocalChange::RENAMED: {
+		case LocalChangeType::NONE:
+		case LocalChangeType::CREATED:
+		case LocalChangeType::RENAMED: {
 			auto new_view = GetNewView(commit_snapshot, view);
 			new_view_id = new_view.id;
 			result.new_views.push_back(std::move(new_view));
@@ -801,6 +815,7 @@ void DuckLakeTransaction::FlushChanges() {
 				metadata_manager->WriteNewPartitionKeys(commit_snapshot, result.new_partition_keys);
 				metadata_manager->WriteNewViews(commit_snapshot, result.new_views);
 				metadata_manager->WriteNewTags(commit_snapshot, result.new_tags);
+				metadata_manager->WriteNewColumnTags(commit_snapshot, result.new_column_tags);
 			}
 
 			// write new data files
@@ -1043,8 +1058,8 @@ void DuckLakeTransaction::AlterEntry(DuckLakeTableEntry &table, unique_ptr<Catal
 	auto &new_table = new_entry->Cast<DuckLakeTableEntry>();
 	auto &entries = GetOrCreateTransactionLocalEntries(table);
 	entries.CreateEntry(std::move(new_entry));
-	switch (new_table.LocalChange()) {
-	case TransactionLocalChange::RENAMED: {
+	switch (new_table.GetLocalChange().type) {
+	case LocalChangeType::RENAMED: {
 		// rename - take care of the old table
 		if (table.IsTransactionLocal()) {
 			// table is transaction local - delete the old table from there
@@ -1056,8 +1071,9 @@ void DuckLakeTransaction::AlterEntry(DuckLakeTableEntry &table, unique_ptr<Catal
 		}
 		break;
 	}
-	case TransactionLocalChange::SET_PARTITION_KEY:
-	case TransactionLocalChange::SET_COMMENT:
+	case LocalChangeType::SET_PARTITION_KEY:
+	case LocalChangeType::SET_COMMENT:
+	case LocalChangeType::SET_COLUMN_COMMENT:
 		break;
 	default:
 		throw NotImplementedException("Alter type not supported in DuckLakeTransaction::AlterEntry");
@@ -1068,8 +1084,8 @@ void DuckLakeTransaction::AlterEntry(DuckLakeViewEntry &view, unique_ptr<Catalog
 	auto &new_view = new_entry->Cast<DuckLakeViewEntry>();
 	auto &entries = GetOrCreateTransactionLocalEntries(view);
 	entries.CreateEntry(std::move(new_entry));
-	switch (new_view.LocalChange()) {
-	case TransactionLocalChange::SET_COMMENT:
+	switch (new_view.GetLocalChange().type) {
+	case LocalChangeType::SET_COMMENT:
 		break;
 	default:
 		throw NotImplementedException("Alter type not supported in DuckLakeTransaction::AlterEntry");

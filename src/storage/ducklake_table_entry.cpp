@@ -12,23 +12,22 @@
 #include "duckdb/parser/expression/columnref_expression.hpp"
 #include "duckdb/storage/statistics/struct_stats.hpp"
 #include "duckdb/storage/statistics/list_stats.hpp"
+#include "duckdb/parser/parsed_data/comment_on_column_info.hpp"
 
 namespace duckdb {
 
 DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info,
                                        TableIndex table_id, string table_uuid_p,
-                                       shared_ptr<DuckLakeFieldData> field_data_p,
-                                       TransactionLocalChange transaction_local_change)
+                                       shared_ptr<DuckLakeFieldData> field_data_p, LocalChange local_change)
     : TableCatalogEntry(catalog, schema, info), table_id(table_id), table_uuid(std::move(table_uuid_p)),
-      field_data(std::move(field_data_p)), transaction_local_change(transaction_local_change) {
+      field_data(std::move(field_data_p)), local_change(local_change) {
 	D_ASSERT(field_data->GetColumnCount() == GetColumns().PhysicalColumnCount());
 }
 
 // ALTER TABLE RENAME
-DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info,
-                                       TransactionLocalChange transaction_local_change)
+DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, LocalChange local_change)
     : DuckLakeTableEntry(parent.ParentCatalog(), parent.ParentSchema(), info, parent.GetTableId(),
-                         parent.GetTableUUID(), parent.field_data, transaction_local_change) {
+                         parent.GetTableUUID(), parent.field_data, local_change) {
 	if (parent.partition_data) {
 		partition_data = make_uniq<DuckLakePartition>(*parent.partition_data);
 	}
@@ -38,7 +37,7 @@ DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableIn
 DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info,
                                        unique_ptr<DuckLakePartition> partition_data_p)
     : DuckLakeTableEntry(parent.ParentCatalog(), parent.ParentSchema(), info, parent.GetTableId(),
-                         parent.GetTableUUID(), parent.field_data, TransactionLocalChange::SET_PARTITION_KEY) {
+                         parent.GetTableUUID(), parent.field_data, LocalChangeType::SET_PARTITION_KEY) {
 	partition_data = std::move(partition_data_p);
 }
 
@@ -53,6 +52,11 @@ const DuckLakeFieldId &DuckLakeTableEntry::GetFieldId(FieldIndex field_index) co
 const DuckLakeFieldId &DuckLakeTableEntry::GetFieldId(const vector<string> &column_names) const {
 	auto &root_col = columns.GetColumn(column_names[0]);
 	return field_data->GetByNames(root_col.Physical(), column_names);
+}
+
+const ColumnDefinition &DuckLakeTableEntry::GetColumnByFieldId(FieldIndex field_index) const {
+	auto &field_id = GetFieldId(field_index);
+	return GetColumn(field_id.Name());
 }
 
 unique_ptr<BaseStatistics> GetColumnStats(const DuckLakeFieldId &field_id, const DuckLakeTableStats &table_stats) {
@@ -148,7 +152,7 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	auto &table_info = create_info->Cast<CreateTableInfo>();
 	table_info.table = info.new_table_name;
 	// create a complete copy of this table with only the name changed
-	return make_uniq<DuckLakeTableEntry>(*this, table_info, TransactionLocalChange::RENAMED);
+	return make_uniq<DuckLakeTableEntry>(*this, table_info, LocalChangeType::RENAMED);
 }
 
 DuckLakePartitionField GetPartitionField(DuckLakeTableEntry &table, ParsedExpression &expr) {
@@ -199,7 +203,19 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transact
 	create_info->comment = info.comment_value;
 	auto &table_info = create_info->Cast<CreateTableInfo>();
 
-	auto new_entry = make_uniq<DuckLakeTableEntry>(*this, table_info, TransactionLocalChange::SET_COMMENT);
+	auto new_entry = make_uniq<DuckLakeTableEntry>(*this, table_info, LocalChangeType::SET_COMMENT);
+	return std::move(new_entry);
+}
+
+unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transaction, SetColumnCommentInfo &info) {
+	auto create_info = GetInfo();
+	auto &table_info = create_info->Cast<CreateTableInfo>();
+	auto &col = table_info.columns.GetColumnMutable(info.column_name);
+	col.SetComment(info.comment_value);
+	auto &field_id = GetFieldId(col.Physical());
+
+	auto new_entry =
+	    make_uniq<DuckLakeTableEntry>(*this, table_info, LocalChange::SetColumnComment(field_id.GetFieldIndex()));
 	return std::move(new_entry);
 }
 

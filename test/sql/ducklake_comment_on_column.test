@@ -1,0 +1,87 @@
+# name: test/sql/ducklake_comment_on_column.test
+# description: test ducklake comments on a column
+# group: [ducklake]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_column_comments.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_column_comments_files')
+
+statement ok
+CREATE TABLE ducklake.test_table as SELECT 1 as test_table_column
+
+### Comment on column from table
+query I
+select comment from duckdb_columns() where column_name='test_table_column';
+----
+NULL
+
+statement ok
+COMMENT ON COLUMN ducklake.test_table.test_table_column IS 'very gezellige column'
+
+query I
+select comment from duckdb_columns() where column_name='test_table_column';
+----
+very gezellige column
+
+# mode skip
+#
+# restart
+#
+# query I
+# select comment from duckdb_columns() where column_name='test_table_column';
+# ----
+# very gezellige column
+#
+# statement ok
+# CREATE VIEW test_view AS SELECT test_table_column as test_view_column FROM test_table;
+#
+# ### Comment on column from table
+# query I
+# select comment from duckdb_columns() where column_name='test_view_column';
+# ----
+# NULL
+#
+# statement ok
+# COMMENT ON COLUMN test_view.test_view_column IS 'very gezellige view column'
+#
+# query I
+# select comment from duckdb_columns() where column_name='test_view_column';
+# ----
+# very gezellige view column
+#
+# restart
+#
+# query I
+# select comment from duckdb_columns() where column_name='test_view_column';
+# ----
+# very gezellige view column
+#
+# query IIII
+# SELECT database_name, table_name, column_name, comment FROM duckdb_columns() where internal is false
+# ----
+# comment_on_column	test_table	test_table_column	very gezellige column
+# comment_on_column	test_view	test_view_column	very gezellige view column
+#
+# # check some erroneous inputs
+# statement error
+# COMMENT ON COLUMN bla.bloe.blie.blo IS NULL
+# ----
+# Catalog "bla" does not exist!
+#
+# statement error
+# COMMENT ON COLUMN blie.blo IS NULL
+# ----
+# Table with name blie does not exist!
+#
+# statement error
+# COMMENT ON COLUMN test_view.test_table_column IS NULL
+# ----
+# View "test_view" does not have a column with name "test_table_column"
+#
+# statement error
+# COMMENT ON COLUMN test_table.test_view_column IS NULL
+# ----
+# Table "test_table" does not have a column with name "test_view_column"

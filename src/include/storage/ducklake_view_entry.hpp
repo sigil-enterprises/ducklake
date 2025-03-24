@@ -11,7 +11,7 @@
 #include "duckdb/catalog/catalog_entry/view_catalog_entry.hpp"
 #include "duckdb/common/mutex.hpp"
 #include "common/index.hpp"
-#include "common/enum.hpp"
+#include "common/local_change.hpp"
 
 namespace duckdb {
 struct SetCommentInfo;
@@ -20,7 +20,7 @@ class DuckLakeTransaction;
 class DuckLakeViewEntry : public ViewCatalogEntry {
 public:
 	DuckLakeViewEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateViewInfo &info, TableIndex view_id,
-	                  string view_uuid, string query_sql, TransactionLocalChange transaction_local_change);
+	                  string view_uuid, string query_sql, LocalChange local_change);
 
 public:
 	TableIndex GetViewId() const {
@@ -33,10 +33,10 @@ public:
 		view_id = new_view_id;
 	}
 	bool IsTransactionLocal() const {
-		return transaction_local_change != TransactionLocalChange::NONE;
+		return local_change.type != LocalChangeType::NONE;
 	}
-	TransactionLocalChange LocalChange() const {
-		return transaction_local_change;
+	LocalChange GetLocalChange() const {
+		return local_change;
 	}
 
 public:
@@ -55,7 +55,7 @@ private:
 	TableIndex view_id;
 	string view_uuid;
 	string query_sql;
-	TransactionLocalChange transaction_local_change;
+	LocalChange local_change;
 };
 
 } // namespace duckdb

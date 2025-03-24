@@ -106,65 +106,6 @@ DuckLakeCatalogSet &DuckLakeCatalog::GetSchemaForSnapshot(DuckLakeTransaction &t
 	return result;
 }
 
-LogicalType DuckLakeCatalog::ParseDuckLakeType(const string &type) {
-	if (StringUtil::EndsWith(type, "[]")) {
-		// list - recurse
-		auto child_type = ParseDuckLakeType(type.substr(0, type.size() - 2));
-		return LogicalType::LIST(child_type);
-	}
-
-	if (StringUtil::StartsWith(type, "MAP(") && StringUtil::EndsWith(type, ")")) {
-		// map - recurse
-		string map_args = type.substr(4, type.size() - 5);
-		vector<string> map_args_vect = StringUtil::SplitWithParentheses(map_args);
-		if (map_args_vect.size() != 2) {
-			throw InvalidInputException("Ill formatted map type: '%s'", type);
-		}
-		StringUtil::Trim(map_args_vect[0]);
-		StringUtil::Trim(map_args_vect[1]);
-		auto key_type = ParseDuckLakeType(map_args_vect[0]);
-		auto value_type = ParseDuckLakeType(map_args_vect[1]);
-		return LogicalType::MAP(key_type, value_type);
-	}
-
-	if (StringUtil::StartsWith(type, "STRUCT(") && StringUtil::EndsWith(type, ")")) {
-		// struct - recurse
-		string struct_members_str = type.substr(7, type.size() - 8);
-		vector<string> struct_members_vect = StringUtil::SplitWithParentheses(struct_members_str);
-		child_list_t<LogicalType> struct_members;
-		for (idx_t member_idx = 0; member_idx < struct_members_vect.size(); member_idx++) {
-			StringUtil::Trim(struct_members_vect[member_idx]);
-			vector<string> struct_member_parts = StringUtil::SplitWithParentheses(struct_members_vect[member_idx], ' ');
-			if (struct_member_parts.size() != 2) {
-				throw InvalidInputException("Ill formatted struct type: %s", type);
-			}
-			StringUtil::Trim(struct_member_parts[0]);
-			StringUtil::Trim(struct_member_parts[1]);
-			auto value_type = ParseDuckLakeType(struct_member_parts[1]);
-			struct_members.emplace_back(make_pair(struct_member_parts[0], value_type));
-		}
-		return LogicalType::STRUCT(struct_members);
-	}
-	if (StringUtil::StartsWith(type, "DECIMAL(") && StringUtil::EndsWith(type, ")")) {
-		// decimal - parse width/scale
-		string decimal_members_str = type.substr(8, type.size() - 9);
-		vector<string> decimal_members_vect = StringUtil::SplitWithParentheses(decimal_members_str);
-		if (decimal_members_vect.size() != 2) {
-			throw InvalidInputException("Invalid DECIMAL type - expected width and scale");
-		}
-		auto width = std::stoull(decimal_members_vect[0]);
-		auto scale = std::stoull(decimal_members_vect[1]);
-		return LogicalType::DECIMAL(width, scale);
-	}
-
-	LogicalType type_id = StringUtil::CIEquals(type, "ANY") ? LogicalType::ANY : TransformStringToLogicalTypeId(type);
-	if (type_id == LogicalTypeId::USER) {
-		throw InvalidInputException(
-		    "Error while generating extension function overloads - unrecognized logical type %s", type);
-	}
-	return type_id;
-}
-
 unique_ptr<DuckLakeFieldId> TransformColumnType(DuckLakeColumnInfo &col) {
 	if (col.children.empty()) {
 		return make_uniq<DuckLakeFieldId>(col.id, col.name, DuckLakeTypes::FromString(col.type));
@@ -246,13 +187,20 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 		for (auto &col_info : table.columns) {
 			auto field_id = TransformColumnType(col_info);
 			ColumnDefinition column(std::move(col_info.name), field_id->Type());
+			for (auto &tag : col_info.tags) {
+				if (tag.key == "comment") {
+					column.SetComment(tag.value);
+				} else {
+					throw NotImplementedException("Only comment tags are supported for columns currently");
+				}
+			}
 			create_table_info->columns.AddColumn(std::move(column));
 			field_data->Add(std::move(field_id));
 		}
 		// create the table and add it to the schema set
 		auto table_entry =
 		    make_uniq<DuckLakeTableEntry>(*this, schema_entry, *create_table_info, table.id, std::move(table.uuid),
-		                                  std::move(field_data), TransactionLocalChange::NONE);
+		                                  std::move(field_data), LocalChangeType::NONE);
 		schema_set->AddEntry(schema_entry, table.id, std::move(table_entry));
 	}
 
@@ -276,7 +224,7 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 		}
 		auto view_entry =
 		    make_uniq<DuckLakeViewEntry>(*this, schema_entry, *create_view_info, view.id, std::move(view.uuid),
-		                                 std::move(view.sql), TransactionLocalChange::NONE);
+		                                 std::move(view.sql), LocalChangeType::NONE);
 		schema_set->AddEntry(schema_entry, view.id, std::move(view_entry));
 	}
 

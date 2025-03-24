@@ -41,7 +41,6 @@ public:
 	const string &DataPath() const {
 		return data_path;
 	}
-	static LogicalType ParseDuckLakeType(const string &type);
 
 	optional_ptr<CatalogEntry> CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) override;
 

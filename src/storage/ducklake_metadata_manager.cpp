@@ -105,13 +105,19 @@ WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_s
 
 	// load the table information
 	result = transaction.Query(snapshot, R"(
-SELECT schema_id, table_id, table_uuid::VARCHAR, table_name, column_id, column_name, column_type, default_value, parent_column,
+SELECT schema_id, tbl.table_id, table_uuid::VARCHAR, table_name, col.column_id, column_name, column_type, default_value, parent_column,
 	(
 		SELECT LIST({'key': key, 'value': value})
 		FROM {METADATA_CATALOG}.ducklake_tag tag
 		WHERE object_id=table_id AND
 		      {SNAPSHOT_ID} >= tag.begin_snapshot AND ({SNAPSHOT_ID} < tag.end_snapshot OR tag.end_snapshot IS NULL)
-	) AS tag
+	) AS tag,
+	(
+		SELECT LIST({'key': key, 'value': value})
+		FROM {METADATA_CATALOG}.ducklake_column_tag col_tag
+		WHERE col_tag.table_id=tbl.table_id AND col_tag.column_id=col.column_id AND
+		      {SNAPSHOT_ID} >= col_tag.begin_snapshot AND ({SNAPSHOT_ID} < col_tag.end_snapshot OR col_tag.end_snapshot IS NULL)
+	) AS column_tags
 FROM {METADATA_CATALOG}.ducklake_table tbl
 LEFT JOIN {METADATA_CATALOG}.ducklake_column col USING (table_id)
 WHERE {SNAPSHOT_ID} >= tbl.begin_snapshot AND ({SNAPSHOT_ID} < tbl.end_snapshot OR tbl.end_snapshot IS NULL)
@@ -148,6 +154,10 @@ ORDER BY table_id, parent_column NULLS FIRST, column_order
 		column_info.id = FieldIndex(row.GetValue<uint64_t>(4));
 		column_info.name = row.GetValue<string>(5);
 		column_info.type = row.GetValue<string>(6);
+		if (!row.IsNull(10)) {
+			auto tags = row.GetValue<Value>(10);
+			column_info.tags = LoadTags(tags);
+		}
 
 		if (row.IsNull(8)) {
 			// base column - add the column to this table
@@ -620,11 +630,7 @@ void DuckLakeMetadataManager::WriteNewTags(DuckLakeSnapshot commit_snapshot, con
 		if (!tags_list.empty()) {
 			tags_list += ", ";
 		}
-		tags_list += "(";
-		tags_list += to_string(tag.id);
-		tags_list += ", ";
-		tags_list += tag.value.ToSQLString();
-		tags_list += ")";
+		tags_list += StringUtil::Format("(%d, %s)", tag.id, SQLString(tag.key));
 	}
 	// overwrite the snapshot for the old tags
 	auto result = transaction.Query(commit_snapshot, StringUtil::Format(R"(
@@ -655,6 +661,52 @@ WHERE object_id=tid
 	result = transaction.Query(commit_snapshot, new_tag_query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to insert new tag information in DuckLake:");
+	}
+}
+
+void DuckLakeMetadataManager::WriteNewColumnTags(DuckLakeSnapshot commit_snapshot,
+                                                 const vector<DuckLakeColumnTagInfo> &new_tags) {
+	if (new_tags.empty()) {
+		return;
+	}
+	// update old tags (if there were any)
+	// get a list of all tags
+	string tags_list;
+	for (auto &tag : new_tags) {
+		if (!tags_list.empty()) {
+			tags_list += ", ";
+		}
+		tags_list += StringUtil::Format("(%d, %d, %s)", tag.table_id.index, tag.field_index.index, SQLString(tag.key));
+	}
+	// overwrite the snapshot for the old tags
+	auto result = transaction.Query(commit_snapshot, StringUtil::Format(R"(
+WITH overwritten_tags(tid, cid, key) AS (
+VALUES %s
+)
+UPDATE {METADATA_CATALOG}.ducklake_column_tag
+SET end_snapshot = {SNAPSHOT_ID}
+FROM overwritten_tags
+WHERE table_id=tid AND column_id=cid
+)",
+	                                                                    tags_list));
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to update column tag information in DuckLake: ");
+	}
+	// now insert the new tags
+	string new_tag_query;
+	for (auto &tag : new_tags) {
+		if (!new_tag_query.empty()) {
+			new_tag_query += ", ";
+		}
+		new_tag_query += StringUtil::Format("(%d, %d, {SNAPSHOT_ID}, NULL, %s, %s)", tag.table_id.index,
+		                                    tag.field_index.index, SQLString(tag.key), tag.value.ToSQLString());
+	}
+
+	new_tag_query = "INSERT INTO {METADATA_CATALOG}.ducklake_column_tag VALUES " + new_tag_query;
+
+	result = transaction.Query(commit_snapshot, new_tag_query);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to insert new column tag information in DuckLake:");
 	}
 }
 

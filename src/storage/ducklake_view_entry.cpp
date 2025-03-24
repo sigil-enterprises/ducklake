@@ -8,9 +8,9 @@ namespace duckdb {
 
 DuckLakeViewEntry::DuckLakeViewEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateViewInfo &info,
                                      TableIndex view_id, string view_uuid_p, string query_sql_p,
-                                     TransactionLocalChange transaction_local_change)
+                                     LocalChange local_change)
     : ViewCatalogEntry(catalog, schema, info), view_id(view_id), view_uuid(std::move(view_uuid_p)),
-      query_sql(std::move(query_sql_p)), transaction_local_change(transaction_local_change) {
+      query_sql(std::move(query_sql_p)), local_change(local_change) {
 }
 
 unique_ptr<CatalogEntry> DuckLakeViewEntry::AlterEntry(ClientContext &context, AlterInfo &info) {
@@ -21,7 +21,7 @@ unique_ptr<CatalogEntry> DuckLakeViewEntry::AlterEntry(ClientContext &context, A
 		info->comment = alter.comment_value;
 		auto &view_info = info->Cast<CreateViewInfo>();
 		auto new_view = make_uniq<DuckLakeViewEntry>(catalog, schema, view_info, GetViewId(), GetViewUUID(), query_sql,
-		                                             TransactionLocalChange::SET_COMMENT);
+		                                             LocalChangeType::SET_COMMENT);
 		return std::move(new_view);
 		break;
 	}
@@ -35,7 +35,7 @@ unique_ptr<CatalogEntry> DuckLakeViewEntry::Copy(ClientContext &context) const {
 	auto create_info = GetInfo();
 
 	return make_uniq<DuckLakeViewEntry>(catalog, schema, create_info->Cast<CreateViewInfo>(), view_id, view_uuid,
-	                                    query_sql, transaction_local_change);
+	                                    query_sql, local_change);
 }
 
 const SelectStatement &DuckLakeViewEntry::GetQuery() {

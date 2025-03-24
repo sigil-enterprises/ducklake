@@ -13,7 +13,7 @@
 #include "storage/ducklake_partition_data.hpp"
 #include "common/index.hpp"
 #include "storage/ducklake_field_data.hpp"
-#include "common/enum.hpp"
+#include "common/local_change.hpp"
 
 namespace duckdb {
 struct AlterTableInfo;
@@ -24,8 +24,7 @@ class DuckLakeTransaction;
 class DuckLakeTableEntry : public TableCatalogEntry {
 public:
 	DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info, TableIndex table_id,
-	                   string table_uuid, shared_ptr<DuckLakeFieldData> field_data,
-	                   TransactionLocalChange transaction_local_change);
+	                   string table_uuid, shared_ptr<DuckLakeFieldData> field_data, LocalChange local_change);
 
 public:
 	TableIndex GetTableId() const {
@@ -38,10 +37,10 @@ public:
 		table_id = new_table_id;
 	}
 	bool IsTransactionLocal() const {
-		return transaction_local_change != TransactionLocalChange::NONE;
+		return local_change.type != LocalChangeType::NONE;
 	}
-	TransactionLocalChange LocalChange() const {
-		return transaction_local_change;
+	LocalChange GetLocalChange() const {
+		return local_change;
 	}
 	optional_ptr<DuckLakePartition> GetPartitionData() {
 		return partition_data.get();
@@ -49,6 +48,7 @@ public:
 	DuckLakeFieldData &GetFieldData() {
 		return *field_data;
 	}
+	const ColumnDefinition &GetColumnByFieldId(FieldIndex field_index) const;
 	//! Returns the root field id of a column
 	const DuckLakeFieldId &GetFieldId(PhysicalIndex column_index) const;
 	//! Returns the field id of a column by a column path
@@ -69,6 +69,7 @@ public:
 
 	unique_ptr<CatalogEntry> Alter(DuckLakeTransaction &transaction, AlterTableInfo &info);
 	unique_ptr<CatalogEntry> Alter(DuckLakeTransaction &transaction, SetCommentInfo &info);
+	unique_ptr<CatalogEntry> Alter(DuckLakeTransaction &transaction, SetColumnCommentInfo &info);
 
 	void BindUpdateConstraints(Binder &binder, LogicalGet &get, LogicalProjection &proj, LogicalUpdate &update,
 	                           ClientContext &context) override;
@@ -79,8 +80,7 @@ private:
 
 public:
 	// ! Create a DuckLakeTableEntry from an ALTER
-	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info,
-	                   TransactionLocalChange transaction_local_change);
+	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, LocalChange local_change);
 	// ! Create a DuckLakeTableEntry from a SET PARTITION KEY
 	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, unique_ptr<DuckLakePartition> partition_data);
 
@@ -88,7 +88,7 @@ private:
 	TableIndex table_id;
 	string table_uuid;
 	shared_ptr<DuckLakeFieldData> field_data;
-	TransactionLocalChange transaction_local_change;
+	LocalChange local_change;
 	unique_ptr<DuckLakePartition> partition_data;
 };
 

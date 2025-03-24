@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_view_info.hpp"
 #include "duckdb/common/types/uuid.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
+#include "duckdb/parser/parsed_data/comment_on_column_info.hpp"
 
 namespace duckdb {
 
@@ -57,7 +58,7 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction t
 	// generate field ids based on the column ids
 	auto field_data = DuckLakeFieldData::FromColumns(base_info.columns);
 	auto table_entry = make_uniq<DuckLakeTableEntry>(ParentCatalog(), *this, base_info, table_id, std::move(table_uuid),
-	                                                 std::move(field_data), TransactionLocalChange::CREATED);
+	                                                 std::move(field_data), LocalChangeType::CREATED);
 	auto result = table_entry.get();
 	duck_transaction.CreateEntry(std::move(table_entry));
 	return result;
@@ -94,7 +95,7 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateView(CatalogTransaction tr
 	auto view_uuid = UUID::ToString(UUID::GenerateRandomUUID());
 
 	auto view_entry = make_uniq<DuckLakeViewEntry>(ParentCatalog(), *this, info, view_id, std::move(view_uuid),
-	                                               info.query->ToString(), TransactionLocalChange::CREATED);
+	                                               info.query->ToString(), LocalChangeType::CREATED);
 	auto result = view_entry.get();
 	duck_transaction.CreateEntry(std::move(view_entry));
 	return result;
@@ -166,6 +167,17 @@ void DuckLakeSchemaEntry::Alter(CatalogTransaction catalog_transaction, AlterInf
 		default:
 			throw BinderException("Unsupported catalog type for SET COMMENT in DuckLake");
 		}
+		break;
+	}
+	case AlterType::SET_COLUMN_COMMENT: {
+		auto &alter = info.Cast<SetColumnCommentInfo>();
+		auto table_entry = GetEntry(catalog_transaction, CatalogType::TABLE_ENTRY, alter.name);
+		if (table_entry->type != CatalogType::TABLE_ENTRY) {
+			throw BinderException("Cannot comment on columns for entry %s - it is not a table", alter.name);
+		}
+		auto &table = table_entry->Cast<DuckLakeTableEntry>();
+		auto new_table = table.Alter(transaction, alter);
+		transaction.AlterEntry(table, std::move(new_table));
 		break;
 	}
 	default:
