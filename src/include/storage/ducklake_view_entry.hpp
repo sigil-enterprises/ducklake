@@ -50,6 +50,10 @@ public:
 
 	string GetQuerySQL();
 
+public:
+	// ALTER VIEW
+	DuckLakeViewEntry(DuckLakeViewEntry &parent, CreateViewInfo &info, LocalChange local_change);
+
 private:
 	mutex parse_lock;
 	TableIndex view_id;

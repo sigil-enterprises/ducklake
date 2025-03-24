@@ -131,14 +131,29 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateType(CatalogTransaction tr
 }
 
 void DuckLakeSchemaEntry::Alter(CatalogTransaction catalog_transaction, AlterInfo &info) {
-	auto &transaction = DuckLakeTransaction::Get(catalog_transaction.GetContext(), catalog);
+	auto &context = catalog_transaction.GetContext();
+	auto &transaction = DuckLakeTransaction::Get(context, catalog);
 	switch (info.type) {
 	case AlterType::ALTER_TABLE: {
 		auto &alter = info.Cast<AlterTableInfo>();
 		auto table_entry = GetEntry(catalog_transaction, CatalogType::TABLE_ENTRY, alter.name);
+		if (table_entry->type != CatalogType::TABLE_ENTRY) {
+			throw BinderException("Cannot use ALTER TABLE on entry %s - it is not a table", alter.name);
+		}
 		auto &table = table_entry->Cast<DuckLakeTableEntry>();
 		auto new_table = table.Alter(transaction, alter);
 		transaction.AlterEntry(table, std::move(new_table));
+		break;
+	}
+	case AlterType::ALTER_VIEW: {
+		auto &alter = info.Cast<AlterViewInfo>();
+		auto view_entry = GetEntry(catalog_transaction, CatalogType::VIEW_ENTRY, alter.name);
+		if (view_entry->type != CatalogType::VIEW_ENTRY) {
+			throw BinderException("Cannot use ALTER VIEW on entry %s - it is not a view", alter.name);
+		}
+		auto &view = view_entry->Cast<DuckLakeViewEntry>();
+		auto new_view = view.AlterEntry(context, alter);
+		transaction.AlterEntry(view, std::move(new_view));
 		break;
 	}
 	case AlterType::SET_COMMENT: {
@@ -160,7 +175,7 @@ void DuckLakeSchemaEntry::Alter(CatalogTransaction catalog_transaction, AlterInf
 				throw BinderException("Cannot use ALTER VIEW on entry %s - it is not a view", alter.name);
 			}
 			auto &view = view_entry->Cast<DuckLakeViewEntry>();
-			auto new_view = view.AlterEntry(catalog_transaction.GetContext(), alter);
+			auto new_view = view.AlterEntry(context, alter);
 			transaction.AlterEntry(view, std::move(new_view));
 			break;
 		}

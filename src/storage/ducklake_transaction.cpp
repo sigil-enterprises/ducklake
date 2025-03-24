@@ -1085,6 +1085,18 @@ void DuckLakeTransaction::AlterEntry(DuckLakeViewEntry &view, unique_ptr<Catalog
 	auto &entries = GetOrCreateTransactionLocalEntries(view);
 	entries.CreateEntry(std::move(new_entry));
 	switch (new_view.GetLocalChange().type) {
+	case LocalChangeType::RENAMED: {
+		// rename - take care of the old table
+		if (view.IsTransactionLocal()) {
+			// view is transaction local - delete the old table from there
+			entries.DropEntry(view.name);
+		} else {
+			// view is not transaction local - add to drop list
+			auto table_id = view.GetViewId();
+			dropped_views.insert(table_id);
+		}
+		break;
+	}
 	case LocalChangeType::SET_COMMENT:
 		break;
 	default:

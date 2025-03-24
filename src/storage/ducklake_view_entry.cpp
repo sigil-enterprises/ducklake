@@ -13,6 +13,11 @@ DuckLakeViewEntry::DuckLakeViewEntry(Catalog &catalog, SchemaCatalogEntry &schem
       query_sql(std::move(query_sql_p)), local_change(local_change) {
 }
 
+DuckLakeViewEntry::DuckLakeViewEntry(DuckLakeViewEntry &parent, CreateViewInfo &info, LocalChange local_change)
+    : DuckLakeViewEntry(parent.catalog, parent.schema, info, parent.GetViewId(), parent.GetViewUUID(), parent.query_sql,
+                        local_change) {
+}
+
 unique_ptr<CatalogEntry> DuckLakeViewEntry::AlterEntry(ClientContext &context, AlterInfo &info) {
 	switch (info.type) {
 	case AlterType::SET_COMMENT: {
@@ -20,10 +25,22 @@ unique_ptr<CatalogEntry> DuckLakeViewEntry::AlterEntry(ClientContext &context, A
 		auto info = GetInfo();
 		info->comment = alter.comment_value;
 		auto &view_info = info->Cast<CreateViewInfo>();
-		auto new_view = make_uniq<DuckLakeViewEntry>(catalog, schema, view_info, GetViewId(), GetViewUUID(), query_sql,
-		                                             LocalChangeType::SET_COMMENT);
-		return std::move(new_view);
-		break;
+		return make_uniq<DuckLakeViewEntry>(*this, view_info, LocalChangeType::SET_COMMENT);
+	}
+	case AlterType::ALTER_VIEW: {
+		auto &alter_view = info.Cast<AlterViewInfo>();
+		switch (alter_view.alter_view_type) {
+		case AlterViewType::RENAME_VIEW: {
+			auto &rename_view = alter_view.Cast<RenameViewInfo>();
+			auto create_info = GetInfo();
+			auto &view_info = create_info->Cast<CreateViewInfo>();
+			view_info.view_name = rename_view.new_view_name;
+			// create a complete copy of this view with only the name changed
+			return make_uniq<DuckLakeViewEntry>(*this, view_info, LocalChangeType::RENAMED);
+		}
+		default:
+			throw NotImplementedException("Unsupported ALTER VIEW type in DuckLake");
+		}
 	}
 	default:
 		throw NotImplementedException("Unsupported ALTER type for VIEW");
