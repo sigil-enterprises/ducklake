@@ -19,7 +19,7 @@ namespace duckdb {
 struct SnapshotChangeInformation {
 	case_insensitive_set_t created_schemas;
 	set<SchemaIndex> dropped_schemas;
-	case_insensitive_map_t<case_insensitive_set_t> created_tables;
+	case_insensitive_map_t<case_insensitive_map_t<string>> created_tables;
 	set<TableIndex> altered_tables;
 	set<TableIndex> altered_views;
 	set<TableIndex> dropped_tables;

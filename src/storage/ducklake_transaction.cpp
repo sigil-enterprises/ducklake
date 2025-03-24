@@ -286,10 +286,10 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 			                           "- but this has been dropped by another transaction already",
 			                           dropped_schema.name);
 		}
-		auto other_entry = other_changes.created_tables.find(dropped_schema.name);
-		if (other_entry != other_changes.created_tables.end()) {
+		auto tbl_entry = other_changes.created_tables.find(dropped_schema.name);
+		if (tbl_entry != other_changes.created_tables.end()) {
 			throw TransactionException("Transaction conflict - attempting to drop schema \"%s\""
-			                           "- but another transaction has created a table in this schema",
+			                           "- but another transaction has created a an entry in this schema",
 			                           dropped_schema.name);
 		}
 	}
@@ -308,24 +308,24 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 		for (auto &table_ref : created_tables) {
 			auto &table = table_ref.get();
 			auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
+			auto entry_type = table.type == CatalogType::TABLE_ENTRY ? "table" : "view";
 			auto schema_entry = other_changes.dropped_schemas.find(schema.GetSchemaId());
 			if (schema_entry != other_changes.dropped_schemas.end()) {
 				// the schema this table was created in was dropped
-				throw TransactionException("Transaction conflict - attempting to create table \"%s\" in schema \"%s\" "
+				throw TransactionException("Transaction conflict - attempting to create %s \"%s\" in schema \"%s\" "
 				                           "- but this schema has been dropped by another transaction already",
-				                           table.name, schema_name);
+				                           entry_type, table.name, schema_name);
 			}
-			auto other_entry = other_changes.created_tables.find(schema_name);
-			if (other_entry == other_changes.created_tables.end()) {
-				// the other transactions created no tables in this schema
-				continue;
-			}
-			auto &other_created_tables = other_entry->second;
-			if (other_created_tables.find(table.name) != other_created_tables.end()) {
-				// a table with this name in this schema was already created
-				throw TransactionException("Transaction conflict - attempting to create table \"%s\" in schema \"%s\" "
-				                           "- but this table has been created by another transaction already",
-				                           table.name, schema_name);
+			auto tbl_entry = other_changes.created_tables.find(schema_name);
+			if (tbl_entry != other_changes.created_tables.end()) {
+				auto &other_created_tables = tbl_entry->second;
+				auto sub_entry = other_created_tables.find(table.name);
+				if (sub_entry != other_created_tables.end()) {
+					// a table with this name in this schema was already created
+					throw TransactionException("Transaction conflict - attempting to create %s \"%s\" in schema \"%s\" "
+					                           "- but this %s has been created by another transaction already",
+					                           entry_type, table.name, schema_name, sub_entry->second);
+				}
 			}
 		}
 	}
@@ -334,14 +334,14 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 		if (dropped_entry != other_changes.dropped_tables.end()) {
 			// trying to insert into a table that was dropped
 			throw TransactionException("Transaction conflict - attempting to insert into table with id %d"
-			                           "- but this table has been dropped by another transaction",
+			                           " - but this table has been dropped by another transaction",
 			                           table_id.index);
 		}
 		auto alter_entry = other_changes.altered_tables.find(table_id);
 		if (alter_entry != other_changes.altered_tables.end()) {
 			// trying to insert into a table that was dropped
 			throw TransactionException("Transaction conflict - attempting to insert into table with id %d"
-			                           "- but this table has been altered by another transaction",
+			                           " - but this table has been altered by another transaction",
 			                           table_id.index);
 		}
 	}
@@ -350,14 +350,14 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 		if (dropped_entry != other_changes.dropped_tables.end()) {
 			// trying to insert into a table that was dropped
 			throw TransactionException("Transaction conflict - attempting to alter table with id %d"
-			                           "- but this table has been dropped by another transaction",
+			                           " - but this table has been dropped by another transaction",
 			                           table_id.index);
 		}
 		auto alter_entry = other_changes.altered_tables.find(table_id);
 		if (alter_entry != other_changes.altered_tables.end()) {
 			// trying to insert into a table that was dropped
 			throw TransactionException("Transaction conflict - attempting to alter table with id %d"
-			                           "- but this table has been altered by another transaction",
+			                           " - but this table has been altered by another transaction",
 			                           table_id.index);
 		}
 	}
@@ -366,7 +366,7 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 		if (alter_entry != other_changes.altered_views.end()) {
 			// trying to insert into a table that was dropped
 			throw TransactionException("Transaction conflict - attempting to alter view with id %d"
-			                           "- but this view has been altered by another transaction",
+			                           " - but this view has been altered by another transaction",
 			                           view_id.index);
 		}
 	}

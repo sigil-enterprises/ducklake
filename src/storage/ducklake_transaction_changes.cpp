@@ -102,12 +102,12 @@ SnapshotChangeInformation SnapshotChangeInformation::ParseChangesMade(const stri
 		switch (entry.change_type) {
 		case ChangeType::CREATED_TABLE: {
 			auto catalog_value = DuckLakeUtil::ParseCatalogEntry(entry.change_value);
-			result.created_tables[catalog_value.schema].insert(std::move(catalog_value.name));
+			result.created_tables[catalog_value.schema].insert(make_pair(std::move(catalog_value.name), "table"));
 			break;
 		}
 		case ChangeType::CREATED_VIEW: {
 			auto catalog_value = DuckLakeUtil::ParseCatalogEntry(entry.change_value);
-			result.created_tables[catalog_value.schema].insert(std::move(catalog_value.name));
+			result.created_tables[catalog_value.schema].insert(make_pair(std::move(catalog_value.name), "view"));
 			break;
 		}
 		case ChangeType::CREATED_SCHEMA: {

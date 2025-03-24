@@ -294,7 +294,7 @@ void DuckLakeMetadataManager::FlushDrop(DuckLakeSnapshot commit_snapshot, const 
 	                       metadata_table_name, id_name, dropped_id_list);
 	auto result = transaction.Query(commit_snapshot, dropped_id_query);
 	if (result->HasError()) {
-		result->GetErrorObject().Throw("Failed to write dropped table information to DuckLake:");
+		result->GetErrorObject().Throw("Failed to write drop information to DuckLake:");
 	}
 }
 

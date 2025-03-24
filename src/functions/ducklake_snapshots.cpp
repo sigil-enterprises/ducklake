@@ -59,9 +59,25 @@ static unique_ptr<FunctionData> DuckLakeSnapshotsBind(ClientContext &context, Ta
 			change_keys.emplace_back("schemas_dropped");
 			change_values.push_back(IDListToValue(other_changes.dropped_schemas));
 		}
-		if (!other_changes.created_tables.empty()) {
+		case_insensitive_map_t<case_insensitive_set_t> created_tables;
+		case_insensitive_map_t<case_insensitive_set_t> created_views;
+		for (auto &entry : other_changes.created_tables) {
+			for (auto &sub_entry : entry.second) {
+				if (sub_entry.second == "table") {
+					created_tables[entry.first].insert(sub_entry.first);
+				} else {
+					created_views[entry.first].insert(sub_entry.first);
+				}
+			}
+		}
+
+		if (!created_tables.empty()) {
 			change_keys.emplace_back("tables_created");
-			change_values.push_back(CatalogListToValue(other_changes.created_tables));
+			change_values.push_back(CatalogListToValue(created_tables));
+		}
+		if (!created_views.empty()) {
+			change_keys.emplace_back("views_created");
+			change_values.push_back(CatalogListToValue(created_views));
 		}
 		if (!other_changes.dropped_tables.empty()) {
 			change_keys.emplace_back("tables_dropped");
