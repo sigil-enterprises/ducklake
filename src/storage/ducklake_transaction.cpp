@@ -83,7 +83,8 @@ void GetTransactionTableChanges(reference<CatalogEntry> table_entry, Transaction
 		case LocalChangeType::SET_NULL:
 		case LocalChangeType::DROP_NULL:
 		case LocalChangeType::RENAME_COLUMN:
-		case LocalChangeType::ADD_COLUMN: {
+		case LocalChangeType::ADD_COLUMN:
+		case LocalChangeType::REMOVE_COLUMN: {
 			// this table was altered
 			auto table_id = table.GetTableId();
 			// don't report transaction-local tables yet - these will get added later on
@@ -562,6 +563,15 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 			result.new_columns.push_back(std::move(new_col));
 
 			transaction_changes.altered_tables.insert(table.GetTableId());
+			break;
+		}
+		case LocalChangeType::REMOVE_COLUMN: {
+			// FIXME: if the type is nested, we need to drop multiple field ids...
+			// drop the previous column
+			DuckLakeDroppedColumn dropped_col;
+			dropped_col.table_id = table.GetTableId();
+			dropped_col.field_id = local_change.field_index;
+			result.dropped_columns.push_back(dropped_col);
 			break;
 		}
 		case LocalChangeType::ADD_COLUMN: {
@@ -1098,6 +1108,7 @@ void DuckLakeTransaction::AlterEntryInternal(DuckLakeTableEntry &table, unique_p
 	case LocalChangeType::SET_NULL:
 	case LocalChangeType::DROP_NULL:
 	case LocalChangeType::RENAME_COLUMN:
+	case LocalChangeType::REMOVE_COLUMN:
 		break;
 	default:
 		throw NotImplementedException("Alter type not supported in DuckLakeTransaction::AlterEntry");

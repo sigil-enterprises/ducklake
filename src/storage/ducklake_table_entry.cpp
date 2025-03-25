@@ -335,6 +335,37 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	return std::move(new_entry);
 }
 
+unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, RemoveColumnInfo &info) {
+	auto create_info = GetInfo();
+	auto &table_info = create_info->Cast<CreateTableInfo>();
+	if (!ColumnExists(info.removed_column)) {
+		if (info.if_column_exists) {
+			return nullptr;
+		}
+		throw CatalogException("Cannot drop column %s - it does not exist", info.removed_column);
+	}
+
+	auto &col = table_info.columns.GetColumn(info.removed_column);
+	auto &field_id = GetFieldId(col.Physical());
+	if (columns.LogicalColumnCount() == 1) {
+		throw CatalogException("Cannot drop column: table only has one column remaining!");
+	}
+
+	// remove the column from the column list
+	ColumnList new_columns;
+	for (auto &col : columns.Logical()) {
+		auto copy = col.Copy();
+		if (copy.Name() == info.removed_column) {
+			continue;
+		}
+		new_columns.AddColumn(std::move(copy));
+	}
+	table_info.columns = std::move(new_columns);
+
+	auto new_entry = make_uniq<DuckLakeTableEntry>(*this, table_info, LocalChange::RemoveColumn(field_id.GetFieldIndex()));
+	return std::move(new_entry);
+}
+
 unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transaction, AlterTableInfo &info) {
 	switch (info.alter_table_type) {
 	case AlterTableType::RENAME_TABLE:
@@ -349,6 +380,8 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transact
 		return AlterTable(transaction, info.Cast<RenameColumnInfo>());
 	case AlterTableType::ADD_COLUMN:
 		return AlterTable(transaction, info.Cast<AddColumnInfo>());
+	case AlterTableType::REMOVE_COLUMN:
+		return AlterTable(transaction, info.Cast<RemoveColumnInfo>());
 	default:
 		throw BinderException("Unsupported ALTER TABLE type in DuckLake");
 	}

@@ -96,6 +96,7 @@ private:
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, DropNotNullInfo &info);
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, RenameColumnInfo &info);
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, AddColumnInfo &info);
+	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, RemoveColumnInfo &info);
 
 public:
 	// ! Create a DuckLakeTableEntry from an ALTER
