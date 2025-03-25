@@ -446,6 +446,7 @@ DuckLakeColumnInfo ConvertColumn(const string &name, const LogicalType &type, co
 	DuckLakeColumnInfo column_entry;
 	column_entry.id = field_id.GetFieldIndex();
 	column_entry.name = name;
+	column_entry.nulls_allowed = true;
 	switch (type.id()) {
 	case LogicalTypeId::STRUCT: {
 		column_entry.type = "struct";
@@ -503,9 +504,14 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 	table_entry.name = table.name;
 	if (is_new_table) {
 		// if this is a new table - write the columns
+		auto not_null_fields = table.GetNotNullFields();
 		for (auto &col : table.GetColumns().Logical()) {
-			table_entry.columns.push_back(
-			    ConvertColumn(col.GetName(), col.GetType(), table.GetFieldId(col.Physical())));
+			auto col_info = ConvertColumn(col.GetName(), col.GetType(), table.GetFieldId(col.Physical()));
+			if (not_null_fields.count(col.GetName())) {
+				// no null values allowed in this field
+				col_info.nulls_allowed = false;
+			}
+			table_entry.columns.push_back(std::move(col_info));
 		}
 		// if we have written any data to this table - move them to the new (correct) table id as well
 		auto data_file_entry = new_data_files.find(original_id);

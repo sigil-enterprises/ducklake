@@ -13,6 +13,7 @@
 #include "duckdb/storage/statistics/struct_stats.hpp"
 #include "duckdb/storage/statistics/list_stats.hpp"
 #include "duckdb/parser/parsed_data/comment_on_column_info.hpp"
+#include "duckdb/parser/constraints/not_null_constraint.hpp"
 
 namespace duckdb {
 
@@ -22,6 +23,20 @@ DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &sch
     : TableCatalogEntry(catalog, schema, info), table_id(table_id), table_uuid(std::move(table_uuid_p)),
       field_data(std::move(field_data_p)), local_change(local_change) {
 	D_ASSERT(field_data->GetColumnCount() == GetColumns().PhysicalColumnCount());
+	for (auto &constraint : info.constraints) {
+		switch (constraint->type) {
+		case ConstraintType::NOT_NULL:
+			break;
+		case ConstraintType::CHECK:
+			throw NotImplementedException("CHECK constraints are not supported in DuckLake");
+		case ConstraintType::UNIQUE:
+			throw NotImplementedException("PRIMARY KEY/UNIQUE constraints are not supported in DuckLake");
+		case ConstraintType::FOREIGN_KEY:
+			throw NotImplementedException("FOREIGN KEY constraints are not supported in DuckLake");
+		default:
+			throw NotImplementedException("Unsupported constraint in DuckLake");
+		}
+	}
 }
 
 // ALTER TABLE RENAME
@@ -89,6 +104,19 @@ unique_ptr<BaseStatistics> GetColumnStats(const DuckLakeFieldId &field_id, const
 		// unsupported nested type
 		return nullptr;
 	}
+}
+
+case_insensitive_set_t DuckLakeTableEntry::GetNotNullFields() const {
+	case_insensitive_set_t result;
+	for (auto &constraint : GetConstraints()) {
+		if (constraint->type != ConstraintType::NOT_NULL) {
+			throw InternalException("Unsupported constraint type in DuckLakeInsert");
+		}
+		auto &not_null = constraint->Cast<NotNullConstraint>();
+		auto &col = GetColumn(not_null.index);
+		result.insert(col.Name());
+	}
+	return result;
 }
 
 unique_ptr<BaseStatistics> DuckLakeTableEntry::GetStatistics(ClientContext &context, column_t column_id) {

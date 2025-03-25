@@ -32,12 +32,14 @@ DuckLakeInsert::DuckLakeInsert(LogicalOperator &op, SchemaCatalogEntry &schema, 
 //===--------------------------------------------------------------------===//
 class DuckLakeInsertGlobalState : public GlobalSinkState {
 public:
-	explicit DuckLakeInsertGlobalState(DuckLakeTableEntry &table) : table(table), total_insert_count(0) {
+	explicit DuckLakeInsertGlobalState(DuckLakeTableEntry &table)
+	    : table(table), total_insert_count(0), not_null_fields(table.GetNotNullFields()) {
 	}
 
 	DuckLakeTableEntry &table;
 	vector<DuckLakeDataFile> written_files;
 	idx_t total_insert_count;
+	case_insensitive_set_t not_null_fields;
 };
 
 unique_ptr<GlobalSinkState> DuckLakeInsert::GetGlobalSinkState(ClientContext &context) const {
@@ -78,13 +80,14 @@ SinkResultType DuckLakeInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 		// extract the column stats
 		auto column_stats = chunk.GetValue(4, r);
 		auto &map_children = MapValue::GetChildren(column_stats);
+		auto &table = global_state.table;
 		for (idx_t col_idx = 0; col_idx < map_children.size(); col_idx++) {
 			auto &struct_children = StructValue::GetChildren(map_children[col_idx]);
 			auto &col_name = StringValue::Get(struct_children[0]);
 			auto &col_stats = MapValue::GetChildren(struct_children[1]);
 			auto column_names = DuckLakeUtil::ParseQuotedList(col_name, '.');
 
-			auto &field_id = global_state.table.GetFieldId(column_names);
+			auto &field_id = table.GetFieldId(column_names);
 
 			DuckLakeColumnStats column_stats(field_id.Type());
 			for (idx_t stats_idx = 0; stats_idx < col_stats.size(); stats_idx++) {
@@ -103,6 +106,12 @@ SinkResultType DuckLakeInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 					D_ASSERT(!column_stats.has_null_count);
 					column_stats.has_null_count = true;
 					column_stats.null_count = std::stoull(stats_value);
+					if (column_stats.null_count > 0 && column_names.size() == 1) {
+						// we wrote NULL values to a base column - verify NOT NULL constraint
+						if (global_state.not_null_fields.count(column_names[0])) {
+							throw ConstraintException("NOT NULL constraint failed: %s.%s", table.name, column_names[0]);
+						}
+					}
 				} else if (stats_name == "column_size_bytes") {
 					// TODO
 				} else if (stats_name == "contains_nan") {

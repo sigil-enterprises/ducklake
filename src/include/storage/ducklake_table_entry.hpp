@@ -58,6 +58,9 @@ public:
 	void SetPartitionData(unique_ptr<DuckLakePartition> partition_data);
 	optional_ptr<DuckLakeTableStats> GetTableStats(ClientContext &context);
 
+	//! Gets the top-level not-null fields
+	case_insensitive_set_t GetNotNullFields() const;
+
 public:
 	unique_ptr<BaseStatistics> GetStatistics(ClientContext &context, column_t column_id) override;
 

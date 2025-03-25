@@ -38,6 +38,12 @@ unique_ptr<BaseStatistics> DuckLakeStatistics(ClientContext &context, const Func
 	return table.GetStatistics(context, column_index);
 }
 
+BindInfo DuckLakeBindInfo(const optional_ptr<FunctionData> bind_data) {
+	auto &multi_file_data = bind_data->Cast<MultiFileBindData>();
+	auto &file_list = multi_file_data.file_list->Cast<DuckLakeMultiFileList>();
+	return BindInfo(file_list.GetTable());
+}
+
 TableFunction DuckLakeFunctions::GetDuckLakeScanFunction(DatabaseInstance &instance) {
 	// Parquet extension needs to be loaded for this to make sense
 	ExtensionHelper::AutoLoadExtension(instance, "parquet");
@@ -51,13 +57,13 @@ TableFunction DuckLakeFunctions::GetDuckLakeScanFunction(DatabaseInstance &insta
 	function.get_multi_file_reader = DuckLakeMultiFileReader::CreateInstance;
 
 	function.statistics = DuckLakeStatistics;
+	function.get_bind_info = DuckLakeBindInfo;
 
 	// Unset all of these: they are either broken, very inefficient.
 	// TODO: implement/fix these
 	function.serialize = nullptr;
 	function.deserialize = nullptr;
 	function.table_scan_progress = nullptr;
-	function.get_bind_info = nullptr;
 
 	function.to_string = DuckLakeFunctionToString;
 

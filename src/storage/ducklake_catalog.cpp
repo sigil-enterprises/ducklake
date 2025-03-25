@@ -14,6 +14,7 @@
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 #include "duckdb/parser/parsed_data/create_view_info.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
+#include "duckdb/parser/constraints/not_null_constraint.hpp"
 #include "duckdb/common/types/uuid.hpp"
 
 namespace duckdb {
@@ -184,8 +185,12 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 		}
 		// parse the columns
 		auto field_data = make_shared_ptr<DuckLakeFieldData>();
+		case_insensitive_set_t not_null_columns;
 		for (auto &col_info : table.columns) {
 			auto field_id = TransformColumnType(col_info);
+			if (!col_info.nulls_allowed) {
+				not_null_columns.insert(col_info.name);
+			}
 			ColumnDefinition column(std::move(col_info.name), field_id->Type());
 			for (auto &tag : col_info.tags) {
 				if (tag.key == "comment") {
@@ -196,6 +201,11 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 			}
 			create_table_info->columns.AddColumn(std::move(column));
 			field_data->Add(std::move(field_id));
+		}
+		// create the NOT NULL constraints
+		for (auto &not_null_col : not_null_columns) {
+			auto &col = create_table_info->columns.GetColumn(not_null_col);
+			create_table_info->constraints.push_back(make_uniq<NotNullConstraint>(col.Logical()));
 		}
 		// create the table and add it to the schema set
 		auto table_entry =

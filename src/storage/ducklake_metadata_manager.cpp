@@ -34,7 +34,7 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_column_tag(table_id BIGINT, column_id B
 CREATE TABLE {METADATA_CATALOG}.ducklake_data_file(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, file_order BIGINT, path VARCHAR, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, partition_id BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_file_column_statistics(data_file_id BIGINT, table_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, value_count BIGINT, null_count BIGINT, nan_count BIGINT, min_value VARCHAR, max_value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file(delete_file_id BIGINT PRIMARY KEY, begin_snapshot BIGINT, end_snapshot BIGINT, data_file_id BIGINT, path VARCHAR, format VARCHAR, delete_count BIGINT, file_size_bytes BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_column(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, column_order BIGINT, column_name VARCHAR, column_type VARCHAR, default_value VARCHAR, parent_column BIGINT);
+CREATE TABLE {METADATA_CATALOG}.ducklake_column(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, column_order BIGINT, column_name VARCHAR, column_type VARCHAR, default_value VARCHAR, nulls_allowed BOOLEAN, parent_column BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_table_stats(table_id BIGINT, record_count BIGINT, file_size_bytes BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_table_column_stats(table_id BIGINT, column_id BIGINT, contains_null BOOLEAN, min_value VARCHAR, max_value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_partition_info(partition_id BIGINT, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT);
@@ -105,7 +105,7 @@ WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_s
 
 	// load the table information
 	result = transaction.Query(snapshot, R"(
-SELECT schema_id, tbl.table_id, table_uuid::VARCHAR, table_name, col.column_id, column_name, column_type, default_value, parent_column,
+SELECT schema_id, tbl.table_id, table_uuid::VARCHAR, table_name, col.column_id, column_name, column_type, default_value, nulls_allowed, parent_column,
 	(
 		SELECT LIST({'key': key, 'value': value})
 		FROM {METADATA_CATALOG}.ducklake_tag tag
@@ -139,8 +139,8 @@ ORDER BY table_id, parent_column NULLS FIRST, column_order
 			table_info.schema_id = SchemaIndex(row.GetValue<uint64_t>(0));
 			table_info.uuid = row.GetValue<string>(2);
 			table_info.name = row.GetValue<string>(3);
-			if (!row.IsNull(9)) {
-				auto tags = row.GetValue<Value>(9);
+			if (!row.IsNull(10)) {
+				auto tags = row.GetValue<Value>(10);
 				table_info.tags = LoadTags(tags);
 			}
 			tables.push_back(std::move(table_info));
@@ -154,16 +154,17 @@ ORDER BY table_id, parent_column NULLS FIRST, column_order
 		column_info.id = FieldIndex(row.GetValue<uint64_t>(4));
 		column_info.name = row.GetValue<string>(5);
 		column_info.type = row.GetValue<string>(6);
-		if (!row.IsNull(10)) {
-			auto tags = row.GetValue<Value>(10);
+		column_info.nulls_allowed = row.GetValue<bool>(8);
+		if (!row.IsNull(11)) {
+			auto tags = row.GetValue<Value>(11);
 			column_info.tags = LoadTags(tags);
 		}
 
-		if (row.IsNull(8)) {
+		if (row.IsNull(9)) {
 			// base column - add the column to this table
 			table_entry.columns.push_back(std::move(column_info));
 		} else {
-			auto parent_id = FieldIndex(row.GetValue<idx_t>(8));
+			auto parent_id = FieldIndex(row.GetValue<idx_t>(9));
 			if (!AddChildColumn(table_entry.columns, parent_id, column_info)) {
 				throw InvalidInputException("Failed to load DuckLake - Could not find parent column for column %s",
 				                            column_info.name);
@@ -348,8 +349,9 @@ void ColumnToSQLRecursive(const DuckLakeColumnInfo &column, TableIndex table_id,
 	string parent_idx = parent.IsValid() ? to_string(parent.GetIndex()) : "NULL";
 	auto column_id = column.id.index;
 	auto column_order = column_id;
-	result += StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, NULL, %s)", column_id, table_id.index,
-	                             column_order, SQLString(column.name), SQLString(column.type), parent_idx);
+	result += StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, NULL, %d, %s)", column_id, table_id.index,
+	                             column_order, SQLString(column.name), SQLString(column.type),
+	                             column.nulls_allowed ? 1 : 0, parent_idx);
 	for (auto &child : column.children) {
 		ColumnToSQLRecursive(child, table_id, column_id, result);
 	}

@@ -1,0 +1,28 @@
+# name: test/sql/ducklake_not_null.test
+# description: test NOT NULL constraint
+# group: [ducklake]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_not_null.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_not_null_files')
+
+statement ok
+CREATE TABLE ducklake.test(i INTEGER NOT NULL, j INTEGER);
+
+statement ok
+INSERT INTO ducklake.test VALUES (42, NULL);
+
+statement error
+INSERT INTO ducklake.test VALUES (NULL, 84)
+----
+NOT NULL constraint
+
+# check that NOT NULL shows up in DESCRIBE
+query IIIIII
+DESCRIBE ducklake.test
+----
+i	INTEGER	NO	NULL	NULL	NULL
+j	INTEGER	YES	NULL	NULL	NULL

@@ -43,6 +43,7 @@ struct DuckLakeColumnInfo {
 	FieldIndex id;
 	string name;
 	string type;
+	bool nulls_allowed;
 	vector<DuckLakeColumnInfo> children;
 	vector<DuckLakeTag> tags;
 };
