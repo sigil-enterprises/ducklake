@@ -24,7 +24,8 @@ enum class LocalChangeType {
 	DROP_NULL,
 	RENAME_COLUMN,
 	ADD_COLUMN,
-	REMOVE_COLUMN
+	REMOVE_COLUMN,
+	CHANGE_COLUMN_TYPE
 };
 
 struct LocalChange {
@@ -58,6 +59,11 @@ struct LocalChange {
 	}
 	static LocalChange RemoveColumn(FieldIndex field_idx) {
 		LocalChange result(LocalChangeType::REMOVE_COLUMN);
+		result.field_index = field_idx;
+		return result;
+	}
+	static LocalChange ChangeColumnType(FieldIndex field_idx) {
+		LocalChange result(LocalChangeType::CHANGE_COLUMN_TYPE);
 		result.field_index = field_idx;
 		return result;
 	}

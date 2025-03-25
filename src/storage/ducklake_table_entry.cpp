@@ -10,6 +10,7 @@
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
+#include "duckdb/parser/expression/cast_expression.hpp"
 #include "duckdb/parser/expression/columnref_expression.hpp"
 #include "duckdb/storage/statistics/struct_stats.hpp"
 #include "duckdb/storage/statistics/list_stats.hpp"
@@ -374,6 +375,122 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	return std::move(new_entry);
 }
 
+static bool TypePromotionIsAllowedTinyint(const LogicalType &to) {
+	switch (to.id()) {
+	case LogicalTypeId::SMALLINT:
+	case LogicalTypeId::INTEGER:
+	case LogicalTypeId::BIGINT:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static bool TypePromotionIsAllowedSmallint(const LogicalType &to) {
+	switch (to.id()) {
+	case LogicalTypeId::INTEGER:
+	case LogicalTypeId::BIGINT:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static bool TypePromotionIsAllowedUTinyint(const LogicalType &to) {
+	switch (to.id()) {
+	case LogicalTypeId::SMALLINT:
+	case LogicalTypeId::INTEGER:
+	case LogicalTypeId::BIGINT:
+	case LogicalTypeId::USMALLINT:
+	case LogicalTypeId::UINTEGER:
+	case LogicalTypeId::UBIGINT:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static bool TypePromotionIsAllowedUSmallint(const LogicalType &to) {
+	switch (to.id()) {
+	case LogicalTypeId::INTEGER:
+	case LogicalTypeId::BIGINT:
+	case LogicalTypeId::UINTEGER:
+	case LogicalTypeId::UBIGINT:
+		return true;
+	default:
+		return false;
+	}
+}
+bool TypePromotionIsAllowed(const LogicalType &source, const LogicalType &target) {
+	// FIXME: support DECIMAL, and DATE -> TIMESTAMP
+	switch (source.id()) {
+	case LogicalTypeId::TINYINT:
+		return TypePromotionIsAllowedTinyint(target);
+	case LogicalTypeId::SMALLINT:
+		return TypePromotionIsAllowedSmallint(target);
+	case LogicalTypeId::INTEGER:
+		return target.id() == LogicalTypeId::BIGINT;
+	case LogicalTypeId::BIGINT:
+		return false;
+	case LogicalTypeId::UTINYINT:
+		return TypePromotionIsAllowedUTinyint(target);
+	case LogicalTypeId::USMALLINT:
+		return TypePromotionIsAllowedUSmallint(target);
+	case LogicalTypeId::UINTEGER:
+		return target.id() == LogicalTypeId::UBIGINT;
+	case LogicalTypeId::UBIGINT:
+		return false;
+	case LogicalTypeId::FLOAT:
+		return target.id() == LogicalTypeId::DOUBLE;
+	default:
+		return false;
+	}
+}
+
+bool IsSimpleCast(const ParsedExpression &expr) {
+	if (expr.type != ExpressionType::OPERATOR_CAST) {
+		return false;
+	}
+	auto &cast = expr.Cast<CastExpression>();
+	if (cast.child->type != ExpressionType::COLUMN_REF) {
+		return false;
+	}
+	return true;
+}
+
+unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, ChangeColumnTypeInfo &info) {
+	auto create_info = GetInfo();
+	auto &table_info = create_info->Cast<CreateTableInfo>();
+	if (!ColumnExists(info.column_name)) {
+		throw CatalogException("Cannot change type of column %s - it does not exist", info.column_name);
+	}
+	auto &col = table_info.columns.GetColumn(info.column_name);
+	auto &field_id = GetFieldId(col.Physical());
+	if (!IsSimpleCast(*info.expression)) {
+		throw NotImplementedException("Column type cannot be modified using an expression");
+	}
+	// only widening type promotions are allowed
+	if (!TypePromotionIsAllowed(col.Type(), info.target_type)) {
+		throw CatalogException(
+		    "Cannot change type of column %s from %s to %s - only widening type promotions are allowed",
+		    info.column_name, col.Type(), info.target_type);
+	}
+	// generate a new column list with the modified type
+	ColumnList new_columns;
+	for (auto &col : columns.Logical()) {
+		auto copy = col.Copy();
+		if (copy.Name() == info.column_name) {
+			copy.SetType(info.target_type);
+		}
+		new_columns.AddColumn(std::move(copy));
+	}
+	table_info.columns = std::move(new_columns);
+
+	auto new_entry =
+	    make_uniq<DuckLakeTableEntry>(*this, table_info, LocalChange::ChangeColumnType(field_id.GetFieldIndex()));
+	return std::move(new_entry);
+}
+
 unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transaction, AlterTableInfo &info) {
 	switch (info.alter_table_type) {
 	case AlterTableType::RENAME_TABLE:
@@ -390,6 +507,8 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transact
 		return AlterTable(transaction, info.Cast<AddColumnInfo>());
 	case AlterTableType::REMOVE_COLUMN:
 		return AlterTable(transaction, info.Cast<RemoveColumnInfo>());
+	case AlterTableType::ALTER_COLUMN_TYPE:
+		return AlterTable(transaction, info.Cast<ChangeColumnTypeInfo>());
 	default:
 		throw BinderException("Unsupported ALTER TABLE type in DuckLake");
 	}
