@@ -72,6 +72,35 @@ shared_ptr<DuckLakeFieldData> DuckLakeFieldData::FromColumns(const ColumnList &c
 	return field_data;
 }
 
+unique_ptr<DuckLakeFieldId> DuckLakeFieldId::Copy() const {
+	vector<unique_ptr<DuckLakeFieldId>> new_children;
+	for (auto &child : children) {
+		new_children.push_back(child->Copy());
+	}
+	return make_uniq<DuckLakeFieldId>(id, name, type, std::move(new_children));
+}
+
+unique_ptr<DuckLakeFieldId> DuckLakeFieldId::Rename(const DuckLakeFieldId &field_id, const string &new_name) {
+	auto result = field_id.Copy();
+	result->name = new_name;
+	return result;
+}
+
+shared_ptr<DuckLakeFieldData> DuckLakeFieldData::RenameColumn(const DuckLakeFieldData &field_data,
+                                                              FieldIndex rename_index, const string &new_name) {
+	auto result = make_shared_ptr<DuckLakeFieldData>();
+	for (auto &existing_id : field_data.field_ids) {
+		unique_ptr<DuckLakeFieldId> field_id;
+		if (existing_id->GetFieldIndex() == rename_index) {
+			field_id = DuckLakeFieldId::Rename(*existing_id, new_name);
+		} else {
+			field_id = existing_id->Copy();
+		}
+		result->Add(std::move(field_id));
+	}
+	return result;
+}
+
 const DuckLakeFieldId &DuckLakeFieldData::GetByRootIndex(PhysicalIndex id) const {
 	return *field_ids[id.index];
 }

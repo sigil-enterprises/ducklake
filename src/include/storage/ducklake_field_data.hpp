@@ -40,8 +40,10 @@ public:
 	}
 	const DuckLakeFieldId &GetChildByIndex(idx_t index) const;
 	const DuckLakeFieldId &GetChildByName(const string &name) const;
+	unique_ptr<DuckLakeFieldId> Copy() const;
 
 	static unique_ptr<DuckLakeFieldId> FieldIdFromType(const string &name, const LogicalType &type, idx_t &column_id);
+	static unique_ptr<DuckLakeFieldId> Rename(const DuckLakeFieldId &field_id, const string &new_name);
 
 private:
 	FieldIndex id;
@@ -71,6 +73,8 @@ public:
 	}
 
 	static shared_ptr<DuckLakeFieldData> FromColumns(const ColumnList &columns);
+	static shared_ptr<DuckLakeFieldData> RenameColumn(const DuckLakeFieldData &field_data, FieldIndex rename_index,
+	                                                  const string &new_name);
 
 private:
 	vector<unique_ptr<DuckLakeFieldId>> field_ids;

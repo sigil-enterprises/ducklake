@@ -49,6 +49,18 @@ DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableIn
 	}
 }
 
+// ALTER TABLE RENAME COLUMN
+DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, LocalChange local_change,
+                                       const string &new_name)
+    : DuckLakeTableEntry(parent.ParentCatalog(), parent.ParentSchema(), info, parent.GetTableId(),
+                         parent.GetTableUUID(), parent.field_data, local_change) {
+	D_ASSERT(local_change.type == LocalChangeType::RENAME_COLUMN);
+	if (parent.partition_data) {
+		partition_data = make_uniq<DuckLakePartition>(*parent.partition_data);
+	}
+	field_data = DuckLakeFieldData::RenameColumn(*field_data, local_change.field_index, new_name);
+}
+
 // ALTER TABLE SET PARTITION KEY
 DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info,
                                        unique_ptr<DuckLakePartition> partition_data_p)
@@ -288,6 +300,28 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	return std::move(new_entry);
 }
 
+unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, RenameColumnInfo &info) {
+	auto create_info = GetInfo();
+	auto &table_info = create_info->Cast<CreateTableInfo>();
+	auto &col = table_info.columns.GetColumn(info.old_name);
+	auto &field_id = GetFieldId(col.Physical());
+
+	// create a new list with the renamed column
+	ColumnList new_columns;
+	for (auto &col : columns.Logical()) {
+		auto copy = col.Copy();
+		if (copy.Name() == info.old_name) {
+			copy.SetName(info.new_name);
+		}
+		new_columns.AddColumn(std::move(copy));
+	}
+	table_info.columns = std::move(new_columns);
+
+	auto new_entry = make_uniq<DuckLakeTableEntry>(*this, table_info,
+	                                               LocalChange::RenameColumn(field_id.GetFieldIndex()), info.new_name);
+	return std::move(new_entry);
+}
+
 unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transaction, AlterTableInfo &info) {
 	switch (info.alter_table_type) {
 	case AlterTableType::RENAME_TABLE:
@@ -298,6 +332,8 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transact
 		return AlterTable(transaction, info.Cast<SetNotNullInfo>());
 	case AlterTableType::DROP_NOT_NULL:
 		return AlterTable(transaction, info.Cast<DropNotNullInfo>());
+	case AlterTableType::RENAME_COLUMN:
+		return AlterTable(transaction, info.Cast<RenameColumnInfo>());
 	default:
 		throw BinderException("Unsupported ALTER TABLE type in DuckLake");
 	}

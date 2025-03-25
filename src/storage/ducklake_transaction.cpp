@@ -81,7 +81,8 @@ void GetTransactionTableChanges(reference<CatalogEntry> table_entry, Transaction
 		case LocalChangeType::SET_COMMENT:
 		case LocalChangeType::SET_COLUMN_COMMENT:
 		case LocalChangeType::SET_NULL:
-		case LocalChangeType::DROP_NULL: {
+		case LocalChangeType::DROP_NULL:
+		case LocalChangeType::RENAME_COLUMN: {
 			// this table was altered
 			auto table_id = table.GetTableId();
 			// don't report transaction-local tables yet - these will get added later on
@@ -586,7 +587,8 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 			break;
 		}
 		case LocalChangeType::SET_NULL:
-		case LocalChangeType::DROP_NULL: {
+		case LocalChangeType::DROP_NULL:
+		case LocalChangeType::RENAME_COLUMN: {
 			// drop the previous column
 			DuckLakeDroppedColumn dropped_col;
 			dropped_col.table_id = table.GetTableId();
@@ -1109,6 +1111,7 @@ void DuckLakeTransaction::AlterEntry(DuckLakeTableEntry &table, unique_ptr<Catal
 	case LocalChangeType::SET_COLUMN_COMMENT:
 	case LocalChangeType::SET_NULL:
 	case LocalChangeType::DROP_NULL:
+	case LocalChangeType::RENAME_COLUMN:
 		break;
 	default:
 		throw NotImplementedException("Alter type not supported in DuckLakeTransaction::AlterEntry");
