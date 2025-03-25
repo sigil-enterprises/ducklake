@@ -444,16 +444,7 @@ void DuckLakeMetadataManager::WriteNewColumns(DuckLakeSnapshot commit_snapshot,
 	}
 	string column_insert_sql;
 	for (auto &new_col : new_columns) {
-		if (!column_insert_sql.empty()) {
-			column_insert_sql += ", ";
-		}
-		auto &column = new_col.column_info;
-		auto column_id = column.id.index;
-		auto column_order = column.id.index;
-		auto table_id = new_col.table_id;
-		column_insert_sql += StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, NULL, %d, NULL)", column_id,
-		                                        table_id.index, column_order, SQLString(column.name),
-		                                        SQLString(column.type), column.nulls_allowed ? 1 : 0);
+		ColumnToSQLRecursive(new_col.column_info, new_col.table_id, optional_idx(), column_insert_sql);
 	}
 
 	// insert column entries

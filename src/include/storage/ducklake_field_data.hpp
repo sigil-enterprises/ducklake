@@ -74,6 +74,7 @@ public:
 	}
 
 	static shared_ptr<DuckLakeFieldData> FromColumns(const ColumnList &columns);
+	static shared_ptr<DuckLakeFieldData> FromColumns(const ColumnList &columns, idx_t &column_id);
 	static shared_ptr<DuckLakeFieldData> RenameColumn(const DuckLakeFieldData &field_data, FieldIndex rename_index,
 	                                                  const string &new_name);
 	static shared_ptr<DuckLakeFieldData> AddColumn(const DuckLakeFieldData &field_data, const ColumnDefinition &new_col,

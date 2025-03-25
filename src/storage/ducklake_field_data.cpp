@@ -64,6 +64,10 @@ unique_ptr<DuckLakeFieldId> DuckLakeFieldId::FieldIdFromType(const string &name,
 shared_ptr<DuckLakeFieldData> DuckLakeFieldData::FromColumns(const ColumnList &columns) {
 	// generate field ids based on the column ids
 	idx_t column_id = 1;
+	return FromColumns(columns, column_id);
+}
+
+shared_ptr<DuckLakeFieldData> DuckLakeFieldData::FromColumns(const ColumnList &columns, idx_t &column_id) {
 	auto field_data = make_shared_ptr<DuckLakeFieldData>();
 	for (auto &col : columns.Logical()) {
 		auto field_id = DuckLakeFieldId::FieldIdFromType(col.Name(), col.Type(), column_id);
