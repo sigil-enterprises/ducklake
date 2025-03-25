@@ -25,8 +25,10 @@ static InsertionOrderPreservingMap<string> DuckLakeFunctionToString(TableFunctio
 	return result;
 }
 
-unique_ptr<BaseStatistics> DuckLakeStatistics(ClientContext &context, const FunctionData *bind_data,
-                                              column_t column_index) {
+unique_ptr<BaseStatistics> DuckLakeStatistics(ClientContext &context, const FunctionData *bind_data, column_t column_index) {
+	if (IsVirtualColumn(column_index)) {
+		return nullptr;
+	}
 	auto &multi_file_data = bind_data->Cast<MultiFileBindData>();
 	auto &file_list = multi_file_data.file_list->Cast<DuckLakeMultiFileList>();
 	if (file_list.HasTransactionLocalFiles()) {
