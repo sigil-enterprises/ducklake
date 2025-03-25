@@ -48,7 +48,6 @@ INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main
 	// TODO: add
 	//	ducklake_sorting_info
 	//	ducklake_sorting_column_info
-	//	ducklake_view
 	//	ducklake_macro
 	auto result = transaction.Query(initialize_query);
 	if (result->HasError()) {

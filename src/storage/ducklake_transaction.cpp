@@ -449,9 +449,9 @@ DuckLakeColumnInfo ConvertColumn(const string &name, const LogicalType &type, co
 	column_entry.id = field_id.GetFieldIndex();
 	column_entry.name = name;
 	column_entry.nulls_allowed = true;
-	column_entry.type = DuckLakeTypes::ToString(type);
 	switch (type.id()) {
 	case LogicalTypeId::STRUCT: {
+		column_entry.type = "struct";
 		auto &struct_children = StructType::GetChildTypes(type);
 		for (idx_t child_idx = 0; child_idx < struct_children.size(); ++child_idx) {
 			auto &child = struct_children[child_idx];
@@ -461,16 +461,19 @@ DuckLakeColumnInfo ConvertColumn(const string &name, const LogicalType &type, co
 		break;
 	}
 	case LogicalTypeId::LIST: {
+		column_entry.type = "list";
 		auto &child_id = field_id.GetChildByIndex(0);
 		column_entry.children.push_back(ConvertColumn("element", ListType::GetChildType(type), child_id));
 		break;
 	}
 	case LogicalTypeId::ARRAY: {
+		column_entry.type = "list";
 		auto &child_id = field_id.GetChildByIndex(0);
 		column_entry.children.push_back(ConvertColumn("element", ArrayType::GetChildType(type), child_id));
 		break;
 	}
 	case LogicalTypeId::MAP: {
+		column_entry.type = "map";
 		auto &key_id = field_id.GetChildByIndex(0);
 		auto &value_id = field_id.GetChildByIndex(1);
 		column_entry.children.push_back(ConvertColumn("key", MapType::KeyType(type), key_id));
@@ -478,6 +481,7 @@ DuckLakeColumnInfo ConvertColumn(const string &name, const LogicalType &type, co
 		break;
 	}
 	default:
+		column_entry.type = DuckLakeTypes::ToString(type);
 		break;
 	}
 	return column_entry;
