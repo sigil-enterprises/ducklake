@@ -13,7 +13,16 @@
 
 namespace duckdb {
 
-enum class LocalChangeType { NONE, CREATED, RENAMED, SET_PARTITION_KEY, SET_COMMENT, SET_COLUMN_COMMENT };
+enum class LocalChangeType {
+	NONE,
+	CREATED,
+	RENAMED,
+	SET_PARTITION_KEY,
+	SET_COMMENT,
+	SET_COLUMN_COMMENT,
+	SET_NULL,
+	DROP_NULL
+};
 
 struct LocalChange {
 	LocalChange(LocalChangeType type) // NOLINT: allow implicit conversion from LocalChangeType
@@ -21,11 +30,21 @@ struct LocalChange {
 	}
 
 	LocalChangeType type;
-	//! For SET COLUMN COMMENT
+	//! For operations that alter individual columns
 	FieldIndex field_index;
 
 	static LocalChange SetColumnComment(FieldIndex field_idx) {
 		LocalChange result(LocalChangeType::SET_COLUMN_COMMENT);
+		result.field_index = field_idx;
+		return result;
+	}
+	static LocalChange SetNull(FieldIndex field_idx) {
+		LocalChange result(LocalChangeType::SET_NULL);
+		result.field_index = field_idx;
+		return result;
+	}
+	static LocalChange DropNull(FieldIndex field_idx) {
+		LocalChange result(LocalChangeType::DROP_NULL);
 		result.field_index = field_idx;
 		return result;
 	}

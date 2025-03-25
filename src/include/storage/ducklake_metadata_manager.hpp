@@ -144,6 +144,16 @@ struct DuckLakeColumnTagInfo {
 	Value value;
 };
 
+struct DuckLakeDroppedColumn {
+	TableIndex table_id;
+	FieldIndex field_id;
+};
+
+struct DuckLakeNewColumn {
+	TableIndex table_id;
+	DuckLakeColumnInfo column_info;
+};
+
 struct DuckLakeCatalogInfo {
 	vector<DuckLakeSchemaInfo> schemas;
 	vector<DuckLakeTableInfo> tables;
@@ -172,6 +182,9 @@ public:
 	virtual void WriteNewViews(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeViewInfo> &new_views);
 	virtual void WriteNewPartitionKeys(DuckLakeSnapshot commit_snapshot,
 	                                   const vector<DuckLakePartitionInfo> &new_partitions);
+	virtual void WriteDroppedColumns(DuckLakeSnapshot commit_snapshot,
+	                                 const vector<DuckLakeDroppedColumn> &dropped_columns);
+	virtual void WriteNewColumns(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeNewColumn> &new_columns);
 	virtual void WriteNewTags(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeTagInfo> &new_tags);
 	virtual void WriteNewColumnTags(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeColumnTagInfo> &new_tags);
 	virtual void WriteNewDataFiles(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeFileInfo> &new_files);

@@ -390,6 +390,61 @@ void DuckLakeMetadataManager::WriteNewTables(DuckLakeSnapshot commit_snapshot,
 	}
 }
 
+void DuckLakeMetadataManager::WriteDroppedColumns(DuckLakeSnapshot commit_snapshot,
+                                                  const vector<DuckLakeDroppedColumn> &dropped_columns) {
+	if (dropped_columns.empty()) {
+		return;
+	}
+	string dropped_cols;
+	for (auto &dropped_col : dropped_columns) {
+		if (!dropped_cols.empty()) {
+			dropped_cols += ", ";
+		}
+		dropped_cols += StringUtil::Format("(%d, %d)", dropped_col.table_id.index, dropped_col.field_id.index);
+	}
+	// overwrite the snapshot for the old columns
+	auto result = transaction.Query(commit_snapshot, StringUtil::Format(R"(
+WITH dropped_cols(tid, cid) AS (
+VALUES %s
+)
+UPDATE {METADATA_CATALOG}.ducklake_column
+SET end_snapshot = {SNAPSHOT_ID}
+FROM dropped_cols
+WHERE table_id=tid AND column_id=cid
+)",
+	                                                                    dropped_cols));
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to drop columns in DuckLake: ");
+	}
+}
+
+void DuckLakeMetadataManager::WriteNewColumns(DuckLakeSnapshot commit_snapshot,
+                                              const vector<DuckLakeNewColumn> &new_columns) {
+	if (new_columns.empty()) {
+		return;
+	}
+	string column_insert_sql;
+	for (auto &new_col : new_columns) {
+		if (!column_insert_sql.empty()) {
+			column_insert_sql += ", ";
+		}
+		auto &column = new_col.column_info;
+		auto column_id = column.id.index;
+		auto column_order = column.id.index;
+		auto table_id = new_col.table_id;
+		column_insert_sql += StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, NULL, %d, NULL)", column_id,
+		                                        table_id.index, column_order, SQLString(column.name),
+		                                        SQLString(column.type), column.nulls_allowed ? 1 : 0);
+	}
+
+	// insert column entries
+	column_insert_sql = "INSERT INTO {METADATA_CATALOG}.ducklake_column VALUES " + column_insert_sql;
+	auto result = transaction.Query(commit_snapshot, column_insert_sql);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to write column information to DuckLake: ");
+	}
+}
+
 void DuckLakeMetadataManager::WriteNewViews(DuckLakeSnapshot commit_snapshot,
                                             const vector<DuckLakeViewInfo> &new_views) {
 	string view_insert_sql;

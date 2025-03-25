@@ -68,6 +68,7 @@ public:
 	optional_ptr<CatalogEntry> GetTransactionLocalEntry(CatalogType catalog_type, const string &schema_name,
 	                                                    const string &entry_name);
 	vector<DuckLakeDataFile> GetTransactionLocalFiles(TableIndex table_id);
+	bool HasTransactionLocalChanges(TableIndex table_id);
 	void AppendFiles(TableIndex table_id, const vector<DuckLakeDataFile> &files);
 
 	void DropSchema(DuckLakeSchemaEntry &schema);

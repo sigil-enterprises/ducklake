@@ -1,3 +1,4 @@
+#include "common/ducklake_types.hpp"
 #include "storage/ducklake_table_entry.hpp"
 #include "storage/ducklake_catalog.hpp"
 #include "storage/ducklake_scan.hpp"
@@ -166,12 +167,20 @@ void DuckLakeTableEntry::SetPartitionData(unique_ptr<DuckLakePartition> partitio
 }
 
 optional_ptr<DuckLakeTableStats> DuckLakeTableEntry::GetTableStats(ClientContext &context) {
+	auto &transaction = DuckLakeTransaction::Get(context, ParentCatalog());
+	return GetTableStats(transaction);
+}
+
+optional_ptr<DuckLakeTableStats> DuckLakeTableEntry::GetTableStats(DuckLakeTransaction &transaction) {
 	if (IsTransactionLocal()) {
 		// no stats for transaction local tables
 		return nullptr;
 	}
 	auto &dl_catalog = catalog.Cast<DuckLakeCatalog>();
-	auto &transaction = DuckLakeTransaction::Get(context, ParentCatalog());
+	if (transaction.HasTransactionLocalChanges(GetTableId())) {
+		// no stats if there are transaction-local changes
+		return nullptr;
+	}
 	return dl_catalog.GetTableStats(transaction, GetTableId());
 }
 
@@ -215,12 +224,80 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	return std::move(new_entry);
 }
 
+optional_idx FindNotNullConstraint(CreateTableInfo &table_info, LogicalIndex index) {
+	for (idx_t constraint_idx = 0; constraint_idx < table_info.constraints.size(); constraint_idx++) {
+		auto &constraint = table_info.constraints[constraint_idx];
+		if (constraint->type != ConstraintType::NOT_NULL) {
+			continue;
+		}
+		auto &not_null_constraint = constraint->Cast<NotNullConstraint>();
+		if (not_null_constraint.index == index) {
+			return constraint_idx;
+		}
+	}
+	return optional_idx();
+}
+
+unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, SetNotNullInfo &info) {
+	auto create_info = GetInfo();
+	auto &table_info = create_info->Cast<CreateTableInfo>();
+	auto &col = table_info.columns.GetColumn(info.column_name);
+	auto &field_id = GetFieldId(col.Physical());
+
+	// verify the column has no NULL values currently by looking at the stats
+	auto stats = GetTableStats(transaction);
+	if (!stats) {
+		throw CatalogException(
+		    "Cannot SET NULL on table %s - the table has transaction-local changes or no stats are available", name);
+	}
+
+	auto column_stats = stats->column_stats.find(field_id.GetFieldIndex());
+	if (column_stats == stats->column_stats.end()) {
+		throw CatalogException("Cannot SET NULL on table %s - no column stats are available", name);
+	}
+	auto &col_stats = column_stats->second;
+	if (col_stats.has_null_count && col_stats.null_count > 0) {
+		throw CatalogException("Cannot SET NULL on column %s - the column has NULL values", col.GetName());
+	}
+
+	// check if there is an existing constraint
+	auto existing_idx = FindNotNullConstraint(table_info, col.Logical());
+	if (existing_idx.IsValid()) {
+		throw CatalogException("Cannot SET NULL on column %s - it already has a NOT NULL constraint", col.GetName());
+	}
+	table_info.constraints.push_back(make_uniq<NotNullConstraint>(col.Logical()));
+
+	auto new_entry = make_uniq<DuckLakeTableEntry>(*this, table_info, LocalChange::SetNull(field_id.GetFieldIndex()));
+	return std::move(new_entry);
+}
+
+unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, DropNotNullInfo &info) {
+	auto create_info = GetInfo();
+	auto &table_info = create_info->Cast<CreateTableInfo>();
+	auto &col = table_info.columns.GetColumn(info.column_name);
+	auto &field_id = GetFieldId(col.Physical());
+
+	// find the existing index
+	auto existing_idx = FindNotNullConstraint(table_info, col.Logical());
+	if (!existing_idx.IsValid()) {
+		throw CatalogException("Cannot DROP NULL on column %s - it has no NOT NULL constraint defined", col.GetName());
+	}
+	table_info.constraints.erase(table_info.constraints.begin() + existing_idx.GetIndex());
+
+	auto new_entry = make_uniq<DuckLakeTableEntry>(*this, table_info, LocalChange::DropNull(field_id.GetFieldIndex()));
+	return std::move(new_entry);
+}
+
 unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transaction, AlterTableInfo &info) {
 	switch (info.alter_table_type) {
 	case AlterTableType::RENAME_TABLE:
 		return AlterTable(transaction, info.Cast<RenameTableInfo>());
 	case AlterTableType::SET_PARTITIONED_BY:
 		return AlterTable(transaction, info.Cast<SetPartitionedByInfo>());
+	case AlterTableType::SET_NOT_NULL:
+		return AlterTable(transaction, info.Cast<SetNotNullInfo>());
+	case AlterTableType::DROP_NOT_NULL:
+		return AlterTable(transaction, info.Cast<DropNotNullInfo>());
 	default:
 		throw BinderException("Unsupported ALTER TABLE type in DuckLake");
 	}
@@ -245,6 +322,17 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transact
 	auto new_entry =
 	    make_uniq<DuckLakeTableEntry>(*this, table_info, LocalChange::SetColumnComment(field_id.GetFieldIndex()));
 	return std::move(new_entry);
+}
+
+DuckLakeColumnInfo DuckLakeTableEntry::GetColumnInfo(FieldIndex field_index) const {
+	auto &col = GetColumnByFieldId(field_index);
+
+	DuckLakeColumnInfo result;
+	result.id = local_change.field_index;
+	result.name = col.Name();
+	result.type = DuckLakeTypes::ToString(col.Type());
+	result.nulls_allowed = GetNotNullFields().count(col.Name()) == 0;
+	return result;
 }
 
 TableStorageInfo DuckLakeTableEntry::GetStorageInfo(ClientContext &context) {

@@ -26,3 +26,69 @@ DESCRIBE ducklake.test
 ----
 i	INTEGER	NO	NULL	NULL	NULL
 j	INTEGER	YES	NULL	NULL	NULL
+
+# we cannot add a null constraint to a column that already has it
+statement error
+ALTER TABLE ducklake.test ALTER i SET NOT NULL;
+----
+already
+
+# we cannot drop the null constraint from a column that does not have it
+statement error
+ALTER TABLE ducklake.test ALTER j DROP NOT NULL;
+----
+no NOT NULL constraint
+
+# we can drop the NOT NULL constraint
+statement ok
+ALTER TABLE ducklake.test ALTER i DROP NOT NULL;
+
+# we can then re-add it - and roll it back
+statement ok
+BEGIN
+
+statement ok
+ALTER TABLE ducklake.test ALTER i SET NOT NULL;
+
+statement ok
+ROLLBACK
+
+# if we re-add, we cannot add NULL values in the same transaction
+statement ok
+BEGIN
+
+statement ok
+ALTER TABLE ducklake.test ALTER i SET NOT NULL;
+
+statement error
+INSERT INTO ducklake.test VALUES (NULL, 42)
+----
+NOT NULL constraint failed
+
+statement ok
+ROLLBACK
+
+# if we re-add, we cannot add NULL values in the same transaction
+statement ok
+BEGIN
+
+statement ok
+INSERT INTO ducklake.test VALUES (NULL, 84)
+
+statement error
+ALTER TABLE ducklake.test ALTER i SET NOT NULL;
+----
+transaction-local
+
+statement ok
+ROLLBACK
+
+# we cannot SET NOT NULL on a table that has NULL values
+statement error
+ALTER TABLE ducklake.test ALTER j SET NOT NULL;
+----
+has NULL values
+
+# after dropping the constraint - we can add NULL rows
+statement ok
+INSERT INTO ducklake.test VALUES (NULL, 84)

@@ -17,6 +17,7 @@
 
 namespace duckdb {
 struct AlterTableInfo;
+struct DuckLakeColumnInfo;
 struct SetPartitionedByInfo;
 struct SetCommentInfo;
 class DuckLakeTransaction;
@@ -57,6 +58,7 @@ public:
 	const DuckLakeFieldId &GetFieldId(FieldIndex field_index) const;
 	void SetPartitionData(unique_ptr<DuckLakePartition> partition_data);
 	optional_ptr<DuckLakeTableStats> GetTableStats(ClientContext &context);
+	optional_ptr<DuckLakeTableStats> GetTableStats(DuckLakeTransaction &transaction);
 
 	//! Gets the top-level not-null fields
 	case_insensitive_set_t GetNotNullFields() const;
@@ -77,9 +79,13 @@ public:
 	void BindUpdateConstraints(Binder &binder, LogicalGet &get, LogicalProjection &proj, LogicalUpdate &update,
 	                           ClientContext &context) override;
 
+	DuckLakeColumnInfo GetColumnInfo(FieldIndex field_index) const;
+
 private:
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, RenameTableInfo &info);
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, SetPartitionedByInfo &info);
+	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, SetNotNullInfo &info);
+	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, DropNotNullInfo &info);
 
 public:
 	// ! Create a DuckLakeTableEntry from an ALTER
