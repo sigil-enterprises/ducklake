@@ -23,7 +23,7 @@ void DuckLakeMetadataManager::InitializeDuckLake(bool has_explicit_schema) {
 		initialize_query += "CREATE SCHEMA IF NOT EXISTS {METADATA_CATALOG};\n";
 	}
 	initialize_query += StringUtil::Format(R"(
-CREATE TABLE {METADATA_CATALOG}.ducklake_info(version BIGINT, data_path VARCHAR, created_by VARCHAR);
+CREATE TABLE {METADATA_CATALOG}.ducklake_metadata(key VARCHAR NOT NULL, value VARCHAR NOT NULL);
 CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot(snapshot_id BIGINT PRIMARY KEY, snapshot_time TIMESTAMPTZ, schema_version BIGINT, next_catalog_id BIGINT, next_file_id BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot_changes(snapshot_id BIGINT PRIMARY KEY, changes_made VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_schema(schema_id BIGINT PRIMARY KEY, schema_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_name VARCHAR);
@@ -40,8 +40,8 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_table_column_stats(table_id BIGINT, col
 CREATE TABLE {METADATA_CATALOG}.ducklake_partition_info(partition_id BIGINT, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_partition_columns(partition_id BIGINT, partition_key_index BIGINT, column_id BIGINT, transform VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_file_partition_values(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, partition_key_index BIGINT, partition_value VARCHAR);
-INSERT INTO {METADATA_CATALOG}.ducklake_info VALUES (1, {DATA_PATH}, 'DuckDB %s');
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
+INSERT INTO {METADATA_CATALOG}.ducklake_metadata VALUES ('version', '1'), ('created_by', 'DuckDB %s'), ('data_path', {DATA_PATH});
 INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main');
 	)",
 	                                       DuckDB::SourceID());
@@ -54,6 +54,22 @@ INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to initialize DuckLake:");
 	}
+}
+
+DuckLakeMetadata DuckLakeMetadataManager::LoadDuckLake() {
+	auto result = transaction.Query("SELECT key, value FROM {METADATA_CATALOG}.ducklake_metadata");
+	if (result->HasError()) {
+		auto &error_obj = result->GetErrorObject();
+		error_obj.Throw("Failed to load existing DuckLake");
+	}
+	DuckLakeMetadata metadata;
+	for (auto &row : *result) {
+		DuckLakeTag tag;
+		tag.key = row.GetValue<string>(0);
+		tag.value = row.GetValue<string>(1);
+		metadata.tags.push_back(std::move(tag));
+	}
+	return metadata;
 }
 
 bool AddChildColumn(vector<DuckLakeColumnInfo> &columns, FieldIndex parent_id, DuckLakeColumnInfo &column_info) {

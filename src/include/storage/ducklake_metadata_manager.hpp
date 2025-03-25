@@ -32,6 +32,10 @@ struct DuckLakeTag {
 	string value;
 };
 
+struct DuckLakeMetadata {
+	vector<DuckLakeTag> tags;
+};
+
 struct DuckLakeSchemaInfo {
 	SchemaIndex id;
 	string uuid;
@@ -171,6 +175,7 @@ public:
 
 	//! Initialize a new DuckLake
 	virtual void InitializeDuckLake(bool has_explicit_schema);
+	virtual DuckLakeMetadata LoadDuckLake();
 	//! Get the catalog information for a specific snapshot
 	virtual DuckLakeCatalogInfo GetCatalogForSnapshot(DuckLakeSnapshot snapshot);
 	virtual vector<DuckLakeGlobalStatsInfo> GetGlobalTableStats(DuckLakeSnapshot snapshot);

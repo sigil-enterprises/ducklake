@@ -62,17 +62,19 @@ void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction
 
 void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction) {
 	// load the data path from the existing duck lake
-	auto result = transaction.Query("SELECT data_path FROM {METADATA_CATALOG}.ducklake_info");
-	if (result->HasError()) {
-		auto &error_obj = result->GetErrorObject();
-		error_obj.Throw("Failed to load existing DuckLake");
-	}
-	auto chunk = result->Fetch();
-	if (chunk->size() != 1) {
-		throw InvalidInputException("Failed to load existing ducklake - ducklake_info does not have a single row");
-	}
-	if (data_path.empty()) {
-		data_path = chunk->GetValue(0, 0).GetValue<string>();
+	auto &metadata_manager = transaction.GetMetadataManager();
+	auto metadata = metadata_manager.LoadDuckLake();
+	for (auto &tag : metadata.tags) {
+		if (tag.key == "version") {
+			if (tag.value != "1") {
+				throw NotImplementedException("Only DuckLake version 1 is supported");
+			}
+		}
+		if (tag.key == "data_path") {
+			if (data_path.empty()) {
+				data_path = tag.value;
+			}
+		}
 	}
 }
 
