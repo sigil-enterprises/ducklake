@@ -62,6 +62,14 @@ DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableIn
 	field_data = DuckLakeFieldData::RenameColumn(*field_data, local_change.field_index, new_name);
 }
 
+// ALTER TABLE DROP COLUMN
+DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, LocalChange local_change,
+                                       unique_ptr<DuckLakeFieldId> dropped_field_id_p)
+    : DuckLakeTableEntry(parent, info, local_change) {
+	D_ASSERT(local_change.type == LocalChangeType::REMOVE_COLUMN);
+	dropped_field_id = std::move(dropped_field_id_p);
+}
+
 // ALTER TABLE SET PARTITION KEY
 DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info,
                                        unique_ptr<DuckLakePartition> partition_data_p)
@@ -362,7 +370,7 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	}
 	table_info.columns = std::move(new_columns);
 
-	auto new_entry = make_uniq<DuckLakeTableEntry>(*this, table_info, LocalChange::RemoveColumn(field_id.GetFieldIndex()));
+	auto new_entry = make_uniq<DuckLakeTableEntry>(*this, table_info, LocalChangeType::REMOVE_COLUMN, field_id.Copy());
 	return std::move(new_entry);
 }
 

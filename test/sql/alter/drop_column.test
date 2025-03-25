@@ -1,4 +1,4 @@
-# name: test/sql/ducklake_alter_drop_column.test
+# name: test/sql/alter/drop_column.test
 # description: test ducklake drop columns
 # group: [ducklake]
 

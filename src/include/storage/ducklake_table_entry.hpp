@@ -53,6 +53,9 @@ public:
 	FieldIndex GetNextColumnId() const {
 		return next_column_id;
 	}
+	const DuckLakeFieldId &GetDroppedFieldId() const {
+		return *dropped_field_id;
+	}
 	const ColumnDefinition &GetColumnByFieldId(FieldIndex field_index) const;
 	//! Returns the root field id of a column
 	const DuckLakeFieldId &GetFieldId(PhysicalIndex column_index) const;
@@ -104,6 +107,9 @@ public:
 	// ! Create a DuckLakeTableEntry from a RENAME COLUMN
 	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, LocalChange local_change,
 	                   const string &new_name);
+	// ! Create a DuckLakeTableEntry from a REMOVE COLUMN
+	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, LocalChange local_change,
+	                   unique_ptr<DuckLakeFieldId> dropped_field_id);
 	// ! Create a DuckLakeTableEntry from a SET PARTITION KEY
 	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, unique_ptr<DuckLakePartition> partition_data);
 
@@ -114,6 +120,8 @@ private:
 	FieldIndex next_column_id;
 	LocalChange local_change;
 	unique_ptr<DuckLakePartition> partition_data;
+	// only set for REMOVED_COLUMN
+	unique_ptr<DuckLakeFieldId> dropped_field_id;
 };
 
 } // namespace duckdb

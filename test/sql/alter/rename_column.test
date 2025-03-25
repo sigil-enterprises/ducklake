@@ -1,4 +1,4 @@
-# name: test/sql/ducklake_alter_rename.test
+# name: test/sql/alter/rename_column.test
 # description: test ducklake renanming columns
 # group: [ducklake]
 

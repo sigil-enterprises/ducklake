@@ -1,4 +1,4 @@
-# name: test/sql/ducklake_alter_add_column.test
+# name: test/sql/alter/add_column.test
 # description: test ducklake add columns
 # group: [ducklake]
 

@@ -497,6 +497,18 @@ struct NewTableInfo {
 	vector<DuckLakeNewColumn> new_columns;
 };
 
+void RecursiveDropColumns(TableIndex table_id, const DuckLakeFieldId &field_id,
+                          vector<DuckLakeDroppedColumn> &dropped_columns) {
+	DuckLakeDroppedColumn dropped_col;
+	dropped_col.table_id = table_id;
+	dropped_col.field_id = field_id.GetFieldIndex();
+	dropped_columns.push_back(dropped_col);
+
+	for (auto &child : field_id.Children()) {
+		RecursiveDropColumns(table_id, *child, dropped_columns);
+	}
+}
+
 void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> table_entry,
                                           NewTableInfo &result, TransactionChangeInformation &transaction_changes) {
 	// iterate over the table chain in reverse order when committing
@@ -566,12 +578,9 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 			break;
 		}
 		case LocalChangeType::REMOVE_COLUMN: {
-			// FIXME: if the type is nested, we need to drop multiple field ids...
-			// drop the previous column
-			DuckLakeDroppedColumn dropped_col;
-			dropped_col.table_id = table.GetTableId();
-			dropped_col.field_id = local_change.field_index;
-			result.dropped_columns.push_back(dropped_col);
+			// drop the indicated column
+			// note that in case of nested types we might be dropping multiple columns here
+			RecursiveDropColumns(table.GetTableId(), table.GetDroppedFieldId(), result.dropped_columns);
 			break;
 		}
 		case LocalChangeType::ADD_COLUMN: {

@@ -1,4 +1,4 @@
-# name: test/sql/ducklake_alter_add_column_nested.test
+# name: test/sql/alter/add_column_nested.test
 # description: test ducklake add nested columns
 # group: [ducklake]
 
