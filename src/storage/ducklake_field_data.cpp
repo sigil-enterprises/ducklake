@@ -101,6 +101,17 @@ shared_ptr<DuckLakeFieldData> DuckLakeFieldData::RenameColumn(const DuckLakeFiel
 	return result;
 }
 
+shared_ptr<DuckLakeFieldData> DuckLakeFieldData::AddColumn(const DuckLakeFieldData &field_data,
+                                                           const ColumnDefinition &new_col, idx_t &next_column_id) {
+	auto result = make_shared_ptr<DuckLakeFieldData>();
+	for (auto &existing_id : field_data.field_ids) {
+		result->Add(existing_id->Copy());
+	}
+	auto field_id = DuckLakeFieldId::FieldIdFromType(new_col.Name(), new_col.Type(), next_column_id);
+	result->Add(std::move(field_id));
+	return result;
+}
+
 const DuckLakeFieldId &DuckLakeFieldData::GetByRootIndex(PhysicalIndex id) const {
 	return *field_ids[id.index];
 }

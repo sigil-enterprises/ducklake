@@ -25,7 +25,8 @@ class DuckLakeTransaction;
 class DuckLakeTableEntry : public TableCatalogEntry {
 public:
 	DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info, TableIndex table_id,
-	                   string table_uuid, shared_ptr<DuckLakeFieldData> field_data, LocalChange local_change);
+	                   string table_uuid, shared_ptr<DuckLakeFieldData> field_data, FieldIndex next_column_id,
+	                   LocalChange local_change);
 
 public:
 	TableIndex GetTableId() const {
@@ -48,6 +49,9 @@ public:
 	}
 	DuckLakeFieldData &GetFieldData() {
 		return *field_data;
+	}
+	FieldIndex GetNextColumnId() const {
+		return next_column_id;
 	}
 	const ColumnDefinition &GetColumnByFieldId(FieldIndex field_index) const;
 	//! Returns the root field id of a column
@@ -80,6 +84,10 @@ public:
 	                           ClientContext &context) override;
 
 	DuckLakeColumnInfo GetColumnInfo(FieldIndex field_index) const;
+	DuckLakeColumnInfo GetAddColumnInfo() const;
+
+	static DuckLakeColumnInfo ConvertColumn(const string &name, const LogicalType &type,
+	                                        const DuckLakeFieldId &field_id);
 
 private:
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, RenameTableInfo &info);
@@ -87,6 +95,7 @@ private:
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, SetNotNullInfo &info);
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, DropNotNullInfo &info);
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, RenameColumnInfo &info);
+	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, AddColumnInfo &info);
 
 public:
 	// ! Create a DuckLakeTableEntry from an ALTER
@@ -101,6 +110,7 @@ private:
 	TableIndex table_id;
 	string table_uuid;
 	shared_ptr<DuckLakeFieldData> field_data;
+	FieldIndex next_column_id;
 	LocalChange local_change;
 	unique_ptr<DuckLakePartition> partition_data;
 };

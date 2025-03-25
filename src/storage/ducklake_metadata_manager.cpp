@@ -27,7 +27,7 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_metadata(key VARCHAR NOT NULL, value VA
 CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot(snapshot_id BIGINT PRIMARY KEY, snapshot_time TIMESTAMPTZ, schema_version BIGINT, next_catalog_id BIGINT, next_file_id BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot_changes(snapshot_id BIGINT PRIMARY KEY, changes_made VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_schema(schema_id BIGINT PRIMARY KEY, schema_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_name VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_table(table_id BIGINT, table_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, table_name VARCHAR);
+CREATE TABLE {METADATA_CATALOG}.ducklake_table(table_id BIGINT, table_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, table_name VARCHAR, next_column_id BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_view(view_id BIGINT, view_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, view_name VARCHAR, dialect VARCHAR, sql VARCHAR, column_aliases VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_tag(object_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, key VARCHAR, value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_column_tag(table_id BIGINT, column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, key VARCHAR, value VARCHAR);
@@ -120,13 +120,14 @@ WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_s
 
 	// load the table information
 	result = transaction.Query(snapshot, R"(
-SELECT schema_id, tbl.table_id, table_uuid::VARCHAR, table_name, col.column_id, column_name, column_type, default_value, nulls_allowed, parent_column,
+SELECT schema_id, tbl.table_id, table_uuid::VARCHAR, table_name, next_column_id,
 	(
 		SELECT LIST({'key': key, 'value': value})
 		FROM {METADATA_CATALOG}.ducklake_tag tag
 		WHERE object_id=table_id AND
 		      {SNAPSHOT_ID} >= tag.begin_snapshot AND ({SNAPSHOT_ID} < tag.end_snapshot OR tag.end_snapshot IS NULL)
 	) AS tag,
+	col.column_id, column_name, column_type, default_value, nulls_allowed, parent_column,
 	(
 		SELECT LIST({'key': key, 'value': value})
 		FROM {METADATA_CATALOG}.ducklake_column_tag col_tag
@@ -142,6 +143,7 @@ ORDER BY table_id, parent_column NULLS FIRST, column_order
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to get table information from DuckLake: ");
 	}
+	const idx_t COLUMN_INDEX_START = 6;
 	auto &tables = catalog.tables;
 	for (auto &row : *result) {
 		auto table_id = TableIndex(row.GetValue<uint64_t>(1));
@@ -154,8 +156,9 @@ ORDER BY table_id, parent_column NULLS FIRST, column_order
 			table_info.schema_id = SchemaIndex(row.GetValue<uint64_t>(0));
 			table_info.uuid = row.GetValue<string>(2);
 			table_info.name = row.GetValue<string>(3);
-			if (!row.IsNull(10)) {
-				auto tags = row.GetValue<Value>(10);
+			table_info.next_column_id = FieldIndex(row.GetValue<idx_t>(4));
+			if (!row.IsNull(5)) {
+				auto tags = row.GetValue<Value>(5);
 				table_info.tags = LoadTags(tags);
 			}
 			tables.push_back(std::move(table_info));
@@ -166,20 +169,20 @@ ORDER BY table_id, parent_column NULLS FIRST, column_order
 			                            table_entry.name);
 		}
 		DuckLakeColumnInfo column_info;
-		column_info.id = FieldIndex(row.GetValue<uint64_t>(4));
-		column_info.name = row.GetValue<string>(5);
-		column_info.type = row.GetValue<string>(6);
-		column_info.nulls_allowed = row.GetValue<bool>(8);
-		if (!row.IsNull(11)) {
-			auto tags = row.GetValue<Value>(11);
+		column_info.id = FieldIndex(row.GetValue<uint64_t>(COLUMN_INDEX_START));
+		column_info.name = row.GetValue<string>(COLUMN_INDEX_START + 1);
+		column_info.type = row.GetValue<string>(COLUMN_INDEX_START + 2);
+		column_info.nulls_allowed = row.GetValue<bool>(COLUMN_INDEX_START + 4);
+		if (!row.IsNull(COLUMN_INDEX_START + 6)) {
+			auto tags = row.GetValue<Value>(COLUMN_INDEX_START + 6);
 			column_info.tags = LoadTags(tags);
 		}
 
-		if (row.IsNull(9)) {
+		if (row.IsNull(COLUMN_INDEX_START + 5)) {
 			// base column - add the column to this table
 			table_entry.columns.push_back(std::move(column_info));
 		} else {
-			auto parent_id = FieldIndex(row.GetValue<idx_t>(9));
+			auto parent_id = FieldIndex(row.GetValue<idx_t>(COLUMN_INDEX_START + 5));
 			if (!AddChildColumn(table_entry.columns, parent_id, column_info)) {
 				throw InvalidInputException("Failed to load DuckLake - Could not find parent column for column %s",
 				                            column_info.name);
@@ -381,8 +384,9 @@ void DuckLakeMetadataManager::WriteNewTables(DuckLakeSnapshot commit_snapshot,
 			table_insert_sql += ", ";
 		}
 		auto schema_id = table.schema_id.index;
-		table_insert_sql += StringUtil::Format("(%d, '%s', {SNAPSHOT_ID}, NULL, %d, %s)", table.id.index, table.uuid,
-		                                       schema_id, SQLString(table.name));
+		table_insert_sql +=
+		    StringUtil::Format("(%d, '%s', {SNAPSHOT_ID}, NULL, %d, %s, %d)", table.id.index, table.uuid, schema_id,
+		                       SQLString(table.name), table.next_column_id.index);
 		for (auto &column : table.columns) {
 			ColumnToSQLRecursive(column, table.id, optional_idx(), column_insert_sql);
 		}

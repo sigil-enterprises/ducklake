@@ -57,6 +57,7 @@ struct DuckLakeTableInfo {
 	SchemaIndex schema_id;
 	string uuid;
 	string name;
+	FieldIndex next_column_id;
 	vector<DuckLakeColumnInfo> columns;
 	vector<DuckLakeTag> tags;
 };

@@ -22,7 +22,8 @@ enum class LocalChangeType {
 	SET_COLUMN_COMMENT,
 	SET_NULL,
 	DROP_NULL,
-	RENAME_COLUMN
+	RENAME_COLUMN,
+	ADD_COLUMN
 };
 
 struct LocalChange {

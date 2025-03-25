@@ -57,8 +57,9 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction t
 	auto table_uuid = UUID::ToString(UUID::GenerateRandomUUID());
 	// generate field ids based on the column ids
 	auto field_data = DuckLakeFieldData::FromColumns(base_info.columns);
+	FieldIndex next_column_id(field_data->GetColumnCount() + 2);
 	auto table_entry = make_uniq<DuckLakeTableEntry>(ParentCatalog(), *this, base_info, table_id, std::move(table_uuid),
-	                                                 std::move(field_data), LocalChangeType::CREATED);
+	                                                 std::move(field_data), next_column_id, LocalChangeType::CREATED);
 	auto result = table_entry.get();
 	duck_transaction.CreateEntry(std::move(table_entry));
 	return result;

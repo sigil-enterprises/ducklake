@@ -82,7 +82,8 @@ void GetTransactionTableChanges(reference<CatalogEntry> table_entry, Transaction
 		case LocalChangeType::SET_COLUMN_COMMENT:
 		case LocalChangeType::SET_NULL:
 		case LocalChangeType::DROP_NULL:
-		case LocalChangeType::RENAME_COLUMN: {
+		case LocalChangeType::RENAME_COLUMN:
+		case LocalChangeType::ADD_COLUMN: {
 			// this table was altered
 			auto table_id = table.GetTableId();
 			// don't report transaction-local tables yet - these will get added later on
@@ -445,49 +446,6 @@ DuckLakePartitionInfo DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &
 	return partition_key;
 }
 
-DuckLakeColumnInfo ConvertColumn(const string &name, const LogicalType &type, const DuckLakeFieldId &field_id) {
-	DuckLakeColumnInfo column_entry;
-	column_entry.id = field_id.GetFieldIndex();
-	column_entry.name = name;
-	column_entry.nulls_allowed = true;
-	switch (type.id()) {
-	case LogicalTypeId::STRUCT: {
-		column_entry.type = "struct";
-		auto &struct_children = StructType::GetChildTypes(type);
-		for (idx_t child_idx = 0; child_idx < struct_children.size(); ++child_idx) {
-			auto &child = struct_children[child_idx];
-			auto &child_id = field_id.GetChildByIndex(child_idx);
-			column_entry.children.push_back(ConvertColumn(child.first, child.second, child_id));
-		}
-		break;
-	}
-	case LogicalTypeId::LIST: {
-		column_entry.type = "list";
-		auto &child_id = field_id.GetChildByIndex(0);
-		column_entry.children.push_back(ConvertColumn("element", ListType::GetChildType(type), child_id));
-		break;
-	}
-	case LogicalTypeId::ARRAY: {
-		column_entry.type = "list";
-		auto &child_id = field_id.GetChildByIndex(0);
-		column_entry.children.push_back(ConvertColumn("element", ArrayType::GetChildType(type), child_id));
-		break;
-	}
-	case LogicalTypeId::MAP: {
-		column_entry.type = "map";
-		auto &key_id = field_id.GetChildByIndex(0);
-		auto &value_id = field_id.GetChildByIndex(1);
-		column_entry.children.push_back(ConvertColumn("key", MapType::KeyType(type), key_id));
-		column_entry.children.push_back(ConvertColumn("value", MapType::ValueType(type), value_id));
-		break;
-	}
-	default:
-		column_entry.type = DuckLakeTypes::ToString(type);
-		break;
-	}
-	return column_entry;
-}
-
 DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table) {
 	auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
 	DuckLakeTableInfo table_entry;
@@ -505,11 +463,13 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 	table_entry.uuid = table.GetTableUUID();
 	table_entry.schema_id = schema.GetSchemaId();
 	table_entry.name = table.name;
+	table_entry.next_column_id = table.GetNextColumnId();
 	if (is_new_table) {
 		// if this is a new table - write the columns
 		auto not_null_fields = table.GetNotNullFields();
 		for (auto &col : table.GetColumns().Logical()) {
-			auto col_info = ConvertColumn(col.GetName(), col.GetType(), table.GetFieldId(col.Physical()));
+			auto col_info =
+			    DuckLakeTableEntry::ConvertColumn(col.GetName(), col.GetType(), table.GetFieldId(col.Physical()));
 			if (not_null_fields.count(col.GetName())) {
 				// no null values allowed in this field
 				col_info.nulls_allowed = false;
@@ -595,13 +555,27 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 			dropped_col.field_id = local_change.field_index;
 			result.dropped_columns.push_back(dropped_col);
 
-			// insert the new column (with the not null constraint set to the new value)
+			// insert the new column with the new info
 			DuckLakeNewColumn new_col;
 			new_col.table_id = table.GetTableId();
 			new_col.column_info = table.GetColumnInfo(local_change.field_index);
 			result.new_columns.push_back(std::move(new_col));
 
 			transaction_changes.altered_tables.insert(table.GetTableId());
+			break;
+		}
+		case LocalChangeType::ADD_COLUMN: {
+			// insert the new column
+			DuckLakeNewColumn new_col;
+			new_col.table_id = table.GetTableId();
+			new_col.column_info = table.GetAddColumnInfo();
+			result.new_columns.push_back(std::move(new_col));
+
+			transaction_changes.altered_tables.insert(table.GetTableId());
+
+			// write the new table information (with the new next_column_id)
+			auto new_table = GetNewTable(commit_snapshot, table);
+			result.new_tables.push_back(std::move(new_table));
 			break;
 		}
 		case LocalChangeType::NONE:
@@ -1077,19 +1051,22 @@ bool DuckLakeTransaction::IsDeleted(CatalogEntry &entry) {
 }
 
 void DuckLakeTransaction::AlterEntry(CatalogEntry &entry, unique_ptr<CatalogEntry> new_entry) {
+	if (!new_entry) {
+		return;
+	}
 	switch (entry.type) {
 	case CatalogType::TABLE_ENTRY:
-		AlterEntry(entry.Cast<DuckLakeTableEntry>(), std::move(new_entry));
+		AlterEntryInternal(entry.Cast<DuckLakeTableEntry>(), std::move(new_entry));
 		break;
 	case CatalogType::VIEW_ENTRY:
-		AlterEntry(entry.Cast<DuckLakeViewEntry>(), std::move(new_entry));
+		AlterEntryInternal(entry.Cast<DuckLakeViewEntry>(), std::move(new_entry));
 		break;
 	default:
 		throw NotImplementedException("Unsupported catalog type for AlterEntry");
 	}
 }
 
-void DuckLakeTransaction::AlterEntry(DuckLakeTableEntry &table, unique_ptr<CatalogEntry> new_entry) {
+void DuckLakeTransaction::AlterEntryInternal(DuckLakeTableEntry &table, unique_ptr<CatalogEntry> new_entry) {
 	auto &new_table = new_entry->Cast<DuckLakeTableEntry>();
 	auto &entries = GetOrCreateTransactionLocalEntries(table);
 	entries.CreateEntry(std::move(new_entry));
@@ -1100,6 +1077,15 @@ void DuckLakeTransaction::AlterEntry(DuckLakeTableEntry &table, unique_ptr<Catal
 			// table is transaction local - delete the old table from there
 			entries.DropEntry(table.name);
 		} else {
+			// table is not transaction local - add to drop list
+			auto table_id = table.GetTableId();
+			dropped_tables.insert(table_id);
+		}
+		break;
+	}
+	case LocalChangeType::ADD_COLUMN: {
+		// add column - need to drop the old table (as we write a new one)
+		if (!table.IsTransactionLocal()) {
 			// table is not transaction local - add to drop list
 			auto table_id = table.GetTableId();
 			dropped_tables.insert(table_id);
@@ -1118,7 +1104,7 @@ void DuckLakeTransaction::AlterEntry(DuckLakeTableEntry &table, unique_ptr<Catal
 	}
 }
 
-void DuckLakeTransaction::AlterEntry(DuckLakeViewEntry &view, unique_ptr<CatalogEntry> new_entry) {
+void DuckLakeTransaction::AlterEntryInternal(DuckLakeViewEntry &view, unique_ptr<CatalogEntry> new_entry) {
 	auto &new_view = new_entry->Cast<DuckLakeViewEntry>();
 	auto &entries = GetOrCreateTransactionLocalEntries(view);
 	entries.CreateEntry(std::move(new_entry));

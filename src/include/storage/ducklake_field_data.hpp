@@ -16,6 +16,7 @@ namespace duckdb {
 struct AlterTableInfo;
 struct SetPartitionedByInfo;
 class DuckLakeTransaction;
+class ColumnDefinition;
 class ColumnList;
 
 class DuckLakeFieldId {
@@ -75,6 +76,8 @@ public:
 	static shared_ptr<DuckLakeFieldData> FromColumns(const ColumnList &columns);
 	static shared_ptr<DuckLakeFieldData> RenameColumn(const DuckLakeFieldData &field_data, FieldIndex rename_index,
 	                                                  const string &new_name);
+	static shared_ptr<DuckLakeFieldData> AddColumn(const DuckLakeFieldData &field_data, const ColumnDefinition &new_col,
+	                                               idx_t &next_column_id);
 
 private:
 	vector<unique_ptr<DuckLakeFieldId>> field_ids;

@@ -59,8 +59,6 @@ public:
 	bool IsDeleted(CatalogEntry &entry);
 
 	void AlterEntry(CatalogEntry &old_entry, unique_ptr<CatalogEntry> new_entry);
-	void AlterEntry(DuckLakeTableEntry &old_entry, unique_ptr<CatalogEntry> new_entry);
-	void AlterEntry(DuckLakeViewEntry &old_entry, unique_ptr<CatalogEntry> new_entry);
 
 	DuckLakeCatalogSet &GetOrCreateTransactionLocalEntries(CatalogEntry &entry);
 	optional_ptr<DuckLakeCatalogSet> GetTransactionLocalSchemas();
@@ -106,6 +104,9 @@ private:
 	                     TransactionChangeInformation &transaction_changes);
 	void GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> table_entry, NewTableInfo &result,
 	                    TransactionChangeInformation &transaction_changes);
+
+	void AlterEntryInternal(DuckLakeTableEntry &old_entry, unique_ptr<CatalogEntry> new_entry);
+	void AlterEntryInternal(DuckLakeViewEntry &old_entry, unique_ptr<CatalogEntry> new_entry);
 
 private:
 	DuckLakeCatalog &ducklake_catalog;
