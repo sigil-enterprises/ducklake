@@ -45,9 +45,10 @@ new_col3	VARCHAR	YES	NULL	NULL	NULL
 statement ok
 INSERT INTO ducklake.test VALUES (1, 2, 'hello'), (NULL, 3, 'world');
 
-# FIXME: need to push field-ids into reads to be able to read previously written data after a column add
-mode skip
-
-query II
+query III rowsort
 SELECT * FROM ducklake.test
 ----
+1	2	NULL
+1	2	hello
+NULL	3	NULL
+NULL	3	world

@@ -72,6 +72,9 @@ public:
 	idx_t GetColumnCount() {
 		return field_ids.size();
 	}
+	const vector<unique_ptr<DuckLakeFieldId>> &GetFieldIds() const {
+		return field_ids;
+	}
 
 	static shared_ptr<DuckLakeFieldData> FromColumns(const ColumnList &columns);
 	static shared_ptr<DuckLakeFieldData> FromColumns(const ColumnList &columns, idx_t &column_id);

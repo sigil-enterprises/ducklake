@@ -13,7 +13,13 @@ statement ok
 CREATE TABLE ducklake.test(col1 STRUCT(i INT, j INT));
 
 statement ok
+INSERT INTO ducklake.test VALUES ({'i': 1, 'j': 2})
+
+statement ok
 ALTER TABLE ducklake.test ADD COLUMN new_col2 INT[]
+
+statement ok
+INSERT INTO ducklake.test VALUES ({'i': 100, 'j': 200}, [])
 
 statement ok
 ALTER TABLE ducklake.test ADD COLUMN new_col3 STRUCT(k INT, v INT);
@@ -24,4 +30,6 @@ INSERT INTO ducklake.test VALUES ({'i': 42, 'j': NULL}, [1, 2, 3], {'k': 1, 'v':
 query III
 SELECT * FROM ducklake.test
 ----
+{'i': 1, 'j': 2}	NULL	NULL
+{'i': 100, 'j': 200}	[]	NULL
 {'i': 42, 'j': NULL}	[1, 2, 3]	{'k': 1, 'v': 2}

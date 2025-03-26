@@ -33,10 +33,6 @@ DESCRIBE ducklake.test
 new_col1	INTEGER	YES	NULL	NULL	NULL
 new_col2	INTEGER	YES	NULL	NULL	NULL
 
-
-# FIXME: need to push field-ids into reads to be able to read previously written data after a column rename
-mode skip
-
 query II
 SELECT new_col1, new_col2 FROM ducklake.test
 ----
