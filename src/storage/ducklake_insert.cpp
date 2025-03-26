@@ -105,7 +105,7 @@ SinkResultType DuckLakeInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 				} else if (stats_name == "null_count") {
 					D_ASSERT(!column_stats.has_null_count);
 					column_stats.has_null_count = true;
-					column_stats.null_count = std::stoull(stats_value);
+					column_stats.null_count = StringUtil::ToUnsigned(stats_value);
 					if (column_stats.null_count > 0 && column_names.size() == 1) {
 						// we wrote NULL values to a base column - verify NOT NULL constraint
 						if (global_state.not_null_fields.count(column_names[0])) {
@@ -113,8 +113,10 @@ SinkResultType DuckLakeInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 						}
 					}
 				} else if (stats_name == "column_size_bytes") {
-					// TODO
-				} else if (stats_name == "contains_nan") {
+					column_stats.column_size_bytes = StringUtil::ToUnsigned(stats_value);
+				} else if (stats_name == "has_nan") {
+					column_stats.has_contains_nan = true;
+					column_stats.contains_nan = stats_value == "true";
 				} else {
 					throw NotImplementedException("Unsupported stats type \"%s\" in DuckLakeInsert::Sink()",
 					                              stats_name);

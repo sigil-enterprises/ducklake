@@ -300,6 +300,10 @@ unique_ptr<DuckLakeStats> DuckLakeCatalog::LoadStatsForSnapshot(DuckLakeTransact
 			if (column_stats.has_null_count) {
 				column_stats.null_count = col_stats.contains_null ? 1 : 0;
 			}
+			column_stats.has_contains_nan = col_stats.has_contains_nan;
+			if (column_stats.has_contains_nan) {
+				column_stats.contains_nan = col_stats.contains_nan;
+			}
 			column_stats.has_min = col_stats.has_min;
 			if (column_stats.has_min) {
 				column_stats.min = col_stats.min_val;

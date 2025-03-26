@@ -18,6 +18,15 @@ void DuckLakeTableStats::MergeStats(FieldIndex col_id, const DuckLakeColumnStats
 		// both stats have a null count - add them up
 		current_stats.null_count += file_stats.null_count;
 	}
+	current_stats.column_size_bytes += file_stats.column_size_bytes;
+	if (!file_stats.has_contains_nan) {
+		current_stats.has_contains_nan = false;
+	} else if (current_stats.has_contains_nan) {
+		// both stats have a null count - add them up
+		if (file_stats.contains_nan) {
+			current_stats.contains_nan = true;
+		}
+	}
 
 	if (!file_stats.any_valid) {
 		// all values in the source are NULL - don't update min/max
@@ -56,9 +65,9 @@ void DuckLakeTableStats::MergeStats(FieldIndex col_id, const DuckLakeColumnStats
 		// both stats have a min - select the smallest
 		if (current_stats.type.IsNumeric()) {
 			// for numerics we need to parse the stats
-			auto current_min = Value(current_stats.max).DefaultCastAs(current_stats.type);
-			auto new_min = Value(file_stats.max).DefaultCastAs(current_stats.type);
-			if (new_min > current_min) {
+			auto current_max = Value(current_stats.max).DefaultCastAs(current_stats.type);
+			auto new_max = Value(file_stats.max).DefaultCastAs(current_stats.type);
+			if (new_max > current_max) {
 				current_stats.max = file_stats.max;
 			}
 		} else if (file_stats.max > current_stats.max) {
@@ -106,9 +115,6 @@ unique_ptr<BaseStatistics> DuckLakeColumnStats::CreateStringStats() const {
 }
 
 unique_ptr<BaseStatistics> DuckLakeColumnStats::ToStats() const {
-	if (type.IsNumeric()) {
-		return CreateNumericStats();
-	}
 	switch (type.id()) {
 	case LogicalTypeId::SMALLINT:
 	case LogicalTypeId::INTEGER:
@@ -125,6 +131,14 @@ unique_ptr<BaseStatistics> DuckLakeColumnStats::ToStats() const {
 	case LogicalTypeId::TIMESTAMP_MS:
 	case LogicalTypeId::TIMESTAMP_NS:
 		return CreateNumericStats();
+	case LogicalTypeId::FLOAT:
+	case LogicalTypeId::DOUBLE:
+		// we only create stats if we know there are no NaN values
+		// FIXME: we can just set Max to NaN instead
+		if (has_contains_nan && !contains_nan) {
+			return CreateNumericStats();
+		}
+		return nullptr;
 	case LogicalTypeId::VARCHAR:
 		return CreateStringStats();
 	default:

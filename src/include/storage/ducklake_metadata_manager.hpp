@@ -66,8 +66,10 @@ struct DuckLakeColumnStatsInfo {
 	FieldIndex column_id;
 	string value_count;
 	string null_count;
+	string column_size_bytes;
 	string min_val;
 	string max_val;
+	string contains_nan;
 };
 
 struct DuckLakeFileInfo {
@@ -98,6 +100,9 @@ struct DuckLakeGlobalColumnStatsInfo {
 
 	bool contains_null;
 	bool has_contains_null;
+
+	bool contains_nan;
+	bool has_contains_nan;
 
 	string min_val;
 	bool has_min;

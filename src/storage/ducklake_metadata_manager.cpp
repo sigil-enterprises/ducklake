@@ -32,11 +32,11 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_view(view_id BIGINT, view_uuid UUID, be
 CREATE TABLE {METADATA_CATALOG}.ducklake_tag(object_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, key VARCHAR, value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_column_tag(table_id BIGINT, column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, key VARCHAR, value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_data_file(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, file_order BIGINT, path VARCHAR, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, partition_id BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_file_column_statistics(data_file_id BIGINT, table_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, value_count BIGINT, null_count BIGINT, nan_count BIGINT, min_value VARCHAR, max_value VARCHAR);
+CREATE TABLE {METADATA_CATALOG}.ducklake_file_column_statistics(data_file_id BIGINT, table_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, value_count BIGINT, null_count BIGINT, nan_count BIGINT, min_value VARCHAR, max_value VARCHAR, contains_nan BOOLEAN);
 CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file(delete_file_id BIGINT PRIMARY KEY, begin_snapshot BIGINT, end_snapshot BIGINT, data_file_id BIGINT, path VARCHAR, format VARCHAR, delete_count BIGINT, file_size_bytes BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_column(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, column_order BIGINT, column_name VARCHAR, column_type VARCHAR, default_value VARCHAR, nulls_allowed BOOLEAN, parent_column BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_table_stats(table_id BIGINT, record_count BIGINT, file_size_bytes BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_table_column_stats(table_id BIGINT, column_id BIGINT, contains_null BOOLEAN, min_value VARCHAR, max_value VARCHAR);
+CREATE TABLE {METADATA_CATALOG}.ducklake_table_column_stats(table_id BIGINT, column_id BIGINT, contains_null BOOLEAN, contains_nan BOOLEAN, min_value VARCHAR, max_value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_partition_info(partition_id BIGINT, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_partition_columns(partition_id BIGINT, partition_key_index BIGINT, column_id BIGINT, transform VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_file_partition_values(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, partition_key_index BIGINT, partition_value VARCHAR);
@@ -257,7 +257,7 @@ ORDER BY table_id, partition_id, partition_key_index
 vector<DuckLakeGlobalStatsInfo> DuckLakeMetadataManager::GetGlobalTableStats(DuckLakeSnapshot snapshot) {
 	// query the most recent stats
 	auto result = transaction.Query(snapshot, R"(
-SELECT table_id, column_id, record_count, file_size_bytes, contains_null, min_value, max_value
+SELECT table_id, column_id, record_count, file_size_bytes, contains_null, contains_nan, min_value, max_value
 FROM {METADATA_CATALOG}.ducklake_table_stats
 LEFT JOIN {METADATA_CATALOG}.ducklake_table_column_stats USING (table_id)
 WHERE record_count IS NOT NULL AND file_size_bytes IS NOT NULL
@@ -291,16 +291,22 @@ ORDER BY table_id;
 			column_stats.contains_null = row.GetValue<bool>(4);
 		}
 		if (row.IsNull(5)) {
+			column_stats.has_contains_nan = false;
+		} else {
+			column_stats.has_contains_nan = true;
+			column_stats.contains_nan = row.GetValue<bool>(5);
+		}
+		if (row.IsNull(6)) {
 			column_stats.has_min = false;
 		} else {
 			column_stats.has_min = true;
-			column_stats.min_val = row.GetValue<string>(5);
+			column_stats.min_val = row.GetValue<string>(6);
 		}
-		if (row.IsNull(6)) {
+		if (row.IsNull(7)) {
 			column_stats.has_max = false;
 		} else {
 			column_stats.has_max = true;
-			column_stats.max_val = row.GetValue<string>(6);
+			column_stats.max_val = row.GetValue<string>(7);
 		}
 
 		stats_entry.column_stats.push_back(std::move(column_stats));
@@ -498,9 +504,10 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
 				column_stats_insert_query += ",";
 			}
 			auto column_id = column_stats.column_id.index;
-			column_stats_insert_query += StringUtil::Format(
-			    "(%d, %d, %d, NULL, %s, %s, NULL, %s, %s)", data_file_index, table_id, column_id,
-			    column_stats.value_count, column_stats.null_count, column_stats.min_val, column_stats.max_val);
+			column_stats_insert_query +=
+			    StringUtil::Format("(%d, %d, %d, NULL, %s, %s, %s, %s, %s, %s)", data_file_index, table_id, column_id,
+			                       column_stats.value_count, column_stats.null_count, column_stats.column_size_bytes,
+			                       column_stats.min_val, column_stats.max_val, column_stats.contains_nan);
 		}
 	}
 	if (data_file_insert_query.empty()) {
@@ -789,10 +796,17 @@ void DuckLakeMetadataManager::UpdateGlobalTableStats(const DuckLakeGlobalStatsIn
 		} else {
 			contains_null = "NULL";
 		}
+		string contains_nan;
+		if (col_stats.has_contains_nan) {
+			contains_nan = col_stats.contains_nan ? "true" : "false";
+		} else {
+			contains_nan = "NULL";
+		}
 		string min_val = col_stats.has_min ? DuckLakeUtil::SQLLiteralToString(col_stats.min_val) : "NULL";
 		string max_val = col_stats.has_max ? DuckLakeUtil::SQLLiteralToString(col_stats.max_val) : "NULL";
-		column_stats_values += StringUtil::Format("(%d, %d, %s, %s, %s)", stats.table_id.index,
-		                                          col_stats.column_id.index, contains_null, min_val, max_val);
+		column_stats_values +=
+		    StringUtil::Format("(%d, %d, %s, %s, %s, %s)", stats.table_id.index, col_stats.column_id.index,
+		                       contains_null, contains_nan, min_val, max_val);
 	}
 
 	if (!stats.initialized) {
@@ -819,11 +833,11 @@ void DuckLakeMetadataManager::UpdateGlobalTableStats(const DuckLakeGlobalStatsIn
 		result->GetErrorObject().Throw("Failed to update stats information in DuckLake: ");
 	}
 	result = transaction.Query(StringUtil::Format(R"(
-WITH new_values(tid, cid, new_contains_null, new_min, new_max) AS (
+WITH new_values(tid, cid, new_contains_null, new_contains_nan, new_min, new_max) AS (
 VALUES %s
 )
 UPDATE {METADATA_CATALOG}.ducklake_table_column_stats
-SET contains_null=new_contains_null, min_value=new_min, max_value=new_max
+SET contains_null=new_contains_null, contains_nan=new_contains_nan, min_value=new_min, max_value=new_max
 FROM new_values
 WHERE table_id=tid AND column_id=cid
 )",

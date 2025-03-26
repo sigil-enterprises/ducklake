@@ -25,7 +25,8 @@ static InsertionOrderPreservingMap<string> DuckLakeFunctionToString(TableFunctio
 	return result;
 }
 
-unique_ptr<BaseStatistics> DuckLakeStatistics(ClientContext &context, const FunctionData *bind_data, column_t column_index) {
+unique_ptr<BaseStatistics> DuckLakeStatistics(ClientContext &context, const FunctionData *bind_data,
+                                              column_t column_index) {
 	if (IsVirtualColumn(column_index)) {
 		return nullptr;
 	}
@@ -46,6 +47,11 @@ BindInfo DuckLakeBindInfo(const optional_ptr<FunctionData> bind_data) {
 	return BindInfo(file_list.GetTable());
 }
 
+void DuckLakeScanSerialize(Serializer &serializer, const optional_ptr<FunctionData> bind_data,
+                           const TableFunction &function) {
+	throw NotImplementedException("DuckLakeScan not implemented");
+}
+
 TableFunction DuckLakeFunctions::GetDuckLakeScanFunction(DatabaseInstance &instance) {
 	// Parquet extension needs to be loaded for this to make sense
 	ExtensionHelper::AutoLoadExtension(instance, "parquet");
@@ -63,7 +69,7 @@ TableFunction DuckLakeFunctions::GetDuckLakeScanFunction(DatabaseInstance &insta
 
 	// Unset all of these: they are either broken, very inefficient.
 	// TODO: implement/fix these
-	function.serialize = nullptr;
+	function.serialize = DuckLakeScanSerialize;
 	function.deserialize = nullptr;
 	function.table_scan_progress = nullptr;
 

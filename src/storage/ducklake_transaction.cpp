@@ -721,6 +721,10 @@ void DuckLakeTransaction::UpdateGlobalTableStats(TableIndex table_id, DuckLakeTa
 		if (column_stats.has_null_count) {
 			col_stats.contains_null = column_stats.null_count > 0;
 		}
+		col_stats.has_contains_nan = column_stats.has_contains_nan;
+		if (column_stats.has_contains_nan) {
+			col_stats.contains_nan = column_stats.contains_nan;
+		}
 		col_stats.has_min = column_stats.has_min;
 		if (column_stats.has_min) {
 			col_stats.min_val = column_stats.min;
@@ -766,6 +770,7 @@ vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &
 				auto &stats = column_stats_entry.second;
 				column_stats.min_val = stats.has_min ? DuckLakeUtil::SQLLiteralToString(stats.min) : "NULL";
 				column_stats.max_val = stats.has_max ? DuckLakeUtil::SQLLiteralToString(stats.max) : "NULL";
+				column_stats.column_size_bytes = to_string(stats.column_size_bytes);
 				if (stats.has_null_count) {
 					column_stats.value_count = to_string(file.row_count - stats.null_count);
 					column_stats.null_count = to_string(stats.null_count);
@@ -776,6 +781,11 @@ vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &
 				} else {
 					column_stats.value_count = "NULL";
 					column_stats.null_count = "NULL";
+				}
+				if (stats.has_contains_nan) {
+					column_stats.contains_nan = stats.contains_nan ? "true" : "false";
+				} else {
+					column_stats.contains_nan = "NULL";
 				}
 
 				// merge the stats into the new global states

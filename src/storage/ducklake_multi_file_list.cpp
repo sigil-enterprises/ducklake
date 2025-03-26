@@ -60,6 +60,16 @@ string GenerateFilterPushdown(const TableFilter &filter, unordered_set<string> &
 		switch (type.id()) {
 		case LogicalTypeId::BLOB:
 			return string();
+		case LogicalTypeId::FLOAT:
+			if (Value::IsNan(constant_filter.constant.GetValue<float>())) {
+				return string();
+			}
+			break;
+		case LogicalTypeId::DOUBLE:
+			if (Value::IsNan(constant_filter.constant.GetValue<double>())) {
+				return string();
+			}
+			break;
 		default:
 			break;
 		}
