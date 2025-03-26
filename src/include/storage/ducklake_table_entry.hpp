@@ -62,7 +62,7 @@ public:
 	//! Returns the field id of a column by a column path
 	const DuckLakeFieldId &GetFieldId(const vector<string> &column_names) const;
 	//! Returns the field id of a column by a field index
-	const DuckLakeFieldId &GetFieldId(FieldIndex field_index) const;
+	optional_ptr<const DuckLakeFieldId> GetFieldId(FieldIndex field_index) const;
 	void SetPartitionData(unique_ptr<DuckLakePartition> partition_data);
 	optional_ptr<DuckLakeTableStats> GetTableStats(ClientContext &context);
 	optional_ptr<DuckLakeTableStats> GetTableStats(DuckLakeTransaction &transaction);

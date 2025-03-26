@@ -120,12 +120,12 @@ const DuckLakeFieldId &DuckLakeFieldData::GetByRootIndex(PhysicalIndex id) const
 	return *field_ids[id.index];
 }
 
-const DuckLakeFieldId &DuckLakeFieldData::GetByFieldIndex(FieldIndex id) const {
+optional_ptr<const DuckLakeFieldId> DuckLakeFieldData::GetByFieldIndex(FieldIndex id) const {
 	auto entry = field_references.find(id);
 	if (entry == field_references.end()) {
-		throw InvalidInputException("Column with field id %d not found", id.index);
+		return nullptr;
 	}
-	return entry->second;
+	return entry->second.get();
 }
 
 const DuckLakeFieldId &DuckLakeFieldId::GetChildByName(const string &child_name) const {

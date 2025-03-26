@@ -82,7 +82,7 @@ const DuckLakeFieldId &DuckLakeTableEntry::GetFieldId(PhysicalIndex column_index
 	return field_data->GetByRootIndex(column_index);
 }
 
-const DuckLakeFieldId &DuckLakeTableEntry::GetFieldId(FieldIndex field_index) const {
+optional_ptr<const DuckLakeFieldId> DuckLakeTableEntry::GetFieldId(FieldIndex field_index) const {
 	return field_data->GetByFieldIndex(field_index);
 }
 
@@ -92,8 +92,11 @@ const DuckLakeFieldId &DuckLakeTableEntry::GetFieldId(const vector<string> &colu
 }
 
 const ColumnDefinition &DuckLakeTableEntry::GetColumnByFieldId(FieldIndex field_index) const {
-	auto &field_id = GetFieldId(field_index);
-	return GetColumn(field_id.Name());
+	auto field_id = GetFieldId(field_index);
+	if (!field_id) {
+		throw InternalException("Column with field id %d not found", field_index.index);
+	}
+	return GetColumn(field_id->Name());
 }
 
 unique_ptr<BaseStatistics> GetColumnStats(const DuckLakeFieldId &field_id, const DuckLakeTableStats &table_stats) {

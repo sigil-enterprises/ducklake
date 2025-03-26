@@ -294,8 +294,12 @@ unique_ptr<DuckLakeStats> DuckLakeCatalog::LoadStatsForSnapshot(DuckLakeTransact
 		table_stats->table_size_bytes = stats.table_size_bytes;
 		auto &table = table_entry->Cast<DuckLakeTableEntry>();
 		for (auto &col_stats : stats.column_stats) {
-			auto &field = table.GetFieldId(col_stats.column_id);
-			DuckLakeColumnStats column_stats(field.Type());
+			auto field = table.GetFieldId(col_stats.column_id);
+			if (!field) {
+				// column that this field id references was deleted
+				continue;
+			}
+			DuckLakeColumnStats column_stats(field->Type());
 			column_stats.has_null_count = col_stats.has_contains_null;
 			if (column_stats.has_null_count) {
 				column_stats.null_count = col_stats.contains_null ? 1 : 0;
