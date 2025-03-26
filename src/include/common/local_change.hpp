@@ -62,11 +62,6 @@ struct LocalChange {
 		result.field_index = field_idx;
 		return result;
 	}
-	static LocalChange ChangeColumnType(FieldIndex field_idx) {
-		LocalChange result(LocalChangeType::CHANGE_COLUMN_TYPE);
-		result.field_index = field_idx;
-		return result;
-	}
 };
 
 } // namespace duckdb

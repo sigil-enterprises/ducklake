@@ -498,16 +498,20 @@ struct NewTableInfo {
 	vector<DuckLakeNewColumn> new_columns;
 };
 
-void RecursiveDropColumns(TableIndex table_id, const DuckLakeFieldId &field_id,
-                          vector<DuckLakeDroppedColumn> &dropped_columns) {
-	DuckLakeDroppedColumn dropped_col;
-	dropped_col.table_id = table_id;
-	dropped_col.field_id = field_id.GetFieldIndex();
-	dropped_columns.push_back(dropped_col);
-
-	for (auto &child : field_id.Children()) {
-		RecursiveDropColumns(table_id, *child, dropped_columns);
+void HandleChangedFields(TableIndex table_id, const ColumnChangeInfo &change_info, NewTableInfo &result) {
+	for(auto &new_col_info : change_info.new_fields) {
+		DuckLakeNewColumn new_column;
+		new_column.table_id = table_id;
+		new_column.column_info = new_col_info.column_info;
+		new_column.parent_idx = new_col_info.parent_idx;
+		result.new_columns.push_back(std::move(new_column));
 	}
+	for(auto &dropped_field_id : change_info.dropped_fields) {
+		DuckLakeDroppedColumn dropped_col;
+		dropped_col.table_id = table_id;
+		dropped_col.field_id = dropped_field_id;
+		result.dropped_columns.push_back(dropped_col);
+    }
 }
 
 void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> table_entry,
@@ -562,8 +566,7 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 		}
 		case LocalChangeType::SET_NULL:
 		case LocalChangeType::DROP_NULL:
-		case LocalChangeType::RENAME_COLUMN:
-		case LocalChangeType::CHANGE_COLUMN_TYPE: {
+		case LocalChangeType::RENAME_COLUMN: {
 			// drop the previous column
 			DuckLakeDroppedColumn dropped_col;
 			dropped_col.table_id = table.GetTableId();
@@ -579,10 +582,11 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 			transaction_changes.altered_tables.insert(table.GetTableId());
 			break;
 		}
-		case LocalChangeType::REMOVE_COLUMN: {
+		case LocalChangeType::REMOVE_COLUMN:
+		case LocalChangeType::CHANGE_COLUMN_TYPE: {
 			// drop the indicated column
 			// note that in case of nested types we might be dropping multiple columns here
-			RecursiveDropColumns(table.GetTableId(), table.GetDroppedFieldId(), result.dropped_columns);
+			HandleChangedFields(table.GetTableId(), table.GetChangedFields(), result);
 			break;
 		}
 		case LocalChangeType::ADD_COLUMN: {

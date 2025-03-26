@@ -450,7 +450,7 @@ void DuckLakeMetadataManager::WriteNewColumns(DuckLakeSnapshot commit_snapshot,
 	}
 	string column_insert_sql;
 	for (auto &new_col : new_columns) {
-		ColumnToSQLRecursive(new_col.column_info, new_col.table_id, optional_idx(), column_insert_sql);
+		ColumnToSQLRecursive(new_col.column_info, new_col.table_id, new_col.parent_idx, column_insert_sql);
 	}
 
 	// insert column entries

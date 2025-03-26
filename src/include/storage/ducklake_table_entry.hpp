@@ -14,6 +14,7 @@
 #include "common/index.hpp"
 #include "storage/ducklake_field_data.hpp"
 #include "common/local_change.hpp"
+#include "storage/ducklake_metadata_manager.hpp"
 
 namespace duckdb {
 struct AlterTableInfo;
@@ -21,6 +22,13 @@ struct DuckLakeColumnInfo;
 struct SetPartitionedByInfo;
 struct SetCommentInfo;
 class DuckLakeTransaction;
+
+struct ColumnChangeInfo {
+	vector<DuckLakeNewColumn> new_fields;
+	vector<FieldIndex> dropped_fields;
+
+	void DropField(const DuckLakeFieldId &field_id);
+};
 
 class DuckLakeTableEntry : public TableCatalogEntry {
 public:
@@ -53,8 +61,8 @@ public:
 	FieldIndex GetNextColumnId() const {
 		return next_column_id;
 	}
-	const DuckLakeFieldId &GetDroppedFieldId() const {
-		return *dropped_field_id;
+	const ColumnChangeInfo &GetChangedFields() const {
+		return *changed_fields;
 	}
 	const ColumnDefinition &GetColumnByFieldId(FieldIndex field_index) const;
 	//! Returns the root field id of a column
@@ -102,6 +110,8 @@ private:
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, RemoveColumnInfo &info);
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, ChangeColumnTypeInfo &info);
 
+	unique_ptr<DuckLakeFieldId> GetStructEvolution(const DuckLakeFieldId &source_id, const LogicalType &target, ColumnChangeInfo &result, optional_idx parent_idx);
+	unique_ptr<DuckLakeFieldId> TypePromotion(const DuckLakeFieldId &source_id, const LogicalType &target, ColumnChangeInfo &result, optional_idx parent_idx);
 public:
 	// ! Create a DuckLakeTableEntry from an ALTER
 	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, LocalChange local_change);
@@ -110,7 +120,10 @@ public:
 	                   const string &new_name);
 	// ! Create a DuckLakeTableEntry from a REMOVE COLUMN
 	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, LocalChange local_change,
-	                   unique_ptr<DuckLakeFieldId> dropped_field_id);
+	                   unique_ptr<ColumnChangeInfo> changed_fields);
+	// ! Create a DuckLakeTableEntry from a CHANGE COLUMN TYPE
+	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, LocalChange local_change,
+					   unique_ptr<ColumnChangeInfo> changed_fields, shared_ptr<DuckLakeFieldData> new_field_data);
 	// ! Create a DuckLakeTableEntry from a SET PARTITION KEY
 	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, unique_ptr<DuckLakePartition> partition_data);
 
@@ -122,7 +135,7 @@ private:
 	LocalChange local_change;
 	unique_ptr<DuckLakePartition> partition_data;
 	// only set for REMOVED_COLUMN
-	unique_ptr<DuckLakeFieldId> dropped_field_id;
+	unique_ptr<ColumnChangeInfo> changed_fields;
 };
 
 } // namespace duckdb

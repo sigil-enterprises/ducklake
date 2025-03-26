@@ -162,6 +162,7 @@ struct DuckLakeDroppedColumn {
 struct DuckLakeNewColumn {
 	TableIndex table_id;
 	DuckLakeColumnInfo column_info;
+	optional_idx parent_idx;
 };
 
 struct DuckLakeCatalogInfo {

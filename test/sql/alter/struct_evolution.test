@@ -1,0 +1,73 @@
+# name: test/sql/alter/struct_evolution.test
+# description: test ducklake struct field evolution
+# group: [ducklake]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_struct_evolution.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_struct_evolution_files')
+
+statement ok
+CREATE TABLE ducklake.test(col1 STRUCT(i INT, j INT));
+
+statement ok
+INSERT INTO ducklake.test VALUES ({'i': 1, 'j': 2})
+
+# add k TINYINT
+statement ok
+ALTER TABLE ducklake.test ALTER COLUMN col1 SET DATA TYPE STRUCT(i INT, j INT, k TINYINT);
+
+statement ok
+INSERT INTO ducklake.test VALUES ({'i': 10, 'j': 20, 'k': 3})
+
+query I
+FROM ducklake.test
+----
+{'i': 1, 'j': 2, 'k': NULL}
+{'i': 10, 'j': 20, 'k': 3}
+
+statement error
+INSERT INTO ducklake.test VALUES ({'i': 10, 'j': 20, 'k': 1000})
+----
+out of range
+
+# promote k to INT
+statement ok
+ALTER TABLE ducklake.test ALTER COLUMN col1 SET DATA TYPE STRUCT(i INT, j INT, k INTEGER);
+
+statement ok
+INSERT INTO ducklake.test VALUES ({'i': 100, 'j': 200, 'k': 1000})
+
+query I
+FROM ducklake.test
+----
+{'i': 1, 'j': 2, 'k': NULL}
+{'i': 10, 'j': 20, 'k': 3}
+{'i': 100, 'j': 200, 'k': 1000}
+
+# drop i
+statement ok
+ALTER TABLE ducklake.test ALTER COLUMN col1 SET DATA TYPE STRUCT(j INT, k INTEGER);
+
+query I
+FROM ducklake.test
+----
+{'j': 2, 'k': NULL}
+{'j': 20, 'k': 3}
+{'j': 200, 'k': 1000}
+
+# drop all original columns
+statement ok
+ALTER TABLE ducklake.test ALTER COLUMN col1 SET DATA TYPE STRUCT(k INTEGER);
+
+# FIXME: this does not work yet
+mode skip
+
+query I
+FROM ducklake.test
+----
+{'j': 2, 'k': NULL}
+{'j': 20, 'k': 3}
+{'j': 200, 'k': 1000}
