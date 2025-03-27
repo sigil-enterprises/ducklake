@@ -16,10 +16,9 @@
 
 namespace duckdb {
 
-DuckLakeInsert::DuckLakeInsert(LogicalOperator &op, DuckLakeTableEntry &table,
-                               physical_index_vector_t<idx_t> column_index_map_p, optional_idx partition_id)
+DuckLakeInsert::DuckLakeInsert(LogicalOperator &op, DuckLakeTableEntry &table, optional_idx partition_id)
     : PhysicalOperator(PhysicalOperatorType::EXTENSION, op.types, 1), table(&table), schema(nullptr),
-      column_index_map(std::move(column_index_map_p)), partition_id(partition_id) {
+      partition_id(partition_id) {
 }
 
 DuckLakeInsert::DuckLakeInsert(LogicalOperator &op, SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info)
@@ -305,6 +304,29 @@ PhysicalOperator &DuckLakeCatalog::PlanInsert(ClientContext &context, PhysicalPl
 	if (op.action_type != OnConflictAction::THROW) {
 		throw BinderException("ON CONFLICT clause not yet supported for insertion into DuckLake table");
 	}
+	if (!op.column_index_map.empty()) {
+		// push a projection
+		// columns specified by the user, push a projection
+		vector<LogicalType> types;
+		vector<unique_ptr<Expression>> select_list;
+		for (auto &col : op.table.GetColumns().Physical()) {
+			auto storage_idx = col.StorageOid();
+			auto mapped_index = op.column_index_map[col.Physical()];
+			if (mapped_index == DConstants::INVALID_INDEX) {
+				// push default value
+				select_list.push_back(std::move(op.bound_defaults[storage_idx]));
+			} else {
+				// push reference
+				select_list.push_back(make_uniq<BoundReferenceExpression>(col.Type(), mapped_index));
+			}
+			types.push_back(col.Type());
+		}
+		auto &proj =
+		    planner.Make<PhysicalProjection>(std::move(types), std::move(select_list), plan->estimated_cardinality);
+		proj.children.push_back(*plan);
+		plan = proj;
+	}
+	// op.bound_defaults
 	auto &ducklake_table = op.table.Cast<DuckLakeTableEntry>();
 	auto &columns = ducklake_table.GetColumns();
 	auto partition_data = ducklake_table.GetPartitionData();
@@ -315,7 +337,7 @@ PhysicalOperator &DuckLakeCatalog::PlanInsert(ClientContext &context, PhysicalPl
 	auto &field_data = ducklake_table.GetFieldData();
 
 	auto &physical_copy = PlanCopyForInsert(context, columns, planner, partition_data, field_data, plan);
-	auto &insert = planner.Make<DuckLakeInsert>(op, ducklake_table, op.column_index_map, partition_id);
+	auto &insert = planner.Make<DuckLakeInsert>(op, ducklake_table, partition_id);
 	insert.children.push_back(physical_copy);
 	return insert;
 }

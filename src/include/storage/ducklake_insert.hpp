@@ -19,8 +19,7 @@ class DuckLakeTableEntry;
 class DuckLakeInsert : public PhysicalOperator {
 public:
 	//! INSERT INTO
-	DuckLakeInsert(LogicalOperator &op, DuckLakeTableEntry &table, physical_index_vector_t<idx_t> column_index_map,
-	               optional_idx partition_id);
+	DuckLakeInsert(LogicalOperator &op, DuckLakeTableEntry &table, optional_idx partition_id);
 	//! CREATE TABLE AS
 	DuckLakeInsert(LogicalOperator &op, SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info);
 
@@ -30,8 +29,6 @@ public:
 	optional_ptr<SchemaCatalogEntry> schema;
 	//! Create table info, in case of CREATE TABLE AS
 	unique_ptr<BoundCreateTableInfo> info;
-	//! column_index_map
-	physical_index_vector_t<idx_t> column_index_map;
 	//! The physical copy used internally by this insert
 	unique_ptr<PhysicalOperator> physical_copy_to_file;
 	//! The partition id we are writing into (if any)
