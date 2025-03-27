@@ -73,8 +73,9 @@ DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableIn
 
 // ALTER TABLE SET DATA TYPE
 DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, LocalChange local_change,
-				   unique_ptr<ColumnChangeInfo> changed_fields_p, shared_ptr<DuckLakeFieldData> new_field_data)
-	: DuckLakeTableEntry(parent, info, local_change) {
+                                       unique_ptr<ColumnChangeInfo> changed_fields_p,
+                                       shared_ptr<DuckLakeFieldData> new_field_data)
+    : DuckLakeTableEntry(parent, info, local_change) {
 	D_ASSERT(local_change.type == LocalChangeType::CHANGE_COLUMN_TYPE);
 	changed_fields = std::move(changed_fields_p);
 	field_data = std::move(new_field_data);
@@ -356,11 +357,9 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	return std::move(new_entry);
 }
 
-
-
 void ColumnChangeInfo::DropField(const DuckLakeFieldId &field_id) {
 	dropped_fields.push_back(field_id.GetFieldIndex());
-	for(auto &child_id : field_id.Children()) {
+	for (auto &child_id : field_id.Children()) {
 		DropField(*child_id);
 	}
 }
@@ -395,7 +394,8 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	auto change_info = make_uniq<ColumnChangeInfo>();
 	change_info->DropField(field_id);
 
-	auto new_entry = make_uniq<DuckLakeTableEntry>(*this, table_info, LocalChangeType::REMOVE_COLUMN, std::move(change_info));
+	auto new_entry =
+	    make_uniq<DuckLakeTableEntry>(*this, table_info, LocalChangeType::REMOVE_COLUMN, std::move(change_info));
 	return std::move(new_entry);
 }
 
@@ -482,12 +482,14 @@ bool IsSimpleCast(const ParsedExpression &expr) {
 	return true;
 }
 
-unique_ptr<DuckLakeFieldId> DuckLakeTableEntry::GetStructEvolution(const DuckLakeFieldId &source_id, const LogicalType &target, ColumnChangeInfo &result, optional_idx parent_idx) {
+unique_ptr<DuckLakeFieldId> DuckLakeTableEntry::GetStructEvolution(const DuckLakeFieldId &source_id,
+                                                                   const LogicalType &target, ColumnChangeInfo &result,
+                                                                   optional_idx parent_idx) {
 	auto &source_types = StructType::GetChildTypes(source_id.Type());
 	auto &target_types = StructType::GetChildTypes(target);
 
 	case_insensitive_map_t<idx_t> source_type_map;
-	for(idx_t source_idx = 0; source_idx < source_types.size(); ++source_idx) {
+	for (idx_t source_idx = 0; source_idx < source_types.size(); ++source_idx) {
 		source_type_map[source_types[source_idx].first] = source_idx;
 	}
 	auto &source_children = source_id.Children();
@@ -495,13 +497,14 @@ unique_ptr<DuckLakeFieldId> DuckLakeTableEntry::GetStructEvolution(const DuckLak
 
 	vector<unique_ptr<DuckLakeFieldId>> children;
 	// for each type in target_types, check if it is in source types
-	for(idx_t target_idx = 0; target_idx < target_types.size(); ++target_idx) {
+	for (idx_t target_idx = 0; target_idx < target_types.size(); ++target_idx) {
 		auto &target_type = target_types[target_idx];
 		auto entry = source_type_map.find(target_type.first);
 		if (entry == source_type_map.end()) {
 			// type not found - this is a new entry
 			// first construct a new field id for this entry
-			auto field_id = DuckLakeFieldId::FieldIdFromType(target_type.first, target_type.second, next_column_id.index);
+			auto field_id =
+			    DuckLakeFieldId::FieldIdFromType(target_type.first, target_type.second, next_column_id.index);
 
 			// add the column to the list of "to-be-added" columns
 			DuckLakeNewColumn new_col;
@@ -521,7 +524,7 @@ unique_ptr<DuckLakeFieldId> DuckLakeTableEntry::GetStructEvolution(const DuckLak
 		// erase from the source map to indicate this field has been handled
 		source_type_map.erase(target_type.first);
 	}
-	for(auto &entry : source_type_map) {
+	for (auto &entry : source_type_map) {
 		auto source_idx = entry.second;
 		auto &source_field = *source_children[source_idx];
 		result.DropField(source_field);
@@ -529,7 +532,9 @@ unique_ptr<DuckLakeFieldId> DuckLakeTableEntry::GetStructEvolution(const DuckLak
 	return make_uniq<DuckLakeFieldId>(struct_idx, source_id.Name(), target, std::move(children));
 }
 
-unique_ptr<DuckLakeFieldId> DuckLakeTableEntry::TypePromotion(const DuckLakeFieldId &source_id, const LogicalType &target, ColumnChangeInfo &result, optional_idx parent_idx) {
+unique_ptr<DuckLakeFieldId> DuckLakeTableEntry::TypePromotion(const DuckLakeFieldId &source_id,
+                                                              const LogicalType &target, ColumnChangeInfo &result,
+                                                              optional_idx parent_idx) {
 	auto &source_type = source_id.Type();
 	if (source_type.id() == LogicalTypeId::STRUCT && target.id() == LogicalTypeId::STRUCT) {
 		// both types are structs - perform struct type evolution
@@ -546,8 +551,8 @@ unique_ptr<DuckLakeFieldId> DuckLakeTableEntry::TypePromotion(const DuckLakeFiel
 	// only widening type promotions are allowed
 	if (!TypePromotionIsAllowed(source_type, target)) {
 		throw CatalogException(
-			"Cannot change type of column %s from %s to %s - only widening type promotions are allowed",
-			source_id.Name(), source_type, target);
+		    "Cannot change type of column %s from %s to %s - only widening type promotions are allowed",
+		    source_id.Name(), source_type, target);
 	}
 	// field id is unchanged - but the column is changed
 	// we need to drop and recreate the column
@@ -600,7 +605,7 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	// generate the new field ids for the table
 	auto &current_field_ids = field_data->GetFieldIds();
 	auto new_field_ids = make_shared_ptr<DuckLakeFieldData>();
-	for(auto &field_id : current_field_ids) {
+	for (auto &field_id : current_field_ids) {
 		if (field_id->Name() == info.column_name) {
 			new_field_ids->Add(std::move(new_field_id));
 		} else {
@@ -608,8 +613,8 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 		}
 	}
 
-	auto new_entry =
-	    make_uniq<DuckLakeTableEntry>(*this, table_info, LocalChangeType::CHANGE_COLUMN_TYPE, std::move(change_info), std::move(new_field_ids));
+	auto new_entry = make_uniq<DuckLakeTableEntry>(*this, table_info, LocalChangeType::CHANGE_COLUMN_TYPE,
+	                                               std::move(change_info), std::move(new_field_ids));
 	return std::move(new_entry);
 }
 

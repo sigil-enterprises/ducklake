@@ -110,8 +110,11 @@ private:
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, RemoveColumnInfo &info);
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, ChangeColumnTypeInfo &info);
 
-	unique_ptr<DuckLakeFieldId> GetStructEvolution(const DuckLakeFieldId &source_id, const LogicalType &target, ColumnChangeInfo &result, optional_idx parent_idx);
-	unique_ptr<DuckLakeFieldId> TypePromotion(const DuckLakeFieldId &source_id, const LogicalType &target, ColumnChangeInfo &result, optional_idx parent_idx);
+	unique_ptr<DuckLakeFieldId> GetStructEvolution(const DuckLakeFieldId &source_id, const LogicalType &target,
+	                                               ColumnChangeInfo &result, optional_idx parent_idx);
+	unique_ptr<DuckLakeFieldId> TypePromotion(const DuckLakeFieldId &source_id, const LogicalType &target,
+	                                          ColumnChangeInfo &result, optional_idx parent_idx);
+
 public:
 	// ! Create a DuckLakeTableEntry from an ALTER
 	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, LocalChange local_change);
@@ -123,7 +126,7 @@ public:
 	                   unique_ptr<ColumnChangeInfo> changed_fields);
 	// ! Create a DuckLakeTableEntry from a CHANGE COLUMN TYPE
 	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, LocalChange local_change,
-					   unique_ptr<ColumnChangeInfo> changed_fields, shared_ptr<DuckLakeFieldData> new_field_data);
+	                   unique_ptr<ColumnChangeInfo> changed_fields, shared_ptr<DuckLakeFieldData> new_field_data);
 	// ! Create a DuckLakeTableEntry from a SET PARTITION KEY
 	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, unique_ptr<DuckLakePartition> partition_data);
 

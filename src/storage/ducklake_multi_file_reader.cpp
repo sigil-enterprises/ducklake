@@ -41,7 +41,7 @@ MultiFileReaderColumnDefinition CreateColumnFromFieldId(const DuckLakeFieldId &f
 	MultiFileReaderColumnDefinition column(field_id.Name(), field_id.Type());
 	column.default_expression = make_uniq<ConstantExpression>(Value(field_id.Type()));
 	column.identifier = Value::INTEGER(field_id.GetFieldIndex().index);
-	for(auto &child : field_id.Children()) {
+	for (auto &child : field_id.Children()) {
 		column.children.push_back(CreateColumnFromFieldId(*child));
 	}
 	return column;
@@ -55,7 +55,7 @@ bool DuckLakeMultiFileReader::Bind(MultiFileReaderOptions &options, MultiFileLis
 	for (auto &item : field_data.GetFieldIds()) {
 		columns.push_back(CreateColumnFromFieldId(*item));
 	}
-//	bind_data.file_row_number_idx = names.size();
+	//	bind_data.file_row_number_idx = names.size();
 	bind_data.mapping = MultiFileReaderColumnMappingMode::BY_FIELD_ID;
 	names = read_info.column_names;
 	return_types = read_info.column_types;

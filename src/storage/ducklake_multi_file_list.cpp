@@ -35,9 +35,17 @@ unique_ptr<MultiFileList> DuckLakeMultiFileList::ComplexFilterPushdown(ClientCon
 	return nullptr;
 }
 
+bool ValueIsFinite(const Value &val) {
+	if (val.type().id() != LogicalTypeId::FLOAT && val.type().id() != LogicalTypeId::DOUBLE) {
+		return true;
+	}
+	double constant_val = val.GetValue<double>();
+	return Value::IsFinite(constant_val);
+}
+
 string CastValueToTarget(const Value &val, const LogicalType &type) {
-	if (type.IsNumeric()) {
-		// for numerics we cast the min/max instead
+	if (type.IsNumeric() && ValueIsFinite(val)) {
+		// for (finite) numerics we directly emit the number
 		return val.ToString();
 	}
 	// convert to a string
@@ -52,6 +60,95 @@ string CastStatsToTarget(const string &stats, const LogicalType &type) {
 	return stats;
 }
 
+string GenerateConstantFilter(const ConstantFilter &constant_filter, const LogicalType &type,
+                              unordered_set<string> &referenced_stats) {
+	auto constant_str = CastValueToTarget(constant_filter.constant, type);
+	auto min_value = CastStatsToTarget("min_value", type);
+	auto max_value = CastStatsToTarget("max_value", type);
+	switch (constant_filter.comparison_type) {
+	case ExpressionType::COMPARE_EQUAL:
+		// x = constant
+		// this can only be true if "constant BETWEEN min AND max"
+		referenced_stats.insert("min_value");
+		referenced_stats.insert("max_value");
+		return StringUtil::Format("%s BETWEEN %s AND %s", constant_str, min_value, max_value);
+	case ExpressionType::COMPARE_NOTEQUAL:
+		// x <> constant
+		// this can only be false if "constant = min AND constant = max" (i.e. min = max = constant)
+		// skip this for now
+		return string();
+	case ExpressionType::COMPARE_GREATERTHANOREQUALTO:
+		// x >= constant
+		// this can only be true if "max >= C"
+		referenced_stats.insert("max_value");
+		return StringUtil::Format("%s >= %s", max_value, constant_str);
+	case ExpressionType::COMPARE_GREATERTHAN:
+		// x > constant
+		// this can only be true if "max > C"
+		referenced_stats.insert("max_value");
+		return StringUtil::Format("%s > %s", max_value, constant_str);
+	case ExpressionType::COMPARE_LESSTHANOREQUALTO:
+		// x <= constant
+		// this can only be true if "min <= C"
+		referenced_stats.insert("min_value");
+		return StringUtil::Format("%s <= %s", min_value, constant_str);
+	case ExpressionType::COMPARE_LESSTHAN:
+		// x < constant
+		// this can only be true if "min < C"
+		referenced_stats.insert("min_value");
+		return StringUtil::Format("%s < %s", min_value, constant_str);
+	default:
+		// unsupported
+		return string();
+	}
+}
+
+string GenerateConstantFilterDouble(const ConstantFilter &constant_filter, const LogicalType &type,
+                                    unordered_set<string> &referenced_stats) {
+	double constant_val = constant_filter.constant.GetValue<double>();
+	bool constant_is_nan = Value::IsNan(constant_val);
+	switch (constant_filter.comparison_type) {
+	case ExpressionType::COMPARE_EQUAL:
+		// x = constant
+		if (constant_is_nan) {
+			// x = NAN - check for `contains_nan`
+			referenced_stats.insert("contains_nan");
+			return "contains_nan";
+		}
+		// else check as if this is a numeric
+		return GenerateConstantFilter(constant_filter, type, referenced_stats);
+	case ExpressionType::COMPARE_GREATERTHANOREQUALTO:
+	case ExpressionType::COMPARE_GREATERTHAN: {
+		if (constant_is_nan) {
+			// skip these filters if the constant is nan
+			// note that > and >= we can actually handle since nan is the biggest value
+			// (>= is equal to =, > is always false)
+			return string();
+		}
+		// generate the numeric filter
+		string filter = GenerateConstantFilter(constant_filter, type, referenced_stats);
+		if (filter.empty()) {
+			return string();
+		}
+		// since NaN is bigger than anything - we also need to check for contains_nan
+		referenced_stats.insert("contains_nan");
+		return filter + " OR contains_nan";
+	}
+	case ExpressionType::COMPARE_NOTEQUAL:
+	case ExpressionType::COMPARE_LESSTHANOREQUALTO:
+	case ExpressionType::COMPARE_LESSTHAN:
+		if (constant_is_nan) {
+			// skip these filters if the constant is nan
+			return string();
+		}
+		// these are equivalent to the numeric filter
+		return GenerateConstantFilter(constant_filter, type, referenced_stats);
+	default:
+		// unsupported
+		return string();
+	}
+}
+
 string GenerateFilterPushdown(const TableFilter &filter, unordered_set<string> &referenced_stats) {
 	switch (filter.filter_type) {
 	case TableFilterType::CONSTANT_COMPARISON: {
@@ -61,59 +158,11 @@ string GenerateFilterPushdown(const TableFilter &filter, unordered_set<string> &
 		case LogicalTypeId::BLOB:
 			return string();
 		case LogicalTypeId::FLOAT:
-			if (Value::IsNan(constant_filter.constant.GetValue<float>())) {
-				return string();
-			}
-			break;
 		case LogicalTypeId::DOUBLE:
-			if (Value::IsNan(constant_filter.constant.GetValue<double>())) {
-				return string();
-			}
-			break;
+			return GenerateConstantFilterDouble(constant_filter, type, referenced_stats);
 		default:
-			break;
+			return GenerateConstantFilter(constant_filter, type, referenced_stats);
 		}
-
-		auto constant_str = CastValueToTarget(constant_filter.constant, type);
-		auto min_value = CastStatsToTarget("min_value", type);
-		auto max_value = CastStatsToTarget("max_value", type);
-		switch (constant_filter.comparison_type) {
-		case ExpressionType::COMPARE_EQUAL:
-			// x = constant
-			// this can only be true if "constant BETWEEN min AND max"
-			referenced_stats.insert("min_value");
-			referenced_stats.insert("max_value");
-			return StringUtil::Format("%s BETWEEN %s AND %s", constant_str, min_value, max_value);
-		case ExpressionType::COMPARE_NOTEQUAL:
-			// x <> constant
-			// this can only be false if "constant = min AND constant = max" (i.e. min = max = constant)
-			// skip this for now
-			return string();
-		case ExpressionType::COMPARE_GREATERTHANOREQUALTO:
-			// x >= constant
-			// this can only be true if "max >= C"
-			referenced_stats.insert("max_value");
-			return StringUtil::Format("%s >= %s", max_value, constant_str);
-		case ExpressionType::COMPARE_GREATERTHAN:
-			// x > constant
-			// this can only be true if "max > C"
-			referenced_stats.insert("max_value");
-			return StringUtil::Format("%s > %s", max_value, constant_str);
-		case ExpressionType::COMPARE_LESSTHANOREQUALTO:
-			// x <= constant
-			// this can only be true if "min <= C"
-			referenced_stats.insert("min_value");
-			return StringUtil::Format("%s <= %s", min_value, constant_str);
-		case ExpressionType::COMPARE_LESSTHAN:
-			// x < constant
-			// this can only be true if "min < C"
-			referenced_stats.insert("min_value");
-			return StringUtil::Format("%s < %s", min_value, constant_str);
-		default:
-			// unsupported
-			return string();
-		}
-		break;
 	}
 	case TableFilterType::IS_NULL:
 		// IS NULL can only be true if the file has any NULL values

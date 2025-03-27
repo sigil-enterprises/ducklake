@@ -499,19 +499,19 @@ struct NewTableInfo {
 };
 
 void HandleChangedFields(TableIndex table_id, const ColumnChangeInfo &change_info, NewTableInfo &result) {
-	for(auto &new_col_info : change_info.new_fields) {
+	for (auto &new_col_info : change_info.new_fields) {
 		DuckLakeNewColumn new_column;
 		new_column.table_id = table_id;
 		new_column.column_info = new_col_info.column_info;
 		new_column.parent_idx = new_col_info.parent_idx;
 		result.new_columns.push_back(std::move(new_column));
 	}
-	for(auto &dropped_field_id : change_info.dropped_fields) {
+	for (auto &dropped_field_id : change_info.dropped_fields) {
 		DuckLakeDroppedColumn dropped_col;
 		dropped_col.table_id = table_id;
 		dropped_col.field_id = dropped_field_id;
 		result.dropped_columns.push_back(dropped_col);
-    }
+	}
 }
 
 void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> table_entry,
