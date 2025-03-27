@@ -21,9 +21,6 @@ INSERT INTO ducklake.test VALUES (TIMESTAMP '1992-01-01'), (TIMESTAMP '2020-01-0
 statement ok
 INSERT INTO ducklake.test VALUES ('infinity'), (TIMESTAMP '2022-01-01');
 
-query I
-FROM xx.ducklake_data_file
-
 # predicate on infinity
 query I
 SELECT COUNT(*) FROM ducklake.test WHERE ts='infinity'
