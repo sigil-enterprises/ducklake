@@ -35,6 +35,12 @@ ORDER BY ALL
 0	2	part_key=0
 1	2	part_key=1
 
+# verify files are pruned when querying the partitions
+query II
+EXPLAIN ANALYZE SELECT COUNT(*) FROM partitioned_tbl WHERE part_key=1
+----
+analyzed_plan	<REGEX>:.*Total Files Read: 1.*
+
 # append to partition
 statement ok
 INSERT INTO partitioned_tbl SELECT (i%2) + 1, concat('thisisanotherstring_', i) FROM range(10000) t(i)

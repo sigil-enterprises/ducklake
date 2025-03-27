@@ -53,10 +53,20 @@ SELECT COUNT(*) FROM ducklake.filter_pushdown WHERE i>100998
 ----
 1001
 
+query II
+EXPLAIN ANALYZE SELECT COUNT(*) FROM ducklake.filter_pushdown WHERE i>100998
+----
+analyzed_plan	<REGEX>:.*Total Files Read: 2.*
+
 query I
 SELECT COUNT(*) FROM ducklake.filter_pushdown WHERE i>=100999
 ----
 1001
+
+query II
+EXPLAIN ANALYZE SELECT COUNT(*) FROM ducklake.filter_pushdown WHERE i>=100999
+----
+analyzed_plan	<REGEX>:.*Total Files Read: 2.*
 
 query I
 SELECT COUNT(*) FROM ducklake.filter_pushdown WHERE i<100001
@@ -74,11 +84,21 @@ SELECT COUNT(*) FROM ducklake.filter_pushdown WHERE d=DATE '2000-01-23';
 ----
 24
 
+query II
+EXPLAIN ANALYZE SELECT COUNT(*) FROM ducklake.filter_pushdown WHERE d=DATE '2000-01-23';
+----
+analyzed_plan	<REGEX>:.*Total Files Read: 1.*
+
 # decimal filter
 query IIIII
 SELECT * FROM ducklake.filter_pushdown WHERE k=25.3;
 ----
 253	253	2000-01-11	25.300	000253
+
+query II
+EXPLAIN ANALYZE SELECT * FROM ducklake.filter_pushdown WHERE k=25.3;
+----
+analyzed_plan	<REGEX>:.*Total Files Read: 1.*
 
 # varchar filter
 query I
@@ -86,8 +106,18 @@ SELECT COUNT(*) FROM ducklake.filter_pushdown WHERE s>= '500023';
 ----
 977
 
+query II
+EXPLAIN ANALYZE SELECT COUNT(*) FROM ducklake.filter_pushdown WHERE s>= '500023';
+----
+analyzed_plan	<REGEX>:.*Total Files Read: 1.*
+
 # multiple filters
 query I
 SELECT COUNT(*) FROM ducklake.filter_pushdown WHERE d >= DATE '2011-05-29' AND k < 50000;
 ----
 1000
+
+query II
+EXPLAIN ANALYZE SELECT COUNT(*) FROM ducklake.filter_pushdown WHERE d >= DATE '2011-05-29' AND k < 50000;
+----
+analyzed_plan	<REGEX>:.*Total Files Read: 1.*
