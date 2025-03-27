@@ -1,0 +1,19 @@
+# name: test/sql/general/detach_ducklake.test
+# description: Test detaching ducklake
+# group: [ducklake]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_detach.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_detach_files', METADATA_CATALOG 'ducklake_metadata')
+
+statement ok
+DETACH ducklake
+
+# FIXME: this does not work because detaching ducklake does not correctly detach ducklake_metadata as well
+mode skip
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_detach.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_detach_files', METADATA_CATALOG 'ducklake_metadata')

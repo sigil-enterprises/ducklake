@@ -797,6 +797,12 @@ vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &
 
 				data_file.column_stats.push_back(std::move(column_stats));
 			}
+			for (auto &partition_entry : file.partition_values) {
+				DuckLakeFilePartitionInfo partition_info;
+				partition_info.partition_column_idx = partition_entry.partition_column_idx;
+				partition_info.partition_value = partition_entry.partition_value;
+				data_file.partition_values.push_back(std::move(partition_info));
+			}
 			result.push_back(std::move(data_file));
 		}
 		// update the global stats for this table based on the newly written files

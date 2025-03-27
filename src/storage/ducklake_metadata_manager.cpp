@@ -488,6 +488,7 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
                                                 const vector<DuckLakeFileInfo> &new_files) {
 	string data_file_insert_query;
 	string column_stats_insert_query;
+	string partition_insert_query;
 
 	for (auto &file : new_files) {
 		if (!data_file_insert_query.empty()) {
@@ -509,6 +510,17 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
 			                       column_stats.value_count, column_stats.null_count, column_stats.column_size_bytes,
 			                       column_stats.min_val, column_stats.max_val, column_stats.contains_nan);
 		}
+		if (file.partition_id.IsValid() == file.partition_values.empty()) {
+			throw InternalException("File should either not be partitioned, or have partition values");
+		}
+		for (auto &part_val : file.partition_values) {
+			if (!partition_insert_query.empty()) {
+				partition_insert_query += ",";
+			}
+			partition_insert_query +=
+			    StringUtil::Format("(%d, %d, %d, %s)", data_file_index, table_id, part_val.partition_column_idx,
+			                       SQLString(part_val.partition_value));
+		}
 	}
 	if (data_file_insert_query.empty()) {
 		throw InternalException("No files found!?");
@@ -526,6 +538,15 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
 	result = transaction.Query(commit_snapshot, column_stats_insert_query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write column stats information to DuckLake: ");
+	}
+	if (!partition_insert_query.empty()) {
+		// insert the partition values
+		partition_insert_query = StringUtil::Format(
+		    "INSERT INTO {METADATA_CATALOG}.ducklake_file_partition_values VALUES %s", partition_insert_query);
+		result = transaction.Query(commit_snapshot, partition_insert_query);
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to write partition value information to DuckLake: ");
+		}
 	}
 }
 

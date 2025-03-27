@@ -125,6 +125,20 @@ SinkResultType DuckLakeInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 
 			data_file.column_stats.insert(make_pair(field_id.GetFieldIndex(), std::move(column_stats)));
 		}
+		// extract the partition info
+		auto partition_info = chunk.GetValue(5, r);
+		if (!partition_info.IsNull()) {
+			auto &partition_children = MapValue::GetChildren(partition_info);
+			for (idx_t col_idx = 0; col_idx < partition_children.size(); col_idx++) {
+				auto &struct_children = StructValue::GetChildren(partition_children[col_idx]);
+				auto &part_value = StringValue::Get(struct_children[1]);
+
+				DuckLakeFilePartition file_partition_info;
+				file_partition_info.partition_column_idx = col_idx;
+				file_partition_info.partition_value = part_value;
+				data_file.partition_values.push_back(std::move(file_partition_info));
+			}
+		}
 
 		global_state.written_files.push_back(std::move(data_file));
 		global_state.total_insert_count += data_file.row_count;
