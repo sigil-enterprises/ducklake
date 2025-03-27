@@ -10,7 +10,7 @@ statement ok
 PRAGMA enable_verification
 
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/ducklake.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_files', METADATA_CATALOG 'ducklake_meta')
+ATTACH 'ducklake:__TEST_DIR__/ducklake_float.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_float_files')
 
 foreach type FLOAT DOUBLE
 
