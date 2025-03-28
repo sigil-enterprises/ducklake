@@ -29,7 +29,7 @@ DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeTransaction &transaction, D
 }
 
 unique_ptr<MultiFileList> DuckLakeMultiFileList::ComplexFilterPushdown(ClientContext &context,
-                                                                       const MultiFileReaderOptions &options,
+                                                                       const MultiFileOptions &options,
                                                                        MultiFilePushdownInfo &info,
                                                                        vector<unique_ptr<Expression>> &filters) {
 	return nullptr;
@@ -210,7 +210,7 @@ string GenerateFilterPushdown(const TableFilter &filter, unordered_set<string> &
 }
 
 unique_ptr<MultiFileList>
-DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options,
+DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const MultiFileOptions &options,
                                              const vector<string> &names, const vector<LogicalType> &types,
                                              const vector<column_t> &column_ids, TableFilterSet &filters) const {
 	string filter;

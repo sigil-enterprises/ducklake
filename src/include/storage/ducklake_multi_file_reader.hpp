@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "duckdb/common/multi_file_reader.hpp"
+#include "duckdb/common/multi_file/multi_file_reader.hpp"
 #include "storage/ducklake_scan.hpp"
 
 namespace duckdb {
@@ -36,11 +36,11 @@ struct DuckLakeMultiFileReader : public MultiFileReader {
 
 	//! Override the regular parquet bind using the MultiFileReader Bind. The bind from these are what DuckDB's file
 	//! readers will try read
-	bool Bind(MultiFileReaderOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
+	bool Bind(MultiFileOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
 	          vector<string> &names, MultiFileReaderBindData &bind_data) override;
 
 	//! Override the Options bind
-	void BindOptions(MultiFileReaderOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
+	void BindOptions(MultiFileOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
 	                 vector<string> &names, MultiFileReaderBindData &bind_data) override;
 
 	DuckLakeFunctionInfo &read_info;

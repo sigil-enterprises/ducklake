@@ -1,7 +1,7 @@
 #include "storage/ducklake_catalog.hpp"
 #include "duckdb/planner/operator/logical_delete.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
-#include "duckdb/common/multi_file_reader_function.hpp"
+#include "duckdb/common/multi_file/multi_file_function.hpp"
 
 namespace duckdb {
 

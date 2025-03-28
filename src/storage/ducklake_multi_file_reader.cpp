@@ -37,8 +37,8 @@ shared_ptr<MultiFileList> DuckLakeMultiFileReader::CreateFileList(ClientContext 
 	return std::move(result);
 }
 
-MultiFileReaderColumnDefinition CreateColumnFromFieldId(const DuckLakeFieldId &field_id) {
-	MultiFileReaderColumnDefinition column(field_id.Name(), field_id.Type());
+MultiFileColumnDefinition CreateColumnFromFieldId(const DuckLakeFieldId &field_id) {
+	MultiFileColumnDefinition column(field_id.Name(), field_id.Type());
 	column.default_expression = make_uniq<ConstantExpression>(Value(field_id.Type()));
 	column.identifier = Value::INTEGER(field_id.GetFieldIndex().index);
 	for (auto &child : field_id.Children()) {
@@ -47,7 +47,7 @@ MultiFileReaderColumnDefinition CreateColumnFromFieldId(const DuckLakeFieldId &f
 	return column;
 }
 
-bool DuckLakeMultiFileReader::Bind(MultiFileReaderOptions &options, MultiFileList &files,
+bool DuckLakeMultiFileReader::Bind(MultiFileOptions &options, MultiFileList &files,
                                    vector<LogicalType> &return_types, vector<string> &names,
                                    MultiFileReaderBindData &bind_data) {
 	auto &field_data = read_info.table.GetFieldData();
@@ -56,14 +56,14 @@ bool DuckLakeMultiFileReader::Bind(MultiFileReaderOptions &options, MultiFileLis
 		columns.push_back(CreateColumnFromFieldId(*item));
 	}
 	//	bind_data.file_row_number_idx = names.size();
-	bind_data.mapping = MultiFileReaderColumnMappingMode::BY_FIELD_ID;
+	bind_data.mapping = MultiFileColumnMappingMode::BY_FIELD_ID;
 	names = read_info.column_names;
 	return_types = read_info.column_types;
 	return true;
 }
 
 //! Override the Options bind
-void DuckLakeMultiFileReader::BindOptions(MultiFileReaderOptions &options, MultiFileList &files,
+void DuckLakeMultiFileReader::BindOptions(MultiFileOptions &options, MultiFileList &files,
                                           vector<LogicalType> &return_types, vector<string> &names,
                                           MultiFileReaderBindData &bind_data) {
 }

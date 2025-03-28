@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "duckdb/common/multi_file_reader.hpp"
+#include "duckdb/common/multi_file/multi_file_reader.hpp"
 #include "storage/ducklake_scan.hpp"
 #include "storage/ducklake_transaction.hpp"
 
@@ -21,11 +21,11 @@ public:
 	explicit DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,
 	                               vector<DuckLakeDataFile> transaction_local_files, string filter = string());
 
-	unique_ptr<MultiFileList> ComplexFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options,
+	unique_ptr<MultiFileList> ComplexFilterPushdown(ClientContext &context, const MultiFileOptions &options,
 	                                                MultiFilePushdownInfo &info,
 	                                                vector<unique_ptr<Expression>> &filters) override;
 
-	unique_ptr<MultiFileList> DynamicFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options,
+	unique_ptr<MultiFileList> DynamicFilterPushdown(ClientContext &context, const MultiFileOptions &options,
 	                                                const vector<string> &names, const vector<LogicalType> &types,
 	                                                const vector<column_t> &column_ids,
 	                                                TableFilterSet &filters) const override;
