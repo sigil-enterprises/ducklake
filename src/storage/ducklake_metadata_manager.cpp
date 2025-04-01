@@ -27,7 +27,7 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_metadata(key VARCHAR NOT NULL, value VA
 CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot(snapshot_id BIGINT PRIMARY KEY, snapshot_time TIMESTAMPTZ, schema_version BIGINT, next_catalog_id BIGINT, next_file_id BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot_changes(snapshot_id BIGINT PRIMARY KEY, changes_made VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_schema(schema_id BIGINT PRIMARY KEY, schema_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_name VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_table(table_id BIGINT, table_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, table_name VARCHAR, next_column_id BIGINT);
+CREATE TABLE {METADATA_CATALOG}.ducklake_table(table_id BIGINT, table_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, table_name VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_view(view_id BIGINT, view_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, view_name VARCHAR, dialect VARCHAR, sql VARCHAR, column_aliases VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_tag(object_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, key VARCHAR, value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_column_tag(table_id BIGINT, column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, key VARCHAR, value VARCHAR);
@@ -120,7 +120,7 @@ WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_s
 
 	// load the table information
 	result = transaction.Query(snapshot, R"(
-SELECT schema_id, tbl.table_id, table_uuid::VARCHAR, table_name, next_column_id,
+SELECT schema_id, tbl.table_id, table_uuid::VARCHAR, table_name,
 	(
 		SELECT LIST({'key': key, 'value': value})
 		FROM {METADATA_CATALOG}.ducklake_tag tag
@@ -143,7 +143,7 @@ ORDER BY table_id, parent_column NULLS FIRST, column_order
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to get table information from DuckLake: ");
 	}
-	const idx_t COLUMN_INDEX_START = 6;
+	const idx_t COLUMN_INDEX_START = 5;
 	auto &tables = catalog.tables;
 	for (auto &row : *result) {
 		auto table_id = TableIndex(row.GetValue<uint64_t>(1));
@@ -156,15 +156,14 @@ ORDER BY table_id, parent_column NULLS FIRST, column_order
 			table_info.schema_id = SchemaIndex(row.GetValue<uint64_t>(0));
 			table_info.uuid = row.GetValue<string>(2);
 			table_info.name = row.GetValue<string>(3);
-			table_info.next_column_id = FieldIndex(row.GetValue<idx_t>(4));
-			if (!row.IsNull(5)) {
-				auto tags = row.GetValue<Value>(5);
+			if (!row.IsNull(4)) {
+				auto tags = row.GetValue<Value>(4);
 				table_info.tags = LoadTags(tags);
 			}
 			tables.push_back(std::move(table_info));
 		}
 		auto &table_entry = tables.back();
-		if (row.GetValue<Value>(4).IsNull()) {
+		if (row.GetValue<Value>(COLUMN_INDEX_START).IsNull()) {
 			throw InvalidInputException("Failed to load DuckLake - Table entry \"%s\" does not have any columns",
 			                            table_entry.name);
 		}
@@ -391,8 +390,8 @@ void DuckLakeMetadataManager::WriteNewTables(DuckLakeSnapshot commit_snapshot,
 		}
 		auto schema_id = table.schema_id.index;
 		table_insert_sql +=
-		    StringUtil::Format("(%d, '%s', {SNAPSHOT_ID}, NULL, %d, %s, %d)", table.id.index, table.uuid, schema_id,
-		                       SQLString(table.name), table.next_column_id.index);
+		    StringUtil::Format("(%d, '%s', {SNAPSHOT_ID}, NULL, %d, %s)", table.id.index, table.uuid, schema_id,
+		                       SQLString(table.name));
 		for (auto &column : table.columns) {
 			ColumnToSQLRecursive(column, table.id, optional_idx(), column_insert_sql);
 		}
@@ -889,6 +888,26 @@ ORDER BY snapshot_id
 		snapshots.push_back(std::move(snapshot_info));
 	}
 	return snapshots;
+}
+
+idx_t DuckLakeMetadataManager::GetNextColumnId(TableIndex table_id) {
+	auto result = transaction.Query(StringUtil::Format(R"(
+	SELECT MAX(column_id)
+	FROM {METADATA_CATALOG}.ducklake_column
+	WHERE table_id=%d
+)", table_id.index));
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to get next column id in DuckLake: ");
+	}
+	for (auto &row : *result) {
+		if (row.IsNull(0)) {
+			break;
+		}
+		return row.GetValue<idx_t>(00) + 1;
+	}
+	throw InternalException("Invalid result for GetNextColumnId");
+
+
 }
 
 } // namespace duckdb

@@ -465,7 +465,6 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 	table_entry.uuid = table.GetTableUUID();
 	table_entry.schema_id = schema.GetSchemaId();
 	table_entry.name = table.name;
-	table_entry.next_column_id = table.GetNextColumnId();
 	if (is_new_table) {
 		// if this is a new table - write the columns
 		auto not_null_fields = table.GetNotNullFields();

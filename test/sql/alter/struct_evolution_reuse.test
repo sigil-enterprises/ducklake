@@ -32,10 +32,6 @@ FROM ducklake.test
 statement ok
 ALTER TABLE ducklake.test ALTER COLUMN col1 SET DATA TYPE STRUCT(j INT, i INT);
 
-# FIXME: this does not work yet
-
-mode skip
-
 query I
 FROM ducklake.test
 ----

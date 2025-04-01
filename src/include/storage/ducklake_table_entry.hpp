@@ -33,7 +33,7 @@ struct ColumnChangeInfo {
 class DuckLakeTableEntry : public TableCatalogEntry {
 public:
 	DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info, TableIndex table_id,
-	                   string table_uuid, shared_ptr<DuckLakeFieldData> field_data, FieldIndex next_column_id,
+	                   string table_uuid, shared_ptr<DuckLakeFieldData> field_data, optional_idx next_column_id,
 	                   LocalChange local_change);
 
 public:
@@ -57,9 +57,6 @@ public:
 	}
 	DuckLakeFieldData &GetFieldData() {
 		return *field_data;
-	}
-	FieldIndex GetNextColumnId() const {
-		return next_column_id;
 	}
 	const ColumnChangeInfo &GetChangedFields() const {
 		return *changed_fields;
@@ -99,6 +96,7 @@ public:
 
 	static DuckLakeColumnInfo ConvertColumn(const string &name, const LogicalType &type,
 	                                        const DuckLakeFieldId &field_id);
+	void RequireNextColumnId(DuckLakeTransaction &transaction);
 
 private:
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, RenameTableInfo &info);
@@ -134,7 +132,7 @@ private:
 	TableIndex table_id;
 	string table_uuid;
 	shared_ptr<DuckLakeFieldData> field_data;
-	FieldIndex next_column_id;
+	optional_idx next_column_id;
 	LocalChange local_change;
 	unique_ptr<DuckLakePartition> partition_data;
 	// only set for REMOVED_COLUMN

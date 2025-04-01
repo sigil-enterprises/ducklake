@@ -21,7 +21,7 @@ namespace duckdb {
 
 DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info,
                                        TableIndex table_id, string table_uuid_p,
-                                       shared_ptr<DuckLakeFieldData> field_data_p, FieldIndex next_column_id_p,
+                                       shared_ptr<DuckLakeFieldData> field_data_p, optional_idx next_column_id_p,
                                        LocalChange local_change)
     : TableCatalogEntry(catalog, schema, info), table_id(table_id), table_uuid(std::move(table_uuid_p)),
       field_data(std::move(field_data_p)), next_column_id(next_column_id_p), local_change(local_change) {
@@ -51,7 +51,9 @@ DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableIn
 	if (local_change.type == LocalChangeType::ADD_COLUMN) {
 		LogicalIndex new_col_idx(columns.LogicalColumnCount() - 1);
 		auto &new_col = GetColumn(new_col_idx);
-		field_data = DuckLakeFieldData::AddColumn(*field_data, new_col, next_column_id.index);
+		idx_t next_col = next_column_id.GetIndex();
+		field_data = DuckLakeFieldData::AddColumn(*field_data, new_col, next_col);
+		next_column_id = next_col;
 	}
 }
 
@@ -344,6 +346,17 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	return std::move(new_entry);
 }
 
+void DuckLakeTableEntry::RequireNextColumnId(DuckLakeTransaction &transaction) {
+	if (next_column_id.IsValid()) {
+		return;
+	}
+	// we need to fetch the next column id from the catalog
+	// you might think we can look at the columns of the table itself - but that is not true in case there are dropped columns
+	// the column id HAS to be unique globally
+	auto &metadata_manager = transaction.GetMetadataManager();
+	next_column_id = metadata_manager.GetNextColumnId(GetTableId());
+}
+
 unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, AddColumnInfo &info) {
 	auto create_info = GetInfo();
 	auto &table_info = create_info->Cast<CreateTableInfo>();
@@ -353,6 +366,7 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 
 	table_info.columns.AddColumn(std::move(info.new_column));
 
+	RequireNextColumnId(transaction);
 	auto new_entry = make_uniq<DuckLakeTableEntry>(*this, table_info, LocalChangeType::ADD_COLUMN);
 	return std::move(new_entry);
 }
@@ -503,8 +517,9 @@ unique_ptr<DuckLakeFieldId> DuckLakeTableEntry::GetStructEvolution(const DuckLak
 		if (entry == source_type_map.end()) {
 			// type not found - this is a new entry
 			// first construct a new field id for this entry
-			auto field_id =
-			    DuckLakeFieldId::FieldIdFromType(target_type.first, target_type.second, next_column_id.index);
+			idx_t next_col = next_column_id.GetIndex();
+			auto field_id =  DuckLakeFieldId::FieldIdFromType(target_type.first, target_type.second, next_col);
+			next_column_id = next_col;
 
 			// add the column to the list of "to-be-added" columns
 			DuckLakeNewColumn new_col;
@@ -589,6 +604,9 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 		throw NotImplementedException("Column type cannot be modified using an expression");
 	}
 	auto change_info = make_uniq<ColumnChangeInfo>();
+	if (info.target_type.id() == LogicalTypeId::STRUCT) {
+		RequireNextColumnId(transaction);
+	}
 	auto new_field_id = TypePromotion(field_id, info.target_type, *change_info, optional_idx());
 
 	// generate a new column list with the modified type

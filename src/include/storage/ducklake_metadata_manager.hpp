@@ -62,6 +62,7 @@ public:
 	virtual SnapshotChangeInfo GetChangesMadeAfterSnapshot(DuckLakeSnapshot start_snapshot);
 	virtual unique_ptr<DuckLakeSnapshot> GetSnapshot();
 	virtual unique_ptr<DuckLakeSnapshot> GetSnapshot(BoundAtClause &at_clause);
+	virtual idx_t GetNextColumnId(TableIndex table_id);
 
 	virtual vector<DuckLakeSnapshotInfo> GetAllSnapshots();
 
