@@ -99,6 +99,9 @@ optional_ptr<const DuckLakeFieldId> DuckLakeTableEntry::GetFieldId(FieldIndex fi
 }
 
 const DuckLakeFieldId &DuckLakeTableEntry::GetFieldId(const vector<string> &column_names) const {
+	if (!columns.ColumnExists(column_names[0])) {
+		throw BinderException("Column \"%s\" does not exist", column_names[0]);
+	}
 	auto &root_col = columns.GetColumn(column_names[0]);
 	return field_data->GetByNames(root_col.Physical(), column_names);
 }
@@ -636,6 +639,68 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	return std::move(new_entry);
 }
 
+void AddNewColumns(const DuckLakeFieldId &field_id, vector<DuckLakeNewColumn> &new_fields, FieldIndex parent_idx) {
+	DuckLakeNewColumn new_col;
+	new_col.column_info.id = field_id.GetFieldIndex();
+	new_col.column_info.name = field_id.Name();
+	new_col.column_info.type = DuckLakeTypes::ToString(field_id.Type());
+	new_col.parent_idx = parent_idx.index;
+	new_fields.push_back(std::move(new_col));
+	for(auto &child : field_id.Children()) {
+		AddNewColumns(*child, new_fields, field_id.GetFieldIndex());
+	}
+}
+
+unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, AddFieldInfo &info) {
+	auto create_info = GetInfo();
+	auto &table_info = create_info->Cast<CreateTableInfo>();
+	if (info.new_field.HasDefaultValue()) {
+		throw NotImplementedException("FIXME: add field with default value");
+	}
+	auto change_info = make_uniq<ColumnChangeInfo>();
+	RequireNextColumnId(transaction);
+
+	auto &parent_id = GetFieldId(info.column_path);
+	if (parent_id.Type().id() != LogicalTypeId::STRUCT) {
+		throw CatalogException("Fields can only be added to structs - %s is a %s", parent_id.Name(), parent_id.Type());
+	}
+
+	// generate a new field id for the column
+	auto next_field_id = next_column_id.GetIndex();
+	auto child_field_id = DuckLakeFieldId::FieldIdFromType(info.new_field.Name(), info.new_field.Type(), next_field_id);
+	next_column_id = next_field_id;
+
+	// generate the new to-be-inserted columns
+	AddNewColumns(*child_field_id, change_info->new_fields, parent_id.GetFieldIndex());
+
+	// generate the new field ids for the table
+	auto &current_field_ids = field_data->GetFieldIds();
+	auto new_field_ids = make_shared_ptr<DuckLakeFieldData>();
+	for(idx_t col_idx = 0; col_idx < current_field_ids.size(); col_idx++) {
+		auto &field_id = current_field_ids[col_idx];
+		if (field_id->Name() == info.column_path[0]) {
+			auto new_field_id = field_id->AddField(info.column_path, std::move(child_field_id));
+			auto &col = table_info.columns.GetColumnMutable(PhysicalIndex(col_idx));
+			col.SetType(new_field_id->Type());
+			new_field_ids->Add(std::move(new_field_id));
+		} else {
+			new_field_ids->Add(field_id->Copy());
+		}
+	}
+
+	auto new_entry = make_uniq<DuckLakeTableEntry>(*this, table_info, LocalChangeType::CHANGE_COLUMN_TYPE,
+												   std::move(change_info), std::move(new_field_ids));
+	return std::move(new_entry);
+}
+
+unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, RemoveFieldInfo &info) {
+	throw InternalException("eek");
+}
+
+unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, RenameFieldInfo &info) {
+	throw InternalException("eek");
+}
+
 unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transaction, AlterTableInfo &info) {
 	switch (info.alter_table_type) {
 	case AlterTableType::RENAME_TABLE:
@@ -654,6 +719,12 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transact
 		return AlterTable(transaction, info.Cast<RemoveColumnInfo>());
 	case AlterTableType::ALTER_COLUMN_TYPE:
 		return AlterTable(transaction, info.Cast<ChangeColumnTypeInfo>());
+	case AlterTableType::ADD_FIELD:
+		return AlterTable(transaction, info.Cast<AddFieldInfo>());
+	case AlterTableType::REMOVE_FIELD:
+		return AlterTable(transaction, info.Cast<RemoveFieldInfo>());
+	case AlterTableType::RENAME_FIELD:
+		return AlterTable(transaction, info.Cast<RenameFieldInfo>());
 	default:
 		throw BinderException("Unsupported ALTER TABLE type in DuckLake");
 	}
