@@ -30,6 +30,30 @@ FROM ducklake.test
 statement ok
 COMMIT
 
+mode skip
+# statement error
+# ALTER TABLE ducklake.test ADD COLUMN col1.k INT
+# ----
+# already exists
+# statement ok
+# ALTER TABLE ducklake.test ADD COLUMN IF NOT EXISTS col1.k INT
+#
+# statement error
+# ALTER TABLE ducklake.test ADD COLUMN col1.i.s INT
+# ----
+# can only be added to structs
+#
+# statement error
+# ALTER TABLE ducklake.test ADD COLUMN col1.v.s INT
+# ----
+# not found
+#
+# statement error
+# ALTER TABLE ducklake.test ADD COLUMN col2.s INT
+# ----
+# does not exist
+mode unskip
+
 statement ok
 INSERT INTO ducklake.test VALUES ({'i': 10, 'j': 20, 'k': 3}), ({'i': 11, 'j': 21, 'k': 10}), ({'i': 100, 'j': 200, 'k': 1000})
 
@@ -43,7 +67,36 @@ FROM ducklake.test
 
 # drop i
 statement ok
+BEGIN
+
+statement ok
 ALTER TABLE ducklake.test DROP COLUMN col1.i
+
+query I
+FROM ducklake.test
+----
+{'j': 2, 'k': NULL}
+{'j': 20, 'k': 3}
+{'j': 21, 'k': 10}
+{'j': 200, 'k': 1000}
+
+statement ok
+COMMIT
+
+mode skip
+# statement error
+# ALTER TABLE ducklake.test DROP COLUMN col1.i
+# ----
+# not found
+#
+# statement ok
+# ALTER TABLE ducklake.test DROP COLUMN IF EXISTS col1.i
+
+# statement error
+# ALTER TABLE ducklake.test DROP COLUMN col1.j.x
+# ----
+# xzxcv
+mode unskip
 
 statement ok
 INSERT INTO ducklake.test VALUES ({'j': 150, 'k': 1000}), ({'j': 151, 'k': 1001})

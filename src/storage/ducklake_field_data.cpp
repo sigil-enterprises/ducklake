@@ -117,6 +117,33 @@ unique_ptr<DuckLakeFieldId> DuckLakeFieldId::AddField(const vector<string> &colu
 	return result;
 }
 
+unique_ptr<DuckLakeFieldId> DuckLakeFieldId::RemoveField(const vector<string> &column_path, idx_t depth) const {
+	auto result = Copy();
+	auto child_types = StructType::GetChildTypes(Type());
+	idx_t child_idx;
+	for(child_idx = 0; child_idx < children.size(); child_idx++) {
+		auto &child = *children[child_idx];
+		if (StringUtil::CIEquals(child.Name(), column_path[depth])) {
+			// found it!
+			if (depth + 1 >= column_path.size()) {
+				// leaf - remove the column at this level
+				child_types.erase(child_types.begin() + child_idx);
+				result->children.erase(result->children.begin() + child_idx);
+			} else {
+				// not the leaf - find the child to add it to and recurse
+				result->children[child_idx] = child.RemoveField(column_path, depth + 1);
+				child_types[child_idx].second = result->children[child_idx]->Type();
+			}
+			break;
+		}
+	}
+	if (child_idx == children.size()) {
+		throw InternalException("DuckLakeFieldId::AddField - child not found in struct path");
+	}
+	result->type = LogicalType::STRUCT(std::move(child_types));
+	return result;
+}
+
 shared_ptr<DuckLakeFieldData> DuckLakeFieldData::RenameColumn(const DuckLakeFieldData &field_data,
                                                               FieldIndex rename_index, const string &new_name) {
 	auto result = make_shared_ptr<DuckLakeFieldData>();
