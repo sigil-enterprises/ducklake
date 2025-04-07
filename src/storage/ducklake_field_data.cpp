@@ -130,8 +130,35 @@ unique_ptr<DuckLakeFieldId> DuckLakeFieldId::RemoveField(const vector<string> &c
 				child_types.erase(child_types.begin() + child_idx);
 				result->children.erase(result->children.begin() + child_idx);
 			} else {
-				// not the leaf - find the child to add it to and recurse
+				// not the leaf - find the child to drop it from and recurse
 				result->children[child_idx] = child.RemoveField(column_path, depth + 1);
+				child_types[child_idx].second = result->children[child_idx]->Type();
+			}
+			break;
+		}
+	}
+	if (child_idx == children.size()) {
+		throw InternalException("DuckLakeFieldId::AddField - child not found in struct path");
+	}
+	result->type = LogicalType::STRUCT(std::move(child_types));
+	return result;
+}
+
+unique_ptr<DuckLakeFieldId> DuckLakeFieldId::RenameField(const vector<string> &column_path, const string &new_name, idx_t depth) const {
+	auto result = Copy();
+	auto child_types = StructType::GetChildTypes(Type());
+	idx_t child_idx;
+	for(child_idx = 0; child_idx < children.size(); child_idx++) {
+		auto &child = *children[child_idx];
+		if (StringUtil::CIEquals(child.Name(), column_path[depth])) {
+			// found it!
+			if (depth + 1 >= column_path.size()) {
+				// leaf - rename the column at this level
+				child.SetName(new_name);
+				child_types[child_idx].first = new_name;
+			} else {
+				// not the leaf - find the child to rename it and recurse
+				result->children[child_idx] = child.RenameField(column_path, new_name, depth + 1);
 				child_types[child_idx].second = result->children[child_idx]->Type();
 			}
 			break;
@@ -182,10 +209,10 @@ optional_ptr<const DuckLakeFieldId> DuckLakeFieldData::GetByFieldIndex(FieldInde
 	return entry->second.get();
 }
 
-const DuckLakeFieldId &DuckLakeFieldId::GetChildByName(const string &child_name) const {
+optional_ptr<const DuckLakeFieldId> DuckLakeFieldId::GetChildByName(const string &child_name) const {
 	auto entry = child_map.find(child_name);
 	if (entry == child_map.end()) {
-		throw InvalidInputException("Sub-column \"%s\" not found in column \"%s\"", child_name, name);
+		return nullptr;
 	}
 	return *children[entry->second];
 }
@@ -194,11 +221,15 @@ const DuckLakeFieldId &DuckLakeFieldId::GetChildByIndex(idx_t index) const {
 	return *children[index];
 }
 
-const DuckLakeFieldId &DuckLakeFieldData::GetByNames(PhysicalIndex id, const vector<string> &column_names) const {
+optional_ptr<const DuckLakeFieldId> DuckLakeFieldData::GetByNames(PhysicalIndex id, const vector<string> &column_names) const {
 	const_reference<DuckLakeFieldId> result = GetByRootIndex(id);
 	for (idx_t i = 1; i < column_names.size(); ++i) {
 		auto &current = result.get();
-		result = current.GetChildByName(column_names[i]);
+		auto next_child = current.GetChildByName(column_names[i]);
+		if (!next_child) {
+			return nullptr;
+		}
+		result = *next_child;
 	}
 	return result.get();
 }

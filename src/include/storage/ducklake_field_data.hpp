@@ -39,14 +39,20 @@ public:
 	const vector<unique_ptr<DuckLakeFieldId>> &Children() const {
 		return children;
 	}
+	void SetName(string name_p) {
+		this->name = std::move(name_p);
+	}
 	const DuckLakeFieldId &GetChildByIndex(idx_t index) const;
-	const DuckLakeFieldId &GetChildByName(const string &name) const;
+	optional_ptr<const DuckLakeFieldId> GetChildByName(const string &name) const;
 	unique_ptr<DuckLakeFieldId> Copy() const;
 
 	static unique_ptr<DuckLakeFieldId> FieldIdFromType(const string &name, const LogicalType &type, idx_t &column_id);
 	static unique_ptr<DuckLakeFieldId> Rename(const DuckLakeFieldId &field_id, const string &new_name);
-	unique_ptr<DuckLakeFieldId> AddField(const vector<string> &column_path, unique_ptr<DuckLakeFieldId> new_child, idx_t depth = 1) const;
+	unique_ptr<DuckLakeFieldId> AddField(const vector<string> &column_path, unique_ptr<DuckLakeFieldId> new_child,
+	                                     idx_t depth = 1) const;
 	unique_ptr<DuckLakeFieldId> RemoveField(const vector<string> &column_path, idx_t depth = 1) const;
+	unique_ptr<DuckLakeFieldId> RenameField(const vector<string> &column_path, const string &new_name,
+	                                        idx_t depth = 1) const;
 
 private:
 	FieldIndex id;
@@ -70,7 +76,7 @@ public:
 	void Add(unique_ptr<DuckLakeFieldId> field_info);
 	const DuckLakeFieldId &GetByRootIndex(PhysicalIndex id) const;
 	optional_ptr<const DuckLakeFieldId> GetByFieldIndex(FieldIndex id) const;
-	const DuckLakeFieldId &GetByNames(PhysicalIndex id, const vector<string> &column_names) const;
+	optional_ptr<const DuckLakeFieldId> GetByNames(PhysicalIndex id, const vector<string> &column_names) const;
 	idx_t GetColumnCount() {
 		return field_ids.size();
 	}

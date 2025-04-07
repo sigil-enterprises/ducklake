@@ -30,29 +30,28 @@ FROM ducklake.test
 statement ok
 COMMIT
 
-mode skip
-# statement error
-# ALTER TABLE ducklake.test ADD COLUMN col1.k INT
-# ----
-# already exists
-# statement ok
-# ALTER TABLE ducklake.test ADD COLUMN IF NOT EXISTS col1.k INT
-#
-# statement error
-# ALTER TABLE ducklake.test ADD COLUMN col1.i.s INT
-# ----
-# can only be added to structs
-#
-# statement error
-# ALTER TABLE ducklake.test ADD COLUMN col1.v.s INT
-# ----
-# not found
-#
-# statement error
-# ALTER TABLE ducklake.test ADD COLUMN col2.s INT
-# ----
-# does not exist
-mode unskip
+statement error
+ALTER TABLE ducklake.test ADD COLUMN col1.K INT
+----
+already exists
+
+statement ok
+ALTER TABLE ducklake.test ADD COLUMN IF NOT EXISTS col1.k INT
+
+statement error
+ALTER TABLE ducklake.test ADD COLUMN col1.i.s INT
+----
+can only be added to structs
+
+statement error
+ALTER TABLE ducklake.test ADD COLUMN col1.v.s INT
+----
+does not exist
+
+statement error
+ALTER TABLE ducklake.test ADD COLUMN col2.s INT
+----
+does not exist
 
 statement ok
 INSERT INTO ducklake.test VALUES ({'i': 10, 'j': 20, 'k': 3}), ({'i': 11, 'j': 21, 'k': 10}), ({'i': 100, 'j': 200, 'k': 1000})
@@ -70,7 +69,7 @@ statement ok
 BEGIN
 
 statement ok
-ALTER TABLE ducklake.test DROP COLUMN col1.i
+ALTER TABLE ducklake.test DROP COLUMN col1.I
 
 query I
 FROM ducklake.test
@@ -83,20 +82,18 @@ FROM ducklake.test
 statement ok
 COMMIT
 
-mode skip
-# statement error
-# ALTER TABLE ducklake.test DROP COLUMN col1.i
-# ----
-# not found
-#
-# statement ok
-# ALTER TABLE ducklake.test DROP COLUMN IF EXISTS col1.i
+statement error
+ALTER TABLE ducklake.test DROP COLUMN col1.i
+----
+does not exist
 
-# statement error
-# ALTER TABLE ducklake.test DROP COLUMN col1.j.x
-# ----
-# xzxcv
-mode unskip
+statement ok
+ALTER TABLE ducklake.test DROP COLUMN IF EXISTS col1.i
+
+statement error
+ALTER TABLE ducklake.test DROP COLUMN col1.j.x
+----
+does not exist
 
 statement ok
 INSERT INTO ducklake.test VALUES ({'j': 150, 'k': 1000}), ({'j': 151, 'k': 1001})
@@ -110,6 +107,12 @@ FROM ducklake.test
 {'j': 200, 'k': 1000}
 {'j': 150, 'k': 1000}
 {'j': 151, 'k': 1001}
+
+# conflict in rename
+statement error
+ALTER TABLE ducklake.test RENAME col1.J TO K
+----
+already exists
 
 # drop all original columns
 statement ok
@@ -150,7 +153,17 @@ SELECT col1.k FROM ducklake.test WHERE col1.k IS NULL
 NULL
 
 statement ok
-ALTER TABLE ducklake.test RENAME col1.k TO v1
+ALTER TABLE ducklake.test RENAME col1.K TO v1
+
+statement error
+ALTER TABLE ducklake.test RENAME col1.z TO v2
+----
+does not exist
+
+statement error
+ALTER TABLE ducklake.test RENAME col2.v1 TO v2
+----
+does not exist
 
 query I
 FROM ducklake.test ORDER BY ALL
