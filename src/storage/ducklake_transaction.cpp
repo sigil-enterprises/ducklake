@@ -85,7 +85,8 @@ void GetTransactionTableChanges(reference<CatalogEntry> table_entry, Transaction
 		case LocalChangeType::RENAME_COLUMN:
 		case LocalChangeType::ADD_COLUMN:
 		case LocalChangeType::REMOVE_COLUMN:
-		case LocalChangeType::CHANGE_COLUMN_TYPE: {
+		case LocalChangeType::CHANGE_COLUMN_TYPE:
+		case LocalChangeType::SET_DEFAULT: {
 			// this table was altered
 			auto table_id = table.GetTableId();
 			// don't report transaction-local tables yet - these will get added later on
@@ -565,7 +566,8 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 		}
 		case LocalChangeType::SET_NULL:
 		case LocalChangeType::DROP_NULL:
-		case LocalChangeType::RENAME_COLUMN: {
+		case LocalChangeType::RENAME_COLUMN:
+		case LocalChangeType::SET_DEFAULT: {
 			// drop the previous column
 			DuckLakeDroppedColumn dropped_col;
 			dropped_col.table_id = table.GetTableId();
@@ -596,10 +598,6 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 			result.new_columns.push_back(std::move(new_col));
 
 			transaction_changes.altered_tables.insert(table.GetTableId());
-
-			// write the new table information (with the new next_column_id)
-			auto new_table = GetNewTable(commit_snapshot, table);
-			result.new_tables.push_back(std::move(new_table));
 			break;
 		}
 		case LocalChangeType::NONE:
@@ -1123,15 +1121,7 @@ void DuckLakeTransaction::AlterEntryInternal(DuckLakeTableEntry &table, unique_p
 		}
 		break;
 	}
-	case LocalChangeType::ADD_COLUMN: {
-		// add column - need to drop the old table (as we write a new one)
-		if (!table.IsTransactionLocal()) {
-			// table is not transaction local - add to drop list
-			auto table_id = table.GetTableId();
-			dropped_tables.insert(table_id);
-		}
-		break;
-	}
+	case LocalChangeType::ADD_COLUMN:
 	case LocalChangeType::SET_PARTITION_KEY:
 	case LocalChangeType::SET_COMMENT:
 	case LocalChangeType::SET_COLUMN_COMMENT:
@@ -1140,6 +1130,7 @@ void DuckLakeTransaction::AlterEntryInternal(DuckLakeTableEntry &table, unique_p
 	case LocalChangeType::RENAME_COLUMN:
 	case LocalChangeType::REMOVE_COLUMN:
 	case LocalChangeType::CHANGE_COLUMN_TYPE:
+	case LocalChangeType::SET_DEFAULT:
 		break;
 	default:
 		throw NotImplementedException("Alter type not supported in DuckLakeTransaction::AlterEntry");

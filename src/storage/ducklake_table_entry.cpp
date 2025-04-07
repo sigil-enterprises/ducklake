@@ -54,6 +54,9 @@ DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableIn
 		idx_t next_col = next_column_id.GetIndex();
 		field_data = DuckLakeFieldData::AddColumn(*field_data, new_col, next_col);
 		next_column_id = next_col;
+	} else if (local_change.type == LocalChangeType::SET_DEFAULT) {
+		auto changed_id = local_change.field_index;
+		field_data = DuckLakeFieldData::SetDefault(*field_data, changed_id, GetColumnByFieldId(changed_id));
 	}
 }
 
@@ -809,6 +812,18 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	return std::move(new_entry);
 }
 
+unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, SetDefaultInfo &info) {
+	auto create_info = GetInfo();
+	auto &table_info = create_info->Cast<CreateTableInfo>();
+
+	auto &col = table_info.columns.GetColumnMutable(info.column_name);
+	auto &field_id = GetFieldId(col.Physical());
+	col.SetDefaultValue(std::move(info.expression));
+
+	auto new_entry = make_uniq<DuckLakeTableEntry>(*this, table_info, LocalChange::SetDefault(field_id.GetFieldIndex()));
+	return std::move(new_entry);
+}
+
 unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transaction, AlterTableInfo &info) {
 	switch (info.alter_table_type) {
 	case AlterTableType::RENAME_TABLE:
@@ -833,6 +848,8 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transact
 		return AlterTable(transaction, info.Cast<RemoveFieldInfo>());
 	case AlterTableType::RENAME_FIELD:
 		return AlterTable(transaction, info.Cast<RenameFieldInfo>());
+	case AlterTableType::SET_DEFAULT:
+		return AlterTable(transaction, info.Cast<SetDefaultInfo>());
 	default:
 		throw BinderException("Unsupported ALTER TABLE type in DuckLake");
 	}
@@ -860,12 +877,19 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transact
 }
 
 DuckLakeColumnInfo DuckLakeTableEntry::GetColumnInfo(FieldIndex field_index) const {
-	auto &col = GetColumnByFieldId(field_index);
+	auto field_id = GetFieldId(field_index);
+	if (!field_id) {
+		throw InternalException("Field id not found in table");
+	}
+	auto &col = GetColumn(field_id->Name());
+	auto &col_data = field_id->GetColumnData();
 
 	DuckLakeColumnInfo result;
 	result.id = field_index;
 	result.name = col.Name();
 	result.type = DuckLakeTypes::ToString(col.Type());
+	result.initial_default = col_data.initial_default;
+	result.default_value = col_data.default_value;
 	result.nulls_allowed = GetNotNullFields().count(col.Name()) == 0;
 	return result;
 }

@@ -32,9 +32,22 @@ DuckLakeFieldId::DuckLakeFieldId(DuckLakeColumnData column_data_p, string name_p
 		if (entry != child_map.end()) {
 			throw InvalidInputException("Duplicate child name \"%s\" found in column \"%s\"", child->name, name);
 		}
+		child->parent = this;
 		child_map.insert(make_pair(child->name, child_idx));
 	}
 }
+
+Value ExtractDefaultValue(optional_ptr<const ParsedExpression> default_expr, const LogicalType &type) {
+	if (!default_expr) {
+		return Value(type);
+	}
+	if (default_expr->type != ExpressionType::VALUE_CONSTANT) {
+		throw NotImplementedException("Only literals (e.g. 42 or 'hello world') are supported as default values");
+	}
+	auto &const_default = default_expr->Cast<ConstantExpression>();
+	return const_default.value.DefaultCastAs(type);
+}
+
 unique_ptr<DuckLakeFieldId> DuckLakeFieldId::FieldIdFromType(const string &name, const LogicalType &type, optional_ptr<const ParsedExpression> default_expr,
                                                              idx_t &column_id) {
 	DuckLakeColumnData column_data;
@@ -73,16 +86,8 @@ unique_ptr<DuckLakeFieldId> DuckLakeFieldId::FieldIdFromType(const string &name,
 	default:
 		break;
 	}
-	if (default_expr) {
-		if (default_expr->type != ExpressionType::VALUE_CONSTANT) {
-			throw NotImplementedException("Only literals (e.g. 42 or 'hello world') are supported as default values");
-		}
-		auto &const_default = default_expr->Cast<ConstantExpression>();
-		if (!const_default.value.IsNull()) {
-			column_data.initial_default = const_default.value.DefaultCastAs(type);
-		}
-		column_data.default_value = column_data.initial_default;
-	}
+	column_data.initial_default = ExtractDefaultValue(default_expr, type);
+	column_data.default_value = column_data.initial_default;
 	return make_uniq<DuckLakeFieldId>(std::move(column_data), name, type, std::move(field_children));
 }
 
@@ -129,6 +134,12 @@ unique_ptr<DuckLakeFieldId> DuckLakeFieldId::Copy() const {
 unique_ptr<DuckLakeFieldId> DuckLakeFieldId::Rename(const DuckLakeFieldId &field_id, const string &new_name) {
 	auto result = field_id.Copy();
 	result->name = new_name;
+	return result;
+}
+
+unique_ptr<DuckLakeFieldId> DuckLakeFieldId::SetDefault(const DuckLakeFieldId &field_id, optional_ptr<const ParsedExpression> default_expr) {
+	auto result = field_id.Copy();
+	result->column_data.default_value = ExtractDefaultValue(default_expr, field_id.Type());
 	return result;
 }
 
@@ -252,6 +263,21 @@ shared_ptr<DuckLakeFieldData> DuckLakeFieldData::AddColumn(const DuckLakeFieldDa
 	}
 	auto field_id = DuckLakeFieldId::FieldIdFromColumn(new_col, next_column_id);
 	result->Add(std::move(field_id));
+	return result;
+}
+
+shared_ptr<DuckLakeFieldData> DuckLakeFieldData::SetDefault(const DuckLakeFieldData &field_data, FieldIndex field_index, const ColumnDefinition &new_col) {
+	auto result = make_shared_ptr<DuckLakeFieldData>();
+	auto new_default = new_col.HasDefaultValue() ?  optional_ptr<const ParsedExpression>(new_col.DefaultValue()) : nullptr;
+	for (auto &existing_id : field_data.field_ids) {
+		unique_ptr<DuckLakeFieldId> field_id;
+		if (existing_id->GetFieldIndex() == field_index) {
+			field_id = DuckLakeFieldId::SetDefault(*existing_id, new_default);
+		} else {
+			field_id = existing_id->Copy();
+		}
+		result->Add(std::move(field_id));
+	}
 	return result;
 }
 

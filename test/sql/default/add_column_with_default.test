@@ -28,7 +28,7 @@ statement ok
 INSERT INTO ducklake.test VALUES (100, 100)
 
 query II
-FROM ducklake.test
+FROM ducklake.test ORDER BY ALL
 ----
 1	42
 2	42
@@ -38,8 +38,53 @@ statement ok
 COMMIT
 
 query II
-FROM ducklake.test
+FROM ducklake.test ORDER BY ALL
 ----
 1	42
 2	42
 100	100
+
+# alter the default
+foreach finaltransaction ROLLBACK COMMIT
+
+statement ok
+BEGIN
+
+statement ok
+INSERT INTO ducklake.test DEFAULT VALUES
+
+statement ok
+ALTER TABLE ducklake.test ALTER i SET DEFAULT 1000
+
+statement ok
+ALTER TABLE ducklake.test ALTER j DROP DEFAULT
+
+statement ok
+INSERT INTO ducklake.test DEFAULT VALUES
+
+query II
+FROM ducklake.test ORDER BY ALL
+----
+1	42
+2	42
+100	100
+1000	NULL
+NULL	42
+
+statement ok
+${finaltransaction}
+
+endloop
+
+statement ok
+INSERT INTO ducklake.test DEFAULT VALUES
+
+query II
+FROM ducklake.test ORDER BY ALL
+----
+1	42
+2	42
+100	100
+1000	NULL
+1000	NULL
+NULL	42

@@ -112,6 +112,7 @@ private:
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, AddFieldInfo &info);
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, RemoveFieldInfo &info);
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, RenameFieldInfo &info);
+	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, SetDefaultInfo &info);
 
 	unique_ptr<DuckLakeFieldId> GetStructEvolution(const DuckLakeFieldId &source_id, const LogicalType &target,
 	                                               ColumnChangeInfo &result, optional_idx parent_idx);
