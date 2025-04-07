@@ -653,10 +653,14 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 }
 
 void AddNewColumns(const DuckLakeFieldId &field_id, vector<DuckLakeNewColumn> &new_fields, FieldIndex parent_idx) {
+	auto &col_data = field_id.GetColumnData();
+
 	DuckLakeNewColumn new_col;
-	new_col.column_info.id = field_id.GetFieldIndex();
+	new_col.column_info.id = col_data.id;
 	new_col.column_info.name = field_id.Name();
 	new_col.column_info.type = DuckLakeTypes::ToString(field_id.Type());
+	new_col.column_info.initial_default = col_data.initial_default;
+	new_col.column_info.default_value = col_data.default_value;
 	new_col.parent_idx = parent_idx.index;
 	new_fields.push_back(std::move(new_col));
 	for(auto &child : field_id.Children()) {
