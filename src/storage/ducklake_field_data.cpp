@@ -79,7 +79,7 @@ unique_ptr<DuckLakeFieldId> DuckLakeFieldId::FieldIdFromType(const string &name,
 		}
 		auto &const_default = default_expr->Cast<ConstantExpression>();
 		if (!const_default.value.IsNull()) {
-			column_data.initial_default = const_default.value.DefaultCastAs(type).ToString();
+			column_data.initial_default = const_default.value.DefaultCastAs(type);
 		}
 		column_data.default_value = column_data.initial_default;
 	}

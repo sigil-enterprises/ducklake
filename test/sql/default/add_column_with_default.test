@@ -1,0 +1,45 @@
+# name: test/sql/default/add_column_with_default.test
+# description: Test adding a column with default values with DuckLake
+# group: [ducklake]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_add_default.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_add_default', METADATA_CATALOG 'xx')
+
+statement ok
+CREATE TABLE ducklake.test(i INTEGER);
+
+statement ok
+INSERT INTO ducklake.test VALUES (1);
+
+statement ok
+INSERT INTO ducklake.test VALUES (2);
+
+statement ok
+BEGIN
+
+statement ok
+ALTER TABLE ducklake.test ADD COLUMN j INTEGER DEFAULT 42
+
+statement ok
+INSERT INTO ducklake.test VALUES (100, 100)
+
+query II
+FROM ducklake.test
+----
+1	42
+2	42
+100	100
+
+statement ok
+COMMIT
+
+query II
+FROM ducklake.test
+----
+1	42
+2	42
+100	100
