@@ -1,37 +1,25 @@
 //===----------------------------------------------------------------------===//
 //                         DuckDB
 //
-// storage/ducklake_insert.hpp
+// storage/ducklake_delete.hpp
 //
 //
 //===----------------------------------------------------------------------===//
 
 #pragma once
 
-#include "duckdb/execution/operator/persistent/physical_copy_to_file.hpp"
-
-#include "duckdb/execution/physical_operator.hpp"
-#include "duckdb/common/index_vector.hpp"
-#include "storage/ducklake_stats.hpp"
+#include "storage/ducklake_insert.hpp"
 
 namespace duckdb {
 class DuckLakeTableEntry;
 
-class DuckLakeInsert : public PhysicalOperator {
+class DuckLakeDelete : public PhysicalOperator {
 public:
 	//! INSERT INTO
-	DuckLakeInsert(LogicalOperator &op, DuckLakeTableEntry &table, optional_idx partition_id);
-	//! CREATE TABLE AS
-	DuckLakeInsert(LogicalOperator &op, SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info);
+	DuckLakeDelete(DuckLakeTableEntry &table, PhysicalOperator &child);
 
-	//! The table to insert into
-	optional_ptr<DuckLakeTableEntry> table;
-	//! Table schema, in case of CREATE TABLE AS
-	optional_ptr<SchemaCatalogEntry> schema;
-	//! Create table info, in case of CREATE TABLE AS
-	unique_ptr<BoundCreateTableInfo> info;
-	//! The partition id we are writing into (if any)
-	optional_idx partition_id;
+	//! The table to delete from
+	DuckLakeTableEntry &table;
 
 public:
 	// // Source interface
@@ -41,15 +29,12 @@ public:
 		return true;
 	}
 
-	static DuckLakeColumnStats ParseColumnStats(const LogicalType &type, const vector<Value> stats);
-
 public:
 	// Sink interface
 	SinkResultType Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const override;
 	// SinkCombineResultType Combine(ExecutionContext &context, OperatorSinkCombineInput &input) const override;
 	SinkFinalizeType Finalize(Pipeline &pipeline, Event &event, ClientContext &context,
 	                          OperatorSinkFinalizeInput &input) const override;
-	// unique_ptr<LocalSinkState> GetLocalSinkState(ExecutionContext &context) const override;
 	unique_ptr<GlobalSinkState> GetGlobalSinkState(ClientContext &context) const override;
 
 	bool IsSink() const override {

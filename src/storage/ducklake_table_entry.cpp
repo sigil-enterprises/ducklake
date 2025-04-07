@@ -183,6 +183,18 @@ TableFunction DuckLakeTableEntry::GetScanFunction(ClientContext &context, unique
 	throw InternalException("DuckLakeTableEntry::GetScanFunction called without entry lookup info");
 }
 
+unique_ptr<FunctionData> DuckLakeFunctions::BindDuckLakeScan(ClientContext &context, TableFunction &function) {
+	vector<Value> inputs {Value("")};
+	named_parameter_map_t param_map;
+	vector<LogicalType> return_types;
+	vector<string> names;
+	TableFunctionRef empty_ref;
+
+	TableFunctionBindInput bind_input(inputs, param_map, return_types, names, nullptr, nullptr, function, empty_ref);
+
+	return function.bind(context, bind_input, return_types, names);
+}
+
 TableFunction DuckLakeTableEntry::GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data,
                                                   const EntryLookupInfo &lookup_info) {
 	auto function = DuckLakeFunctions::GetDuckLakeScanFunction(*context.db);
@@ -198,16 +210,7 @@ TableFunction DuckLakeTableEntry::GetScanFunction(ClientContext &context, unique
 	function_info->table_id = GetTableId();
 	function.function_info = std::move(function_info);
 
-	vector<Value> inputs {Value("")};
-	named_parameter_map_t param_map;
-	vector<LogicalType> return_types;
-	vector<string> names;
-	TableFunctionRef empty_ref;
-
-	TableFunctionBindInput bind_input(inputs, param_map, return_types, names, nullptr, nullptr, function, empty_ref);
-
-	auto result = function.bind(context, bind_input, return_types, names);
-	bind_data = std::move(result);
+	bind_data = DuckLakeFunctions::BindDuckLakeScan(context, function);
 
 	return function;
 }

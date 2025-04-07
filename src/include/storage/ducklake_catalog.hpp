@@ -16,6 +16,7 @@
 namespace duckdb {
 class ColumnList;
 class DuckLakeFieldData;
+class LogicalGet;
 
 class DuckLakeCatalog : public Catalog {
 public:
@@ -86,6 +87,9 @@ private:
 	DuckLakeStats &GetStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
 	unique_ptr<DuckLakeStats> LoadStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
 	                                               DuckLakeCatalogSet &schema);
+
+	CopyFunctionCatalogEntry &GetCopyFunction(DatabaseInstance &db, const string &name);
+	unique_ptr<LogicalOperator> GenerateFileDelete(ClientContext &context, LogicalGet &get, LogicalOperator &op, const string &filename);
 
 private:
 	mutex schemas_lock;

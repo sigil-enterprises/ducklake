@@ -63,6 +63,37 @@ unique_ptr<GlobalSinkState> DuckLakeInsert::GetGlobalSinkState(ClientContext &co
 //===--------------------------------------------------------------------===//
 // Sink
 //===--------------------------------------------------------------------===//
+DuckLakeColumnStats DuckLakeInsert::ParseColumnStats(const LogicalType &type, const vector<Value> col_stats) {
+	DuckLakeColumnStats column_stats(type);
+	for (idx_t stats_idx = 0; stats_idx < col_stats.size(); stats_idx++) {
+		auto &stats_children = StructValue::GetChildren(col_stats[stats_idx]);
+		auto &stats_name = StringValue::Get(stats_children[0]);
+		auto &stats_value = StringValue::Get(stats_children[1]);
+		if (stats_name == "min") {
+			D_ASSERT(!column_stats.has_min);
+			column_stats.min = stats_value;
+			column_stats.has_min = true;
+		} else if (stats_name == "max") {
+			D_ASSERT(!column_stats.has_max);
+			column_stats.max = stats_value;
+			column_stats.has_max = true;
+		} else if (stats_name == "null_count") {
+			D_ASSERT(!column_stats.has_null_count);
+			column_stats.has_null_count = true;
+			column_stats.null_count = StringUtil::ToUnsigned(stats_value);
+		} else if (stats_name == "column_size_bytes") {
+			column_stats.column_size_bytes = StringUtil::ToUnsigned(stats_value);
+		} else if (stats_name == "has_nan") {
+			column_stats.has_contains_nan = true;
+			column_stats.contains_nan = stats_value == "true";
+		} else {
+			throw NotImplementedException("Unsupported stats type \"%s\" in DuckLakeInsert::Sink()",
+										  stats_name);
+		}
+	}
+	return column_stats;
+}
+
 SinkResultType DuckLakeInsert::Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const {
 	auto &global_state = input.global_state.Cast<DuckLakeInsertGlobalState>();
 
@@ -87,38 +118,11 @@ SinkResultType DuckLakeInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 			auto column_names = DuckLakeUtil::ParseQuotedList(col_name, '.');
 
 			auto &field_id = table.GetFieldId(column_names);
-
-			DuckLakeColumnStats column_stats(field_id.Type());
-			for (idx_t stats_idx = 0; stats_idx < col_stats.size(); stats_idx++) {
-				auto &stats_children = StructValue::GetChildren(col_stats[stats_idx]);
-				auto &stats_name = StringValue::Get(stats_children[0]);
-				auto &stats_value = StringValue::Get(stats_children[1]);
-				if (stats_name == "min") {
-					D_ASSERT(!column_stats.has_min);
-					column_stats.min = stats_value;
-					column_stats.has_min = true;
-				} else if (stats_name == "max") {
-					D_ASSERT(!column_stats.has_max);
-					column_stats.max = stats_value;
-					column_stats.has_max = true;
-				} else if (stats_name == "null_count") {
-					D_ASSERT(!column_stats.has_null_count);
-					column_stats.has_null_count = true;
-					column_stats.null_count = StringUtil::ToUnsigned(stats_value);
-					if (column_stats.null_count > 0 && column_names.size() == 1) {
-						// we wrote NULL values to a base column - verify NOT NULL constraint
-						if (global_state.not_null_fields.count(column_names[0])) {
-							throw ConstraintException("NOT NULL constraint failed: %s.%s", table.name, column_names[0]);
-						}
-					}
-				} else if (stats_name == "column_size_bytes") {
-					column_stats.column_size_bytes = StringUtil::ToUnsigned(stats_value);
-				} else if (stats_name == "has_nan") {
-					column_stats.has_contains_nan = true;
-					column_stats.contains_nan = stats_value == "true";
-				} else {
-					throw NotImplementedException("Unsupported stats type \"%s\" in DuckLakeInsert::Sink()",
-					                              stats_name);
+			auto column_stats = ParseColumnStats(field_id.Type(), col_stats);
+			if (column_stats.null_count > 0 && column_names.size() == 1) {
+				// we wrote NULL values to a base column - verify NOT NULL constraint
+				if (global_state.not_null_fields.count(column_names[0])) {
+					throw ConstraintException("NOT NULL constraint failed: %s.%s", table.name, column_names[0]);
 				}
 			}
 
@@ -186,7 +190,7 @@ InsertionOrderPreservingMap<string> DuckLakeInsert::ParamsToString() const {
 //===--------------------------------------------------------------------===//
 // Plan
 //===--------------------------------------------------------------------===//
-static optional_ptr<CopyFunctionCatalogEntry> TryGetCopyFunction(DatabaseInstance &db, const string &name) {
+CopyFunctionCatalogEntry &DuckLakeCatalog::GetCopyFunction(DatabaseInstance &db, const string &name) {
 	D_ASSERT(!name.empty());
 	auto &system_catalog = Catalog::GetSystemCatalog(db);
 	auto data = CatalogTransaction::GetSystemTransaction(db);
@@ -239,10 +243,7 @@ PhysicalOperator &DuckLakeCatalog::PlanCopyForInsert(ClientContext &context, con
 	info->options["field_ids"] = std::move(field_input);
 
 	// Get Parquet Copy function
-	auto copy_fun = TryGetCopyFunction(*context.db, "parquet");
-	if (!copy_fun) {
-		throw MissingExtensionException("Did not find parquet copy function required to write to DuckLake table");
-	}
+	auto &copy_fun = GetCopyFunction(*context.db, "parquet");
 
 	//! FIXME: we only need to do this if this is a local path
 	auto &fs = FileSystem::GetFileSystem(context);
@@ -256,11 +257,11 @@ PhysicalOperator &DuckLakeCatalog::PlanCopyForInsert(ClientContext &context, con
 	auto names_to_write = columns.GetColumnNames();
 	auto types_to_write = columns.GetColumnTypes();
 
-	auto function_data = copy_fun->function.copy_to_bind(context, bind_input, names_to_write, types_to_write);
+	auto function_data = copy_fun.function.copy_to_bind(context, bind_input, names_to_write, types_to_write);
 
 	auto copy_return_types = GetCopyFunctionReturnLogicalTypes(CopyFunctionReturnType::WRITTEN_FILE_STATISTICS);
 	auto &physical_copy =
-	    planner.Make<PhysicalCopyToFile>(copy_return_types, copy_fun->function, std::move(function_data), 1)
+	    planner.Make<PhysicalCopyToFile>(copy_return_types, copy_fun.function, std::move(function_data), 1)
 	        .Cast<PhysicalCopyToFile>();
 
 	physical_copy.use_tmp_file = false;

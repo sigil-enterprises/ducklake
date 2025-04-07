@@ -20,6 +20,8 @@ class DuckLakeFunctions {
 public:
 	//! Table Functions
 	static TableFunction GetDuckLakeScanFunction(DatabaseInstance &instance);
+
+	static unique_ptr<FunctionData> BindDuckLakeScan(ClientContext &context, TableFunction &function);
 };
 
 struct DuckLakeFunctionInfo : public TableFunctionInfo {
