@@ -10,6 +10,7 @@
 
 #include "duckdb/common/common.hpp"
 #include "duckdb/common/case_insensitive_map.hpp"
+#include "duckdb/common/types/value.hpp"
 #include "common/index.hpp"
 
 namespace duckdb {
@@ -19,13 +20,23 @@ class DuckLakeTransaction;
 class ColumnDefinition;
 class ColumnList;
 
+struct DuckLakeColumnData {
+	FieldIndex id;
+	Value initial_default;
+	Value default_value;
+};
+
 class DuckLakeFieldId {
 public:
-	DuckLakeFieldId(FieldIndex index, string name, LogicalType type);
-	DuckLakeFieldId(FieldIndex index, string name, LogicalType type, vector<unique_ptr<DuckLakeFieldId>> children);
+	DuckLakeFieldId(DuckLakeColumnData column_data, string name, LogicalType type);
+	DuckLakeFieldId(DuckLakeColumnData column_data, string name, LogicalType type,
+	                vector<unique_ptr<DuckLakeFieldId>> children);
 
 	FieldIndex GetFieldIndex() const {
-		return id;
+		return column_data.id;
+	}
+	const DuckLakeColumnData &GetColumnData() const {
+		return column_data;
 	}
 	const string &Name() const {
 		return name;
@@ -42,8 +53,12 @@ public:
 	const DuckLakeFieldId &GetChildByIndex(idx_t index) const;
 	optional_ptr<const DuckLakeFieldId> GetChildByName(const string &name) const;
 	unique_ptr<DuckLakeFieldId> Copy() const;
+	unique_ptr<ParsedExpression> GetDefault() const;
 
-	static unique_ptr<DuckLakeFieldId> FieldIdFromType(const string &name, const LogicalType &type, idx_t &column_id);
+	static unique_ptr<DuckLakeFieldId> FieldIdFromColumn(const ColumnDefinition &col, idx_t &column_id);
+	static unique_ptr<DuckLakeFieldId> FieldIdFromType(const string &name, const LogicalType &type,
+	                                                   optional_ptr<const ParsedExpression> default_expr,
+	                                                   idx_t &column_id);
 	static unique_ptr<DuckLakeFieldId> Rename(const DuckLakeFieldId &field_id, const string &new_name);
 	unique_ptr<DuckLakeFieldId> AddField(const vector<string> &column_path, unique_ptr<DuckLakeFieldId> new_child,
 	                                     idx_t depth = 1) const;
@@ -52,7 +67,7 @@ public:
 	                                        idx_t depth = 1) const;
 
 private:
-	FieldIndex id;
+	DuckLakeColumnData column_data;
 	string name;
 	LogicalType type;
 	vector<unique_ptr<DuckLakeFieldId>> children;

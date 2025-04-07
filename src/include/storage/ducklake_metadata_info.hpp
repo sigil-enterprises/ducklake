@@ -38,6 +38,8 @@ struct DuckLakeColumnInfo {
 	FieldIndex id;
 	string name;
 	string type;
+	Value initial_default;
+	Value default_value;
 	bool nulls_allowed;
 	vector<DuckLakeColumnInfo> children;
 	vector<DuckLakeTag> tags;

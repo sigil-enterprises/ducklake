@@ -108,8 +108,13 @@ DuckLakeCatalogSet &DuckLakeCatalog::GetSchemaForSnapshot(DuckLakeTransaction &t
 }
 
 unique_ptr<DuckLakeFieldId> TransformColumnType(DuckLakeColumnInfo &col) {
+	DuckLakeColumnData col_data;
+	col_data.id = col.id;
 	if (col.children.empty()) {
-		return make_uniq<DuckLakeFieldId>(col.id, col.name, DuckLakeTypes::FromString(col.type));
+		auto col_type = DuckLakeTypes::FromString(col.type);
+		col_data.initial_default = col.initial_default.DefaultCastAs(col_type);
+		col_data.default_value = col.default_value.DefaultCastAs(col_type);
+		return make_uniq<DuckLakeFieldId>(std::move(col_data), col.name, std::move(col_type));
 	}
 	if (StringUtil::CIEquals(col.type, "struct")) {
 		child_list_t<LogicalType> child_types;
@@ -119,7 +124,7 @@ unique_ptr<DuckLakeFieldId> TransformColumnType(DuckLakeColumnInfo &col) {
 			child_types.emplace_back(make_pair(std::move(child_col.name), child_id->Type()));
 			child_fields.push_back(std::move(child_id));
 		}
-		return make_uniq<DuckLakeFieldId>(col.id, col.name, LogicalType::STRUCT(std::move(child_types)),
+		return make_uniq<DuckLakeFieldId>(std::move(col_data), col.name, LogicalType::STRUCT(std::move(child_types)),
 		                                  std::move(child_fields));
 	}
 	if (StringUtil::CIEquals(col.type, "list")) {
@@ -130,7 +135,7 @@ unique_ptr<DuckLakeFieldId> TransformColumnType(DuckLakeColumnInfo &col) {
 		auto child_type = child_id->Type();
 		vector<unique_ptr<DuckLakeFieldId>> child_fields;
 		child_fields.push_back(std::move(child_id));
-		return make_uniq<DuckLakeFieldId>(col.id, col.name, LogicalType::LIST(std::move(child_type)),
+		return make_uniq<DuckLakeFieldId>(std::move(col_data), col.name, LogicalType::LIST(std::move(child_type)),
 		                                  std::move(child_fields));
 	}
 	if (StringUtil::CIEquals(col.type, "map")) {
@@ -145,7 +150,7 @@ unique_ptr<DuckLakeFieldId> TransformColumnType(DuckLakeColumnInfo &col) {
 		child_fields.push_back(std::move(key_id));
 		child_fields.push_back(std::move(value_id));
 		return make_uniq<DuckLakeFieldId>(
-		    col.id, col.name, LogicalType::MAP(std::move(key_type), std::move(value_type)), std::move(child_fields));
+		    std::move(col_data), col.name, LogicalType::MAP(std::move(key_type), std::move(value_type)), std::move(child_fields));
 	}
 	throw InvalidInputException("Unrecognized nested type \"%s\"", col.type);
 }
@@ -198,6 +203,10 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 				} else {
 					throw NotImplementedException("Only comment tags are supported for columns currently");
 				}
+			}
+			auto default_val = field_id->GetDefault();
+			if (default_val) {
+				column.SetDefaultValue(std::move(default_val));
 			}
 			create_table_info->columns.AddColumn(std::move(column));
 			field_data->Add(std::move(field_id));

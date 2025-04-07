@@ -34,7 +34,7 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_column_tag(table_id BIGINT, column_id B
 CREATE TABLE {METADATA_CATALOG}.ducklake_data_file(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, file_order BIGINT, path VARCHAR, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, partition_id BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_file_column_statistics(data_file_id BIGINT, table_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, value_count BIGINT, null_count BIGINT, nan_count BIGINT, min_value VARCHAR, max_value VARCHAR, contains_nan BOOLEAN);
 CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file(delete_file_id BIGINT PRIMARY KEY, begin_snapshot BIGINT, end_snapshot BIGINT, data_file_id BIGINT, path VARCHAR, format VARCHAR, delete_count BIGINT, file_size_bytes BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_column(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, column_order BIGINT, column_name VARCHAR, column_type VARCHAR, default_value VARCHAR, nulls_allowed BOOLEAN, parent_column BIGINT);
+CREATE TABLE {METADATA_CATALOG}.ducklake_column(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, column_order BIGINT, column_name VARCHAR, column_type VARCHAR, initial_default VARCHAR, default_value VARCHAR, nulls_allowed BOOLEAN, parent_column BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_table_stats(table_id BIGINT, record_count BIGINT, file_size_bytes BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_table_column_stats(table_id BIGINT, column_id BIGINT, contains_null BOOLEAN, contains_nan BOOLEAN, min_value VARCHAR, max_value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_partition_info(partition_id BIGINT, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT);
@@ -127,7 +127,7 @@ SELECT schema_id, tbl.table_id, table_uuid::VARCHAR, table_name,
 		WHERE object_id=table_id AND
 		      {SNAPSHOT_ID} >= tag.begin_snapshot AND ({SNAPSHOT_ID} < tag.end_snapshot OR tag.end_snapshot IS NULL)
 	) AS tag,
-	col.column_id, column_name, column_type, default_value, nulls_allowed, parent_column,
+	col.column_id, column_name, column_type, initial_default, default_value, nulls_allowed, parent_column,
 	(
 		SELECT LIST({'key': key, 'value': value})
 		FROM {METADATA_CATALOG}.ducklake_column_tag col_tag
@@ -171,17 +171,23 @@ ORDER BY table_id, parent_column NULLS FIRST, column_order
 		column_info.id = FieldIndex(row.GetValue<uint64_t>(COLUMN_INDEX_START));
 		column_info.name = row.GetValue<string>(COLUMN_INDEX_START + 1);
 		column_info.type = row.GetValue<string>(COLUMN_INDEX_START + 2);
-		column_info.nulls_allowed = row.GetValue<bool>(COLUMN_INDEX_START + 4);
-		if (!row.IsNull(COLUMN_INDEX_START + 6)) {
-			auto tags = row.GetValue<Value>(COLUMN_INDEX_START + 6);
+		if (!row.IsNull(COLUMN_INDEX_START + 3)) {
+			column_info.initial_default = Value(row.GetValue<string>(COLUMN_INDEX_START + 3));
+		}
+		if (!row.IsNull(COLUMN_INDEX_START + 4)) {
+			column_info.default_value = Value(row.GetValue<string>(COLUMN_INDEX_START + 4));
+		}
+		column_info.nulls_allowed = row.GetValue<bool>(COLUMN_INDEX_START + 5);
+		if (!row.IsNull(COLUMN_INDEX_START + 7)) {
+			auto tags = row.GetValue<Value>(COLUMN_INDEX_START + 7);
 			column_info.tags = LoadTags(tags);
 		}
 
-		if (row.IsNull(COLUMN_INDEX_START + 5)) {
+		if (row.IsNull(COLUMN_INDEX_START + 6)) {
 			// base column - add the column to this table
 			table_entry.columns.push_back(std::move(column_info));
 		} else {
-			auto parent_id = FieldIndex(row.GetValue<idx_t>(COLUMN_INDEX_START + 5));
+			auto parent_id = FieldIndex(row.GetValue<idx_t>(COLUMN_INDEX_START + 6));
 			if (!AddChildColumn(table_entry.columns, parent_id, column_info)) {
 				throw InvalidInputException("Failed to load DuckLake - Could not find parent column for column %s",
 				                            column_info.name);
@@ -370,10 +376,12 @@ void ColumnToSQLRecursive(const DuckLakeColumnInfo &column, TableIndex table_id,
 		result += ",";
 	}
 	string parent_idx = parent.IsValid() ? to_string(parent.GetIndex()) : "NULL";
+	string initial_default = !column.initial_default.IsNull() ? KeywordHelper::WriteQuoted(column.initial_default.ToString(), '\'') : "NULL";
+	string default_val = !column.default_value.IsNull() ? KeywordHelper::WriteQuoted(column.default_value.ToString(), '\'') : "NULL";
 	auto column_id = column.id.index;
 	auto column_order = column_id;
-	result += StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, NULL, %d, %s)", column_id, table_id.index,
-	                             column_order, SQLString(column.name), SQLString(column.type),
+	result += StringUtil::Format("(%d, {SNAPSHOT_ID}, NULL, %d, %d, %s, %s, %s, %s, %d, %s)", column_id, table_id.index,
+	                             column_order, SQLString(column.name), SQLString(column.type), initial_default, default_val,
 	                             column.nulls_allowed ? 1 : 0, parent_idx);
 	for (auto &child : column.children) {
 		ColumnToSQLRecursive(child, table_id, column_id, result);
