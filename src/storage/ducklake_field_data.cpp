@@ -90,85 +90,101 @@ unique_ptr<DuckLakeFieldId> DuckLakeFieldId::Rename(const DuckLakeFieldId &field
 	return result;
 }
 
+LogicalType GetStructType(const vector<unique_ptr<DuckLakeFieldId>> &new_children) {
+	child_list_t<LogicalType> child_types;
+	for(auto &child : new_children) {
+		child_types.emplace_back(child->Name(), child->Type());
+	}
+	return LogicalType::STRUCT(std::move(child_types));
+}
+
 unique_ptr<DuckLakeFieldId> DuckLakeFieldId::AddField(const vector<string> &column_path, unique_ptr<DuckLakeFieldId> new_child, idx_t depth) const {
-	auto result = Copy();
-	auto child_types = StructType::GetChildTypes(Type());
+	vector<unique_ptr<DuckLakeFieldId>> new_children;
 	if (depth >= column_path.size()) {
 		// leaf - add the column at this level
-		child_types.emplace_back(new_child->Name(), new_child->Type());
-		result->children.push_back(std::move(new_child));
+		// copy over all of the other columns as-is
+		for(auto &child : children) {
+			new_children.push_back(child->Copy());
+		}
+		new_children.push_back(std::move(new_child));
 	} else {
 		// not the leaf - find the child to add it to and recurse
-		idx_t child_idx;
-		for(child_idx = 0; child_idx < children.size(); child_idx++) {
+		bool found = false;
+		for(idx_t child_idx = 0; child_idx < children.size(); child_idx++) {
 			auto &child = *children[child_idx];
 			if (StringUtil::CIEquals(child.Name(), column_path[depth])) {
 				// found it!
-				result->children[child_idx] = child.AddField(column_path, std::move(new_child), depth + 1);
-				child_types[child_idx].second = result->children[child_idx]->Type();
-				break;
+				auto new_field = child.AddField(column_path, std::move(new_child), depth + 1);
+				new_children.push_back(std::move(new_field));
+				found = true;
+			} else {
+				// this entry can be copied as-is
+				new_children.push_back(child.Copy());
 			}
 		}
-		if (child_idx == children.size()) {
+		if (!found) {
 			throw InternalException("DuckLakeFieldId::AddField - child not found in struct path");
 		}
 	}
-	result->type = LogicalType::STRUCT(std::move(child_types));
-	return result;
+	auto new_type = GetStructType(new_children);
+	return make_uniq<DuckLakeFieldId>(GetFieldIndex(), Name(), std::move(new_type), std::move(new_children));
 }
 
 unique_ptr<DuckLakeFieldId> DuckLakeFieldId::RemoveField(const vector<string> &column_path, idx_t depth) const {
-	auto result = Copy();
-	auto child_types = StructType::GetChildTypes(Type());
-	idx_t child_idx;
-	for(child_idx = 0; child_idx < children.size(); child_idx++) {
+	vector<unique_ptr<DuckLakeFieldId>> new_children;
+	bool found = false;
+	for(idx_t child_idx = 0; child_idx < children.size(); child_idx++) {
 		auto &child = *children[child_idx];
 		if (StringUtil::CIEquals(child.Name(), column_path[depth])) {
 			// found it!
+			found = true;
 			if (depth + 1 >= column_path.size()) {
 				// leaf - remove the column at this level
-				child_types.erase(child_types.begin() + child_idx);
-				result->children.erase(result->children.begin() + child_idx);
+				continue;
 			} else {
 				// not the leaf - find the child to drop it from and recurse
-				result->children[child_idx] = child.RemoveField(column_path, depth + 1);
-				child_types[child_idx].second = result->children[child_idx]->Type();
+				new_children.push_back(child.RemoveField(column_path, depth + 1));
 			}
-			break;
+		} else {
+			// this entry can be copied as-is
+			new_children.push_back(child.Copy());
 		}
 	}
-	if (child_idx == children.size()) {
+	if (!found) {
 		throw InternalException("DuckLakeFieldId::AddField - child not found in struct path");
 	}
-	result->type = LogicalType::STRUCT(std::move(child_types));
-	return result;
+	auto new_type = GetStructType(new_children);
+	return make_uniq<DuckLakeFieldId>(GetFieldIndex(), Name(), std::move(new_type), std::move(new_children));
 }
 
 unique_ptr<DuckLakeFieldId> DuckLakeFieldId::RenameField(const vector<string> &column_path, const string &new_name, idx_t depth) const {
-	auto result = Copy();
-	auto child_types = StructType::GetChildTypes(Type());
+	vector<unique_ptr<DuckLakeFieldId>> new_children;
+	bool found = false;
 	idx_t child_idx;
 	for(child_idx = 0; child_idx < children.size(); child_idx++) {
 		auto &child = *children[child_idx];
 		if (StringUtil::CIEquals(child.Name(), column_path[depth])) {
 			// found it!
+			found = true;
 			if (depth + 1 >= column_path.size()) {
 				// leaf - rename the column at this level
-				child.SetName(new_name);
-				child_types[child_idx].first = new_name;
+				auto copied_entry = child.Copy();
+				auto renamed_entry = make_uniq<DuckLakeFieldId>(copied_entry->GetFieldIndex(), new_name, std::move(copied_entry->type), std::move(copied_entry->children));
+				new_children.push_back(std::move(renamed_entry));
 			} else {
 				// not the leaf - find the child to rename it and recurse
-				result->children[child_idx] = child.RenameField(column_path, new_name, depth + 1);
-				child_types[child_idx].second = result->children[child_idx]->Type();
+				new_children.push_back(child.RenameField(column_path, new_name, depth + 1));
 			}
-			break;
+		} else {
+			// this entry can be copied as-is
+			new_children.push_back(child.Copy());
 		}
 	}
-	if (child_idx == children.size()) {
+	if (!found) {
 		throw InternalException("DuckLakeFieldId::AddField - child not found in struct path");
 	}
-	result->type = LogicalType::STRUCT(std::move(child_types));
-	return result;
+	auto new_type = GetStructType(new_children);
+	return make_uniq<DuckLakeFieldId>(GetFieldIndex(), Name(), std::move(new_type), std::move(new_children));
 }
 
 shared_ptr<DuckLakeFieldData> DuckLakeFieldData::RenameColumn(const DuckLakeFieldData &field_data,

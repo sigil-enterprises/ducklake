@@ -74,16 +74,22 @@ LogicalType DuckLakeTypes::FromString(const string &type) {
 }
 
 string DuckLakeTypes::ToString(const LogicalType &type) {
-	if (type.IsNested()) {
-		throw InternalException("Nested types not supported in DuckLakeTypes::ToString");
-	}
-	if (type.id() == LogicalTypeId::DECIMAL) {
-		return "decimal(" + to_string(DecimalType::GetWidth(type)) + "," + to_string(DecimalType::GetScale(type)) + ")";
-	}
 	if (type.HasAlias()) {
 		throw InvalidInputException("Unsupported user-defined type");
 	}
-	return ToStringBaseType(type);
+	switch(type.id()) {
+	case LogicalTypeId::STRUCT:
+		return "struct";
+	case LogicalTypeId::LIST:
+	case LogicalTypeId::ARRAY:
+		return "list";
+	case LogicalTypeId::MAP:
+		return "map";
+	case LogicalTypeId::DECIMAL:
+		return "decimal(" + to_string(DecimalType::GetWidth(type)) + "," + to_string(DecimalType::GetScale(type)) + ")";
+	default:
+		return ToStringBaseType(type);
+	}
 }
 
 } // namespace duckdb

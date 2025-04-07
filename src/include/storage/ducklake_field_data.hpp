@@ -39,9 +39,6 @@ public:
 	const vector<unique_ptr<DuckLakeFieldId>> &Children() const {
 		return children;
 	}
-	void SetName(string name_p) {
-		this->name = std::move(name_p);
-	}
 	const DuckLakeFieldId &GetChildByIndex(idx_t index) const;
 	optional_ptr<const DuckLakeFieldId> GetChildByName(const string &name) const;
 	unique_ptr<DuckLakeFieldId> Copy() const;
