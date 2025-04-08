@@ -28,6 +28,12 @@ DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeTransaction &transaction, D
       filter(std::move(filter_p)) {
 }
 
+DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeMultiFileList &parent,
+							   vector<DuckLakeFileListEntry> files_p) :
+	MultiFileList(vector<string> {}, FileGlobOptions::ALLOW_EMPTY), transaction(parent.transaction), read_info(parent.read_info),
+	  files(std::move(files_p)), read_file_list(true){
+}
+
 unique_ptr<MultiFileList> DuckLakeMultiFileList::ComplexFilterPushdown(ClientContext &context,
                                                                        const MultiFileOptions &options,
                                                                        MultiFilePushdownInfo &info,
@@ -253,7 +259,12 @@ DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const Multi
 }
 
 vector<string> DuckLakeMultiFileList::GetAllFiles() {
-	return GetFiles();
+	vector<string> file_list;
+	auto &files = GetFiles();
+	for(auto &file : files) {
+		file_list.emplace_back(file.path);
+	}
+	return file_list;
 }
 
 FileExpandResult DuckLakeMultiFileList::GetExpandResult() {
@@ -279,23 +290,28 @@ DuckLakeTableEntry &DuckLakeMultiFileList::GetTable() {
 string DuckLakeMultiFileList::GetFile(idx_t i) {
 	auto &files = GetFiles();
 	if (i < files.size()) {
-		return files[i];
+		return files[i].path;
 	}
 	return string();
 }
 
-const vector<string> &DuckLakeMultiFileList::GetFiles() {
+const vector<DuckLakeFileListEntry> &DuckLakeMultiFileList::GetFiles() {
 	lock_guard<mutex> l(file_lock);
 	if (!read_file_list) {
 		// we have not read the file list yet - read it
 		if (!read_info.table_id.IsTransactionLocal()) {
 			// not a transaction local table - read the file list from the metadata store
 			auto query = StringUtil::Format(R"(
-SELECT path
-FROM {METADATA_CATALOG}.ducklake_data_file
+SELECT data_file_id, data.path, del.path
+FROM {METADATA_CATALOG}.ducklake_data_file data
+LEFT JOIN (
+    SELECT data_file_id, path
+    FROM {METADATA_CATALOG}.ducklake_delete_file
+    WHERE table_id=%d  AND {SNAPSHOT_ID} >= begin_snapshot
+          AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
+    ) del USING (data_file_id)
 WHERE table_id=%d AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
-		)",
-			                                read_info.table_id.index);
+		)", read_info.table_id.index, read_info.table_id.index);
 			if (!filter.empty()) {
 				query += "\nAND " + filter;
 			}
@@ -306,11 +322,17 @@ WHERE table_id=%d AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_s
 			}
 
 			for (auto &row : *result) {
-				files.push_back(row.GetValue<string>(0));
+				auto data_file_id = DataFileIndex(row.GetValue<idx_t>(0));
+				auto path = row.GetValue<string>(1);
+				string delete_path;
+				if (!row.IsNull(2)) {
+					delete_path = row.GetValue<string>(2);
+				}
+				files.emplace_back(data_file_id, std::move(path), std::move(delete_path));
 			}
 		}
 		for (auto &transaction_local_file : transaction_local_files) {
-			files.push_back(transaction_local_file.file_name);
+			files.emplace_back(DataFileIndex(), transaction_local_file.file_name, string());
 		}
 		read_file_list = true;
 	}

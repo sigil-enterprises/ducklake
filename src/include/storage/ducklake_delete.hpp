@@ -16,10 +16,13 @@ class DuckLakeTableEntry;
 class DuckLakeDelete : public PhysicalOperator {
 public:
 	//! INSERT INTO
-	DuckLakeDelete(DuckLakeTableEntry &table, PhysicalOperator &child);
+	DuckLakeDelete(DuckLakeTableEntry &table, PhysicalOperator &child,
+	               unordered_map<string, DataFileIndex> delete_file_map);
 
 	//! The table to delete from
 	DuckLakeTableEntry &table;
+	//! The map of delete files to referenced data file ids
+	unordered_map<string, DataFileIndex> delete_file_map;
 
 public:
 	// // Source interface

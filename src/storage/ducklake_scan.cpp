@@ -52,6 +52,14 @@ void DuckLakeScanSerialize(Serializer &serializer, const optional_ptr<FunctionDa
 	throw NotImplementedException("DuckLakeScan not implemented");
 }
 
+virtual_column_map_t DuckLakeVirtualColumns(ClientContext &context, optional_ptr<FunctionData> bind_data_p) {
+	auto &bind_data = bind_data_p->Cast<MultiFileBindData>();
+	auto &file_list = bind_data.file_list->Cast<DuckLakeMultiFileList>();
+	auto result = file_list.GetTable().GetVirtualColumns();
+	bind_data.virtual_columns = result;
+	return result;
+}
+
 TableFunction DuckLakeFunctions::GetDuckLakeScanFunction(DatabaseInstance &instance) {
 	// Parquet extension needs to be loaded for this to make sense
 	ExtensionHelper::AutoLoadExtension(instance, "parquet");
@@ -66,6 +74,7 @@ TableFunction DuckLakeFunctions::GetDuckLakeScanFunction(DatabaseInstance &insta
 
 	function.statistics = DuckLakeStatistics;
 	function.get_bind_info = DuckLakeBindInfo;
+	function.get_virtual_columns = DuckLakeVirtualColumns;
 
 	// Unset all of these: they are either broken, very inefficient.
 	// TODO: implement/fix these

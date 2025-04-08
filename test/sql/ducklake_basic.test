@@ -25,6 +25,11 @@ SELECT * FROM ducklake.test
 1	2
 NULL	3
 
+query I
+SELECT COUNT(*) FROM ducklake.test
+----
+2
+
 statement ok
 INSERT INTO ducklake.test VALUES (4, 5), (6, 7);
 

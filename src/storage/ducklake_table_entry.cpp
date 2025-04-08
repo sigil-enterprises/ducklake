@@ -16,6 +16,7 @@
 #include "duckdb/storage/statistics/list_stats.hpp"
 #include "duckdb/parser/parsed_data/comment_on_column_info.hpp"
 #include "duckdb/parser/constraints/not_null_constraint.hpp"
+#include "duckdb/common/multi_file/multi_file_reader.hpp"
 
 namespace duckdb {
 
@@ -213,6 +214,15 @@ TableFunction DuckLakeTableEntry::GetScanFunction(ClientContext &context, unique
 	bind_data = DuckLakeFunctions::BindDuckLakeScan(context, function);
 
 	return function;
+}
+
+virtual_column_map_t DuckLakeTableEntry::GetVirtualColumns() const {
+	virtual_column_map_t result;
+	result.insert(make_pair(MultiFileReader::COLUMN_IDENTIFIER_FILENAME, TableColumn("filename", LogicalType::VARCHAR)));
+	result.insert(make_pair(MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER, TableColumn("file_row_number", LogicalType::BIGINT)));
+	result.insert(make_pair(COLUMN_IDENTIFIER_ROW_ID, TableColumn("rowid", LogicalType::BIGINT)));
+	result.insert(make_pair(COLUMN_IDENTIFIER_EMPTY, TableColumn("", LogicalType::BOOLEAN)));
+	return result;
 }
 
 void DuckLakeTableEntry::SetPartitionData(unique_ptr<DuckLakePartition> partition_data_p) {

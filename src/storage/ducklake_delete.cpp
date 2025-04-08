@@ -17,11 +17,12 @@
 #include "storage/ducklake_delete.hpp"
 #include "storage/ducklake_table_entry.hpp"
 #include "common/ducklake_data_file.hpp"
+#include "storage/ducklake_multi_file_list.hpp"
 
 namespace duckdb {
 
-DuckLakeDelete::DuckLakeDelete(DuckLakeTableEntry &table, PhysicalOperator &child)
-    : PhysicalOperator(PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, 1), table(table) {
+DuckLakeDelete::DuckLakeDelete(DuckLakeTableEntry &table, PhysicalOperator &child, unordered_map<string, DataFileIndex> delete_file_map_p)
+    : PhysicalOperator(PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, 1), table(table), delete_file_map(std::move(delete_file_map_p)) {
     children.push_back(child);
 }
 
@@ -99,11 +100,27 @@ SourceResultType DuckLakeDelete::GetData(ExecutionContext &context, DataChunk &c
 //===--------------------------------------------------------------------===//
 // Finalize
 //===--------------------------------------------------------------------===//
+
 SinkFinalizeType DuckLakeDelete::Finalize(Pipeline &pipeline, Event &event, ClientContext &context,
                                           OperatorSinkFinalizeInput &input) const {
  	auto &global_state = input.global_state.Cast<DuckLakeDeleteGlobalState>();
 
-	throw InternalException("FIXME: flush deleted files");
+	vector<DuckLakeDeleteFile> delete_files;
+	for(auto &file : global_state.written_files) {
+		auto entry = delete_file_map.find(file.file_name);
+		if (entry == delete_file_map.end()) {
+			throw InternalException("Could not find matching file for written delete file");
+		}
+		DuckLakeDeleteFile delete_file;
+		delete_file.data_file_id = entry->second;
+		delete_file.file_name = std::move(file.file_name);
+		delete_file.delete_count = file.row_count;
+		delete_file.file_size_bytes = file.file_size_bytes;
+		delete_file.footer_size = file.footer_size;
+		delete_files.push_back(std::move(delete_file));
+	}
+	auto &transaction = DuckLakeTransaction::Get(context, table.catalog);
+	transaction.AddDeletes(table.GetTableId(), std::move(delete_files));
 
 	return SinkFinalizeType::READY;
 }
@@ -137,7 +154,7 @@ unique_ptr<LogicalOperator> ExtractLogicalGet(reference<unique_ptr<LogicalOperat
 	return res;
 }
 
-idx_t GenerateScanForDelete(ClientContext &context, LogicalGet &get, unique_ptr<LogicalOperator> &op, const string &filename) {
+idx_t GenerateScanForDelete(ClientContext &context, LogicalGet &get, unique_ptr<LogicalOperator> &op, const DuckLakeFileListEntry &file) {
 	// we need to push the FILE_ROW_NUMBER column through the stack
 	// MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER;
 	switch(op->type) {
@@ -147,9 +164,12 @@ idx_t GenerateScanForDelete(ClientContext &context, LogicalGet &get, unique_ptr<
 		if (!filter.projection_map.empty()) {
 			throw InternalException("FIXME: projection map");
 		}
-		return GenerateScanForDelete(context, get, op->children[0], filename);
+		return GenerateScanForDelete(context, get, op->children[0], file);
 	}
 	case LogicalOperatorType::LOGICAL_DUMMY_SCAN: {
+	    auto &original_bind_data = get.bind_data->Cast<MultiFileBindData>();
+	    auto &original_file_list = original_bind_data.file_list->Cast<DuckLakeMultiFileList>();
+
 		// generate the scan for this node
 		auto function = DuckLakeFunctions::GetDuckLakeScanFunction(*context.db);
 		function.function_info = get.function.function_info;
@@ -157,16 +177,13 @@ idx_t GenerateScanForDelete(ClientContext &context, LogicalGet &get, unique_ptr<
 		auto bind_data = DuckLakeFunctions::BindDuckLakeScan(context, function);
 
 		// we explicitly only scan one file in this scan
-		vector<string> paths;
-		paths.push_back(filename);
+		vector<DuckLakeFileListEntry> files;
+		files.push_back(file);
 		auto &multi_file_bind_data = bind_data->Cast<MultiFileBindData>();
-		multi_file_bind_data.file_list = make_shared_ptr<SimpleMultiFileList>(std::move(paths));
+		multi_file_bind_data.file_list = make_shared_ptr<DuckLakeMultiFileList>(original_file_list, std::move(files));
+		auto virtual_columns = get.function.get_virtual_columns(context, bind_data.get());
 
 		// generate the get
-		auto virtual_columns = get.virtual_columns;
-		virtual_columns.insert(make_pair(MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER,
-								TableColumn("file_row_number", LogicalType::BIGINT)));
-		multi_file_bind_data.virtual_columns = virtual_columns;
 		auto scan = make_uniq<LogicalGet>(0, get.function, std::move(bind_data), get.returned_types, get.names, std::move(virtual_columns));
 		auto column_ids = get.GetColumnIds();
 		idx_t file_row_number_idx = column_ids.size() - 1;
@@ -178,24 +195,33 @@ idx_t GenerateScanForDelete(ClientContext &context, LogicalGet &get, unique_ptr<
 		throw NotImplementedException("Unimplemented logical operator type in DuckLake GenerateFileDelete");
 	}
 }
-unique_ptr<LogicalOperator> DuckLakeCatalog::GenerateFileDelete(ClientContext &context, LogicalGet &get, LogicalOperator &op, const string &filename) {
+
+struct DeleteFileMap {
+	unordered_map<string, DataFileIndex> file_map;
+};
+
+unique_ptr<LogicalOperator> DuckLakeCatalog::GenerateFileDelete(ClientContext &context, DeleteFileMap &map, LogicalGet &get, LogicalOperator &op, const DuckLakeFileListEntry &file) {
 	// generate a scan for the delete for this specific file
 	auto new_op = op.Copy(context);
-	idx_t file_row_idx = GenerateScanForDelete(context, get, new_op, filename);
+	idx_t file_row_idx = GenerateScanForDelete(context, get, new_op, file);
 
 	// generate a projection that contains (1) the filename, and (2) the file row number
 	vector<unique_ptr<Expression>> select_list;
-	select_list.push_back(make_uniq<BoundConstantExpression>(Value(filename)));
+	select_list.push_back(make_uniq<BoundConstantExpression>(Value(file.path)));
 	select_list.push_back(make_uniq<BoundReferenceExpression>(LogicalType::BIGINT, file_row_idx));
 	auto proj = make_uniq<LogicalProjection>(0, std::move(select_list));
 	proj->children.push_back(std::move(new_op));
 
 	// FIXME: if the file already has deletes - perform a union + order by
+	if (!file.delete_path.empty()) {
+		throw NotImplementedException("FIXME: delete from file that already has deletes");
+	}
 
 	// generate the copy that writes the delete file
 	auto &fs = FileSystem::GetFileSystem(context);
-	auto delete_file_uuid = UUID::ToString(UUID::GenerateRandomUUID());
+	auto delete_file_uuid = UUID::ToString(UUID::GenerateRandomUUID()) + "-delete.parquet";
 	string delete_file_path = fs.JoinPath(DataPath(), delete_file_uuid);
+	map.file_map[delete_file_path] = file.file_id;
 
 	auto info = make_uniq<CopyInfo>();
 	info->file_path = delete_file_path;
@@ -247,7 +273,8 @@ PhysicalOperator &DuckLakeCatalog::PlanDelete(ClientContext &context, PhysicalPl
 	auto logical_get = ExtractLogicalGet(op.children[0]);
 	auto &get = logical_get->Cast<LogicalGet>();
 	auto &bind_data = get.bind_data->Cast<MultiFileBindData>();
-	auto files = bind_data.file_list->GetAllFiles();
+	auto &file_list = bind_data.file_list->Cast<DuckLakeMultiFileList>();
+	auto &files = file_list.GetFiles();
 
 	// push the file row number as a projected column
 	auto &mutable_ids = get.GetMutableColumnIds();
@@ -258,9 +285,10 @@ PhysicalOperator &DuckLakeCatalog::PlanDelete(ClientContext &context, PhysicalPl
 	}
 
 	// generate the individual file deletes
+	DeleteFileMap delete_map;
 	vector<unique_ptr<LogicalOperator>> file_deletes;
 	for(auto &file : files) {
-		auto new_op = GenerateFileDelete(context, get, *op.children[0], file);
+		auto new_op = GenerateFileDelete(context, delete_map, get, *op.children[0], file);
 		file_deletes.push_back(std::move(new_op));
 	}
 	unique_ptr<LogicalOperator> result;
@@ -286,7 +314,7 @@ PhysicalOperator &DuckLakeCatalog::PlanDelete(ClientContext &context, PhysicalPl
 
 	// create the plan and push a DuckLakeDelete node
 	auto &child_plan = planner.CreatePlan(*result);
-	return planner.Make<DuckLakeDelete>(op.table.Cast<DuckLakeTableEntry>(), child_plan);
+	return planner.Make<DuckLakeDelete>(op.table.Cast<DuckLakeTableEntry>(), child_plan, std::move(delete_map.file_map));
 }
 
 PhysicalOperator &DuckLakeCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op,

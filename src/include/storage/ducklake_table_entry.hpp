@@ -100,6 +100,8 @@ public:
 	                                        const DuckLakeFieldId &field_id);
 	void RequireNextColumnId(DuckLakeTransaction &transaction);
 
+	virtual_column_map_t GetVirtualColumns() const override;
+
 private:
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, RenameTableInfo &info);
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, SetPartitionedByInfo &info);

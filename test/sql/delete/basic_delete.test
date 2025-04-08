@@ -19,3 +19,8 @@ query I
 DELETE FROM ducklake.test WHERE id%2=0
 ----
 1000
+
+query I
+SELECT COUNT(*) FROM ducklake.test
+----
+1000

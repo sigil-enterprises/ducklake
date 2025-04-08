@@ -29,4 +29,12 @@ struct DuckLakeDataFile {
 	vector<DuckLakeFilePartition> partition_values;
 };
 
+struct DuckLakeDeleteFile {
+	DataFileIndex data_file_id;
+	string file_name;
+	idx_t delete_count;
+	idx_t file_size_bytes;
+	idx_t footer_size;
+};
+
 } // namespace duckdb

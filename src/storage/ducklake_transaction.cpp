@@ -987,6 +987,13 @@ void DuckLakeTransaction::AppendFiles(TableIndex table_id, const vector<DuckLake
 	}
 }
 
+void DuckLakeTransaction::AddDeletes(TableIndex table_id, const vector<DuckLakeDeleteFile> &files) {
+	for(auto &file : files) {
+		auto file_id = file.data_file_id;
+		new_delete_files.insert(make_pair(file_id, std::move(file)));
+	}
+}
+
 DuckLakeTransaction &DuckLakeTransaction::Get(ClientContext &context, Catalog &catalog) {
 	return Transaction::Get(context, catalog).Cast<DuckLakeTransaction>();
 }

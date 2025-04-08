@@ -68,6 +68,7 @@ public:
 	vector<DuckLakeDataFile> GetTransactionLocalFiles(TableIndex table_id);
 	bool HasTransactionLocalChanges(TableIndex table_id);
 	void AppendFiles(TableIndex table_id, const vector<DuckLakeDataFile> &files);
+	void AddDeletes(TableIndex table_id, const vector<DuckLakeDeleteFile> &files);
 
 	void DropSchema(DuckLakeSchemaEntry &schema);
 	void DropTable(DuckLakeTableEntry &table);
@@ -125,6 +126,8 @@ private:
 	map<SchemaIndex, reference<DuckLakeSchemaEntry>> dropped_schemas;
 	//! Data files added by this transaction
 	map<TableIndex, vector<DuckLakeDataFile>> new_data_files;
+	//! New deletes added by this transaction
+	map<DataFileIndex, DuckLakeDeleteFile> new_delete_files;
 	//! Snapshot cache for the AT (...) conditions that are referenced in the transaction
 	value_map_t<DuckLakeSnapshot> snapshot_cache;
 };
