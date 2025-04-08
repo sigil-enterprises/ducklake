@@ -23,20 +23,18 @@ DELETE FROM ducklake.test WHERE id%2=0
 ----
 1000
 
-# FIXME
-# statement error
-# SELECT COUNT(*) FROM ducklake.test
-# ----
-# not supported yet
+query I
+SELECT COUNT(*) FROM ducklake.test
+----
+1000
 
 statement ok
 COMMIT
 
-# FIXME
-statement error
+query I
 SELECT COUNT(*) FROM ducklake.test
 ----
-not supported yet
+1000
 
 # we can time travel to see the state of the table before deletes
 query I

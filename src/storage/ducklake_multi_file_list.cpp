@@ -295,9 +295,9 @@ string DuckLakeMultiFileList::GetFile(idx_t i) {
 	return string();
 }
 
-bool DuckLakeMultiFileList::HasDeletedFile(idx_t file_idx) {
+string DuckLakeMultiFileList::GetDeletedFile(idx_t file_idx) {
 	auto &files = GetFiles();
-	return !files[file_idx].delete_path.empty();
+	return files[file_idx].delete_path;
 }
 
 const vector<DuckLakeFileListEntry> &DuckLakeMultiFileList::GetFiles() {
