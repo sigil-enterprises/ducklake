@@ -81,6 +81,16 @@ struct DuckLakeFileInfo {
 	vector<DuckLakeFilePartitionInfo> partition_values;
 };
 
+struct DuckLakeDeleteFileInfo {
+	DataFileIndex id;
+	TableIndex table_id;
+	DataFileIndex data_file_id;
+	string path;
+	idx_t delete_count;
+	idx_t file_size_bytes;
+	idx_t footer_size;
+};
+
 struct DuckLakePartitionFieldInfo {
 	idx_t partition_key_index = 0;
 	idx_t column_id;

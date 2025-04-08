@@ -557,6 +557,30 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
 	}
 }
 
+void DuckLakeMetadataManager::WriteNewDeleteFiles(DuckLakeSnapshot commit_snapshot,
+                                                const vector<DuckLakeDeleteFileInfo> &new_files) {
+	string delete_file_insert_query;
+	for (auto &file : new_files) {
+		if (!delete_file_insert_query.empty()) {
+			delete_file_insert_query += ",";
+		}
+		auto delete_file_index = file.id.index;
+		auto table_id = file.table_id.index;
+		auto data_file_index = file.data_file_id.index;
+		delete_file_insert_query += StringUtil::Format(
+			"(%d, %d, {SNAPSHOT_ID}, NULL, %d, %s, 'parquet', %d, %d, %d)", delete_file_index, table_id, data_file_index,
+			SQLString(file.path), file.delete_count, file.file_size_bytes, file.footer_size);
+	}
+
+	// insert the data files
+	delete_file_insert_query =
+		StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_delete_file VALUES %s", delete_file_insert_query);
+	auto result = transaction.Query(commit_snapshot, delete_file_insert_query);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to write delete file information to DuckLake: ");
+	}
+}
+
 void DuckLakeMetadataManager::InsertSnapshot(DuckLakeSnapshot commit_snapshot) {
 	auto result = transaction.Query(
 	    commit_snapshot,

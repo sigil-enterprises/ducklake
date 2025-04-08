@@ -15,12 +15,31 @@ CREATE TABLE ducklake.test AS SELECT i id FROM range(1000) t(i);
 statement ok
 INSERT INTO ducklake.test SELECT i id FROM range(15000, 16000) t(i)
 
+statement ok
+BEGIN
+
 query I
 DELETE FROM ducklake.test WHERE id%2=0
 ----
 1000
 
-query I
+# FIXME
+# statement error
+# SELECT COUNT(*) FROM ducklake.test
+# ----
+# not supported yet
+
+statement ok
+COMMIT
+
+# FIXME
+statement error
 SELECT COUNT(*) FROM ducklake.test
 ----
-1000
+not supported yet
+
+# we can time travel to see the state of the table before deletes
+query I
+SELECT COUNT(*) FROM ducklake.test AT (VERSION => 2)
+----
+2000

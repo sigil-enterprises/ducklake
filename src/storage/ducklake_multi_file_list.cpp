@@ -295,6 +295,11 @@ string DuckLakeMultiFileList::GetFile(idx_t i) {
 	return string();
 }
 
+bool DuckLakeMultiFileList::HasDeletedFile(idx_t file_idx) {
+	auto &files = GetFiles();
+	return !files[file_idx].delete_path.empty();
+}
+
 const vector<DuckLakeFileListEntry> &DuckLakeMultiFileList::GetFiles() {
 	lock_guard<mutex> l(file_lock);
 	if (!read_file_list) {
@@ -329,6 +334,12 @@ WHERE table_id=%d AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_s
 					delete_path = row.GetValue<string>(2);
 				}
 				files.emplace_back(data_file_id, std::move(path), std::move(delete_path));
+			}
+		}
+		// if the transaction has any local deletes - apply them to the file list
+		if (transaction.HasLocalDeletes(read_info.table_id)) {
+			for(auto &file : files) {
+				transaction.GetLocalDeleteForFile(read_info.table_id, file.file_id, file.delete_path);
 			}
 		}
 		for (auto &transaction_local_file : transaction_local_files) {

@@ -83,6 +83,9 @@ public:
 
 	string GetDefaultSchemaName();
 
+	bool HasLocalDeletes(TableIndex table_id);
+	void GetLocalDeleteForFile(TableIndex table_id, DataFileIndex index, string &result);
+
 private:
 	void CleanupFiles();
 	void FlushChanges();
@@ -95,6 +98,7 @@ private:
 	DuckLakeViewInfo GetNewView(DuckLakeSnapshot &commit_snapshot, DuckLakeViewEntry &view);
 	void FlushNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table);
 	vector<DuckLakeFileInfo> GetNewDataFiles(DuckLakeSnapshot &commit_snapshot);
+	vector<DuckLakeDeleteFileInfo> GetNewDeleteFiles(DuckLakeSnapshot &commit_snapshot);
 	void UpdateGlobalTableStats(TableIndex table_id, DuckLakeTableStats new_stats);
 	void CheckForConflicts(DuckLakeSnapshot transaction_snapshot, const TransactionChangeInformation &changes);
 	void CheckForConflicts(const TransactionChangeInformation &changes, const SnapshotChangeInformation &other_changes);
@@ -127,7 +131,7 @@ private:
 	//! Data files added by this transaction
 	map<TableIndex, vector<DuckLakeDataFile>> new_data_files;
 	//! New deletes added by this transaction
-	map<DataFileIndex, DuckLakeDeleteFile> new_delete_files;
+	map<TableIndex, map<DataFileIndex, DuckLakeDeleteFile>> new_delete_files;
 	//! Snapshot cache for the AT (...) conditions that are referenced in the transaction
 	value_map_t<DuckLakeSnapshot> snapshot_cache;
 };

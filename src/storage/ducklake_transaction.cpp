@@ -59,7 +59,7 @@ bool DuckLakeTransaction::SchemaChangesMade() {
 }
 
 bool DuckLakeTransaction::ChangesMade() {
-	return SchemaChangesMade() || !new_data_files.empty();
+	return SchemaChangesMade() || !new_data_files.empty() || !new_delete_files.empty();
 }
 
 struct TransactionChangeInformation {
@@ -808,6 +808,27 @@ vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &
 	return result;
 }
 
+vector<DuckLakeDeleteFileInfo> DuckLakeTransaction::GetNewDeleteFiles(DuckLakeSnapshot &commit_snapshot) {
+	vector<DuckLakeDeleteFileInfo> result;
+	for(auto &entry : new_delete_files) {
+		auto table_id = entry.first;
+		for(auto &file_entry : entry.second) {
+			auto &file_id = file_entry.first;
+			auto &file = file_entry.second;
+			DuckLakeDeleteFileInfo delete_file;
+			delete_file.id = DataFileIndex(commit_snapshot.next_file_id++);
+			delete_file.table_id = table_id;
+			delete_file.data_file_id = file_id;
+			delete_file.path = file.file_name;
+			delete_file.delete_count = file.delete_count;
+			delete_file.file_size_bytes = file.file_size_bytes;
+			delete_file.footer_size = file.footer_size;
+			result.push_back(std::move(delete_file));
+		}
+	}
+	return result;
+}
+
 void DuckLakeTransaction::FlushChanges() {
 	if (!ChangesMade()) {
 		// read-only transactions don't need to do anything
@@ -865,6 +886,11 @@ void DuckLakeTransaction::FlushChanges() {
 			if (!new_data_files.empty()) {
 				auto file_list = GetNewDataFiles(commit_snapshot);
 				metadata_manager->WriteNewDataFiles(commit_snapshot, file_list);
+			}
+
+			if (!new_delete_files.empty()) {
+				auto file_list = GetNewDeleteFiles(commit_snapshot);
+				metadata_manager->WriteNewDeleteFiles(commit_snapshot, file_list);
 			}
 
 			// write the new snapshot
@@ -988,10 +1014,27 @@ void DuckLakeTransaction::AppendFiles(TableIndex table_id, const vector<DuckLake
 }
 
 void DuckLakeTransaction::AddDeletes(TableIndex table_id, const vector<DuckLakeDeleteFile> &files) {
+	auto &table_delete_map = new_delete_files[table_id];
 	for(auto &file : files) {
 		auto file_id = file.data_file_id;
-		new_delete_files.insert(make_pair(file_id, std::move(file)));
+		table_delete_map.insert(make_pair(file_id, std::move(file)));
 	}
+}
+
+bool DuckLakeTransaction::HasLocalDeletes(TableIndex table_id) {
+	return new_delete_files.find(table_id) != new_delete_files.end();
+}
+
+void DuckLakeTransaction::GetLocalDeleteForFile(TableIndex table_id, DataFileIndex index, string &result) {
+	auto entry = new_delete_files.find(table_id);
+	if (entry == new_delete_files.end()) {
+		return;
+	}
+	auto file_entry = entry->second.find(index);
+	if (file_entry == entry->second.end()) {
+		return;
+	}
+	result = file_entry->second.file_name;
 }
 
 DuckLakeTransaction &DuckLakeTransaction::Get(ClientContext &context, Catalog &catalog) {

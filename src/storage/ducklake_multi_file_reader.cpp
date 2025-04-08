@@ -73,4 +73,16 @@ void DuckLakeMultiFileReader::BindOptions(MultiFileOptions &options, MultiFileLi
                                           MultiFileReaderBindData &bind_data) {
 }
 
+ReaderInitializeType DuckLakeMultiFileReader::InitializeReader(
+	MultiFileReaderData &reader_data, const MultiFileBindData &bind_data, const vector<MultiFileColumnDefinition> &global_columns,
+	const vector<ColumnIndex> &global_column_ids, optional_ptr<TableFilterSet> table_filters,
+	ClientContext &context, optional_ptr<MultiFileReaderGlobalState> global_state) {
+	auto &file_list = bind_data.file_list->Cast<DuckLakeMultiFileList>();
+	auto file_idx = reader_data.reader->file_list_idx.GetIndex();
+	if (file_list.HasDeletedFile(file_idx)) {
+		throw NotImplementedException("FIXME: file %s has deletes - not supported yet", reader_data.reader->GetFileName());
+	}
+	return MultiFileReader::InitializeReader(reader_data, bind_data, global_columns, global_column_ids, table_filters, context, global_state);
+}
+
 } // namespace duckdb

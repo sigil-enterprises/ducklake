@@ -50,6 +50,7 @@ public:
 		return !transaction_local_files.empty();
 	}
 	const vector<DuckLakeFileListEntry> &GetFiles();
+	bool HasDeletedFile(idx_t file_idx);
 
 protected:
 	//! Get the i-th expanded file

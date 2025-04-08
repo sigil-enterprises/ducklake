@@ -43,6 +43,12 @@ struct DuckLakeMultiFileReader : public MultiFileReader {
 	void BindOptions(MultiFileOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
 	                 vector<string> &names, MultiFileReaderBindData &bind_data) override;
 
+	ReaderInitializeType InitializeReader(MultiFileReaderData &reader_data, const MultiFileBindData &bind_data,
+	                                      const vector<MultiFileColumnDefinition> &global_columns,
+	                                      const vector<ColumnIndex> &global_column_ids,
+	                                      optional_ptr<TableFilterSet> table_filters, ClientContext &context,
+	                                      optional_ptr<MultiFileReaderGlobalState> global_state) override;
+
 	DuckLakeFunctionInfo &read_info;
 };
 
