@@ -22,6 +22,8 @@ public:
 	static TableFunction GetDuckLakeScanFunction(DatabaseInstance &instance);
 
 	static unique_ptr<FunctionData> BindDuckLakeScan(ClientContext &context, TableFunction &function);
+
+	static CopyFunctionCatalogEntry &GetCopyFunction(DatabaseInstance &db, const string &name);
 };
 
 struct DuckLakeFunctionInfo : public TableFunctionInfo {

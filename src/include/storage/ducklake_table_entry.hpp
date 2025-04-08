@@ -100,7 +100,9 @@ public:
 	                                        const DuckLakeFieldId &field_id);
 	void RequireNextColumnId(DuckLakeTransaction &transaction);
 
+	const string &DataPath() const;
 	virtual_column_map_t GetVirtualColumns() const override;
+	vector<column_t> GetRowIdColumns() const override;
 
 private:
 	unique_ptr<CatalogEntry> AlterTable(DuckLakeTransaction &transaction, RenameTableInfo &info);

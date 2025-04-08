@@ -12,6 +12,7 @@
 
 namespace duckdb {
 class DuckLakeTableEntry;
+class DuckLakeDeleteGlobalState;
 
 class DuckLakeDelete : public PhysicalOperator {
 public:
@@ -21,7 +22,7 @@ public:
 
 	//! The table to delete from
 	DuckLakeTableEntry &table;
-	//! The map of delete files to referenced data file ids
+	//! A map of filename -> data file index
 	unordered_map<string, DataFileIndex> delete_file_map;
 
 public:
@@ -35,21 +36,26 @@ public:
 public:
 	// Sink interface
 	SinkResultType Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const override;
-	// SinkCombineResultType Combine(ExecutionContext &context, OperatorSinkCombineInput &input) const override;
+	SinkCombineResultType Combine(ExecutionContext &context, OperatorSinkCombineInput &input) const override;
 	SinkFinalizeType Finalize(Pipeline &pipeline, Event &event, ClientContext &context,
 	                          OperatorSinkFinalizeInput &input) const override;
 	unique_ptr<GlobalSinkState> GetGlobalSinkState(ClientContext &context) const override;
+	unique_ptr<LocalSinkState> GetLocalSinkState(ExecutionContext &context) const override;
 
 	bool IsSink() const override {
 		return true;
 	}
 
 	bool ParallelSink() const override {
-		return false;
+		return true;
 	}
 
 	string GetName() const override;
 	InsertionOrderPreservingMap<string> ParamsToString() const override;
+
+private:
+	void FlushDelete(ClientContext &context, DuckLakeDeleteGlobalState &global_state, const string &filename,
+	                 vector<idx_t> &deleted_rows) const;
 };
 
 } // namespace duckdb

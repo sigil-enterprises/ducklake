@@ -58,7 +58,6 @@ public:
 	                                    PhysicalOperator &plan) override;
 	PhysicalOperator &PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op,
 	                             PhysicalOperator &plan) override;
-	PhysicalOperator &PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op) override;
 	PhysicalOperator &PlanUpdate(ClientContext &context, PhysicalPlanGenerator &planner, LogicalUpdate &op,
 	                             PhysicalOperator &plan) override;
 	unique_ptr<LogicalOperator> BindCreateIndex(Binder &binder, CreateStatement &stmt, TableCatalogEntry &table,
@@ -89,10 +88,6 @@ private:
 	DuckLakeStats &GetStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
 	unique_ptr<DuckLakeStats> LoadStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
 	                                               DuckLakeCatalogSet &schema);
-
-	CopyFunctionCatalogEntry &GetCopyFunction(DatabaseInstance &db, const string &name);
-	unique_ptr<LogicalOperator> GenerateFileDelete(ClientContext &context, DeleteFileMap &map, LogicalGet &get,
-	                                               LogicalOperator &op, const DuckLakeFileListEntry &file);
 
 private:
 	mutex schemas_lock;

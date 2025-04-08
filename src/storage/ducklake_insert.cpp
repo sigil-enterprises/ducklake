@@ -4,6 +4,7 @@
 #include "storage/ducklake_table_entry.hpp"
 #include "storage/ducklake_transaction.hpp"
 #include "common/ducklake_util.hpp"
+#include "storage/ducklake_scan.hpp"
 
 #include "duckdb/catalog/catalog_entry/copy_function_catalog_entry.hpp"
 #include "duckdb/execution/operator/projection/physical_projection.hpp"
@@ -190,7 +191,7 @@ InsertionOrderPreservingMap<string> DuckLakeInsert::ParamsToString() const {
 //===--------------------------------------------------------------------===//
 // Plan
 //===--------------------------------------------------------------------===//
-CopyFunctionCatalogEntry &DuckLakeCatalog::GetCopyFunction(DatabaseInstance &db, const string &name) {
+CopyFunctionCatalogEntry &DuckLakeFunctions::GetCopyFunction(DatabaseInstance &db, const string &name) {
 	D_ASSERT(!name.empty());
 	auto &system_catalog = Catalog::GetSystemCatalog(db);
 	auto data = CatalogTransaction::GetSystemTransaction(db);
@@ -243,7 +244,7 @@ PhysicalOperator &DuckLakeCatalog::PlanCopyForInsert(ClientContext &context, con
 	info->options["field_ids"] = std::move(field_input);
 
 	// Get Parquet Copy function
-	auto &copy_fun = GetCopyFunction(*context.db, "parquet");
+	auto &copy_fun = DuckLakeFunctions::GetCopyFunction(*context.db, "parquet");
 
 	//! FIXME: we only need to do this if this is a local path
 	auto &fs = FileSystem::GetFileSystem(context);

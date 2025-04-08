@@ -23,21 +23,22 @@ DELETE FROM ducklake.test WHERE id%2=0
 ----
 1000
 
-query I
-SELECT COUNT(*) FROM ducklake.test
+query II
+SELECT COUNT(*), COUNT(*) FILTER(WHERE id%2=0) FROM ducklake.test
 ----
-1000
+1000	0
 
 statement ok
 COMMIT
 
-query I
-SELECT COUNT(*) FROM ducklake.test
+query II
+SELECT COUNT(*), COUNT(*) FILTER(WHERE id%2=0) FROM ducklake.test
 ----
-1000
+1000	0
 
 # we can time travel to see the state of the table before deletes
-query I
-SELECT COUNT(*) FROM ducklake.test AT (VERSION => 2)
+query II
+SELECT COUNT(*), COUNT(*) FILTER(WHERE id%2=0) FROM ducklake.test AT (VERSION => 2)
 ----
-2000
+2000	1000
+

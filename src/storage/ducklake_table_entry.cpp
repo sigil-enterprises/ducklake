@@ -225,8 +225,19 @@ virtual_column_map_t DuckLakeTableEntry::GetVirtualColumns() const {
 	return result;
 }
 
+vector<column_t> DuckLakeTableEntry::GetRowIdColumns() const {
+	vector<column_t> result;
+	result.push_back(MultiFileReader::COLUMN_IDENTIFIER_FILENAME);
+	result.push_back(MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER);
+	return result;
+}
+
 void DuckLakeTableEntry::SetPartitionData(unique_ptr<DuckLakePartition> partition_data_p) {
 	partition_data = std::move(partition_data_p);
+}
+
+const string &DuckLakeTableEntry::DataPath() const {
+	return catalog.Cast<DuckLakeCatalog>().DataPath();
 }
 
 optional_ptr<DuckLakeTableStats> DuckLakeTableEntry::GetTableStats(ClientContext &context) {

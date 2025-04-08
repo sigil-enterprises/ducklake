@@ -1,0 +1,34 @@
+# name: test/sql/delete/empty_delete.test
+# description: Test ducklake empty delete
+# group: [ducklake]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_empty_delete.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_empty_delete_files')
+
+statement ok
+CREATE TABLE ducklake.test AS SELECT i id FROM range(1000) t(i);
+
+statement ok
+BEGIN
+
+query I
+DELETE FROM ducklake.test WHERE id>10000
+----
+0
+
+query II
+SELECT COUNT(*), COUNT(*) FILTER(WHERE id%2=0) FROM ducklake.test
+----
+1000	500
+
+statement ok
+COMMIT
+
+query II
+SELECT COUNT(*), COUNT(*) FILTER(WHERE id%2=0) FROM ducklake.test
+----
+1000	500
