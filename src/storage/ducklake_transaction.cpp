@@ -262,9 +262,6 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 }
 
 void DuckLakeTransaction::CleanupFiles() {
-	if (new_data_files.empty()) {
-		return;
-	}
 	// remove any files that were written
 	auto &fs = FileSystem::GetFileSystem(db);
 	for (auto &table_entry : new_data_files) {
@@ -272,7 +269,13 @@ void DuckLakeTransaction::CleanupFiles() {
 			fs.RemoveFile(file.file_name);
 		}
 	}
+	for (auto &table_entry : new_delete_files) {
+		for (auto &file : table_entry.second) {
+			fs.RemoveFile(file.second.file_name);
+		}
+	}
 	new_data_files.clear();
+	new_delete_files.clear();
 }
 
 void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &changes,
