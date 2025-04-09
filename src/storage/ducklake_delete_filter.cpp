@@ -7,7 +7,7 @@
 
 namespace duckdb {
 
-idx_t DuckLakeDeleteFilter::Filter(row_t start_row_index, idx_t count, SelectionVector &result_sel) {
+idx_t DuckLakeDeleteData::Filter(row_t start_row_index, idx_t count, SelectionVector &result_sel) const {
 	auto entry = std::lower_bound(deleted_rows.begin(), deleted_rows.end(), start_row_index);
 	if (entry == deleted_rows.end()) {
 		// no filter found for this entry
@@ -33,7 +33,11 @@ idx_t DuckLakeDeleteFilter::Filter(row_t start_row_index, idx_t count, Selection
 	return result_count;
 }
 
-unique_ptr<DeleteFilter> DuckLakeDeleteFilter::Create(ClientContext &context, const string &delete_file_path) {
+idx_t DuckLakeDeleteFilter::Filter(row_t start_row_index, idx_t count, SelectionVector &result_sel) {
+	return delete_data->Filter(start_row_index, count, result_sel);
+}
+
+unique_ptr<DuckLakeDeleteFilter> DuckLakeDeleteFilter::Create(ClientContext &context, const string &delete_file_path) {
 	auto &instance = DatabaseInstance::GetDatabase(context);
 	auto &parquet_scan_entry = ExtensionUtil::GetTableFunction(instance, "parquet_scan");
 	auto &parquet_scan = parquet_scan_entry.functions.functions[0];
@@ -75,6 +79,8 @@ unique_ptr<DeleteFilter> DuckLakeDeleteFilter::Create(ClientContext &context, co
 	auto local_state = parquet_scan.init_local(execution_context, input, global_state.get());
 
 	auto result = make_uniq<DuckLakeDeleteFilter>();
+	result->delete_data = make_shared_ptr<DuckLakeDeleteData>();
+	auto &deleted_rows = result->delete_data->deleted_rows;
 	int64_t last_delete = -1;
 	while(true) {
 		TableFunctionInput function_input(bind_data.get(), local_state.get(), global_state.get());
@@ -99,7 +105,7 @@ unique_ptr<DeleteFilter> DuckLakeDeleteFilter::Create(ClientContext &context, co
 				throw InvalidInputException("Invalid delete data - row ids must be sorted and strictly increasing - but found %d after %d", row_id, last_delete);
 			}
 
-			result->deleted_rows.push_back(row_id);
+			deleted_rows.push_back(row_id);
 			last_delete = row_id;
 		}
 	}

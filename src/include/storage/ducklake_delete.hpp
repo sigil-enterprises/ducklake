@@ -9,21 +9,26 @@
 #pragma once
 
 #include "storage/ducklake_insert.hpp"
+#include "storage/ducklake_delete_filter.hpp"
 
 namespace duckdb {
 class DuckLakeTableEntry;
 class DuckLakeDeleteGlobalState;
 
+struct DuckLakeDeleteMap {
+	unordered_map<string, DataFileIndex> file_index_map;
+	unordered_map<string, shared_ptr<DuckLakeDeleteData>> delete_data_map;
+};
+
 class DuckLakeDelete : public PhysicalOperator {
 public:
 	//! INSERT INTO
-	DuckLakeDelete(DuckLakeTableEntry &table, PhysicalOperator &child,
-	               unordered_map<string, DataFileIndex> delete_file_map);
+	DuckLakeDelete(DuckLakeTableEntry &table, PhysicalOperator &child, shared_ptr<DuckLakeDeleteMap> delete_map);
 
 	//! The table to delete from
 	DuckLakeTableEntry &table;
-	//! A map of filename -> data file index
-	unordered_map<string, DataFileIndex> delete_file_map;
+	//! A map of filename -> data file index and filename -> delete data
+	shared_ptr<DuckLakeDeleteMap> delete_map;
 
 public:
 	// // Source interface

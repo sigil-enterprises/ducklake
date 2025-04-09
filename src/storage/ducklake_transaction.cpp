@@ -755,8 +755,8 @@ vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &
 		if (table_id.IsTransactionLocal()) {
 			throw InternalException("Cannot commit transaction local files - these should have been cleaned up before");
 		}
-
 		DuckLakeTableStats new_stats;
+		vector<DuckLakeDeleteFile> delete_files;
 		for (auto &file : *entry.second) {
 			DuckLakeFileInfo data_file;
 			data_file.id = DataFileIndex(commit_snapshot.next_file_id++);
@@ -766,6 +766,12 @@ vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &
 			data_file.file_size_bytes = file.file_size_bytes;
 			data_file.footer_size = file.footer_size;
 			data_file.partition_id = file.partition_id;
+			if (file.delete_file) {
+				// this transaction-local file already has deletes - write them out
+				DuckLakeDeleteFile delete_file = *file.delete_file;
+				delete_file.data_file_id = data_file.id;
+				delete_files.push_back(std::move(delete_file));
+			}
 
 			new_stats.record_count += file.row_count;
 			new_stats.table_size_bytes += file.file_size_bytes;
@@ -808,6 +814,9 @@ vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &
 			}
 			result.push_back(std::move(data_file));
 		}
+		// write any deletes that were made on top of these transaction-local files
+		AddDeletes(table_id, std::move(delete_files));
+
 		// update the global stats for this table based on the newly written files
 		UpdateGlobalTableStats(table_id, std::move(new_stats));
 	}
@@ -1026,6 +1035,9 @@ void DuckLakeTransaction::AppendFiles(TableIndex table_id, vector<DuckLakeDataFi
 }
 
 void DuckLakeTransaction::AddDeletes(TableIndex table_id, vector<DuckLakeDeleteFile> files) {
+	if (files.empty()) {
+		return;
+	}
 	auto &table_delete_map = new_delete_files[table_id];
 	for(auto &file : files) {
 		auto file_id = file.data_file_id;

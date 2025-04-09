@@ -17,12 +17,14 @@
 #include "duckdb/parser/parsed_expression.hpp"
 #include "duckdb/planner/binder.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
-#include "storage/ducklake_delete_filter.hpp"
+#include "storage/ducklake_delete.hpp"
 
 namespace duckdb {
 
 DuckLakeMultiFileReader::DuckLakeMultiFileReader(DuckLakeFunctionInfo &read_info) : read_info(read_info) {
 }
+
+DuckLakeMultiFileReader::~DuckLakeMultiFileReader(){}
 
 unique_ptr<MultiFileReader> DuckLakeMultiFileReader::CreateInstance(const TableFunction &table_function) {
 	auto &function_info = table_function.function_info->Cast<DuckLakeFunctionInfo>();
@@ -80,11 +82,16 @@ ReaderInitializeType DuckLakeMultiFileReader::InitializeReader(
 	const vector<ColumnIndex> &global_column_ids, optional_ptr<TableFilterSet> table_filters,
 	ClientContext &context, optional_ptr<MultiFileReaderGlobalState> global_state) {
 	auto &file_list = bind_data.file_list->Cast<DuckLakeMultiFileList>();
-	auto file_idx = reader_data.reader->file_list_idx.GetIndex();
+	auto &reader = *reader_data.reader;
+	auto file_idx = reader.file_list_idx.GetIndex();
 
 	auto deleted_file = file_list.GetDeletedFile(file_idx);
 	if (!deleted_file.empty()) {
-		reader_data.reader->deletion_filter = DuckLakeDeleteFilter::Create(context, deleted_file);
+		auto delete_filter = DuckLakeDeleteFilter::Create(context, deleted_file);
+		if (delete_map) {
+			delete_map->delete_data_map.emplace(reader.GetFileName(), delete_filter->delete_data);
+		}
+		reader.deletion_filter = std::move(delete_filter);
 	}
 	return MultiFileReader::InitializeReader(reader_data, bind_data, global_columns, global_column_ids, table_filters, context, global_state);
 }

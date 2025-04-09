@@ -20,11 +20,12 @@
 #include "storage/ducklake_multi_file_list.hpp"
 #include "duckdb/parallel/thread_context.hpp"
 #include "duckdb/execution/operator/scan/physical_table_scan.hpp"
+#include "storage/ducklake_multi_file_reader.hpp"
 
 namespace duckdb {
 
-DuckLakeDelete::DuckLakeDelete(DuckLakeTableEntry &table, PhysicalOperator &child, unordered_map<string, DataFileIndex> delete_file_map_p)
-    : PhysicalOperator(PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, 1), table(table), delete_file_map(std::move(delete_file_map_p)) {
+DuckLakeDelete::DuckLakeDelete(DuckLakeTableEntry &table, PhysicalOperator &child, shared_ptr<DuckLakeDeleteMap> delete_map_p)
+    : PhysicalOperator(PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, 1), table(table), delete_map(std::move(delete_map_p)) {
     children.push_back(child);
 }
 
@@ -66,6 +67,7 @@ public:
 		lock_guard<mutex> guard(lock);
 		auto &global_entry = deleted_rows[local_state.current_filename];
 		global_entry.insert(global_entry.end(), local_entry.begin(), local_entry.end());
+		total_deleted_count += local_entry.size();
 		local_entry.clear();
 	}
 };
@@ -172,6 +174,17 @@ void DuckLakeDelete::FlushDelete(ClientContext &context, DuckLakeDeleteGlobalSta
 	copy_to_file.return_type = CopyFunctionReturnType::WRITTEN_FILE_STATISTICS;
 	copy_to_file.write_partition_columns = false;
 
+	// check if the file already has deletes
+	auto entry = delete_map->delete_data_map.find(filename);
+	if (entry != delete_map->delete_data_map.end()) {
+		// deletes already exist for this file - add to deleted_rows
+		auto &existing_deletes = entry->second->deleted_rows;
+		deleted_rows.insert(deleted_rows.end(), existing_deletes.begin(), existing_deletes.end());
+
+		// clear the deletes
+		delete_map->delete_data_map.erase(entry);
+	}
+
 	// sort the to-be-inserted file numbers
 	std::sort(deleted_rows.begin(), deleted_rows.end());
 
@@ -244,7 +257,6 @@ void DuckLakeDelete::FlushDelete(ClientContext &context, DuckLakeDeleteGlobalSta
 			data_file.column_stats.emplace(entry.field_id, std::move(column_stats));
 		}
 		global_state.written_files.emplace(filename, std::move(data_file));
-		global_state.total_deleted_count += data_file.row_count;
 	}
 }
 
@@ -257,12 +269,13 @@ SinkFinalizeType DuckLakeDelete::Finalize(Pipeline &pipeline, Event &event, Clie
 		FlushDelete(context, global_state, entry.first, entry.second);
 	}
 	auto &transaction = DuckLakeTransaction::Get(context, table.catalog);
+	auto &fs = FileSystem::GetFileSystem(context);
 	vector<DuckLakeDeleteFile> delete_files;
 	for(auto &entry : global_state.written_files) {
 		auto &data_file_path = entry.first;
 		auto &file = entry.second;
-		auto delete_entry = delete_file_map.find(data_file_path);
-		if (delete_entry == delete_file_map.end()) {
+		auto delete_entry = delete_map->file_index_map.find(data_file_path);
+		if (delete_entry == delete_map->file_index_map.end()) {
 			throw InternalException("Could not find matching file for written delete file");
 		}
 		auto data_file_id = delete_entry->second;
@@ -282,8 +295,8 @@ SinkFinalizeType DuckLakeDelete::Finalize(Pipeline &pipeline, Event &event, Clie
 			for(auto &file : *files) {
 				if (file.file_name == data_file_path) {
 					if (file.delete_file) {
-						// this file already has a delete file
-						throw NotImplementedException("FIXME: delete again from a file that has a delete file");
+						// this file already has a transaction-local delete file - delete it
+						fs.RemoveFile(file.delete_file->file_name);
 					}
 					file.delete_file = make_uniq<DuckLakeDeleteFile>(std::move(delete_file));
 					found = true;
@@ -352,17 +365,20 @@ optional_ptr<PhysicalTableScan> FindDeleteSource(PhysicalOperator &plan) {
 
 PhysicalOperator &DuckLakeCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op,
                                               PhysicalOperator &child_plan) {
-    unordered_map<string, DataFileIndex> delete_file_map;
     auto delete_source = FindDeleteSource(child_plan);
+	auto delete_map = make_shared_ptr<DuckLakeDeleteMap>();
     if (delete_source) {
 	    auto &bind_data = delete_source->bind_data->Cast<MultiFileBindData>();
+	    auto &reader = bind_data.multi_file_reader->Cast<DuckLakeMultiFileReader>();
 	    auto &file_list = bind_data.file_list->Cast<DuckLakeMultiFileList>();
 	    auto &files = file_list.GetFiles();
+	    auto &delete_file_map = delete_map->file_index_map;
 	    for(auto &file : files) {
 	    	delete_file_map[file.path] = file.file_id;
 	    }
+	    reader.delete_map = delete_map;
     }
-	return planner.Make<DuckLakeDelete>(op.table.Cast<DuckLakeTableEntry>(), child_plan, std::move(delete_file_map));
+	return planner.Make<DuckLakeDelete>(op.table.Cast<DuckLakeTableEntry>(), child_plan, std::move(delete_map));
 }
 
 } // namespace duckdb

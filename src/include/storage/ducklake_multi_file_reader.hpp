@@ -12,8 +12,8 @@
 #include "storage/ducklake_scan.hpp"
 
 namespace duckdb {
-
 class DuckLakeMultiFileList;
+struct DuckLakeDeleteMap;
 
 struct DuckLakeMultiFileReaderGlobalState : public MultiFileReaderGlobalState {
 	DuckLakeMultiFileReaderGlobalState(vector<LogicalType> extra_columns_p,
@@ -28,6 +28,7 @@ struct DuckLakeMultiFileReaderGlobalState : public MultiFileReaderGlobalState {
 
 struct DuckLakeMultiFileReader : public MultiFileReader {
 	explicit DuckLakeMultiFileReader(DuckLakeFunctionInfo &read_info);
+	~DuckLakeMultiFileReader() override;
 
 	static unique_ptr<MultiFileReader> CreateInstance(const TableFunction &table_function);
 	//! Return a DuckLakeMultiFileList
@@ -50,6 +51,7 @@ struct DuckLakeMultiFileReader : public MultiFileReader {
 	                                      optional_ptr<MultiFileReaderGlobalState> global_state) override;
 
 	DuckLakeFunctionInfo &read_info;
+	shared_ptr<DuckLakeDeleteMap> delete_map;
 };
 
 } // namespace duckdb

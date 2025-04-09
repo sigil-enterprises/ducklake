@@ -30,6 +30,11 @@ DELETE FROM ducklake.test WHERE id<=250
 ----
 125
 
+query I
+SELECT COUNT(*) FROM ducklake.test WHERE id<=250
+----
+0
+
 query II
 SELECT COUNT(*), COUNT(*) FILTER(WHERE id%2=0) FROM ducklake.test
 ----
