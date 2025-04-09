@@ -319,6 +319,39 @@ ORDER BY table_id;
 	return global_stats;
 }
 
+vector<DuckLakeFileListEntry> DuckLakeMetadataManager::GetFilesForTable(DuckLakeSnapshot snapshot, TableIndex table_id, const string &filter) {
+	auto query = StringUtil::Format(R"(
+SELECT data_file_id, data.path, del.path
+FROM {METADATA_CATALOG}.ducklake_data_file data
+LEFT JOIN (
+    SELECT data_file_id, path
+    FROM {METADATA_CATALOG}.ducklake_delete_file
+    WHERE table_id=%d  AND {SNAPSHOT_ID} >= begin_snapshot
+          AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
+    ) del USING (data_file_id)
+WHERE table_id=%d AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
+		)", table_id.index, table_id.index);
+	if (!filter.empty()) {
+		query += "\nAND " + filter;
+	}
+
+	auto result = transaction.Query(snapshot, query);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to get data file list from DuckLake: ");
+	}
+	vector<DuckLakeFileListEntry> files;
+	for (auto &row : *result) {
+		auto data_file_id = DataFileIndex(row.GetValue<idx_t>(0));
+		auto path = row.GetValue<string>(1);
+		string delete_path;
+		if (!row.IsNull(2)) {
+			delete_path = row.GetValue<string>(2);
+		}
+		files.emplace_back(data_file_id, std::move(path), std::move(delete_path));
+	}
+	return files;
+}
+
 template <class T>
 void DuckLakeMetadataManager::FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name,
                                         const string &id_name, const set<T> &dropped_entries) {

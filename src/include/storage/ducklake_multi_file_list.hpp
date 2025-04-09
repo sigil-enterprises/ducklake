@@ -11,18 +11,9 @@
 #include "duckdb/common/multi_file/multi_file_reader.hpp"
 #include "storage/ducklake_scan.hpp"
 #include "storage/ducklake_transaction.hpp"
+#include "storage/ducklake_metadata_info.hpp"
 
 namespace duckdb {
-
-struct DuckLakeFileListEntry {
-	DuckLakeFileListEntry(DataFileIndex file_id, string path_p, string delete_path_p)
-	    : file_id(file_id), path(std::move(path_p)), delete_path(std::move(delete_path_p)) {
-	}
-
-	DataFileIndex file_id;
-	string path;
-	string delete_path;
-};
 
 //! The DuckLakeMultiFileList implements the MultiFileList API to allow injecting it into the regular DuckDB parquet
 //! scan

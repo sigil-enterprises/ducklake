@@ -310,41 +310,17 @@ vector<DuckLakeFileListEntry> DuckLakeMultiFileList::GetTransactionLocalFiles(op
 	return result;
 }
 
+// FIXME: get extended info for deletes including row count per file and delete file id
+
+
 const vector<DuckLakeFileListEntry> &DuckLakeMultiFileList::GetFiles() {
 	lock_guard<mutex> l(file_lock);
 	if (!read_file_list) {
 		// we have not read the file list yet - read it
 		if (!read_info.table_id.IsTransactionLocal()) {
 			// not a transaction local table - read the file list from the metadata store
-			auto query = StringUtil::Format(R"(
-SELECT data_file_id, data.path, del.path
-FROM {METADATA_CATALOG}.ducklake_data_file data
-LEFT JOIN (
-    SELECT data_file_id, path
-    FROM {METADATA_CATALOG}.ducklake_delete_file
-    WHERE table_id=%d  AND {SNAPSHOT_ID} >= begin_snapshot
-          AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
-    ) del USING (data_file_id)
-WHERE table_id=%d AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
-		)", read_info.table_id.index, read_info.table_id.index);
-			if (!filter.empty()) {
-				query += "\nAND " + filter;
-			}
-
-			auto result = transaction.Query(read_info.snapshot, query);
-			if (result->HasError()) {
-				result->GetErrorObject().Throw("Failed to get data file list from DuckLake: ");
-			}
-
-			for (auto &row : *result) {
-				auto data_file_id = DataFileIndex(row.GetValue<idx_t>(0));
-				auto path = row.GetValue<string>(1);
-				string delete_path;
-				if (!row.IsNull(2)) {
-					delete_path = row.GetValue<string>(2);
-				}
-				files.emplace_back(data_file_id, std::move(path), std::move(delete_path));
-			}
+			auto &metadata_manager = transaction.GetMetadataManager();
+			files = metadata_manager.GetFilesForTable(read_info.snapshot, read_info.table_id, filter);
 		}
 		// if the transaction has any local deletes - apply them to the file list
 		if (transaction.HasLocalDeletes(read_info.table_id)) {
