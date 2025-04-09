@@ -84,7 +84,7 @@ public:
 	string GetDefaultSchemaName();
 
 	bool HasLocalDeletes(TableIndex table_id);
-	void GetLocalDeleteForFile(TableIndex table_id, DataFileIndex index, string &result);
+	void GetLocalDeleteForFile(TableIndex table_id, const string &path, string &result);
 
 private:
 	void CleanupFiles();
@@ -132,7 +132,7 @@ private:
 	//! Data files added by this transaction
 	map<TableIndex, unique_ptr<vector<DuckLakeDataFile>>> new_data_files;
 	//! New deletes added by this transaction
-	map<TableIndex, map<DataFileIndex, DuckLakeDeleteFile>> new_delete_files;
+	map<TableIndex, unordered_map<string, DuckLakeDeleteFile>> new_delete_files;
 	//! Snapshot cache for the AT (...) conditions that are referenced in the transaction
 	value_map_t<DuckLakeSnapshot> snapshot_cache;
 };

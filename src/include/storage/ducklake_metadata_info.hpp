@@ -182,7 +182,7 @@ struct DuckLakeCatalogInfo {
 
 struct DuckLakeFileListEntry {
 	DuckLakeFileListEntry(DataFileIndex file_id, string path_p, string delete_path_p)
-		: file_id(file_id), path(std::move(path_p)), delete_path(std::move(delete_path_p)) {
+	    : file_id(file_id), path(std::move(path_p)), delete_path(std::move(delete_path_p)) {
 	}
 
 	DataFileIndex file_id;

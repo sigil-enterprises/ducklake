@@ -175,6 +175,7 @@ void DuckLakeDelete::FlushDelete(ClientContext &context, DuckLakeDeleteGlobalSta
 	copy_to_file.write_partition_columns = false;
 
 	DuckLakeDeleteFile delete_file;
+	delete_file.data_file_path = filename;
 	// check if the file already has deletes
 	auto entry = delete_map->delete_data_map.find(filename);
 	if (entry != delete_map->delete_data_map.end()) {

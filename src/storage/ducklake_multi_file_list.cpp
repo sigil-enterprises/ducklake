@@ -325,7 +325,7 @@ const vector<DuckLakeFileListEntry> &DuckLakeMultiFileList::GetFiles() {
 		// if the transaction has any local deletes - apply them to the file list
 		if (transaction.HasLocalDeletes(read_info.table_id)) {
 			for(auto &file : files) {
-				transaction.GetLocalDeleteForFile(read_info.table_id, file.file_id, file.delete_path);
+				transaction.GetLocalDeleteForFile(read_info.table_id, file.path, file.delete_path);
 			}
 		}
 		for (auto &transaction_local_file : transaction_local_files) {

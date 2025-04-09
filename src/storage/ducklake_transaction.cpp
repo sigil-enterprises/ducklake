@@ -828,15 +828,14 @@ vector<DuckLakeDeleteFileInfo> DuckLakeTransaction::GetNewDeleteFiles(DuckLakeSn
 	for(auto &entry : new_delete_files) {
 		auto table_id = entry.first;
 		for(auto &file_entry : entry.second) {
-			auto &file_id = file_entry.first;
 			auto &file = file_entry.second;
 			if (file.overwrites_existing_delete) {
-				overwritten_delete_files.insert(file_id);
+				overwritten_delete_files.insert(file.data_file_id);
 			}
 			DuckLakeDeleteFileInfo delete_file;
 			delete_file.id = DataFileIndex(commit_snapshot.next_file_id++);
 			delete_file.table_id = table_id;
-			delete_file.data_file_id = file_id;
+			delete_file.data_file_id = file.data_file_id;
 			delete_file.path = file.file_name;
 			delete_file.delete_count = file.delete_count;
 			delete_file.file_size_bytes = file.file_size_bytes;
@@ -1046,8 +1045,11 @@ void DuckLakeTransaction::AddDeletes(TableIndex table_id, vector<DuckLakeDeleteF
 	}
 	auto &table_delete_map = new_delete_files[table_id];
 	for(auto &file : files) {
-		auto file_id = file.data_file_id;
-		auto existing_entry = table_delete_map.find(file_id);
+		auto &data_file_path = file.data_file_path;
+		if (data_file_path.empty()) {
+			throw InternalException("Data file path needs to be set in delete");
+		}
+		auto existing_entry = table_delete_map.find(data_file_path);
 		if (existing_entry != table_delete_map.end()) {
 			// we have a transaction-local delete for this file already - delete it
 			auto &fs = FileSystem::GetFileSystem(db);
@@ -1055,7 +1057,7 @@ void DuckLakeTransaction::AddDeletes(TableIndex table_id, vector<DuckLakeDeleteF
 			// write the new file
 			existing_entry->second = std::move(file);
 		} else {
-			table_delete_map.insert(make_pair(file_id, std::move(file)));
+			table_delete_map.insert(make_pair(data_file_path, std::move(file)));
 		}
 	}
 }
@@ -1064,12 +1066,12 @@ bool DuckLakeTransaction::HasLocalDeletes(TableIndex table_id) {
 	return new_delete_files.find(table_id) != new_delete_files.end();
 }
 
-void DuckLakeTransaction::GetLocalDeleteForFile(TableIndex table_id, DataFileIndex index, string &result) {
+void DuckLakeTransaction::GetLocalDeleteForFile(TableIndex table_id, const string &path, string &result) {
 	auto entry = new_delete_files.find(table_id);
 	if (entry == new_delete_files.end()) {
 		return;
 	}
-	auto file_entry = entry->second.find(index);
+	auto file_entry = entry->second.find(path);
 	if (file_entry == entry->second.end()) {
 		return;
 	}
