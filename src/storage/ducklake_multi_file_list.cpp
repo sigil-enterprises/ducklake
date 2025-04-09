@@ -22,16 +22,9 @@
 namespace duckdb {
 
 DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,
-                                             vector<DuckLakeFileListEntry> transaction_local_files_p, string filter_p)
+                                             vector<DuckLakeDataFile> transaction_local_files_p, string filter_p)
     : MultiFileList(vector<string> {}, FileGlobOptions::ALLOW_EMPTY), transaction(transaction), read_info(read_info),
-      read_file_list(false), transaction_local_files(std::move(transaction_local_files_p)),
-      filter(std::move(filter_p)) {
-}
-
-DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeMultiFileList &parent,
-							   vector<DuckLakeFileListEntry> files_p) :
-	MultiFileList(vector<string> {}, FileGlobOptions::ALLOW_EMPTY), transaction(parent.transaction), read_info(parent.read_info),
-	  files(std::move(files_p)), read_file_list(true){
+      read_file_list(false), transaction_local_files(std::move(transaction_local_files_p)), filter(std::move(filter_p)) {
 }
 
 unique_ptr<MultiFileList> DuckLakeMultiFileList::ComplexFilterPushdown(ClientContext &context,
@@ -300,18 +293,41 @@ string DuckLakeMultiFileList::GetDeletedFile(idx_t file_idx) {
 	return files[file_idx].delete_path;
 }
 
-vector<DuckLakeFileListEntry> DuckLakeMultiFileList::GetTransactionLocalFiles(optional_ptr<vector<DuckLakeDataFile>> files) {
-	vector<DuckLakeFileListEntry> result;
-	if (files) {
-		for(auto &file : *files) {
-			result.emplace_back(DataFileIndex(), file.file_name, file.delete_file ? file.delete_file->file_name : string());
+// FIXME: get extended info for deletes including row count per file and delete file id
+vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() {
+	lock_guard<mutex> l(file_lock);
+	vector<DuckLakeFileListExtendedEntry> result;
+	if (!read_info.table_id.IsTransactionLocal()) {
+		// not a transaction local table - read the file list from the metadata store
+		auto &metadata_manager = transaction.GetMetadataManager();
+		result = metadata_manager.GetExtendedFilesForTable(read_info.snapshot, read_info.table_id, filter);
+	}
+	// if the transaction has any local deletes - apply them to the file list
+	if (transaction.HasLocalDeletes(read_info.table_id)) {
+		for(auto &file : result) {
+			transaction.GetLocalDeleteForFile(read_info.table_id, file.path, file.delete_path);
 		}
+	}
+	for(auto &file : transaction_local_files) {
+		DuckLakeFileListExtendedEntry file_entry;
+		file_entry.file_id = DataFileIndex();
+		file_entry.delete_id = DataFileIndex();
+		file_entry.path = file.file_name;
+		if (file.delete_file) {
+			file_entry.delete_path = file.delete_file->file_name;
+		}
+		file_entry.row_count = file.row_count;
+		result.push_back(std::move(file_entry));
+	}
+	if (!read_file_list) {
+		// we have not read the file list yet - construct it from the extended file list
+		for(auto &file : result) {
+			files.emplace_back(file.path, file.delete_path);
+		}
+		read_file_list = true;
 	}
 	return result;
 }
-
-// FIXME: get extended info for deletes including row count per file and delete file id
-
 
 const vector<DuckLakeFileListEntry> &DuckLakeMultiFileList::GetFiles() {
 	lock_guard<mutex> l(file_lock);
@@ -328,8 +344,8 @@ const vector<DuckLakeFileListEntry> &DuckLakeMultiFileList::GetFiles() {
 				transaction.GetLocalDeleteForFile(read_info.table_id, file.path, file.delete_path);
 			}
 		}
-		for (auto &transaction_local_file : transaction_local_files) {
-			files.push_back(transaction_local_file);
+		for(auto &file : transaction_local_files) {
+			files.emplace_back(file.file_name, file.delete_file ? file.delete_file->file_name : string());
 		}
 		read_file_list = true;
 	}

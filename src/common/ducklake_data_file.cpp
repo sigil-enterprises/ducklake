@@ -1,0 +1,32 @@
+#include "common/ducklake_data_file.hpp"
+
+namespace duckdb {
+
+DuckLakeDataFile::DuckLakeDataFile(const DuckLakeDataFile &other) {
+	file_name = other.file_name;
+	row_count = other.row_count;
+	file_size_bytes = other.file_size_bytes;
+	footer_size = other.footer_size;
+	partition_id = other.partition_id;
+	if (other.delete_file) {
+		delete_file = make_uniq<DuckLakeDeleteFile>(*other.delete_file);
+	}
+	column_stats = other.column_stats;
+	partition_values = other.partition_values;
+}
+
+DuckLakeDataFile &DuckLakeDataFile::operator=(const DuckLakeDataFile &other) {
+	file_name = other.file_name;
+	row_count = other.row_count;
+	file_size_bytes = other.file_size_bytes;
+	footer_size = other.footer_size;
+	partition_id = other.partition_id;
+	if (other.delete_file) {
+		delete_file = make_uniq<DuckLakeDeleteFile>(*other.delete_file);
+	}
+	column_stats = other.column_stats;
+	partition_values = other.partition_values;
+	return *this;
+}
+
+}

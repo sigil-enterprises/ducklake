@@ -65,7 +65,7 @@ public:
 	optional_ptr<DuckLakeCatalogSet> GetTransactionLocalEntries(CatalogType type, const string &schema_name);
 	optional_ptr<CatalogEntry> GetTransactionLocalEntry(CatalogType catalog_type, const string &schema_name,
 	                                                    const string &entry_name);
-	optional_ptr<vector<DuckLakeDataFile>> GetTransactionLocalFiles(TableIndex table_id);
+	vector<DuckLakeDataFile> GetTransactionLocalFiles(TableIndex table_id);
 	bool HasTransactionLocalChanges(TableIndex table_id);
 	void AppendFiles(TableIndex table_id, vector<DuckLakeDataFile> files);
 	void AddDeletes(TableIndex table_id, vector<DuckLakeDeleteFile> files);
@@ -85,6 +85,7 @@ public:
 
 	bool HasLocalDeletes(TableIndex table_id);
 	void GetLocalDeleteForFile(TableIndex table_id, const string &path, string &result);
+	void TransactionLocalDelete(TableIndex table_id, const string &data_path, DuckLakeDeleteFile delete_file);
 
 private:
 	void CleanupFiles();
@@ -130,7 +131,7 @@ private:
 	unique_ptr<DuckLakeCatalogSet> new_schemas;
 	map<SchemaIndex, reference<DuckLakeSchemaEntry>> dropped_schemas;
 	//! Data files added by this transaction
-	map<TableIndex, unique_ptr<vector<DuckLakeDataFile>>> new_data_files;
+	map<TableIndex, vector<DuckLakeDataFile>> new_data_files;
 	//! New deletes added by this transaction
 	map<TableIndex, unordered_map<string, DuckLakeDeleteFile>> new_delete_files;
 	//! Snapshot cache for the AT (...) conditions that are referenced in the transaction

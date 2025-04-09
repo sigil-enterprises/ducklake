@@ -265,7 +265,7 @@ void DuckLakeTransaction::CleanupFiles() {
 	// remove any files that were written
 	auto &fs = FileSystem::GetFileSystem(db);
 	for (auto &table_entry : new_data_files) {
-		for (auto &file : *table_entry.second) {
+		for (auto &file : table_entry.second) {
 			fs.RemoveFile(file.file_name);
 			if (file.delete_file) {
 				fs.RemoveFile(file.delete_file->file_name);
@@ -446,7 +446,7 @@ DuckLakePartitionInfo DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &
 
 	// if we wrote any data with this partition id - rewrite it to the latest partition id
 	for (auto &entry : new_data_files) {
-		for (auto &file : *entry.second) {
+		for (auto &file : entry.second) {
 			if (file.partition_id.IsValid() && file.partition_id.GetIndex() == local_partition_id) {
 				file.partition_id = partition_id;
 			}
@@ -757,7 +757,7 @@ vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &
 		}
 		DuckLakeTableStats new_stats;
 		vector<DuckLakeDeleteFile> delete_files;
-		for (auto &file : *entry.second) {
+		for (auto &file : entry.second) {
 			DuckLakeFileInfo data_file;
 			data_file.id = DataFileIndex(commit_snapshot.next_file_id++);
 			data_file.table_id = table_id;
@@ -1013,12 +1013,12 @@ bool DuckLakeTransaction::HasTransactionLocalChanges(TableIndex table_id) {
 	return new_data_files.find(table_id) != new_data_files.end();
 }
 
-optional_ptr<vector<DuckLakeDataFile>> DuckLakeTransaction::GetTransactionLocalFiles(TableIndex table_id) {
+vector<DuckLakeDataFile> DuckLakeTransaction::GetTransactionLocalFiles(TableIndex table_id) {
 	auto entry = new_data_files.find(table_id);
 	if (entry == new_data_files.end()) {
-		return nullptr;
+		return vector<DuckLakeDataFile>();
 	} else {
-		return entry->second.get();
+		return entry->second;
 	}
 }
 
@@ -1028,12 +1028,12 @@ void DuckLakeTransaction::AppendFiles(TableIndex table_id, vector<DuckLakeDataFi
 		// already exists - append
 		auto &existing_files = entry->second;
 		for(auto &file : files) {
-			existing_files->push_back(std::move(file));
+			existing_files.push_back(std::move(file));
 		}
 	} else {
-		auto file_list = make_uniq<vector<DuckLakeDataFile>>();
+		vector<DuckLakeDataFile> file_list;
 		for(auto &file : files) {
-			file_list->push_back(std::move(file));
+			file_list.push_back(std::move(file));
 		}
 		new_data_files.insert(make_pair(table_id, std::move(file_list)));
 	}
@@ -1078,6 +1078,29 @@ void DuckLakeTransaction::GetLocalDeleteForFile(TableIndex table_id, const strin
 	result = file_entry->second.file_name;
 }
 
+void DuckLakeTransaction::TransactionLocalDelete(TableIndex table_id, const string &data_file_path, DuckLakeDeleteFile delete_file) {
+	auto entry = new_data_files.find(table_id);
+	if (entry == new_data_files.end()) {
+		throw InternalException("Transaction local delete called for table which does not have transaction local insertions");
+	}
+	bool found = false;
+	for(auto &file : entry->second) {
+		if (file.file_name == data_file_path) {
+			if (file.delete_file) {
+				// this file already has a transaction-local delete file - delete it
+				auto &fs = FileSystem::GetFileSystem(db);
+				fs.RemoveFile(file.delete_file->file_name);
+			}
+			file.delete_file = make_uniq<DuckLakeDeleteFile>(std::move(delete_file));
+			found = true;
+			break;
+		}
+	}
+	if (!found) {
+		throw InternalException("Failed to find matching transaction-local file for written delete file");
+	}
+}
+
 DuckLakeTransaction &DuckLakeTransaction::Get(ClientContext &context, Catalog &catalog) {
 	return Transaction::Get(context, catalog).Cast<DuckLakeTransaction>();
 }
@@ -1117,7 +1140,7 @@ void DuckLakeTransaction::DropTable(DuckLakeTableEntry &table) {
 		auto table_entry = new_data_files.find(table_id);
 		if (table_entry != new_data_files.end()) {
 			auto &fs = FileSystem::GetFileSystem(db);
-			for (auto &file : *table_entry->second) {
+			for (auto &file : table_entry->second) {
 				fs.RemoveFile(file.file_name);
 			}
 			new_data_files.erase(table_entry);

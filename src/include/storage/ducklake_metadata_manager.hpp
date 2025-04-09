@@ -44,6 +44,8 @@ public:
 	virtual vector<DuckLakeGlobalStatsInfo> GetGlobalTableStats(DuckLakeSnapshot snapshot);
 	virtual vector<DuckLakeFileListEntry> GetFilesForTable(DuckLakeSnapshot snapshot, TableIndex table_id,
 	                                                       const string &filter);
+	virtual vector<DuckLakeFileListExtendedEntry> GetExtendedFilesForTable(DuckLakeSnapshot snapshot,
+	                                                                       TableIndex table_id, const string &filter);
 	virtual void DropSchemas(DuckLakeSnapshot commit_snapshot, set<SchemaIndex> ids);
 	virtual void DropTables(DuckLakeSnapshot commit_snapshot, set<TableIndex> ids);
 	virtual void DropViews(DuckLakeSnapshot commit_snapshot, set<TableIndex> ids);

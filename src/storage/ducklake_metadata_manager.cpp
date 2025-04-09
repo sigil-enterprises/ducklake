@@ -321,7 +321,7 @@ ORDER BY table_id;
 
 vector<DuckLakeFileListEntry> DuckLakeMetadataManager::GetFilesForTable(DuckLakeSnapshot snapshot, TableIndex table_id, const string &filter) {
 	auto query = StringUtil::Format(R"(
-SELECT data_file_id, data.path, del.path
+SELECT data.path, del.path
 FROM {METADATA_CATALOG}.ducklake_data_file data
 LEFT JOIN (
     SELECT data_file_id, path
@@ -341,15 +341,51 @@ WHERE table_id=%d AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_s
 	}
 	vector<DuckLakeFileListEntry> files;
 	for (auto &row : *result) {
-		auto data_file_id = DataFileIndex(row.GetValue<idx_t>(0));
-		auto path = row.GetValue<string>(1);
+		auto path = row.GetValue<string>(0);
 		string delete_path;
-		if (!row.IsNull(2)) {
-			delete_path = row.GetValue<string>(2);
+		if (!row.IsNull(1)) {
+			delete_path = row.GetValue<string>(1);
 		}
-		files.emplace_back(data_file_id, std::move(path), std::move(delete_path));
+		files.emplace_back(std::move(path), std::move(delete_path));
 	}
 	return files;
+}
+
+vector<DuckLakeFileListExtendedEntry> DuckLakeMetadataManager::GetExtendedFilesForTable(DuckLakeSnapshot snapshot, TableIndex table_id,
+const string &filter) {
+	auto query = StringUtil::Format(R"(
+SELECT data.data_file_id, data.path, data.record_count, del.delete_file_id, del.path
+FROM {METADATA_CATALOG}.ducklake_data_file data
+LEFT JOIN (
+    SELECT delete_file_id, data_file_id, path
+    FROM {METADATA_CATALOG}.ducklake_delete_file
+    WHERE table_id=%d  AND {SNAPSHOT_ID} >= begin_snapshot
+          AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
+    ) del USING (data_file_id)
+WHERE table_id=%d AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
+		)", table_id.index, table_id.index);
+	if (!filter.empty()) {
+		query += "\nAND " + filter;
+	}
+
+	auto result = transaction.Query(snapshot, query);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to get extended data file list from DuckLake: ");
+	}
+	vector<DuckLakeFileListExtendedEntry> files;
+	for (auto &row : *result) {
+		DuckLakeFileListExtendedEntry file_entry;
+		file_entry.file_id = DataFileIndex(row.GetValue<idx_t>(0));
+		file_entry.path = row.GetValue<string>(1);
+		file_entry.row_count = row.GetValue<idx_t>(2);
+		if (!row.IsNull(3)) {
+			file_entry.delete_id = DataFileIndex(row.GetValue<idx_t>(3));
+			file_entry.delete_path = row.GetValue<string>(4);
+		}
+		files.push_back(std::move(file_entry));
+	}
+	return files;
+
 }
 
 template <class T>

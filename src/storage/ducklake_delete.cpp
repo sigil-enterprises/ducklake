@@ -262,7 +262,6 @@ SinkFinalizeType DuckLakeDelete::Finalize(Pipeline &pipeline, Event &event, Clie
 		FlushDelete(context, global_state, entry.first, entry.second);
 	}
 	auto &transaction = DuckLakeTransaction::Get(context, table.catalog);
-	auto &fs = FileSystem::GetFileSystem(context);
 	vector<DuckLakeDeleteFile> delete_files;
 	for(auto &entry : global_state.written_files) {
 		auto &data_file_path = entry.first;
@@ -278,27 +277,11 @@ SinkFinalizeType DuckLakeDelete::Finalize(Pipeline &pipeline, Event &event, Clie
 			delete_files.push_back(std::move(delete_file));
 		} else {
 			// deleting from a transaction local file - find the file we are deleting from
-			auto files = transaction.GetTransactionLocalFiles(table.GetTableId());
-			bool found = false;
-			for(auto &file : *files) {
-				if (file.file_name == data_file_path) {
-					if (file.delete_file) {
-						// this file already has a transaction-local delete file - delete it
-						fs.RemoveFile(file.delete_file->file_name);
-					}
-					file.delete_file = make_uniq<DuckLakeDeleteFile>(std::move(delete_file));
-					found = true;
-					break;
-				}
-			}
-			if (!found) {
-				throw InternalException("Failed to find matching transaction-local file for written delete file");
-			}
+			transaction.TransactionLocalDelete(table.GetTableId(), data_file_path, std::move(delete_file));
 			delete_file.overwrites_existing_delete = false;
 		}
 	}
 	transaction.AddDeletes(table.GetTableId(), std::move(delete_files));
-
 	return SinkFinalizeType::READY;
 }
 
@@ -360,7 +343,7 @@ PhysicalOperator &DuckLakeCatalog::PlanDelete(ClientContext &context, PhysicalPl
 	    auto &bind_data = delete_source->bind_data->Cast<MultiFileBindData>();
 	    auto &reader = bind_data.multi_file_reader->Cast<DuckLakeMultiFileReader>();
 	    auto &file_list = bind_data.file_list->Cast<DuckLakeMultiFileList>();
-	    auto &files = file_list.GetFiles();
+	    auto files = file_list.GetFilesExtended();
 	    auto &delete_file_map = delete_map->file_index_map;
 	    for(auto &file : files) {
 	    	delete_file_map[file.path] = file.file_id;
