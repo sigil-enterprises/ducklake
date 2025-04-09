@@ -22,7 +22,7 @@
 namespace duckdb {
 
 DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,
-                                             vector<DuckLakeDataFile> transaction_local_files_p, string filter_p)
+                                             vector<DuckLakeFileListEntry> transaction_local_files_p, string filter_p)
     : MultiFileList(vector<string> {}, FileGlobOptions::ALLOW_EMPTY), transaction(transaction), read_info(read_info),
       read_file_list(false), transaction_local_files(std::move(transaction_local_files_p)),
       filter(std::move(filter_p)) {
@@ -300,6 +300,16 @@ string DuckLakeMultiFileList::GetDeletedFile(idx_t file_idx) {
 	return files[file_idx].delete_path;
 }
 
+vector<DuckLakeFileListEntry> DuckLakeMultiFileList::GetTransactionLocalFiles(optional_ptr<vector<DuckLakeDataFile>> files) {
+	vector<DuckLakeFileListEntry> result;
+	if (files) {
+		for(auto &file : *files) {
+			result.emplace_back(DataFileIndex(), file.file_name, file.delete_file ? file.delete_file->file_name : string());
+		}
+	}
+	return result;
+}
+
 const vector<DuckLakeFileListEntry> &DuckLakeMultiFileList::GetFiles() {
 	lock_guard<mutex> l(file_lock);
 	if (!read_file_list) {
@@ -343,7 +353,7 @@ WHERE table_id=%d AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_s
 			}
 		}
 		for (auto &transaction_local_file : transaction_local_files) {
-			files.emplace_back(DataFileIndex(), transaction_local_file.file_name, string());
+			files.push_back(transaction_local_file);
 		}
 		read_file_list = true;
 	}

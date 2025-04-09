@@ -170,7 +170,7 @@ SinkFinalizeType DuckLakeInsert::Finalize(Pipeline &pipeline, Event &event, Clie
 	auto &global_state = input.global_state.Cast<DuckLakeInsertGlobalState>();
 
 	auto &transaction = DuckLakeTransaction::Get(context, global_state.table.catalog);
-	transaction.AppendFiles(global_state.table.GetTableId(), global_state.written_files);
+	transaction.AppendFiles(global_state.table.GetTableId(), std::move(global_state.written_files));
 
 	return SinkFinalizeType::READY;
 }

@@ -19,22 +19,23 @@ struct DuckLakeFilePartition {
 	string partition_value;
 };
 
-struct DuckLakeDataFile {
-	string file_name;
-	idx_t row_count;
-	idx_t file_size_bytes;
-	idx_t footer_size;
-	optional_idx partition_id;
-	map<FieldIndex, DuckLakeColumnStats> column_stats;
-	vector<DuckLakeFilePartition> partition_values;
-};
-
 struct DuckLakeDeleteFile {
 	DataFileIndex data_file_id;
 	string file_name;
 	idx_t delete_count;
 	idx_t file_size_bytes;
 	idx_t footer_size;
+};
+
+struct DuckLakeDataFile {
+	string file_name;
+	idx_t row_count;
+	idx_t file_size_bytes;
+	idx_t footer_size;
+	optional_idx partition_id;
+	unique_ptr<DuckLakeDeleteFile> delete_file;
+	map<FieldIndex, DuckLakeColumnStats> column_stats;
+	vector<DuckLakeFilePartition> partition_values;
 };
 
 } // namespace duckdb

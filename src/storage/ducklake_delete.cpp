@@ -256,22 +256,45 @@ SinkFinalizeType DuckLakeDelete::Finalize(Pipeline &pipeline, Event &event, Clie
 	for(auto &entry : global_state.deleted_rows) {
 		FlushDelete(context, global_state, entry.first, entry.second);
 	}
+	auto &transaction = DuckLakeTransaction::Get(context, table.catalog);
 	vector<DuckLakeDeleteFile> delete_files;
 	for(auto &entry : global_state.written_files) {
+		auto &data_file_path = entry.first;
 		auto &file = entry.second;
-		auto delete_entry = delete_file_map.find(entry.first);
+		auto delete_entry = delete_file_map.find(data_file_path);
 		if (delete_entry == delete_file_map.end()) {
 			throw InternalException("Could not find matching file for written delete file");
 		}
+		auto data_file_id = delete_entry->second;
 		DuckLakeDeleteFile delete_file;
-		delete_file.data_file_id = delete_entry->second;
+		delete_file.data_file_id = data_file_id;
 		delete_file.file_name = std::move(file.file_name);
 		delete_file.delete_count = file.row_count;
 		delete_file.file_size_bytes = file.file_size_bytes;
 		delete_file.footer_size = file.footer_size;
-		delete_files.push_back(std::move(delete_file));
+		if (data_file_id.IsValid()) {
+			// deleting from a committed file - add to delete files directly
+			delete_files.push_back(std::move(delete_file));
+		} else {
+			// deleting from a transaction local file - find the file we are deleting from
+			auto files = transaction.GetTransactionLocalFiles(table.GetTableId());
+			bool found = false;
+			for(auto &file : *files) {
+				if (file.file_name == data_file_path) {
+					if (file.delete_file) {
+						// this file already has a delete file
+						throw NotImplementedException("FIXME: delete again from a file that has a delete file");
+					}
+					file.delete_file = make_uniq<DuckLakeDeleteFile>(std::move(delete_file));
+					found = true;
+					break;
+				}
+			}
+			if (!found) {
+				throw InternalException("Failed to find matching transaction-local file for written delete file");
+			}
+		}
 	}
-	auto &transaction = DuckLakeTransaction::Get(context, table.catalog);
 	transaction.AddDeletes(table.GetTableId(), std::move(delete_files));
 
 	return SinkFinalizeType::READY;

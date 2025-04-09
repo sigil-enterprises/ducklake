@@ -29,7 +29,7 @@ struct DuckLakeFileListEntry {
 class DuckLakeMultiFileList : public MultiFileList {
 public:
 	explicit DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,
-	                               vector<DuckLakeDataFile> transaction_local_files, string filter = string());
+	                               vector<DuckLakeFileListEntry> transaction_local_files, string filter = string());
 	explicit DuckLakeMultiFileList(DuckLakeMultiFileList &parent, vector<DuckLakeFileListEntry> files);
 
 	unique_ptr<MultiFileList> ComplexFilterPushdown(ClientContext &context, const MultiFileOptions &options,
@@ -51,6 +51,7 @@ public:
 	}
 	const vector<DuckLakeFileListEntry> &GetFiles();
 	string GetDeletedFile(idx_t file_idx);
+	static vector<DuckLakeFileListEntry> GetTransactionLocalFiles(optional_ptr<vector<DuckLakeDataFile>> files);
 
 protected:
 	//! Get the i-th expanded file
@@ -64,7 +65,7 @@ private:
 	vector<DuckLakeFileListEntry> files;
 	bool read_file_list;
 	//! The set of transaction-local files
-	vector<DuckLakeDataFile> transaction_local_files;
+	vector<DuckLakeFileListEntry> transaction_local_files;
 	//! The filter to apply
 	string filter;
 };
