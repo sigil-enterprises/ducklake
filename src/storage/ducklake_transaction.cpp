@@ -823,13 +823,16 @@ vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &
 	return result;
 }
 
-vector<DuckLakeDeleteFileInfo> DuckLakeTransaction::GetNewDeleteFiles(DuckLakeSnapshot &commit_snapshot) {
+vector<DuckLakeDeleteFileInfo> DuckLakeTransaction::GetNewDeleteFiles(DuckLakeSnapshot &commit_snapshot, set<DataFileIndex> &overwritten_delete_files) {
 	vector<DuckLakeDeleteFileInfo> result;
 	for(auto &entry : new_delete_files) {
 		auto table_id = entry.first;
 		for(auto &file_entry : entry.second) {
 			auto &file_id = file_entry.first;
 			auto &file = file_entry.second;
+			if (file.overwrites_existing_delete) {
+				overwritten_delete_files.insert(file_id);
+			}
 			DuckLakeDeleteFileInfo delete_file;
 			delete_file.id = DataFileIndex(commit_snapshot.next_file_id++);
 			delete_file.table_id = table_id;
@@ -849,6 +852,7 @@ void DuckLakeTransaction::FlushChanges() {
 		// read-only transactions don't need to do anything
 		return;
 	}
+	// FIXME: this should probably be configurable
 	idx_t max_retry_count = 5;
 	auto transaction_snapshot = GetSnapshot();
 	auto transaction_changes = GetTransactionChanges();
@@ -904,7 +908,9 @@ void DuckLakeTransaction::FlushChanges() {
 			}
 
 			if (!new_delete_files.empty()) {
-				auto file_list = GetNewDeleteFiles(commit_snapshot);
+				set<DataFileIndex> overwritten_delete_files;
+				auto file_list = GetNewDeleteFiles(commit_snapshot, overwritten_delete_files);
+				metadata_manager->DropDeleteFiles(commit_snapshot, overwritten_delete_files);
 				metadata_manager->WriteNewDeleteFiles(commit_snapshot, file_list);
 			}
 
@@ -1041,7 +1047,16 @@ void DuckLakeTransaction::AddDeletes(TableIndex table_id, vector<DuckLakeDeleteF
 	auto &table_delete_map = new_delete_files[table_id];
 	for(auto &file : files) {
 		auto file_id = file.data_file_id;
-		table_delete_map.insert(make_pair(file_id, std::move(file)));
+		auto existing_entry = table_delete_map.find(file_id);
+		if (existing_entry != table_delete_map.end()) {
+			// we have a transaction-local delete for this file already - delete it
+			auto &fs = FileSystem::GetFileSystem(db);
+			fs.RemoveFile(existing_entry->second.file_name);
+			// write the new file
+			existing_entry->second = std::move(file);
+		} else {
+			table_delete_map.insert(make_pair(file_id, std::move(file)));
+		}
 	}
 }
 

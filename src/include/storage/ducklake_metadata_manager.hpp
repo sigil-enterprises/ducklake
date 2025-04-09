@@ -56,6 +56,7 @@ public:
 	virtual void WriteNewTags(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeTagInfo> &new_tags);
 	virtual void WriteNewColumnTags(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeColumnTagInfo> &new_tags);
 	virtual void WriteNewDataFiles(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeFileInfo> &new_files);
+	virtual void DropDeleteFiles(DuckLakeSnapshot commit_snapshot, const set<DataFileIndex> &dropped_files);
 	virtual void WriteNewDeleteFiles(DuckLakeSnapshot commit_snapshot,
 	                                 const vector<DuckLakeDeleteFileInfo> &new_delete_files);
 	virtual void InsertSnapshot(DuckLakeSnapshot commit_snapshot);
@@ -71,7 +72,7 @@ public:
 private:
 	template <class T>
 	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,
-	               set<T> &dropped_entries);
+	               const set<T> &dropped_entries);
 
 protected:
 	DuckLakeTransaction &transaction;

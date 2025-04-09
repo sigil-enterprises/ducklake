@@ -321,7 +321,10 @@ ORDER BY table_id;
 
 template <class T>
 void DuckLakeMetadataManager::FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name,
-                                        const string &id_name, set<T> &dropped_entries) {
+                                        const string &id_name, const set<T> &dropped_entries) {
+    if (dropped_entries.empty()) {
+	    return;
+    }
 	string dropped_id_list;
 	for (auto &dropped_id : dropped_entries) {
 		if (!dropped_id_list.empty()) {
@@ -330,7 +333,7 @@ void DuckLakeMetadataManager::FlushDrop(DuckLakeSnapshot commit_snapshot, const 
 		dropped_id_list += to_string(dropped_id.index);
 	}
 	auto dropped_id_query =
-	    StringUtil::Format(R"(UPDATE {METADATA_CATALOG}.%s SET end_snapshot = {SNAPSHOT_ID} WHERE %s IN (%s);)",
+	    StringUtil::Format(R"(UPDATE {METADATA_CATALOG}.%s SET end_snapshot = {SNAPSHOT_ID} WHERE end_snapshot IS NULL AND %s IN (%s);)",
 	                       metadata_table_name, id_name, dropped_id_list);
 	auto result = transaction.Query(commit_snapshot, dropped_id_query);
 	if (result->HasError()) {
@@ -555,6 +558,10 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
 			result->GetErrorObject().Throw("Failed to write partition value information to DuckLake: ");
 		}
 	}
+}
+
+void DuckLakeMetadataManager::DropDeleteFiles(DuckLakeSnapshot commit_snapshot, const set<DataFileIndex> &dropped_files) {
+	FlushDrop(commit_snapshot, "ducklake_delete_file", "data_file_id", dropped_files);
 }
 
 void DuckLakeMetadataManager::WriteNewDeleteFiles(DuckLakeSnapshot commit_snapshot,

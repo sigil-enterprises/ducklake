@@ -25,6 +25,7 @@ struct DuckLakeDeleteFile {
 	idx_t delete_count;
 	idx_t file_size_bytes;
 	idx_t footer_size;
+	bool overwrites_existing_delete = false;
 };
 
 struct DuckLakeDataFile {

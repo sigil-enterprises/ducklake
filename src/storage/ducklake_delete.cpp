@@ -54,7 +54,7 @@ public:
 	}
 
 	mutex lock;
-	unordered_map<string, DuckLakeDataFile> written_files;
+	unordered_map<string, DuckLakeDeleteFile> written_files;
 	unordered_map<string, WrittenColumnInfo> written_columns;
 	idx_t total_deleted_count = 0;
 	unordered_map<string, vector<idx_t>> deleted_rows;
@@ -174,6 +174,7 @@ void DuckLakeDelete::FlushDelete(ClientContext &context, DuckLakeDeleteGlobalSta
 	copy_to_file.return_type = CopyFunctionReturnType::WRITTEN_FILE_STATISTICS;
 	copy_to_file.write_partition_columns = false;
 
+	DuckLakeDeleteFile delete_file;
 	// check if the file already has deletes
 	auto entry = delete_map->delete_data_map.find(filename);
 	if (entry != delete_map->delete_data_map.end()) {
@@ -183,6 +184,9 @@ void DuckLakeDelete::FlushDelete(ClientContext &context, DuckLakeDeleteGlobalSta
 
 		// clear the deletes
 		delete_map->delete_data_map.erase(entry);
+
+		// set the delete file as overwriting existing deletes
+		delete_file.overwrites_existing_delete = true;
 	}
 
 	// sort the to-be-inserted file numbers
@@ -236,28 +240,16 @@ void DuckLakeDelete::FlushDelete(ClientContext &context, DuckLakeDeleteGlobalSta
 	OperatorSourceInput source_input {*source_state, *local_state, interrupt_state};
 	copy_to_file.GetData(execution_context, stats_chunk, source_input);
 
-	// add to the written files
-	for (idx_t r = 0; r < stats_chunk.size(); r++) {
-		DuckLakeDataFile data_file;
-		data_file.file_name = stats_chunk.GetValue(0, r).GetValue<string>();
-		data_file.row_count = stats_chunk.GetValue(1, r).GetValue<idx_t>();
-		data_file.file_size_bytes = stats_chunk.GetValue(2, r).GetValue<idx_t>();
-		data_file.footer_size = stats_chunk.GetValue(3, r).GetValue<idx_t>();
-
-		// extract the column stats
-		auto column_stats = stats_chunk.GetValue(4, r);
-		auto &map_children = MapValue::GetChildren(column_stats);
-		for (idx_t col_idx = 0; col_idx < map_children.size(); col_idx++) {
-			auto &struct_children = StructValue::GetChildren(map_children[col_idx]);
-			auto &col_name = StringValue::Get(struct_children[0]);
-			auto &col_stats = MapValue::GetChildren(struct_children[1]);
-			auto &entry = global_state.written_columns[col_name];
-
-			auto column_stats = DuckLakeInsert::ParseColumnStats(entry.type, col_stats);
-			data_file.column_stats.emplace(entry.field_id, std::move(column_stats));
-		}
-		global_state.written_files.emplace(filename, std::move(data_file));
+	if (stats_chunk.size() != 1) {
+		throw InternalException("Expected a single delete file to be written here");
 	}
+	idx_t r = 0;
+	// add to the written files
+	delete_file.file_name = stats_chunk.GetValue(0, r).GetValue<string>();
+	delete_file.delete_count = stats_chunk.GetValue(1, r).GetValue<idx_t>();
+	delete_file.file_size_bytes = stats_chunk.GetValue(2, r).GetValue<idx_t>();
+	delete_file.footer_size = stats_chunk.GetValue(3, r).GetValue<idx_t>();
+	global_state.written_files.emplace(filename, std::move(delete_file));
 }
 
 SinkFinalizeType DuckLakeDelete::Finalize(Pipeline &pipeline, Event &event, ClientContext &context,
@@ -273,18 +265,13 @@ SinkFinalizeType DuckLakeDelete::Finalize(Pipeline &pipeline, Event &event, Clie
 	vector<DuckLakeDeleteFile> delete_files;
 	for(auto &entry : global_state.written_files) {
 		auto &data_file_path = entry.first;
-		auto &file = entry.second;
+		auto delete_file = std::move(entry.second);
 		auto delete_entry = delete_map->file_index_map.find(data_file_path);
 		if (delete_entry == delete_map->file_index_map.end()) {
 			throw InternalException("Could not find matching file for written delete file");
 		}
 		auto data_file_id = delete_entry->second;
-		DuckLakeDeleteFile delete_file;
 		delete_file.data_file_id = data_file_id;
-		delete_file.file_name = std::move(file.file_name);
-		delete_file.delete_count = file.row_count;
-		delete_file.file_size_bytes = file.file_size_bytes;
-		delete_file.footer_size = file.footer_size;
 		if (data_file_id.IsValid()) {
 			// deleting from a committed file - add to delete files directly
 			delete_files.push_back(std::move(delete_file));
@@ -306,6 +293,7 @@ SinkFinalizeType DuckLakeDelete::Finalize(Pipeline &pipeline, Event &event, Clie
 			if (!found) {
 				throw InternalException("Failed to find matching transaction-local file for written delete file");
 			}
+			delete_file.overwrites_existing_delete = false;
 		}
 	}
 	transaction.AddDeletes(table.GetTableId(), std::move(delete_files));
