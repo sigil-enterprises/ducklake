@@ -162,8 +162,8 @@ void DuckLakeDelete::FlushDelete(DuckLakeTransaction &transaction, ClientContext
 		// ALL rows in this file are deleted - we don't need to write the deletes out to a file
 		// we can just invalidate the source data file directly
 		if (delete_file.data_file_id.IsValid()) {
-			// persistent file - invalidate in the transaction
-			throw InternalException("FIXME: invalidate file");
+			// persistent file - drop the file as part of the transaction
+			transaction.DropFile(delete_file.data_file_id, data_file_info.path);
 		} else {
 			// transaction-local file - we can drop the file directly
 			transaction.DropTransactionLocalFile(table.GetTableId(), data_file_info.path);

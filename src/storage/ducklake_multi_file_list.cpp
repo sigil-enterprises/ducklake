@@ -301,6 +301,14 @@ vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() 
 		auto &metadata_manager = transaction.GetMetadataManager();
 		result = metadata_manager.GetExtendedFilesForTable(read_info.snapshot, read_info.table_id, filter);
 	}
+	if (transaction.HasDroppedFiles()) {
+		for(idx_t file_idx = 0; file_idx < result.size(); file_idx++) {
+			if (transaction.FileIsDropped(result[file_idx].path)) {
+				result.erase(result.begin() + file_idx);
+				file_idx--;
+			}
+		}
+	}
 	// if the transaction has any local deletes - apply them to the file list
 	if (transaction.HasLocalDeletes(read_info.table_id)) {
 		for(auto &file : result) {
@@ -336,6 +344,14 @@ const vector<DuckLakeFileListEntry> &DuckLakeMultiFileList::GetFiles() {
 			// not a transaction local table - read the file list from the metadata store
 			auto &metadata_manager = transaction.GetMetadataManager();
 			files = metadata_manager.GetFilesForTable(read_info.snapshot, read_info.table_id, filter);
+		}
+		if (transaction.HasDroppedFiles()) {
+			for(idx_t file_idx = 0; file_idx < files.size(); file_idx++) {
+				if (transaction.FileIsDropped(files[file_idx].path)) {
+					files.erase(files.begin() + file_idx);
+					file_idx--;
+				}
+			}
 		}
 		// if the transaction has any local deletes - apply them to the file list
 		if (transaction.HasLocalDeletes(read_info.table_id)) {

@@ -41,4 +41,3 @@ query II
 SELECT COUNT(*), COUNT(*) FILTER(WHERE id%2=0) FROM ducklake.test AT (VERSION => 2)
 ----
 2000	1000
-

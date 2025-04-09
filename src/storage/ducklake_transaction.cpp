@@ -59,7 +59,7 @@ bool DuckLakeTransaction::SchemaChangesMade() {
 }
 
 bool DuckLakeTransaction::ChangesMade() {
-	return SchemaChangesMade() || !new_data_files.empty() || !new_delete_files.empty();
+	return SchemaChangesMade() || !new_data_files.empty() || !new_delete_files.empty() || !dropped_files.empty();
 }
 
 struct TransactionChangeInformation {
@@ -906,6 +906,16 @@ void DuckLakeTransaction::FlushChanges() {
 				metadata_manager->WriteNewDataFiles(commit_snapshot, file_list);
 			}
 
+			// drop data files
+			if (!dropped_files.empty()) {
+				set<DataFileIndex> dropped_indexes;
+				for(auto &entry : dropped_files) {
+					dropped_indexes.insert(entry.second);
+				}
+				metadata_manager->DropDataFiles(commit_snapshot, dropped_indexes);
+			}
+
+			// write new delete files
 			if (!new_delete_files.empty()) {
 				set<DataFileIndex> overwritten_delete_files;
 				auto file_list = GetNewDeleteFiles(commit_snapshot, overwritten_delete_files);
@@ -1184,6 +1194,18 @@ void DuckLakeTransaction::DropView(DuckLakeViewEntry &view) {
 		auto view_id = view.GetViewId();
 		dropped_views.insert(view_id);
 	}
+}
+
+void DuckLakeTransaction::DropFile(DataFileIndex data_file_id, string path) {
+	dropped_files.emplace(std::move(path), data_file_id);
+}
+
+bool DuckLakeTransaction::HasDroppedFiles() const {
+	return !dropped_files.empty();
+}
+
+bool DuckLakeTransaction::FileIsDropped(const string &path) const {
+	return dropped_files.find(path) != dropped_files.end();
 }
 
 void DuckLakeTransaction::DropEntry(CatalogEntry &entry) {

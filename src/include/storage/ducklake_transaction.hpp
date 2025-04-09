@@ -74,6 +74,7 @@ public:
 	void DropSchema(DuckLakeSchemaEntry &schema);
 	void DropTable(DuckLakeTableEntry &table);
 	void DropView(DuckLakeViewEntry &view);
+	void DropFile(DataFileIndex data_file_id, string path);
 
 	bool SchemaChangesMade();
 	bool ChangesMade();
@@ -87,6 +88,9 @@ public:
 	bool HasLocalDeletes(TableIndex table_id);
 	void GetLocalDeleteForFile(TableIndex table_id, const string &path, string &result);
 	void TransactionLocalDelete(TableIndex table_id, const string &data_path, DuckLakeDeleteFile delete_file);
+
+	bool HasDroppedFiles() const;
+	bool FileIsDropped(const string &path) const;
 
 private:
 	void CleanupFiles();
@@ -128,6 +132,7 @@ private:
 	case_insensitive_map_t<unique_ptr<DuckLakeCatalogSet>> new_tables;
 	set<TableIndex> dropped_tables;
 	set<TableIndex> dropped_views;
+	unordered_map<string, DataFileIndex> dropped_files;
 	//! Schemas added by this transaction
 	unique_ptr<DuckLakeCatalogSet> new_schemas;
 	map<SchemaIndex, reference<DuckLakeSchemaEntry>> dropped_schemas;

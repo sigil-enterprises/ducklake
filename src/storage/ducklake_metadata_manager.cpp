@@ -629,6 +629,10 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
 	}
 }
 
+void DuckLakeMetadataManager::DropDataFiles(DuckLakeSnapshot commit_snapshot, const set<DataFileIndex> &dropped_files) {
+	FlushDrop(commit_snapshot, "ducklake_data_file", "data_file_id", dropped_files);
+}
+
 void DuckLakeMetadataManager::DropDeleteFiles(DuckLakeSnapshot commit_snapshot, const set<DataFileIndex> &dropped_files) {
 	FlushDrop(commit_snapshot, "ducklake_delete_file", "data_file_id", dropped_files);
 }
