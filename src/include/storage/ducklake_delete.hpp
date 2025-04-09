@@ -10,13 +10,15 @@
 
 #include "storage/ducklake_insert.hpp"
 #include "storage/ducklake_delete_filter.hpp"
+#include "storage/ducklake_metadata_info.hpp"
 
 namespace duckdb {
 class DuckLakeTableEntry;
 class DuckLakeDeleteGlobalState;
+class DuckLakeTransaction;
 
 struct DuckLakeDeleteMap {
-	unordered_map<string, DataFileIndex> file_index_map;
+	unordered_map<string, DuckLakeFileListExtendedEntry> file_map;
 	unordered_map<string, shared_ptr<DuckLakeDeleteData>> delete_data_map;
 };
 
@@ -59,8 +61,8 @@ public:
 	InsertionOrderPreservingMap<string> ParamsToString() const override;
 
 private:
-	void FlushDelete(ClientContext &context, DuckLakeDeleteGlobalState &global_state, const string &filename,
-	                 vector<idx_t> &deleted_rows) const;
+	void FlushDelete(DuckLakeTransaction &transaction, ClientContext &context, DuckLakeDeleteGlobalState &global_state,
+	                 const string &filename, vector<idx_t> &deleted_rows) const;
 };
 
 } // namespace duckdb

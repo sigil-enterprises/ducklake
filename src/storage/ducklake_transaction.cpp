@@ -1022,6 +1022,29 @@ vector<DuckLakeDataFile> DuckLakeTransaction::GetTransactionLocalFiles(TableInde
 	}
 }
 
+void DuckLakeTransaction::DropTransactionLocalFile(TableIndex table_id, const string &path) {
+	auto entry = new_data_files.find(table_id);
+	if (entry == new_data_files.end()) {
+		throw InternalException("DropTransactionLocalFile called for a table for which no transaction-local files exist");
+	}
+	auto &table_files = entry->second;
+	for(idx_t i = 0; i < table_files.size(); i++) {
+		auto &file = table_files[i];
+		if (file.file_name == path) {
+			// found the file - delete it from the table list and from disk
+			table_files.erase(table_files.begin() + i);
+			auto &fs = FileSystem::GetFileSystem(db);
+			fs.RemoveFile(path);
+			if (table_files.empty()) {
+				// no more files remaining
+				new_data_files.erase(table_id);
+			}
+			return;
+		}
+	}
+	throw InternalException("Failed to find matching transaction-local file for DropTransactionLocalFile");
+}
+
 void DuckLakeTransaction::AppendFiles(TableIndex table_id, vector<DuckLakeDataFile> files) {
 	auto entry = new_data_files.find(table_id);
 	if (entry != new_data_files.end()) {
@@ -1083,7 +1106,6 @@ void DuckLakeTransaction::TransactionLocalDelete(TableIndex table_id, const stri
 	if (entry == new_data_files.end()) {
 		throw InternalException("Transaction local delete called for table which does not have transaction local insertions");
 	}
-	bool found = false;
 	for(auto &file : entry->second) {
 		if (file.file_name == data_file_path) {
 			if (file.delete_file) {
@@ -1092,13 +1114,10 @@ void DuckLakeTransaction::TransactionLocalDelete(TableIndex table_id, const stri
 				fs.RemoveFile(file.delete_file->file_name);
 			}
 			file.delete_file = make_uniq<DuckLakeDeleteFile>(std::move(delete_file));
-			found = true;
-			break;
+			return;
 		}
 	}
-	if (!found) {
-		throw InternalException("Failed to find matching transaction-local file for written delete file");
-	}
+	throw InternalException("Failed to find matching transaction-local file for written delete file");
 }
 
 DuckLakeTransaction &DuckLakeTransaction::Get(ClientContext &context, Catalog &catalog) {

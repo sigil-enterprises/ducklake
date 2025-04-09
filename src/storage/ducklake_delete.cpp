@@ -129,7 +129,49 @@ SinkCombineResultType DuckLakeDelete::Combine(ExecutionContext &context, Operato
 //===--------------------------------------------------------------------===//
 // Finalize
 //===--------------------------------------------------------------------===//
-void DuckLakeDelete::FlushDelete(ClientContext &context, DuckLakeDeleteGlobalState &global_state, const string &filename, vector<idx_t> &deleted_rows) const {
+void DuckLakeDelete::FlushDelete(DuckLakeTransaction &transaction, ClientContext &context, DuckLakeDeleteGlobalState &global_state, const string &filename, vector<idx_t> &deleted_rows) const {
+	// find the matching data file for the deletion
+	auto delete_entry = delete_map->file_map.find(filename);
+	if (delete_entry == delete_map->file_map.end()) {
+		throw InternalException("Could not find matching file for written delete file");
+	}
+	auto &data_file_info = delete_entry->second;
+
+	// sort and duplicate eliminate the deletes
+	set<idx_t> sorted_deletes;
+	for(auto &row_idx : deleted_rows) {
+		sorted_deletes.insert(row_idx);
+	}
+	DuckLakeDeleteFile delete_file;
+	delete_file.data_file_path = filename;
+	delete_file.data_file_id = data_file_info.file_id;
+	// check if the file already has deletes
+	auto entry = delete_map->delete_data_map.find(filename);
+	if (entry != delete_map->delete_data_map.end()) {
+		// deletes already exist for this file - add to set of deletes to write
+		auto &existing_deletes = entry->second->deleted_rows;
+		sorted_deletes.insert(existing_deletes.begin(), existing_deletes.end());
+
+		// clear the deletes
+		delete_map->delete_data_map.erase(entry);
+
+		// set the delete file as overwriting existing deletes
+		delete_file.overwrites_existing_delete = true;
+	}
+	if (sorted_deletes.size() == data_file_info.row_count) {
+		// ALL rows in this file are deleted - we don't need to write the deletes out to a file
+		// we can just invalidate the source data file directly
+		if (delete_file.data_file_id.IsValid()) {
+			// persistent file - invalidate in the transaction
+			throw InternalException("FIXME: invalidate file");
+		} else {
+			// transaction-local file - we can drop the file directly
+			transaction.DropTransactionLocalFile(table.GetTableId(), data_file_info.path);
+		}
+		return;
+	}
+
+
 	auto &fs = FileSystem::GetFileSystem(context);
 	auto delete_file_uuid = UUID::ToString(UUID::GenerateRandomUUID()) + "-delete.parquet";
 	string delete_file_path = fs.JoinPath(table.DataPath(), delete_file_uuid);
@@ -174,25 +216,6 @@ void DuckLakeDelete::FlushDelete(ClientContext &context, DuckLakeDeleteGlobalSta
 	copy_to_file.return_type = CopyFunctionReturnType::WRITTEN_FILE_STATISTICS;
 	copy_to_file.write_partition_columns = false;
 
-	DuckLakeDeleteFile delete_file;
-	delete_file.data_file_path = filename;
-	// check if the file already has deletes
-	auto entry = delete_map->delete_data_map.find(filename);
-	if (entry != delete_map->delete_data_map.end()) {
-		// deletes already exist for this file - add to deleted_rows
-		auto &existing_deletes = entry->second->deleted_rows;
-		deleted_rows.insert(deleted_rows.end(), existing_deletes.begin(), existing_deletes.end());
-
-		// clear the deletes
-		delete_map->delete_data_map.erase(entry);
-
-		// set the delete file as overwriting existing deletes
-		delete_file.overwrites_existing_delete = true;
-	}
-
-	// sort the to-be-inserted file numbers
-	std::sort(deleted_rows.begin(), deleted_rows.end());
-
 	// run the copy to file
 	vector<LogicalType> write_types;
 	write_types.push_back(LogicalType::VARCHAR);
@@ -216,16 +239,17 @@ void DuckLakeDelete::FlushDelete(ClientContext &context, DuckLakeDeleteGlobalSta
 	OperatorSinkInput sink_input {*gstate, *lstate, interrupt_state};
 	idx_t row_count = 0;
 	auto row_data = FlatVector::GetData<int64_t>(write_chunk.data[1]);
-	for(idx_t i = 0; i < deleted_rows.size(); i++) {
-		row_data[row_count] = deleted_rows[i];
-		if (i == 0 || deleted_rows[i] != deleted_rows[i - 1]) {
-			row_count++;
-		}
-		if (row_count >= STANDARD_VECTOR_SIZE || i + 1 == deleted_rows.size()) {
+	for(auto &row_idx : sorted_deletes) {
+		row_data[row_count++] = row_idx;
+		if (row_count >= STANDARD_VECTOR_SIZE) {
 			write_chunk.SetCardinality(row_count);
 			copy_to_file.Sink(execution_context, write_chunk, sink_input);
 			row_count = 0;
 		}
+	}
+	if (row_count > 0) {
+		write_chunk.SetCardinality(row_count);
+		copy_to_file.Sink(execution_context, write_chunk, sink_input);
 	}
 	OperatorSinkCombineInput combine_input {*gstate, *lstate, interrupt_state};
 	copy_to_file.Combine(execution_context, combine_input);
@@ -257,22 +281,16 @@ SinkFinalizeType DuckLakeDelete::Finalize(Pipeline &pipeline, Event &event, Clie
                                           OperatorSinkFinalizeInput &input) const {
  	auto &global_state = input.global_state.Cast<DuckLakeDeleteGlobalState>();
 
+	auto &transaction = DuckLakeTransaction::Get(context, table.catalog);
 	// write out the delete rows
 	for(auto &entry : global_state.deleted_rows) {
-		FlushDelete(context, global_state, entry.first, entry.second);
+		FlushDelete(transaction, context, global_state, entry.first, entry.second);
 	}
-	auto &transaction = DuckLakeTransaction::Get(context, table.catalog);
 	vector<DuckLakeDeleteFile> delete_files;
 	for(auto &entry : global_state.written_files) {
 		auto &data_file_path = entry.first;
 		auto delete_file = std::move(entry.second);
-		auto delete_entry = delete_map->file_index_map.find(data_file_path);
-		if (delete_entry == delete_map->file_index_map.end()) {
-			throw InternalException("Could not find matching file for written delete file");
-		}
-		auto data_file_id = delete_entry->second;
-		delete_file.data_file_id = data_file_id;
-		if (data_file_id.IsValid()) {
+		if (delete_file.data_file_id.IsValid()) {
 			// deleting from a committed file - add to delete files directly
 			delete_files.push_back(std::move(delete_file));
 		} else {
@@ -344,9 +362,10 @@ PhysicalOperator &DuckLakeCatalog::PlanDelete(ClientContext &context, PhysicalPl
 	    auto &reader = bind_data.multi_file_reader->Cast<DuckLakeMultiFileReader>();
 	    auto &file_list = bind_data.file_list->Cast<DuckLakeMultiFileList>();
 	    auto files = file_list.GetFilesExtended();
-	    auto &delete_file_map = delete_map->file_index_map;
+	    auto &delete_file_map = delete_map->file_map;
 	    for(auto &file : files) {
-	    	delete_file_map[file.path] = file.file_id;
+	    	auto file_path = file.path;
+	    	delete_file_map[file_path] = std::move(file);
 	    }
 	    reader.delete_map = delete_map;
     }

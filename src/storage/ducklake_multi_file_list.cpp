@@ -293,7 +293,6 @@ string DuckLakeMultiFileList::GetDeletedFile(idx_t file_idx) {
 	return files[file_idx].delete_path;
 }
 
-// FIXME: get extended info for deletes including row count per file and delete file id
 vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() {
 	lock_guard<mutex> l(file_lock);
 	vector<DuckLakeFileListExtendedEntry> result;
