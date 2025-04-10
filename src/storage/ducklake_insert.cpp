@@ -324,27 +324,9 @@ PhysicalOperator &DuckLakeCatalog::PlanInsert(ClientContext &context, PhysicalPl
 		throw BinderException("ON CONFLICT clause not yet supported for insertion into DuckLake table");
 	}
 	if (!op.column_index_map.empty()) {
-		// push a projection
-		// columns specified by the user, push a projection
-		vector<LogicalType> types;
-		vector<unique_ptr<Expression>> select_list;
-		for (auto &col : op.table.GetColumns().Physical()) {
-			auto storage_idx = col.StorageOid();
-			auto mapped_index = op.column_index_map[col.Physical()];
-			if (mapped_index == DConstants::INVALID_INDEX) {
-				// push default value
-				select_list.push_back(std::move(op.bound_defaults[storage_idx]));
-			} else {
-				// push reference
-				select_list.push_back(make_uniq<BoundReferenceExpression>(col.Type(), mapped_index));
-			}
-			types.push_back(col.Type());
-		}
-		auto &proj =
-		    planner.Make<PhysicalProjection>(std::move(types), std::move(select_list), plan->estimated_cardinality);
-		proj.children.push_back(*plan);
-		plan = proj;
+		plan = planner.ResolveDefaultsProjection(op, *plan);
 	}
+
 	auto &ducklake_table = op.table.Cast<DuckLakeTableEntry>();
 	auto &physical_copy = DuckLakeInsert::PlanCopyForInsert(context, planner, ducklake_table, plan);
 	auto &insert = DuckLakeInsert::PlanInsert(context, planner, ducklake_table);
