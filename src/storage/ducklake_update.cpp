@@ -19,8 +19,6 @@ class DuckLakeUpdateGlobalState : public GlobalSinkState {
 public:
 	DuckLakeUpdateGlobalState() : total_updated_count(0) {}
 
-	unique_ptr<GlobalSinkState> copy_global_state;
-	unique_ptr<GlobalSinkState> delete_global_state;
 	atomic<idx_t> total_updated_count;
 };
 
@@ -35,8 +33,8 @@ public:
 
 unique_ptr<GlobalSinkState> DuckLakeUpdate::GetGlobalSinkState(ClientContext &context) const {
 	auto result = make_uniq<DuckLakeUpdateGlobalState>();
-	result->copy_global_state = copy_op.GetGlobalSinkState(context);
-	result->delete_global_state = delete_op.GetGlobalSinkState(context);
+	copy_op.sink_state = copy_op.GetGlobalSinkState(context);
+	delete_op.sink_state = delete_op.GetGlobalSinkState(context);
 	return std::move(result);
 }
 
@@ -57,7 +55,6 @@ unique_ptr<LocalSinkState> DuckLakeUpdate::GetLocalSinkState(ExecutionContext &c
 // Sink
 //===--------------------------------------------------------------------===//
 SinkResultType DuckLakeUpdate::Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const {
-	auto &gstate = input.global_state.Cast<DuckLakeUpdateGlobalState>();
 	auto &lstate = input.local_state.Cast<DuckLakeUpdateLocalState>();
 
 	// push the to-be-inserted data into the copy
@@ -66,7 +63,7 @@ SinkResultType DuckLakeUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 	for (idx_t i = 0; i < columns.size(); i++) {
 		insert_chunk.data[columns[i].index].Reference(chunk.data[i]);
 	}
-	OperatorSinkInput copy_input {*gstate.copy_global_state, *lstate.copy_local_state, input.interrupt_state};
+	OperatorSinkInput copy_input {*copy_op.sink_state, *lstate.copy_local_state, input.interrupt_state};
 	copy_op.Sink(context, insert_chunk, copy_input);
 
 	// push the rowids into the delete
@@ -76,7 +73,7 @@ SinkResultType DuckLakeUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 	delete_chunk.data[0].Reference(chunk.data[delete_idx_start]);
 	delete_chunk.data[1].Reference(chunk.data[delete_idx_start + 1]);
 
-	OperatorSinkInput delete_input {*gstate.delete_global_state, *lstate.delete_local_state, input.interrupt_state};
+	OperatorSinkInput delete_input {*delete_op.sink_state, *lstate.delete_local_state, input.interrupt_state};
 	delete_op.Sink(context, delete_chunk, delete_input);
 
 	lstate.updated_count += chunk.size();
@@ -89,12 +86,12 @@ SinkResultType DuckLakeUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 SinkCombineResultType DuckLakeUpdate::Combine(ExecutionContext &context, OperatorSinkCombineInput &input) const {
 	auto &global_state = input.global_state.Cast<DuckLakeUpdateGlobalState>();
 	auto &local_state = input.local_state.Cast<DuckLakeUpdateLocalState>();
-	OperatorSinkCombineInput copy_combine_input {*global_state.copy_global_state, *local_state.copy_local_state, input.interrupt_state};
+	OperatorSinkCombineInput copy_combine_input {*copy_op.sink_state, *local_state.copy_local_state, input.interrupt_state};
 	auto result = copy_op.Combine(context, copy_combine_input);
 	if (result != SinkCombineResultType::FINISHED) {
 		throw InternalException("DuckLakeUpdate::Combine does not support async child operators");
 	}
-	OperatorSinkCombineInput del_combine_input {*global_state.delete_global_state, *local_state.delete_local_state, input.interrupt_state};
+	OperatorSinkCombineInput del_combine_input {*delete_op.sink_state, *local_state.delete_local_state, input.interrupt_state};
 	result = delete_op.Combine(context, del_combine_input);
 	if (result != SinkCombineResultType::FINISHED) {
 		throw InternalException("DuckLakeUpdate::Combine does not support async child operators");
@@ -107,20 +104,18 @@ SinkCombineResultType DuckLakeUpdate::Combine(ExecutionContext &context, Operato
 // Finalize
 //===--------------------------------------------------------------------===//
 SinkFinalizeType DuckLakeUpdate::Finalize(Pipeline &pipeline, Event &event, ClientContext &context, OperatorSinkFinalizeInput &input) const {
-	auto &global_state = input.global_state.Cast<DuckLakeUpdateGlobalState>();
-	OperatorSinkFinalizeInput copy_finalize_input {*global_state.copy_global_state, input.interrupt_state};
+	OperatorSinkFinalizeInput copy_finalize_input {*copy_op.sink_state, input.interrupt_state};
 	auto result = copy_op.Finalize(pipeline, event, context, copy_finalize_input);
 	if (result != SinkFinalizeType::READY) {
 		throw InternalException("DuckLakeUpdate::Finalize does not support async child operators");
 	}
-	OperatorSinkFinalizeInput del_finalize_input {*global_state.delete_global_state,input.interrupt_state};
+	OperatorSinkFinalizeInput del_finalize_input {*delete_op.sink_state,input.interrupt_state};
 	result = delete_op.Finalize(pipeline, event, context, del_finalize_input);
 	if (result != SinkFinalizeType::READY) {
 		throw InternalException("DuckLakeUpdate::Finalize does not support async child operators");
 	}
 
 	// scan the copy operator and sink into the insert operator
-	copy_op.sink_state = std::move(global_state.copy_global_state);
 	ThreadContext thread_context(context);
 	ExecutionContext execution_context(context, thread_context, nullptr);
 	auto global_source = copy_op.GetGlobalSourceState(context);
