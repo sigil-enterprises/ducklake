@@ -17,13 +17,13 @@
 
 namespace duckdb {
 
-DuckLakeInsert::DuckLakeInsert(LogicalOperator &op, DuckLakeTableEntry &table, optional_idx partition_id)
-    : PhysicalOperator(PhysicalOperatorType::EXTENSION, op.types, 1), table(&table), schema(nullptr),
+DuckLakeInsert::DuckLakeInsert(const vector<LogicalType> &types, DuckLakeTableEntry &table, optional_idx partition_id)
+    : PhysicalOperator(PhysicalOperatorType::EXTENSION, types, 1), table(&table), schema(nullptr),
       partition_id(partition_id) {
 }
 
-DuckLakeInsert::DuckLakeInsert(LogicalOperator &op, SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info)
-    : PhysicalOperator(PhysicalOperatorType::EXTENSION, op.types, 1), table(nullptr), schema(&schema),
+DuckLakeInsert::DuckLakeInsert(const vector<LogicalType> &types, SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info)
+    : PhysicalOperator(PhysicalOperatorType::EXTENSION, types, 1), table(nullptr), schema(&schema),
       info(std::move(info)) {
 }
 
@@ -55,11 +55,6 @@ unique_ptr<GlobalSinkState> DuckLakeInsert::GetGlobalSinkState(ClientContext &co
 	}
 	return make_uniq<DuckLakeInsertGlobalState>(*table_ptr);
 }
-
-//
-// unique_ptr<LocalSinkState> DuckLakeInsert::GetLocalSinkState(ExecutionContext &context) const {
-//     return physical_copy_to_file->GetLocalSinkState(context);
-// }
 
 //===--------------------------------------------------------------------===//
 // Sink
@@ -223,13 +218,13 @@ Value WrittenFieldIds(DuckLakeFieldData &field_data) {
 	return Value::STRUCT(std::move(values));
 }
 
-PhysicalOperator &DuckLakeCatalog::PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
+PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
                                                      PhysicalPlanGenerator &planner,
                                                      optional_ptr<DuckLakePartition> partition_data,
                                                      optional_ptr<DuckLakeFieldData> field_data,
-                                                     optional_ptr<PhysicalOperator> plan) {
+                                                     optional_ptr<PhysicalOperator> plan, const string &data_path) {
 	auto info = make_uniq<CopyInfo>();
-	info->file_path = DataPath();
+	info->file_path = data_path;
 	info->format = "parquet";
 	info->is_from = false;
 	// generate the field ids to be written by the parquet writer
@@ -298,6 +293,28 @@ PhysicalOperator &DuckLakeCatalog::PlanCopyForInsert(ClientContext &context, con
 	return physical_copy;
 }
 
+PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, PhysicalPlanGenerator &planner, DuckLakeTableEntry &table, optional_ptr<PhysicalOperator> plan) {
+	auto &columns = table.GetColumns();
+	auto partition_data = table.GetPartitionData();
+	optional_idx partition_id;
+	if (partition_data) {
+		partition_id = partition_data->partition_id;
+	}
+	auto &field_data = table.GetFieldData();
+	return PlanCopyForInsert(context, columns, planner, partition_data, field_data, plan, table.DataPath());
+}
+
+PhysicalOperator &DuckLakeInsert::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner, DuckLakeTableEntry &table) {
+	auto partition_data = table.GetPartitionData();
+	optional_idx partition_id;
+	if (partition_data) {
+		partition_id = partition_data->partition_id;
+	}
+	vector<LogicalType> return_types;
+	return_types.emplace_back(LogicalType::BIGINT);
+	return planner.Make<DuckLakeInsert>(return_types, table, partition_id);
+}
+
 PhysicalOperator &DuckLakeCatalog::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner, LogicalInsert &op,
                                               optional_ptr<PhysicalOperator> plan) {
 	if (op.return_chunk) {
@@ -328,18 +345,9 @@ PhysicalOperator &DuckLakeCatalog::PlanInsert(ClientContext &context, PhysicalPl
 		proj.children.push_back(*plan);
 		plan = proj;
 	}
-	// op.bound_defaults
 	auto &ducklake_table = op.table.Cast<DuckLakeTableEntry>();
-	auto &columns = ducklake_table.GetColumns();
-	auto partition_data = ducklake_table.GetPartitionData();
-	optional_idx partition_id;
-	if (partition_data) {
-		partition_id = partition_data->partition_id;
-	}
-	auto &field_data = ducklake_table.GetFieldData();
-
-	auto &physical_copy = PlanCopyForInsert(context, columns, planner, partition_data, field_data, plan);
-	auto &insert = planner.Make<DuckLakeInsert>(op, ducklake_table, partition_id);
+	auto &physical_copy = DuckLakeInsert::PlanCopyForInsert(context, planner, ducklake_table, plan);
+	auto &insert = DuckLakeInsert::PlanInsert(context, planner, ducklake_table);
 	insert.children.push_back(physical_copy);
 	return insert;
 }
@@ -349,8 +357,8 @@ PhysicalOperator &DuckLakeCatalog::PlanCreateTableAs(ClientContext &context, Phy
 	auto &create_info = op.info->Base();
 	auto &columns = create_info.columns;
 	// FIXME: if table already exists and we are doing CREATE IF NOT EXISTS - skip
-	auto &physical_copy = PlanCopyForInsert(context, columns, planner, nullptr, nullptr, plan);
-	auto &insert = planner.Make<DuckLakeInsert>(op, op.schema, std::move(op.info));
+	auto &physical_copy = DuckLakeInsert::PlanCopyForInsert(context, columns, planner, nullptr, nullptr, plan, DataPath());
+	auto &insert = planner.Make<DuckLakeInsert>(op.types, op.schema, std::move(op.info));
 	insert.children.push_back(physical_copy);
 	return insert;
 }

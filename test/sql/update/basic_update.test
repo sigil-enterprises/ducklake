@@ -1,0 +1,44 @@
+# name: test/sql/update/basic_update.test
+# description: Test ducklake updates
+# group: [ducklake]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_update.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_update_files');
+
+statement ok
+CREATE TABLE ducklake.test AS SELECT 1000 + i id, i % 10 as val FROM range(1000) t(i);
+
+statement ok
+BEGIN
+
+query III
+SELECT COUNT(*), SUM(id), SUM(val) FROM ducklake.test
+----
+1000	1499500	4500
+
+query I
+UPDATE ducklake.test SET id=id+2 WHERE id%2=0
+----
+500
+
+query III
+SELECT COUNT(*), SUM(id), SUM(val) FROM ducklake.test
+----
+1000	1500500	4500
+
+statement ok
+COMMIT
+
+query III
+SELECT COUNT(*), SUM(id), SUM(val) FROM ducklake.test
+----
+1000	1500500	4500
+
+query III
+SELECT COUNT(*), SUM(id), SUM(val) FROM ducklake.test AT (VERSION => 2)
+----
+1000	1499500	4500

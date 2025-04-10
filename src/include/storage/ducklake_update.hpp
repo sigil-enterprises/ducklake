@@ -1,7 +1,7 @@
 //===----------------------------------------------------------------------===//
 //                         DuckDB
 //
-// storage/ducklake_delete.hpp
+// storage/ducklake_update.hpp
 //
 //
 //===----------------------------------------------------------------------===//
@@ -9,27 +9,21 @@
 #pragma once
 
 #include "storage/ducklake_insert.hpp"
-#include "storage/ducklake_delete_filter.hpp"
-#include "storage/ducklake_metadata_info.hpp"
 
 namespace duckdb {
-class DuckLakeTableEntry;
-class DuckLakeDeleteGlobalState;
-class DuckLakeTransaction;
 
-struct DuckLakeDeleteMap {
-	unordered_map<string, DuckLakeFileListExtendedEntry> file_map;
-	unordered_map<string, shared_ptr<DuckLakeDeleteData>> delete_data_map;
-};
-
-class DuckLakeDelete : public PhysicalOperator {
+class DuckLakeUpdate : public PhysicalOperator {
 public:
-	DuckLakeDelete(DuckLakeTableEntry &table, PhysicalOperator &child, shared_ptr<DuckLakeDeleteMap> delete_map);
+	DuckLakeUpdate(DuckLakeTableEntry &table, PhysicalOperator &child, PhysicalOperator &copy_op, PhysicalOperator &delete_op, PhysicalOperator &insert_op);
 
-	//! The table to delete from
+	//! The table to update
 	DuckLakeTableEntry &table;
-	//! A map of filename -> data file index and filename -> delete data
-	shared_ptr<DuckLakeDeleteMap> delete_map;
+	//! The copy operator for writing new data to files
+	PhysicalOperator &copy_op;
+	//! The delete operator for deleting the old data
+	PhysicalOperator &delete_op;
+	//! The (final) insert operator that registers inserted data
+	PhysicalOperator &insert_op;
 
 public:
 	// // Source interface
@@ -38,8 +32,6 @@ public:
 	bool IsSource() const override {
 		return true;
 	}
-
-	static PhysicalOperator &PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, DuckLakeTableEntry &table, PhysicalOperator &child_plan);
 
 public:
 	// Sink interface
@@ -60,10 +52,6 @@ public:
 
 	string GetName() const override;
 	InsertionOrderPreservingMap<string> ParamsToString() const override;
-
-private:
-	void FlushDelete(DuckLakeTransaction &transaction, ClientContext &context, DuckLakeDeleteGlobalState &global_state,
-	                 const string &filename, vector<idx_t> &deleted_rows) const;
 };
 
 } // namespace duckdb

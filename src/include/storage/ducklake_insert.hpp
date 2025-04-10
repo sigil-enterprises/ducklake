@@ -16,13 +16,15 @@
 
 namespace duckdb {
 class DuckLakeTableEntry;
+class DuckLakeFieldData;
+struct DuckLakePartition;
 
 class DuckLakeInsert : public PhysicalOperator {
 public:
 	//! INSERT INTO
-	DuckLakeInsert(LogicalOperator &op, DuckLakeTableEntry &table, optional_idx partition_id);
+	DuckLakeInsert(const vector<LogicalType> &types, DuckLakeTableEntry &table, optional_idx partition_id);
 	//! CREATE TABLE AS
-	DuckLakeInsert(LogicalOperator &op, SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info);
+	DuckLakeInsert(const vector<LogicalType> &types, SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info);
 
 	//! The table to insert into
 	optional_ptr<DuckLakeTableEntry> table;
@@ -33,6 +35,7 @@ public:
 	//! The partition id we are writing into (if any)
 	optional_idx partition_id;
 
+
 public:
 	// // Source interface
 	SourceResultType GetData(ExecutionContext &context, DataChunk &chunk, OperatorSourceInput &input) const override;
@@ -42,6 +45,12 @@ public:
 	}
 
 	static DuckLakeColumnStats ParseColumnStats(const LogicalType &type, const vector<Value> stats);
+	static PhysicalOperator &PlanCopyForInsert(ClientContext &context, PhysicalPlanGenerator &planner, DuckLakeTableEntry &table, optional_ptr<PhysicalOperator> plan);
+	static PhysicalOperator &PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
+										PhysicalPlanGenerator &planner, optional_ptr<DuckLakePartition> partition_data,
+										optional_ptr<DuckLakeFieldData> field_data,
+										optional_ptr<PhysicalOperator> plan, const string &data_path);
+	static PhysicalOperator &PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner, DuckLakeTableEntry &table);
 
 public:
 	// Sink interface

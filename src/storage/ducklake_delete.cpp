@@ -353,8 +353,7 @@ optional_ptr<PhysicalTableScan> FindDeleteSource(PhysicalOperator &plan) {
 	return nullptr;
 }
 
-PhysicalOperator &DuckLakeCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op,
-                                              PhysicalOperator &child_plan) {
+PhysicalOperator &DuckLakeDelete::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, DuckLakeTableEntry &table, PhysicalOperator &child_plan) {
     auto delete_source = FindDeleteSource(child_plan);
 	auto delete_map = make_shared_ptr<DuckLakeDeleteMap>();
     if (delete_source) {
@@ -369,7 +368,15 @@ PhysicalOperator &DuckLakeCatalog::PlanDelete(ClientContext &context, PhysicalPl
 	    }
 	    reader.delete_map = delete_map;
     }
-	return planner.Make<DuckLakeDelete>(op.table.Cast<DuckLakeTableEntry>(), child_plan, std::move(delete_map));
+	return planner.Make<DuckLakeDelete>(table, child_plan, std::move(delete_map));
+}
+
+PhysicalOperator &DuckLakeCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op,
+                                              PhysicalOperator &child_plan) {
+	if (op.return_chunk) {
+		throw BinderException("RETURNING clause not yet supported for deletion of a DuckLake table");
+	}
+	return DuckLakeDelete::PlanDelete(context, planner, op.table.Cast<DuckLakeTableEntry>(), child_plan);
 }
 
 } // namespace duckdb

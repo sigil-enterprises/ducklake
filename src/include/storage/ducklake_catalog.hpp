@@ -81,10 +81,6 @@ private:
 	//! Return the schema for the given snapshot - loading it if it is not yet loaded
 	DuckLakeCatalogSet &GetSchemaForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
 	unique_ptr<DuckLakeCatalogSet> LoadSchemaForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
-	PhysicalOperator &PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
-	                                    PhysicalPlanGenerator &planner, optional_ptr<DuckLakePartition> partition_data,
-	                                    optional_ptr<DuckLakeFieldData> field_data,
-	                                    optional_ptr<PhysicalOperator> plan);
 	DuckLakeStats &GetStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
 	unique_ptr<DuckLakeStats> LoadStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
 	                                               DuckLakeCatalogSet &schema);

@@ -979,9 +979,4 @@ TableStorageInfo DuckLakeTableEntry::GetStorageInfo(ClientContext &context) {
 	return TableStorageInfo();
 }
 
-void DuckLakeTableEntry::BindUpdateConstraints(Binder &binder, LogicalGet &get, LogicalProjection &proj,
-                                               LogicalUpdate &update, ClientContext &context) {
-	throw InternalException("Unsupported function BindUpdateConstraints for table entry");
-}
-
 } // namespace duckdb
