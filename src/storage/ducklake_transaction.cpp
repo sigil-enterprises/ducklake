@@ -70,7 +70,8 @@ struct TransactionChangeInformation {
 	set<TableIndex> altered_views;
 	set<TableIndex> dropped_tables;
 	set<TableIndex> dropped_views;
-	set<TableIndex> inserted_tables;
+	set<TableIndex> tables_inserted_into;
+	set<TableIndex> tables_deleted_from;
 };
 
 void GetTransactionTableChanges(reference<CatalogEntry> table_entry, TransactionChangeInformation &changes) {
@@ -182,7 +183,12 @@ TransactionChangeInformation DuckLakeTransaction::GetTransactionChanges() {
 			// don't report transaction-local tables yet - these will get added later on
 			continue;
 		}
-		changes.inserted_tables.insert(table_id);
+		changes.tables_inserted_into.insert(table_id);
+	}
+	changes.tables_deleted_from = tables_deleted_from;
+	for (auto &entry : new_delete_files) {
+		auto table_id = entry.first;
+		changes.tables_deleted_from.insert(table_id);
 	}
 	return changes;
 }
@@ -194,7 +200,12 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 	// re-add all inserted tables - transaction-local table identifiers should have been converted at this stage
 	for (auto &entry : new_data_files) {
 		auto table_id = entry.first;
-		changes.inserted_tables.insert(table_id);
+		changes.tables_inserted_into.insert(table_id);
+	}
+	changes.tables_deleted_from = tables_deleted_from;
+	for (auto &entry : new_delete_files) {
+		auto table_id = entry.first;
+		changes.tables_deleted_from.insert(table_id);
 	}
 	for (auto &entry : changes.dropped_schemas) {
 		if (!change_info.changes_made.empty()) {
@@ -237,12 +248,19 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 			change_info.changes_made += schema_prefix + KeywordHelper::WriteQuoted(created_table.get().name, '"');
 		}
 	}
-	for (auto &inserted_table_idx : changes.inserted_tables) {
+	for (auto &inserted_table_idx : changes.tables_inserted_into) {
 		if (!change_info.changes_made.empty()) {
 			change_info.changes_made += ",";
 		}
 		change_info.changes_made += "inserted_into_table:";
 		change_info.changes_made += to_string(inserted_table_idx.index);
+	}
+	for (auto &table_idx : changes.tables_deleted_from) {
+		if (!change_info.changes_made.empty()) {
+			change_info.changes_made += ",";
+		}
+		change_info.changes_made += "deleted_from_table:";
+		change_info.changes_made += to_string(table_idx.index);
 	}
 	for (auto &altered_table_idx : changes.altered_tables) {
 		if (!change_info.changes_made.empty()) {
@@ -343,7 +361,7 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 			}
 		}
 	}
-	for (auto &table_id : changes.inserted_tables) {
+	for (auto &table_id : changes.tables_inserted_into) {
 		auto dropped_entry = other_changes.dropped_tables.find(table_id);
 		if (dropped_entry != other_changes.dropped_tables.end()) {
 			// trying to insert into a table that was dropped
@@ -357,6 +375,29 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 			throw TransactionException("Transaction conflict - attempting to insert into table with id %d"
 			                           " - but this table has been altered by another transaction",
 			                           table_id.index);
+		}
+	}
+	for (auto &table_id : changes.tables_deleted_from) {
+		auto dropped_entry = other_changes.dropped_tables.find(table_id);
+		if (dropped_entry != other_changes.dropped_tables.end()) {
+			// trying to delete from a table that was dropped
+			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
+									   " - but this table has been dropped by another transaction",
+									   table_id.index);
+		}
+		auto alter_entry = other_changes.altered_tables.find(table_id);
+		if (alter_entry != other_changes.altered_tables.end()) {
+			// trying to delete from a table that was altered
+			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
+									   " - but this table has been altered by another transaction",
+									   table_id.index);
+		}
+		auto delete_entry = other_changes.tables_deleted_from.find(table_id);
+		if (delete_entry != other_changes.tables_deleted_from.end()) {
+			// trying to delete from a table that was deleted from
+			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
+									   " - but this table has been deleted from by another transaction",
+									   table_id.index);
 		}
 	}
 	for (auto &table_id : changes.altered_tables) {
@@ -1196,7 +1237,8 @@ void DuckLakeTransaction::DropView(DuckLakeViewEntry &view) {
 	}
 }
 
-void DuckLakeTransaction::DropFile(DataFileIndex data_file_id, string path) {
+void DuckLakeTransaction::DropFile(TableIndex table_id, DataFileIndex data_file_id, string path) {
+	tables_deleted_from.insert(table_id);
 	dropped_files.emplace(std::move(path), data_file_id);
 }
 

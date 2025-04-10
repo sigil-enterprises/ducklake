@@ -163,7 +163,7 @@ void DuckLakeDelete::FlushDelete(DuckLakeTransaction &transaction, ClientContext
 		// we can just invalidate the source data file directly
 		if (delete_file.data_file_id.IsValid()) {
 			// persistent file - drop the file as part of the transaction
-			transaction.DropFile(delete_file.data_file_id, data_file_info.path);
+			transaction.DropFile(table.GetTableId(), delete_file.data_file_id, data_file_info.path);
 		} else {
 			// transaction-local file - we can drop the file directly
 			transaction.DropTransactionLocalFile(table.GetTableId(), data_file_info.path);

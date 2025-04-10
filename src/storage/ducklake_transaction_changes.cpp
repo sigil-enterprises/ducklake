@@ -11,6 +11,7 @@ enum class ChangeType {
 	DROPPED_TABLE,
 	DROPPED_VIEW,
 	INSERTED_INTO_TABLE,
+	DELETED_FROM_TABLE,
 	ALTERED_TABLE,
 	ALTERED_VIEW
 };
@@ -46,6 +47,8 @@ ChangeType ParseChangeType(const string &changes_made, idx_t &pos) {
 		return ChangeType::ALTERED_TABLE;
 	} else if (StringUtil::CIEquals(change_type_str, "altered_view")) {
 		return ChangeType::ALTERED_VIEW;
+	} else if (StringUtil::CIEquals(change_type_str, "deleted_from_table")) {
+		return ChangeType::DELETED_FROM_TABLE;
 	} else {
 		throw InvalidInputException("Unsupported change type %s", change_type_str);
 	}
@@ -127,6 +130,9 @@ SnapshotChangeInformation SnapshotChangeInformation::ParseChangesMade(const stri
 			break;
 		case ChangeType::INSERTED_INTO_TABLE:
 			result.inserted_tables.insert(TableIndex(StringUtil::ToUnsigned(entry.change_value)));
+			break;
+		case ChangeType::DELETED_FROM_TABLE:
+			result.tables_deleted_from.insert(TableIndex(StringUtil::ToUnsigned(entry.change_value)));
 			break;
 		case ChangeType::ALTERED_TABLE:
 			result.altered_tables.insert(TableIndex(StringUtil::ToUnsigned(entry.change_value)));

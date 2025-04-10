@@ -144,3 +144,12 @@ query III
 SELECT snapshot_id, schema_version, changes FROM ducklake_snapshots('ducklake') WHERE snapshot_id=12
 ----
 12	11	{views_altered=[9]}
+
+# deletes
+statement ok
+DELETE FROM ducklake.s1.tbl
+
+query III
+SELECT snapshot_id, schema_version, changes FROM ducklake_snapshots('ducklake') WHERE snapshot_id=13
+----
+13	11	{tables_deleted_from=[4]}
