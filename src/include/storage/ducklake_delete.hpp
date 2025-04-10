@@ -39,7 +39,8 @@ public:
 		return true;
 	}
 
-	static PhysicalOperator &PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, DuckLakeTableEntry &table, PhysicalOperator &child_plan);
+	static PhysicalOperator &PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner,
+	                                    DuckLakeTableEntry &table, PhysicalOperator &child_plan);
 
 public:
 	// Sink interface

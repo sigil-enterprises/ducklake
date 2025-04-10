@@ -14,10 +14,13 @@ namespace duckdb {
 
 class DuckLakeUpdate : public PhysicalOperator {
 public:
-	DuckLakeUpdate(DuckLakeTableEntry &table, PhysicalOperator &child, PhysicalOperator &copy_op, PhysicalOperator &delete_op, PhysicalOperator &insert_op);
+	DuckLakeUpdate(DuckLakeTableEntry &table, vector<PhysicalIndex> columns, PhysicalOperator &child,
+	               PhysicalOperator &copy_op, PhysicalOperator &delete_op, PhysicalOperator &insert_op);
 
 	//! The table to update
 	DuckLakeTableEntry &table;
+	//! The order of to-be-inserted columns
+	vector<PhysicalIndex> columns;
 	//! The copy operator for writing new data to files
 	PhysicalOperator &copy_op;
 	//! The delete operator for deleting the old data

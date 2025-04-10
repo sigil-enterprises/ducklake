@@ -35,7 +35,6 @@ public:
 	//! The partition id we are writing into (if any)
 	optional_idx partition_id;
 
-
 public:
 	// // Source interface
 	SourceResultType GetData(ExecutionContext &context, DataChunk &chunk, OperatorSourceInput &input) const override;
@@ -45,12 +44,15 @@ public:
 	}
 
 	static DuckLakeColumnStats ParseColumnStats(const LogicalType &type, const vector<Value> stats);
-	static PhysicalOperator &PlanCopyForInsert(ClientContext &context, PhysicalPlanGenerator &planner, DuckLakeTableEntry &table, optional_ptr<PhysicalOperator> plan);
+	static PhysicalOperator &PlanCopyForInsert(ClientContext &context, PhysicalPlanGenerator &planner,
+	                                           DuckLakeTableEntry &table, optional_ptr<PhysicalOperator> plan);
 	static PhysicalOperator &PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
-										PhysicalPlanGenerator &planner, optional_ptr<DuckLakePartition> partition_data,
-										optional_ptr<DuckLakeFieldData> field_data,
-										optional_ptr<PhysicalOperator> plan, const string &data_path);
-	static PhysicalOperator &PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner, DuckLakeTableEntry &table);
+	                                           PhysicalPlanGenerator &planner,
+	                                           optional_ptr<DuckLakePartition> partition_data,
+	                                           optional_ptr<DuckLakeFieldData> field_data,
+	                                           optional_ptr<PhysicalOperator> plan, const string &data_path);
+	static PhysicalOperator &PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner,
+	                                    DuckLakeTableEntry &table);
 
 public:
 	// Sink interface

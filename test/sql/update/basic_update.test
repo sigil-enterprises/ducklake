@@ -39,6 +39,6 @@ SELECT COUNT(*), SUM(id), SUM(val) FROM ducklake.test
 1000	1500500	4500
 
 query III
-SELECT COUNT(*), SUM(id), SUM(val) FROM ducklake.test AT (VERSION => 2)
+SELECT COUNT(*), SUM(id), SUM(val) FROM ducklake.test AT (VERSION => 1)
 ----
 1000	1499500	4500

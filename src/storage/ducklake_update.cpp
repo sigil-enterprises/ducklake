@@ -3,11 +3,12 @@
 #include "storage/ducklake_table_entry.hpp"
 #include "storage/ducklake_catalog.hpp"
 #include "duckdb/planner/operator/logical_update.hpp"
+#include "duckdb/parallel/thread_context.hpp"
 
 namespace duckdb {
 
-DuckLakeUpdate::DuckLakeUpdate(DuckLakeTableEntry &table, PhysicalOperator &child, PhysicalOperator &copy_op, PhysicalOperator &delete_op, PhysicalOperator &insert_op)
-	: PhysicalOperator(PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, 1), table(table), copy_op(copy_op), delete_op(delete_op), insert_op(insert_op) {
+DuckLakeUpdate::DuckLakeUpdate(DuckLakeTableEntry &table, vector<PhysicalIndex> columns_p, PhysicalOperator &child, PhysicalOperator &copy_op, PhysicalOperator &delete_op, PhysicalOperator &insert_op)
+	: PhysicalOperator(PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, 1), table(table), columns(std::move(columns_p)), copy_op(copy_op), delete_op(delete_op), insert_op(insert_op) {
 	children.push_back(child);
 }
 
@@ -16,15 +17,20 @@ DuckLakeUpdate::DuckLakeUpdate(DuckLakeTableEntry &table, PhysicalOperator &chil
 //===--------------------------------------------------------------------===//
 class DuckLakeUpdateGlobalState : public GlobalSinkState {
 public:
+	DuckLakeUpdateGlobalState() : total_updated_count(0) {}
+
 	unique_ptr<GlobalSinkState> copy_global_state;
 	unique_ptr<GlobalSinkState> delete_global_state;
-	idx_t total_updated_count = 0;
+	atomic<idx_t> total_updated_count;
 };
 
 class DuckLakeUpdateLocalState : public LocalSinkState {
 public:
 	unique_ptr<LocalSinkState> copy_local_state;
 	unique_ptr<LocalSinkState> delete_local_state;
+	DataChunk insert_chunk;
+	DataChunk delete_chunk;
+	idx_t updated_count = 0;
 };
 
 unique_ptr<GlobalSinkState> DuckLakeUpdate::GetGlobalSinkState(ClientContext &context) const {
@@ -38,6 +44,12 @@ unique_ptr<LocalSinkState> DuckLakeUpdate::GetLocalSinkState(ExecutionContext &c
 	auto result = make_uniq<DuckLakeUpdateLocalState>();
 	result->copy_local_state = copy_op.GetLocalSinkState(context);
 	result->delete_local_state = delete_op.GetLocalSinkState(context);
+
+	vector<LogicalType> delete_types;
+	delete_types.emplace_back(LogicalType::VARCHAR);
+	delete_types.emplace_back(LogicalType::BIGINT);
+	result->insert_chunk.Initialize(context.client, table.GetTypes());
+	result->delete_chunk.Initialize(context.client, delete_types);
 	return std::move(result);
 }
 
@@ -45,9 +57,29 @@ unique_ptr<LocalSinkState> DuckLakeUpdate::GetLocalSinkState(ExecutionContext &c
 // Sink
 //===--------------------------------------------------------------------===//
 SinkResultType DuckLakeUpdate::Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const {
-	auto &global_state = input.global_state.Cast<DuckLakeUpdateGlobalState>();
-	auto &local_state = input.local_state.Cast<DuckLakeUpdateLocalState>();
-	throw InternalException("FIXME: push data into copy/delete");
+	auto &gstate = input.global_state.Cast<DuckLakeUpdateGlobalState>();
+	auto &lstate = input.local_state.Cast<DuckLakeUpdateLocalState>();
+
+	// push the to-be-inserted data into the copy
+	auto &insert_chunk = lstate.insert_chunk;
+	insert_chunk.SetCardinality(chunk.size());
+	for (idx_t i = 0; i < columns.size(); i++) {
+		insert_chunk.data[columns[i].index].Reference(chunk.data[i]);
+	}
+	OperatorSinkInput copy_input {*gstate.copy_global_state, *lstate.copy_local_state, input.interrupt_state};
+	copy_op.Sink(context, insert_chunk, copy_input);
+
+	// push the rowids into the delete
+	auto &delete_chunk = lstate.delete_chunk;
+	delete_chunk.SetCardinality(chunk.size());
+	idx_t delete_idx_start = chunk.ColumnCount() - 2;
+	delete_chunk.data[0].Reference(chunk.data[delete_idx_start]);
+	delete_chunk.data[1].Reference(chunk.data[delete_idx_start + 1]);
+
+	OperatorSinkInput delete_input {*gstate.delete_global_state, *lstate.delete_local_state, input.interrupt_state};
+	delete_op.Sink(context, delete_chunk, delete_input);
+
+	lstate.updated_count += chunk.size();
 	return SinkResultType::NEED_MORE_INPUT;
 }
 
@@ -67,6 +99,7 @@ SinkCombineResultType DuckLakeUpdate::Combine(ExecutionContext &context, Operato
 	if (result != SinkCombineResultType::FINISHED) {
 		throw InternalException("DuckLakeUpdate::Combine does not support async child operators");
 	}
+	global_state.total_updated_count += local_state.updated_count;
 	return SinkCombineResultType::FINISHED;
 }
 
@@ -85,7 +118,45 @@ SinkFinalizeType DuckLakeUpdate::Finalize(Pipeline &pipeline, Event &event, Clie
 	if (result != SinkFinalizeType::READY) {
 		throw InternalException("DuckLakeUpdate::Finalize does not support async child operators");
 	}
-	throw InternalException("FIXME: push data from copy op into insert_op");
+
+	// scan the copy operator and sink into the insert operator
+	copy_op.sink_state = std::move(global_state.copy_global_state);
+	ThreadContext thread_context(context);
+	ExecutionContext execution_context(context, thread_context, nullptr);
+	auto global_source = copy_op.GetGlobalSourceState(context);
+	auto local_source = copy_op.GetLocalSourceState(execution_context, *global_source);
+
+	DataChunk copy_source_chunk;
+	copy_source_chunk.Initialize(context, copy_op.types);
+
+	auto global_sink = insert_op.GetGlobalSinkState(context);
+	auto local_sink = insert_op.GetLocalSinkState(execution_context);
+
+	OperatorSourceInput source_input {*global_source, *local_source, input.interrupt_state};
+	OperatorSinkInput sink_input {*global_sink, *local_sink, input.interrupt_state};
+	while(true) {
+		auto source_result = copy_op.GetData(execution_context, copy_source_chunk, source_input);
+		if (copy_source_chunk.size() == 0) {
+			break;
+		}
+		if (source_result == SourceResultType::BLOCKED) {
+			throw InternalException("DuckLakeUpdate::Finalize does not support async child operators");
+		}
+
+		auto sink_result = insert_op.Sink(execution_context, copy_source_chunk, sink_input);
+		if (sink_result == SinkResultType::BLOCKED) {
+			throw InternalException("DuckLakeUpdate::Finalize does not support async child operators");
+		}
+		if (source_result == SourceResultType::FINISHED) {
+			break;
+		}
+	}
+
+	OperatorSinkFinalizeInput insert_finalize_input { *global_sink, input.interrupt_state};
+	result = insert_op.Finalize(pipeline, event, context, insert_finalize_input);
+	if (result != SinkFinalizeType::READY) {
+		throw InternalException("DuckLakeUpdate::Finalize does not support async child operators");
+	}
 	return SinkFinalizeType::READY;
 }
 
@@ -133,7 +204,7 @@ PhysicalOperator &child_plan) {
 	// plan the actual insert
 	auto &insert_op = DuckLakeInsert::PlanInsert(context, planner, table);
 
-	return planner.Make<DuckLakeUpdate>(table, child_plan, copy_op, delete_op, insert_op);
+	return planner.Make<DuckLakeUpdate>(table, op.columns, child_plan, copy_op, delete_op, insert_op);
 }
 
 void DuckLakeTableEntry::BindUpdateConstraints(Binder &binder, LogicalGet &get, LogicalProjection &proj,
