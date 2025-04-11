@@ -323,13 +323,41 @@ ORDER BY table_id;
 	return global_stats;
 }
 
-vector<DuckLakeFileListEntry> DuckLakeMetadataManager::GetFilesForTable(DuckLakeSnapshot snapshot, TableIndex table_id, const string &filter) {
-	string encryption_columns;
+string DuckLakeMetadataManager::GetFileSelectList(const string &prefix) {
+	auto result = StringUtil::Replace("{PREFIX}.path, {PREFIX}.file_size_bytes, {PREFIX}.footer_size", "{PREFIX}", prefix);
 	if (IsEncrypted()) {
-		encryption_columns += ", data.encryption_key, del.encryption_key";
+		result += ", " + prefix + ".encryption_key";
 	}
+	return result;
+}
+
+template<class T>
+DuckLakeFileData ReadDataFile(T &row, idx_t &col_idx, bool is_encrypted) {
+	DuckLakeFileData data;
+	if (row.IsNull(col_idx)) {
+		// file is not there
+		col_idx += 3;
+		if (is_encrypted) {
+			col_idx++;
+		}
+		return data;
+	}
+	data.path = row.template GetValue<string>(col_idx++);
+	data.file_size_bytes = row.template GetValue<idx_t>(col_idx++);
+	data.footer_size = row.template GetValue<idx_t>(col_idx++);
+	if (is_encrypted) {
+		if (row.IsNull(col_idx)) {
+			throw InvalidInputException("Database is encrypted, but file %s does not have an encryption key", data.path);
+		}
+		data.encryption_key = Blob::FromBase64(row.template GetValue<string>(col_idx++));
+	}
+	return data;
+}
+
+vector<DuckLakeFileListEntry> DuckLakeMetadataManager::GetFilesForTable(DuckLakeSnapshot snapshot, TableIndex table_id, const string &filter) {
+	string select_list = GetFileSelectList("data") + ", " + GetFileSelectList("del");
 	auto query = StringUtil::Format(R"(
-SELECT data.path, del.path%s
+SELECT %s
 FROM {METADATA_CATALOG}.ducklake_data_file data
 LEFT JOIN (
     SELECT *
@@ -338,7 +366,7 @@ LEFT JOIN (
           AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
     ) del USING (data_file_id)
 WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_ID} < data.end_snapshot OR data.end_snapshot IS NULL)
-		)", encryption_columns, table_id.index, table_id.index);
+		)", select_list, table_id.index, table_id.index);
 	if (!filter.empty()) {
 		query += "\nAND " + filter;
 	}
@@ -349,39 +377,20 @@ WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_I
 	}
 	vector<DuckLakeFileListEntry> files;
 	for (auto &row : *result) {
-		auto path = row.GetValue<string>(0);
-		string delete_path;
-		string encryption_key;
-		string delete_encryption_key;
-		if (!row.IsNull(1)) {
-			delete_path = row.GetValue<string>(1);
-		}
-		if (IsEncrypted()) {
-			if (row.IsNull(2)) {
-				throw InvalidInputException("Database is encrypted, but file %s does not have an encryption key", path);
-			}
-			encryption_key = Blob::FromBase64(row.GetValue<string>(2));
-			if (!delete_path.empty()) {
-				if (row.IsNull(3)) {
-					throw InvalidInputException("Database is encrypted, but delete file %s does not have an encryption key", delete_path);
-				}
-				delete_encryption_key = Blob::FromBase64(row.GetValue<string>(3));
-			}
-		}
-		// FIXME: get footer size for both files
-		files.emplace_back(std::move(path), std::move(delete_path), std::move(encryption_key), std::move(delete_encryption_key));
+		DuckLakeFileListEntry file_entry;
+		idx_t col_idx = 0;
+		file_entry.file = ReadDataFile(row, col_idx, IsEncrypted());
+		file_entry.delete_file = ReadDataFile(row, col_idx, IsEncrypted());
+		files.push_back(std::move(file_entry));
 	}
 	return files;
 }
 
 vector<DuckLakeFileListExtendedEntry> DuckLakeMetadataManager::GetExtendedFilesForTable(DuckLakeSnapshot snapshot, TableIndex table_id,
 const string &filter) {
-	string encryption_columns;
-	if (IsEncrypted()) {
-		encryption_columns += ", data.encryption_key, del.encryption_key";
-	}
+	string select_list = GetFileSelectList("data") + ", " + GetFileSelectList("del");
 	auto query = StringUtil::Format(R"(
-SELECT data.data_file_id, data.path, data.record_count, del.delete_file_id, del.path%s
+SELECT data.data_file_id, del.delete_file_id, data.record_count, %s
 FROM {METADATA_CATALOG}.ducklake_data_file data
 LEFT JOIN (
 	SELECT *
@@ -390,7 +399,7 @@ LEFT JOIN (
           AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
     ) del USING (data_file_id)
 WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_ID} < data.end_snapshot OR data.end_snapshot IS NULL)
-		)", encryption_columns, table_id.index, table_id.index);
+		)", select_list, table_id.index, table_id.index);
 	if (!filter.empty()) {
 		query += "\nAND " + filter;
 	}
@@ -403,24 +412,13 @@ WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_I
 	for (auto &row : *result) {
 		DuckLakeFileListExtendedEntry file_entry;
 		file_entry.file_id = DataFileIndex(row.GetValue<idx_t>(0));
-		file_entry.path = row.GetValue<string>(1);
+		if (!row.IsNull(1)) {
+			file_entry.delete_file_id = DataFileIndex(row.GetValue<idx_t>(1));
+		}
 		file_entry.row_count = row.GetValue<idx_t>(2);
-		if (!row.IsNull(3)) {
-			file_entry.delete_id = DataFileIndex(row.GetValue<idx_t>(3));
-			file_entry.delete_path = row.GetValue<string>(4);
-		}
-		if (IsEncrypted()) {
-			if (row.IsNull(5)) {
-				throw InvalidInputException("Database is encrypted, but file %s does not have an encryption key", file_entry.path);
-			}
-			file_entry.encryption_key = Blob::FromBase64(row.GetValue<string>(5));
-			if (!file_entry.delete_path.empty()) {
-				if (row.IsNull(6)) {
-					throw InvalidInputException("Database is encrypted, but delete file %s does not have an encryption key", file_entry.delete_path);
-				}
-				file_entry.delete_encryption_key = Blob::FromBase64(row.GetValue<string>(6));
-			}
-		}
+		idx_t col_idx = 3;
+		file_entry.file = ReadDataFile(row, col_idx, IsEncrypted());
+		file_entry.delete_file = ReadDataFile(row, col_idx, IsEncrypted());
 		files.push_back(std::move(file_entry));
 	}
 	return files;

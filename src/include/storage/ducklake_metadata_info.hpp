@@ -182,25 +182,23 @@ struct DuckLakeCatalogInfo {
 	vector<DuckLakePartitionInfo> partitions;
 };
 
-struct DuckLakeFileListEntry {
-	DuckLakeFileListEntry(string path_p, string delete_path_p, string encryption_key_p, string delete_encryption_key_p)
-	    : path(std::move(path_p)), delete_path(std::move(delete_path_p)), encryption_key(std::move(encryption_key_p)),
-	      delete_encryption_key(std::move(delete_encryption_key_p)) {
-	}
-
+struct DuckLakeFileData {
 	string path;
-	string delete_path;
 	string encryption_key;
-	string delete_encryption_key;
+	idx_t file_size_bytes;
+	idx_t footer_size;
+};
+
+struct DuckLakeFileListEntry {
+	DuckLakeFileData file;
+	DuckLakeFileData delete_file;
 };
 
 struct DuckLakeFileListExtendedEntry {
 	DataFileIndex file_id;
-	DataFileIndex delete_id;
-	string path;
-	string delete_path;
-	string encryption_key;
-	string delete_encryption_key;
+	DataFileIndex delete_file_id;
+	DuckLakeFileData file;
+	DuckLakeFileData delete_file;
 	idx_t row_count;
 };
 

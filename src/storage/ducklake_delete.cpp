@@ -163,10 +163,10 @@ void DuckLakeDelete::FlushDelete(DuckLakeTransaction &transaction, ClientContext
 		// we can just invalidate the source data file directly
 		if (delete_file.data_file_id.IsValid()) {
 			// persistent file - drop the file as part of the transaction
-			transaction.DropFile(table.GetTableId(), delete_file.data_file_id, data_file_info.path);
+			transaction.DropFile(table.GetTableId(), delete_file.data_file_id, data_file_info.file.path);
 		} else {
 			// transaction-local file - we can drop the file directly
-			transaction.DropTransactionLocalFile(table.GetTableId(), data_file_info.path);
+			transaction.DropTransactionLocalFile(table.GetTableId(), data_file_info.file.path);
 		}
 		return;
 	}
@@ -370,9 +370,9 @@ PhysicalOperator &DuckLakeDelete::PlanDelete(ClientContext &context, PhysicalPla
 	    auto &file_list = bind_data.file_list->Cast<DuckLakeMultiFileList>();
 	    auto files = file_list.GetFilesExtended();
 	    auto &delete_file_map = delete_map->file_map;
-	    for(auto &file : files) {
-	    	auto file_path = file.path;
-	    	delete_file_map[file_path] = std::move(file);
+	    for(auto &file_entry : files) {
+	    	auto file_path = file_entry.file.path;
+	    	delete_file_map[file_path] = std::move(file_entry);
 	    }
 	    reader.delete_map = delete_map;
     }

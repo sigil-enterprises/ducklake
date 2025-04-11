@@ -1142,7 +1142,7 @@ bool DuckLakeTransaction::HasLocalDeletes(TableIndex table_id) {
 	return new_delete_files.find(table_id) != new_delete_files.end();
 }
 
-void DuckLakeTransaction::GetLocalDeleteForFile(TableIndex table_id, const string &path, string &delete_path, string &delete_encryption_key) {
+void DuckLakeTransaction::GetLocalDeleteForFile(TableIndex table_id, const string &path, DuckLakeFileData &result) {
 	auto entry = new_delete_files.find(table_id);
 	if (entry == new_delete_files.end()) {
 		return;
@@ -1152,8 +1152,10 @@ void DuckLakeTransaction::GetLocalDeleteForFile(TableIndex table_id, const strin
 		return;
 	}
 	auto &delete_file = file_entry->second;
-	delete_path = delete_file.file_name;
-	delete_encryption_key = delete_file.encryption_key;
+	result.path = delete_file.file_name;
+	result.file_size_bytes = delete_file.file_size_bytes;
+	result.footer_size = delete_file.footer_size;
+	result.encryption_key = delete_file.encryption_key;
 }
 
 void DuckLakeTransaction::TransactionLocalDelete(TableIndex table_id, const string &data_file_path, DuckLakeDeleteFile delete_file) {

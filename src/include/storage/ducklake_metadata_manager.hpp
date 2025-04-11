@@ -81,6 +81,7 @@ private:
 	               const set<T> &dropped_entries);
 
 	bool IsEncrypted() const;
+	string GetFileSelectList(const string &prefix);
 
 protected:
 	DuckLakeTransaction &transaction;

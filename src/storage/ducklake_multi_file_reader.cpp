@@ -85,8 +85,8 @@ ReaderInitializeType DuckLakeMultiFileReader::InitializeReader(
 	auto file_idx = reader.file_list_idx.GetIndex();
 
 	auto &file_entry = file_list.GetFileEntry(file_idx);
-	if (!file_entry.delete_path.empty()) {
-		auto delete_filter = DuckLakeDeleteFilter::Create(context, file_entry.delete_path, file_entry.delete_encryption_key);
+	if (!file_entry.delete_file.path.empty()) {
+		auto delete_filter = DuckLakeDeleteFilter::Create(context, file_entry.delete_file);
 		if (delete_map) {
 			delete_map->delete_data_map.emplace(reader.GetFileName(), delete_filter->delete_data);
 		}

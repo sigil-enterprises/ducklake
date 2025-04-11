@@ -9,6 +9,7 @@
 #pragma once
 
 #include "duckdb/common/multi_file/multi_file_reader.hpp"
+#include "storage/ducklake_metadata_info.hpp"
 
 namespace duckdb {
 
@@ -23,8 +24,7 @@ public:
 	shared_ptr<DuckLakeDeleteData> delete_data;
 
 	idx_t Filter(row_t start_row_index, idx_t count, SelectionVector &result_sel) override;
-	static unique_ptr<DuckLakeDeleteFilter> Create(ClientContext &context, const string &delete_file_path,
-	                                               const string &delete_encryption_key);
+	static unique_ptr<DuckLakeDeleteFilter> Create(ClientContext &context, const DuckLakeFileData &delete_file);
 };
 
 } // namespace duckdb

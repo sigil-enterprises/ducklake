@@ -37,7 +37,7 @@ idx_t DuckLakeDeleteFilter::Filter(row_t start_row_index, idx_t count, Selection
 	return delete_data->Filter(start_row_index, count, result_sel);
 }
 
-unique_ptr<DuckLakeDeleteFilter> DuckLakeDeleteFilter::Create(ClientContext &context, const string &delete_file_path, const string &delete_encryption_key) {
+unique_ptr<DuckLakeDeleteFilter> DuckLakeDeleteFilter::Create(ClientContext &context, const DuckLakeFileData &delete_file) {
 	auto &instance = DatabaseInstance::GetDatabase(context);
 	auto &parquet_scan_entry = ExtensionUtil::GetTableFunction(instance, "parquet_scan");
 	auto &parquet_scan = parquet_scan_entry.functions.functions[0];
@@ -45,13 +45,13 @@ unique_ptr<DuckLakeDeleteFilter> DuckLakeDeleteFilter::Create(ClientContext &con
 	// Prepare the inputs for the bind
 	vector<Value> children;
 	children.reserve(1);
-	children.push_back(Value(delete_file_path));
+	children.push_back(Value(delete_file.path));
 	named_parameter_map_t named_params;
 	vector<LogicalType> input_types;
 	vector<string> input_names;
-	if (!delete_encryption_key.empty()) {
+	if (!delete_file.encryption_key.empty()) {
 		child_list_t<Value> encryption_values;
-		encryption_values.emplace_back("footer_key_value", Value::BLOB_RAW(delete_encryption_key));
+		encryption_values.emplace_back("footer_key_value", Value::BLOB_RAW(delete_file.encryption_key));
 		named_params["encryption_config"] = Value::STRUCT(std::move(encryption_values));
 	}
 
@@ -66,7 +66,7 @@ unique_ptr<DuckLakeDeleteFilter> DuckLakeDeleteFilter::Create(ClientContext &con
 	auto bind_data = parquet_scan.bind(context, bind_input, return_types, return_names);
 
 	if (return_types.size() != 2 || return_types[0].id() != LogicalTypeId::VARCHAR || return_types[1].id() != LogicalTypeId::BIGINT) {
-		throw InvalidInputException("Invalid schema contained in the delete file %s - expected file_name/position" , delete_file_path);
+		throw InvalidInputException("Invalid schema contained in the delete file %s - expected file_name/position" , delete_file.path);
 	}
 
 	DataChunk scan_chunk;
