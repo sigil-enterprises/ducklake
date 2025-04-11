@@ -27,7 +27,6 @@ void DuckLakeTransaction::Start() {
 }
 
 void DuckLakeTransaction::Commit() {
-	lock_guard<mutex> lock(connection_lock);
 	if (ChangesMade()) {
 		FlushChanges();
 		connection.reset();
@@ -38,13 +37,10 @@ void DuckLakeTransaction::Commit() {
 }
 
 void DuckLakeTransaction::Rollback() {
-	{
-		lock_guard<mutex> lock(connection_lock);
-		if (connection) {
-			// rollback any changes made to the metadata catalog
-			connection->Rollback();
-			connection.reset();
-		}
+	if (connection) {
+		// rollback any changes made to the metadata catalog
+		connection->Rollback();
+		connection.reset();
 	}
 	CleanupFiles();
 }
