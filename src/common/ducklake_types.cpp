@@ -1,6 +1,7 @@
 #include "common/ducklake_types.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/to_string.hpp"
+#include "duckdb/common/array.hpp"
 
 namespace duckdb {
 
