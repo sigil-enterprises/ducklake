@@ -69,6 +69,18 @@ SELECT * FROM ducklake.test2
 ----
 hello world	1992-01-01
 
+statement ok
+SHOW ALL TABLES
+
+statement ok
+USE ducklake
+
+query I
+SHOW TABLES
+----
+test
+test2
+
 # data path is required
 statement error
 ATTACH 'ducklake:__TEST_DIR__/ducklake_error.db' AS ducklake_error

@@ -124,6 +124,7 @@ private:
 	DuckLakeCatalog &ducklake_catalog;
 	DatabaseInstance &db;
 	unique_ptr<DuckLakeMetadataManager> metadata_manager;
+	mutex connection_lock;
 	unique_ptr<Connection> connection;
 	//! The snapshot of the transaction (latest snapshot in DuckLake)
 	unique_ptr<DuckLakeSnapshot> snapshot;

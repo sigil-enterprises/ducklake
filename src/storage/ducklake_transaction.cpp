@@ -27,6 +27,7 @@ void DuckLakeTransaction::Start() {
 }
 
 void DuckLakeTransaction::Commit() {
+	lock_guard<mutex> lock(connection_lock);
 	if (ChangesMade()) {
 		FlushChanges();
 		connection.reset();
@@ -37,15 +38,19 @@ void DuckLakeTransaction::Commit() {
 }
 
 void DuckLakeTransaction::Rollback() {
-	if (connection) {
-		// rollback any changes made to the metadata catalog
-		connection->Rollback();
-		connection.reset();
+	{
+		lock_guard<mutex> lock(connection_lock);
+		if (connection) {
+			// rollback any changes made to the metadata catalog
+			connection->Rollback();
+			connection.reset();
+		}
 	}
 	CleanupFiles();
 }
 
 Connection &DuckLakeTransaction::GetConnection() {
+	lock_guard<mutex> lock(connection_lock);
 	if (!connection) {
 		connection = make_uniq<Connection>(db);
 		connection->BeginTransaction();
@@ -1023,7 +1028,7 @@ unique_ptr<QueryResult> DuckLakeTransaction::Query(DuckLakeSnapshot snapshot, st
 }
 
 string DuckLakeTransaction::GetDefaultSchemaName() {
-	auto &metadata_context = *connection->context;
+	auto &metadata_context = *GetConnection().context;
 	auto &db_manager = DatabaseManager::Get(metadata_context);
 	auto metadb = db_manager.GetDatabase(metadata_context, ducklake_catalog.MetadataDatabaseName());
 	return metadb->GetCatalog().GetDefaultSchema();
