@@ -807,6 +807,7 @@ vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &
 			data_file.file_size_bytes = file.file_size_bytes;
 			data_file.footer_size = file.footer_size;
 			data_file.partition_id = file.partition_id;
+			data_file.encryption_key = file.encryption_key;
 			if (file.delete_file) {
 				// this transaction-local file already has deletes - write them out
 				DuckLakeDeleteFile delete_file = *file.delete_file;
@@ -881,6 +882,7 @@ vector<DuckLakeDeleteFileInfo> DuckLakeTransaction::GetNewDeleteFiles(DuckLakeSn
 			delete_file.delete_count = file.delete_count;
 			delete_file.file_size_bytes = file.file_size_bytes;
 			delete_file.footer_size = file.footer_size;
+			delete_file.encryption_key = file.encryption_key;
 			result.push_back(std::move(delete_file));
 		}
 	}
@@ -1140,7 +1142,7 @@ bool DuckLakeTransaction::HasLocalDeletes(TableIndex table_id) {
 	return new_delete_files.find(table_id) != new_delete_files.end();
 }
 
-void DuckLakeTransaction::GetLocalDeleteForFile(TableIndex table_id, const string &path, string &result) {
+void DuckLakeTransaction::GetLocalDeleteForFile(TableIndex table_id, const string &path, string &delete_path, string &delete_encryption_key) {
 	auto entry = new_delete_files.find(table_id);
 	if (entry == new_delete_files.end()) {
 		return;
@@ -1149,7 +1151,9 @@ void DuckLakeTransaction::GetLocalDeleteForFile(TableIndex table_id, const strin
 	if (file_entry == entry->second.end()) {
 		return;
 	}
-	result = file_entry->second.file_name;
+	auto &delete_file = file_entry->second;
+	delete_path = delete_file.file_name;
+	delete_encryption_key = delete_file.encryption_key;
 }
 
 void DuckLakeTransaction::TransactionLocalDelete(TableIndex table_id, const string &data_file_path, DuckLakeDeleteFile delete_file) {

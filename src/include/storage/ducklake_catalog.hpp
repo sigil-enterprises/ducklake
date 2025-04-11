@@ -12,6 +12,7 @@
 #include "storage/ducklake_catalog_set.hpp"
 #include "storage/ducklake_stats.hpp"
 #include "storage/ducklake_partition_data.hpp"
+#include "common/ducklake_encryption.hpp"
 
 namespace duckdb {
 class ColumnList;
@@ -23,7 +24,7 @@ class LogicalGet;
 class DuckLakeCatalog : public Catalog {
 public:
 	DuckLakeCatalog(AttachedDatabase &db_p, string metadata_database, string metadata_path, string data_path,
-	                string metadata_schema);
+	                string metadata_schema, DuckLakeEncryption encryption);
 	~DuckLakeCatalog();
 
 public:
@@ -75,6 +76,13 @@ public:
 		return true;
 	}
 
+	DuckLakeEncryption Encryption() const {
+		return encryption;
+	}
+	void SetEncryption(DuckLakeEncryption encryption);
+	// Generate an encryption key for writing (or empty if encryption is disabled)
+	string GenerateEncryptionKey(ClientContext &context) const;
+
 private:
 	void DropSchema(ClientContext &context, DropInfo &info) override;
 
@@ -95,6 +103,7 @@ private:
 	string metadata_path;
 	string data_path;
 	string metadata_schema;
+	DuckLakeEncryption encryption;
 };
 
 } // namespace duckdb

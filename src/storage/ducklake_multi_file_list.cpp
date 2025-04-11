@@ -23,7 +23,7 @@ namespace duckdb {
 
 DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,
                                              vector<DuckLakeDataFile> transaction_local_files_p, string filter_p)
-    : MultiFileList(vector<string> {}, FileGlobOptions::ALLOW_EMPTY), transaction(transaction), read_info(read_info),
+    : MultiFileList(vector<OpenFileInfo> {}, FileGlobOptions::ALLOW_EMPTY), transaction(transaction), read_info(read_info),
       read_file_list(false), transaction_local_files(std::move(transaction_local_files_p)), filter(std::move(filter_p)) {
 }
 
@@ -251,11 +251,10 @@ DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const Multi
 	return nullptr;
 }
 
-vector<string> DuckLakeMultiFileList::GetAllFiles() {
-	vector<string> file_list;
-	auto &files = GetFiles();
-	for(auto &file : files) {
-		file_list.emplace_back(file.path);
+vector<OpenFileInfo> DuckLakeMultiFileList::GetAllFiles() {
+	vector<OpenFileInfo> file_list;
+	for(idx_t i = 0; i < GetTotalFileCount(); i++) {
+		file_list.push_back(GetFile(i));
 	}
 	return file_list;
 }
@@ -280,17 +279,24 @@ DuckLakeTableEntry &DuckLakeMultiFileList::GetTable() {
 	return read_info.table;
 }
 
-string DuckLakeMultiFileList::GetFile(idx_t i) {
+OpenFileInfo DuckLakeMultiFileList::GetFile(idx_t i) {
 	auto &files = GetFiles();
-	if (i < files.size()) {
-		return files[i].path;
+	if (i >= files.size()) {
+		return OpenFileInfo();
 	}
-	return string();
+	auto &file = files[i];
+	OpenFileInfo result(file.path);
+	auto extended_info = make_shared_ptr<ExtendedOpenFileInfo>();
+	if (!file.encryption_key.empty()) {
+		extended_info->options["encryption_key"] = Value::BLOB_RAW(file.encryption_key);
+	}
+	result.extended_info = std::move(extended_info);
+	return result;
 }
 
-string DuckLakeMultiFileList::GetDeletedFile(idx_t file_idx) {
+const DuckLakeFileListEntry &DuckLakeMultiFileList::GetFileEntry(idx_t file_idx) {
 	auto &files = GetFiles();
-	return files[file_idx].delete_path;
+	return files[file_idx];
 }
 
 vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() {
@@ -312,7 +318,7 @@ vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() 
 	// if the transaction has any local deletes - apply them to the file list
 	if (transaction.HasLocalDeletes(read_info.table_id)) {
 		for(auto &file : result) {
-			transaction.GetLocalDeleteForFile(read_info.table_id, file.path, file.delete_path);
+			transaction.GetLocalDeleteForFile(read_info.table_id, file.path, file.delete_path, file.delete_encryption_key);
 		}
 	}
 	for(auto &file : transaction_local_files) {
@@ -320,8 +326,10 @@ vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() 
 		file_entry.file_id = DataFileIndex();
 		file_entry.delete_id = DataFileIndex();
 		file_entry.path = file.file_name;
+		file_entry.encryption_key = file.encryption_key;
 		if (file.delete_file) {
 			file_entry.delete_path = file.delete_file->file_name;
+			file_entry.delete_encryption_key = file.delete_file->encryption_key;
 		}
 		file_entry.row_count = file.row_count;
 		result.push_back(std::move(file_entry));
@@ -329,7 +337,7 @@ vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() 
 	if (!read_file_list) {
 		// we have not read the file list yet - construct it from the extended file list
 		for(auto &file : result) {
-			files.emplace_back(file.path, file.delete_path);
+			files.emplace_back(file.path, file.delete_path, file.encryption_key, file.delete_encryption_key);
 		}
 		read_file_list = true;
 	}
@@ -356,11 +364,17 @@ const vector<DuckLakeFileListEntry> &DuckLakeMultiFileList::GetFiles() {
 		// if the transaction has any local deletes - apply them to the file list
 		if (transaction.HasLocalDeletes(read_info.table_id)) {
 			for(auto &file : files) {
-				transaction.GetLocalDeleteForFile(read_info.table_id, file.path, file.delete_path);
+				transaction.GetLocalDeleteForFile(read_info.table_id, file.path, file.delete_path, file.delete_encryption_key);
 			}
 		}
 		for(auto &file : transaction_local_files) {
-			files.emplace_back(file.file_name, file.delete_file ? file.delete_file->file_name : string());
+			string delete_file;
+			string delete_encryption_key;
+			if (file.delete_file) {
+				delete_file = file.delete_file->file_name;
+				delete_encryption_key = file.delete_file->encryption_key;
+			}
+			files.emplace_back(file.file_name, std::move(delete_file), file.encryption_key, std::move(delete_encryption_key));
 		}
 		read_file_list = true;
 	}

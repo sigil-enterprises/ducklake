@@ -24,8 +24,8 @@
 
 namespace duckdb {
 
-DuckLakeDelete::DuckLakeDelete(DuckLakeTableEntry &table, PhysicalOperator &child, shared_ptr<DuckLakeDeleteMap> delete_map_p)
-    : PhysicalOperator(PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, 1), table(table), delete_map(std::move(delete_map_p)) {
+DuckLakeDelete::DuckLakeDelete(DuckLakeTableEntry &table, PhysicalOperator &child, shared_ptr<DuckLakeDeleteMap> delete_map_p, string encryption_key_p)
+    : PhysicalOperator(PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, 1), table(table), delete_map(std::move(delete_map_p)), encryption_key(std::move(encryption_key_p)) {
     children.push_back(child);
 }
 
@@ -190,6 +190,13 @@ void DuckLakeDelete::FlushDelete(DuckLakeTransaction &transaction, ClientContext
 	vector<Value> field_input;
 	field_input.push_back(std::move(field_ids));
 	info->options["field_ids"] = std::move(field_input);
+	if (!encryption_key.empty()) {
+		child_list_t<Value> values;
+		values.emplace_back("footer_key_value", Value::BLOB_RAW(encryption_key));
+		vector<Value> encryption_input;
+		encryption_input.push_back(Value::STRUCT(std::move(values)));
+		info->options["encryption_config"] = std::move(encryption_input);
+	}
 
 	// get the actual copy function and bind it
 	auto &copy_fun = DuckLakeFunctions::GetCopyFunction(*context.db, "parquet");
@@ -274,6 +281,7 @@ void DuckLakeDelete::FlushDelete(DuckLakeTransaction &transaction, ClientContext
 	delete_file.delete_count = stats_chunk.GetValue(1, r).GetValue<idx_t>();
 	delete_file.file_size_bytes = stats_chunk.GetValue(2, r).GetValue<idx_t>();
 	delete_file.footer_size = stats_chunk.GetValue(3, r).GetValue<idx_t>();
+	delete_file.encryption_key = encryption_key;
 	global_state.written_files.emplace(filename, std::move(delete_file));
 }
 
@@ -353,7 +361,7 @@ optional_ptr<PhysicalTableScan> FindDeleteSource(PhysicalOperator &plan) {
 	return nullptr;
 }
 
-PhysicalOperator &DuckLakeDelete::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, DuckLakeTableEntry &table, PhysicalOperator &child_plan) {
+PhysicalOperator &DuckLakeDelete::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, DuckLakeTableEntry &table, PhysicalOperator &child_plan, string encryption_key) {
     auto delete_source = FindDeleteSource(child_plan);
 	auto delete_map = make_shared_ptr<DuckLakeDeleteMap>();
     if (delete_source) {
@@ -368,7 +376,7 @@ PhysicalOperator &DuckLakeDelete::PlanDelete(ClientContext &context, PhysicalPla
 	    }
 	    reader.delete_map = delete_map;
     }
-	return planner.Make<DuckLakeDelete>(table, child_plan, std::move(delete_map));
+	return planner.Make<DuckLakeDelete>(table, child_plan, std::move(delete_map), std::move(encryption_key));
 }
 
 PhysicalOperator &DuckLakeCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op,
@@ -376,7 +384,8 @@ PhysicalOperator &DuckLakeCatalog::PlanDelete(ClientContext &context, PhysicalPl
 	if (op.return_chunk) {
 		throw BinderException("RETURNING clause not yet supported for deletion of a DuckLake table");
 	}
-	return DuckLakeDelete::PlanDelete(context, planner, op.table.Cast<DuckLakeTableEntry>(), child_plan);
+	auto encryption_key = GenerateEncryptionKey(context);
+	return DuckLakeDelete::PlanDelete(context, planner, op.table.Cast<DuckLakeTableEntry>(), child_plan, std::move(encryption_key));
 }
 
 } // namespace duckdb

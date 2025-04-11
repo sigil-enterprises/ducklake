@@ -19,6 +19,7 @@
 #include "storage/ducklake_stats.hpp"
 #include "duckdb/common/types/timestamp.hpp"
 #include "storage/ducklake_metadata_info.hpp"
+#include "common/ducklake_encryption.hpp"
 #include "common/index.hpp"
 
 namespace duckdb {
@@ -37,7 +38,7 @@ public:
 	DuckLakeMetadataManager &Get(DuckLakeTransaction &transaction);
 
 	//! Initialize a new DuckLake
-	virtual void InitializeDuckLake(bool has_explicit_schema);
+	virtual void InitializeDuckLake(bool has_explicit_schema, DuckLakeEncryption encryption);
 	virtual DuckLakeMetadata LoadDuckLake();
 	//! Get the catalog information for a specific snapshot
 	virtual DuckLakeCatalogInfo GetCatalogForSnapshot(DuckLakeSnapshot snapshot);
@@ -78,6 +79,8 @@ private:
 	template <class T>
 	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,
 	               const set<T> &dropped_entries);
+
+	bool IsEncrypted() const;
 
 protected:
 	DuckLakeTransaction &transaction;

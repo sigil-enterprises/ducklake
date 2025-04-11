@@ -2,6 +2,8 @@
 #include "storage/ducklake_transaction.hpp"
 #include "common/ducklake_util.hpp"
 #include "duckdb/planner/tableref/bound_at_clause.hpp"
+#include "duckdb/common/types/blob.hpp"
+#include "storage/ducklake_catalog.hpp"
 #include "duckdb.hpp"
 
 namespace duckdb {
@@ -16,12 +18,14 @@ DuckLakeMetadataManager &DuckLakeMetadataManager::Get(DuckLakeTransaction &trans
 	return transaction.GetMetadataManager();
 }
 
-void DuckLakeMetadataManager::InitializeDuckLake(bool has_explicit_schema) {
+void DuckLakeMetadataManager::InitializeDuckLake(bool has_explicit_schema, DuckLakeEncryption encryption) {
 	string initialize_query;
 	if (has_explicit_schema) {
 		// if the schema is user provided create it
 		initialize_query += "CREATE SCHEMA IF NOT EXISTS {METADATA_CATALOG};\n";
 	}
+	// we default to false unless explicitly specified otherwise
+	string encryption_str = encryption == DuckLakeEncryption::ENCRYPTED ? "true" : "false";
 	initialize_query += StringUtil::Format(R"(
 CREATE TABLE {METADATA_CATALOG}.ducklake_metadata(key VARCHAR NOT NULL, value VARCHAR NOT NULL);
 CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot(snapshot_id BIGINT PRIMARY KEY, snapshot_time TIMESTAMPTZ, schema_version BIGINT, next_catalog_id BIGINT, next_file_id BIGINT);
@@ -31,9 +35,9 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_table(table_id BIGINT, table_uuid UUID,
 CREATE TABLE {METADATA_CATALOG}.ducklake_view(view_id BIGINT, view_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, view_name VARCHAR, dialect VARCHAR, sql VARCHAR, column_aliases VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_tag(object_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, key VARCHAR, value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_column_tag(table_id BIGINT, column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, key VARCHAR, value VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_data_file(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, file_order BIGINT, path VARCHAR, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, partition_id BIGINT);
+CREATE TABLE {METADATA_CATALOG}.ducklake_data_file(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, file_order BIGINT, path VARCHAR, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, partition_id BIGINT, encryption_key VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_file_column_statistics(data_file_id BIGINT, table_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, value_count BIGINT, null_count BIGINT, nan_count BIGINT, min_value VARCHAR, max_value VARCHAR, contains_nan BOOLEAN);
-CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file(delete_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, data_file_id BIGINT, path VARCHAR, format VARCHAR, delete_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT);
+CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file(delete_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, data_file_id BIGINT, path VARCHAR, format VARCHAR, delete_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, encryption_key VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_column(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, column_order BIGINT, column_name VARCHAR, column_type VARCHAR, initial_default VARCHAR, default_value VARCHAR, nulls_allowed BOOLEAN, parent_column BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_table_stats(table_id BIGINT, record_count BIGINT, file_size_bytes BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_table_column_stats(table_id BIGINT, column_id BIGINT, contains_null BOOLEAN, contains_nan BOOLEAN, min_value VARCHAR, max_value VARCHAR);
@@ -41,10 +45,10 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_partition_info(partition_id BIGINT, tab
 CREATE TABLE {METADATA_CATALOG}.ducklake_partition_columns(partition_id BIGINT, partition_key_index BIGINT, column_id BIGINT, transform VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_file_partition_values(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, partition_key_index BIGINT, partition_value VARCHAR);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
-INSERT INTO {METADATA_CATALOG}.ducklake_metadata VALUES ('version', '1'), ('created_by', 'DuckDB %s'), ('data_path', {DATA_PATH});
+INSERT INTO {METADATA_CATALOG}.ducklake_metadata VALUES ('version', '1'), ('created_by', 'DuckDB %s'), ('data_path', {DATA_PATH}), ('encryption', '%s');
 INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main');
 	)",
-	                                       DuckDB::SourceID());
+	                                       DuckDB::SourceID(), encryption_str);
 	// TODO: add
 	//	ducklake_sorting_info
 	//	ducklake_sorting_column_info
@@ -320,17 +324,21 @@ ORDER BY table_id;
 }
 
 vector<DuckLakeFileListEntry> DuckLakeMetadataManager::GetFilesForTable(DuckLakeSnapshot snapshot, TableIndex table_id, const string &filter) {
+	string encryption_columns;
+	if (IsEncrypted()) {
+		encryption_columns += ", data.encryption_key, del.encryption_key";
+	}
 	auto query = StringUtil::Format(R"(
-SELECT data.path, del.path
+SELECT data.path, del.path%s
 FROM {METADATA_CATALOG}.ducklake_data_file data
 LEFT JOIN (
-    SELECT data_file_id, path
+    SELECT *
     FROM {METADATA_CATALOG}.ducklake_delete_file
     WHERE table_id=%d  AND {SNAPSHOT_ID} >= begin_snapshot
           AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
     ) del USING (data_file_id)
-WHERE table_id=%d AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
-		)", table_id.index, table_id.index);
+WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_ID} < data.end_snapshot OR data.end_snapshot IS NULL)
+		)", encryption_columns, table_id.index, table_id.index);
 	if (!filter.empty()) {
 		query += "\nAND " + filter;
 	}
@@ -343,27 +351,46 @@ WHERE table_id=%d AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_s
 	for (auto &row : *result) {
 		auto path = row.GetValue<string>(0);
 		string delete_path;
+		string encryption_key;
+		string delete_encryption_key;
 		if (!row.IsNull(1)) {
 			delete_path = row.GetValue<string>(1);
 		}
-		files.emplace_back(std::move(path), std::move(delete_path));
+		if (IsEncrypted()) {
+			if (row.IsNull(2)) {
+				throw InvalidInputException("Database is encrypted, but file %s does not have an encryption key", path);
+			}
+			encryption_key = Blob::FromBase64(row.GetValue<string>(2));
+			if (!delete_path.empty()) {
+				if (row.IsNull(3)) {
+					throw InvalidInputException("Database is encrypted, but delete file %s does not have an encryption key", delete_path);
+				}
+				delete_encryption_key = Blob::FromBase64(row.GetValue<string>(3));
+			}
+		}
+		// FIXME: get footer size for both files
+		files.emplace_back(std::move(path), std::move(delete_path), std::move(encryption_key), std::move(delete_encryption_key));
 	}
 	return files;
 }
 
 vector<DuckLakeFileListExtendedEntry> DuckLakeMetadataManager::GetExtendedFilesForTable(DuckLakeSnapshot snapshot, TableIndex table_id,
 const string &filter) {
+	string encryption_columns;
+	if (IsEncrypted()) {
+		encryption_columns += ", data.encryption_key, del.encryption_key";
+	}
 	auto query = StringUtil::Format(R"(
-SELECT data.data_file_id, data.path, data.record_count, del.delete_file_id, del.path
+SELECT data.data_file_id, data.path, data.record_count, del.delete_file_id, del.path%s
 FROM {METADATA_CATALOG}.ducklake_data_file data
 LEFT JOIN (
-    SELECT delete_file_id, data_file_id, path
+	SELECT *
     FROM {METADATA_CATALOG}.ducklake_delete_file
     WHERE table_id=%d  AND {SNAPSHOT_ID} >= begin_snapshot
           AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
     ) del USING (data_file_id)
-WHERE table_id=%d AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
-		)", table_id.index, table_id.index);
+WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_ID} < data.end_snapshot OR data.end_snapshot IS NULL)
+		)", encryption_columns, table_id.index, table_id.index);
 	if (!filter.empty()) {
 		query += "\nAND " + filter;
 	}
@@ -381,6 +408,18 @@ WHERE table_id=%d AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_s
 		if (!row.IsNull(3)) {
 			file_entry.delete_id = DataFileIndex(row.GetValue<idx_t>(3));
 			file_entry.delete_path = row.GetValue<string>(4);
+		}
+		if (IsEncrypted()) {
+			if (row.IsNull(5)) {
+				throw InvalidInputException("Database is encrypted, but file %s does not have an encryption key", file_entry.path);
+			}
+			file_entry.encryption_key = Blob::FromBase64(row.GetValue<string>(5));
+			if (!file_entry.delete_path.empty()) {
+				if (row.IsNull(6)) {
+					throw InvalidInputException("Database is encrypted, but delete file %s does not have an encryption key", file_entry.delete_path);
+				}
+				file_entry.delete_encryption_key = Blob::FromBase64(row.GetValue<string>(6));
+			}
 		}
 		files.push_back(std::move(file_entry));
 	}
@@ -576,9 +615,10 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
 		auto partition_id = file.partition_id.IsValid() ? to_string(file.partition_id.GetIndex()) : "NULL";
 		auto data_file_index = file.id.index;
 		auto table_id = file.table_id.index;
+		auto encryption_key = file.encryption_key.empty() ? "NULL" : "'" + Blob::ToBase64(string_t(file.encryption_key)) + "'";
 		data_file_insert_query += StringUtil::Format(
-		    "(%d, %d, {SNAPSHOT_ID}, NULL, NULL, %s, 'parquet', %d, %d, %d, %s)", data_file_index, table_id,
-		    SQLString(file.file_name), file.row_count, file.file_size_bytes, file.footer_size, partition_id);
+		    "(%d, %d, {SNAPSHOT_ID}, NULL, NULL, %s, 'parquet', %d, %d, %d, %s, %s)", data_file_index, table_id,
+		    SQLString(file.file_name), file.row_count, file.file_size_bytes, file.footer_size, partition_id, encryption_key);
 		for (auto &column_stats : file.column_stats) {
 			if (!column_stats_insert_query.empty()) {
 				column_stats_insert_query += ",";
@@ -647,9 +687,10 @@ void DuckLakeMetadataManager::WriteNewDeleteFiles(DuckLakeSnapshot commit_snapsh
 		auto delete_file_index = file.id.index;
 		auto table_id = file.table_id.index;
 		auto data_file_index = file.data_file_id.index;
+		auto encryption_key = file.encryption_key.empty() ? "NULL" : "'" + Blob::ToBase64(string_t(file.encryption_key)) + "'";
 		delete_file_insert_query += StringUtil::Format(
-			"(%d, %d, {SNAPSHOT_ID}, NULL, %d, %s, 'parquet', %d, %d, %d)", delete_file_index, table_id, data_file_index,
-			SQLString(file.path), file.delete_count, file.file_size_bytes, file.footer_size);
+			"(%d, %d, {SNAPSHOT_ID}, NULL, %d, %s, 'parquet', %d, %d, %d, %s)", delete_file_index, table_id, data_file_index,
+			SQLString(file.path), file.delete_count, file.file_size_bytes, file.footer_size, encryption_key);
 	}
 
 	// insert the data files
@@ -1018,8 +1059,10 @@ idx_t DuckLakeMetadataManager::GetNextColumnId(TableIndex table_id) {
 		return row.GetValue<idx_t>(00) + 1;
 	}
 	throw InternalException("Invalid result for GetNextColumnId");
+}
 
-
+bool DuckLakeMetadataManager::IsEncrypted() const {
+	return transaction.GetCatalog().Encryption() == DuckLakeEncryption::ENCRYPTED;
 }
 
 } // namespace duckdb

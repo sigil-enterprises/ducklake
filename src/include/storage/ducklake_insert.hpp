@@ -15,6 +15,7 @@
 #include "storage/ducklake_stats.hpp"
 
 namespace duckdb {
+class DuckLakeCatalog;
 class DuckLakeTableEntry;
 class DuckLakeFieldData;
 struct DuckLakePartition;
@@ -22,9 +23,11 @@ struct DuckLakePartition;
 class DuckLakeInsert : public PhysicalOperator {
 public:
 	//! INSERT INTO
-	DuckLakeInsert(const vector<LogicalType> &types, DuckLakeTableEntry &table, optional_idx partition_id);
+	DuckLakeInsert(const vector<LogicalType> &types, DuckLakeTableEntry &table, optional_idx partition_id,
+	               string encryption_key);
 	//! CREATE TABLE AS
-	DuckLakeInsert(const vector<LogicalType> &types, SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info);
+	DuckLakeInsert(const vector<LogicalType> &types, SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info,
+	               string encryption_key);
 
 	//! The table to insert into
 	optional_ptr<DuckLakeTableEntry> table;
@@ -34,6 +37,8 @@ public:
 	unique_ptr<BoundCreateTableInfo> info;
 	//! The partition id we are writing into (if any)
 	optional_idx partition_id;
+	//! The encryption key used for writing the Parquet files
+	string encryption_key;
 
 public:
 	// // Source interface
@@ -45,14 +50,14 @@ public:
 
 	static DuckLakeColumnStats ParseColumnStats(const LogicalType &type, const vector<Value> stats);
 	static PhysicalOperator &PlanCopyForInsert(ClientContext &context, PhysicalPlanGenerator &planner,
-	                                           DuckLakeTableEntry &table, optional_ptr<PhysicalOperator> plan);
-	static PhysicalOperator &PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
-	                                           PhysicalPlanGenerator &planner,
-	                                           optional_ptr<DuckLakePartition> partition_data,
-	                                           optional_ptr<DuckLakeFieldData> field_data,
-	                                           optional_ptr<PhysicalOperator> plan, const string &data_path);
+	                                           DuckLakeTableEntry &table, optional_ptr<PhysicalOperator> plan,
+	                                           string encryption_key);
+	static PhysicalOperator &
+	PlanCopyForInsert(ClientContext &context, const ColumnList &columns, PhysicalPlanGenerator &planner,
+	                  optional_ptr<DuckLakePartition> partition_data, optional_ptr<DuckLakeFieldData> field_data,
+	                  optional_ptr<PhysicalOperator> plan, const string &data_path, string encryption_key);
 	static PhysicalOperator &PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner,
-	                                    DuckLakeTableEntry &table);
+	                                    DuckLakeTableEntry &table, string encryption_key);
 
 public:
 	// Sink interface

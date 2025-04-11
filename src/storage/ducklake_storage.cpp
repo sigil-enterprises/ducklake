@@ -12,6 +12,7 @@ static unique_ptr<Catalog> DuckLakeAttach(StorageExtensionInfo *storage_info, Cl
 	string schema;
 	string data_path;
 	string metadata_catalog_name;
+	auto encrypted = DuckLakeEncryption::AUTOMATIC;
 	for (auto &entry : info.options) {
 		if (StringUtil::CIEquals(entry.first, "data_path")) {
 			data_path = entry.second.ToString();
@@ -19,13 +20,19 @@ static unique_ptr<Catalog> DuckLakeAttach(StorageExtensionInfo *storage_info, Cl
 			schema = entry.second.ToString();
 		} else if (StringUtil::CIEquals(entry.first, "metadata_catalog")) {
 			metadata_catalog_name = entry.second.ToString();
+		} else if (StringUtil::CIEquals(entry.first, "encrypted")) {
+			if (entry.second.GetValue<bool>()) {
+				encrypted = DuckLakeEncryption::ENCRYPTED;
+			} else {
+				encrypted = DuckLakeEncryption::UNENCRYPTED;
+			}
 		}
 	}
 	if (metadata_catalog_name.empty()) {
 		metadata_catalog_name = "__ducklake_metadata_" + name;
 	}
 	return make_uniq<DuckLakeCatalog>(db, std::move(metadata_catalog_name), info.path, std::move(data_path),
-	                                  std::move(schema));
+	                                  std::move(schema), encrypted);
 }
 
 static unique_ptr<TransactionManager> DuckLakeCreateTransactionManager(StorageExtensionInfo *storage_info,

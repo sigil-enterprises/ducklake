@@ -26,6 +26,7 @@ struct DuckLakeDeleteFile {
 	idx_t delete_count;
 	idx_t file_size_bytes;
 	idx_t footer_size;
+	string encryption_key;
 	bool overwrites_existing_delete = false;
 };
 
@@ -42,6 +43,7 @@ struct DuckLakeDataFile {
 	unique_ptr<DuckLakeDeleteFile> delete_file;
 	map<FieldIndex, DuckLakeColumnStats> column_stats;
 	vector<DuckLakeFilePartition> partition_values;
+	string encryption_key;
 };
 
 } // namespace duckdb

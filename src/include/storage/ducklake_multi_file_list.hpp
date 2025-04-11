@@ -31,7 +31,7 @@ public:
 	                                                const vector<column_t> &column_ids,
 	                                                TableFilterSet &filters) const override;
 
-	vector<string> GetAllFiles() override;
+	vector<OpenFileInfo> GetAllFiles() override;
 	FileExpandResult GetExpandResult() override;
 	idx_t GetTotalFileCount() override;
 	unique_ptr<NodeStatistics> GetCardinality(ClientContext &context) override;
@@ -41,11 +41,11 @@ public:
 	}
 	vector<DuckLakeFileListExtendedEntry> GetFilesExtended();
 	const vector<DuckLakeFileListEntry> &GetFiles();
-	string GetDeletedFile(idx_t file_idx);
+	const DuckLakeFileListEntry &GetFileEntry(idx_t file_idx);
 
 protected:
 	//! Get the i-th expanded file
-	string GetFile(idx_t i) override;
+	OpenFileInfo GetFile(idx_t i) override;
 
 private:
 	mutex file_lock;

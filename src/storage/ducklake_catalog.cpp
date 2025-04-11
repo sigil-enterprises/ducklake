@@ -20,9 +20,9 @@
 namespace duckdb {
 
 DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, string metadata_database_p, string metadata_path_p,
-                                 string data_path_p, string metadata_schema_p)
+                                 string data_path_p, string metadata_schema_p, DuckLakeEncryption encryption)
     : Catalog(db_p), metadata_database(std::move(metadata_database_p)), metadata_path(std::move(metadata_path_p)),
-      data_path(std::move(data_path_p)), metadata_schema(std::move(metadata_schema_p)) {
+      data_path(std::move(data_path_p)), metadata_schema(std::move(metadata_schema_p)), encryption(encryption) {
 }
 
 DuckLakeCatalog::~DuckLakeCatalog() {
@@ -376,6 +376,25 @@ optional_ptr<SchemaCatalogEntry> DuckLakeCatalog::LookupSchema(CatalogTransactio
 		return nullptr;
 	}
 	return entry;
+}
+
+void DuckLakeCatalog::SetEncryption(DuckLakeEncryption new_encryption) {
+	if (encryption == new_encryption) {
+		// already set to this value
+		return;
+	}
+	switch(encryption) {
+	case DuckLakeEncryption::AUTOMATIC:
+		// adopt whichever value here
+		encryption = new_encryption;
+		break;
+	case DuckLakeEncryption::ENCRYPTED:
+		throw InvalidInputException("Failed to set encryption - the database is not encrypted but we requested an encrypted database");
+	case DuckLakeEncryption::UNENCRYPTED:
+		throw InvalidInputException("Failed to set encryption - the database is encrypted but we requested an unencrypted database");
+	default:
+		throw InternalException("Unsupported encryption type");
+	}
 }
 
 unique_ptr<LogicalOperator> DuckLakeCatalog::BindCreateIndex(Binder &binder, CreateStatement &stmt,

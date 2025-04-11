@@ -37,7 +37,7 @@ idx_t DuckLakeDeleteFilter::Filter(row_t start_row_index, idx_t count, Selection
 	return delete_data->Filter(start_row_index, count, result_sel);
 }
 
-unique_ptr<DuckLakeDeleteFilter> DuckLakeDeleteFilter::Create(ClientContext &context, const string &delete_file_path) {
+unique_ptr<DuckLakeDeleteFilter> DuckLakeDeleteFilter::Create(ClientContext &context, const string &delete_file_path, const string &delete_encryption_key) {
 	auto &instance = DatabaseInstance::GetDatabase(context);
 	auto &parquet_scan_entry = ExtensionUtil::GetTableFunction(instance, "parquet_scan");
 	auto &parquet_scan = parquet_scan_entry.functions.functions[0];
@@ -49,6 +49,11 @@ unique_ptr<DuckLakeDeleteFilter> DuckLakeDeleteFilter::Create(ClientContext &con
 	named_parameter_map_t named_params;
 	vector<LogicalType> input_types;
 	vector<string> input_names;
+	if (!delete_encryption_key.empty()) {
+		child_list_t<Value> encryption_values;
+		encryption_values.emplace_back("footer_key_value", Value::BLOB_RAW(delete_encryption_key));
+		named_params["encryption_config"] = Value::STRUCT(std::move(encryption_values));
+	}
 
 	TableFunctionRef empty;
 	TableFunction dummy_table_function;

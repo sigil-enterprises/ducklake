@@ -57,7 +57,11 @@ void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction
 		                            "DATA_PATH parameter to the desired location of the data files");
 	}
 	auto &metadata_manager = transaction.GetMetadataManager();
-	metadata_manager.InitializeDuckLake(has_explicit_schema);
+	metadata_manager.InitializeDuckLake(has_explicit_schema, catalog.Encryption());
+	if (catalog.Encryption() == DuckLakeEncryption::AUTOMATIC) {
+		// default to unencrypted
+		catalog.SetEncryption(DuckLakeEncryption::UNENCRYPTED);
+	}
 }
 
 void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction) {
@@ -73,6 +77,15 @@ void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction)
 		if (tag.key == "data_path") {
 			if (data_path.empty()) {
 				data_path = tag.value;
+			}
+		}
+		if (tag.key == "encrypted") {
+			if (tag.value == "true") {
+				catalog.SetEncryption(DuckLakeEncryption::ENCRYPTED);
+			} else if (tag.value == "false") {
+				catalog.SetEncryption(DuckLakeEncryption::UNENCRYPTED);
+			} else {
+				throw NotImplementedException("Encrypted should be either true or false");
 			}
 		}
 	}

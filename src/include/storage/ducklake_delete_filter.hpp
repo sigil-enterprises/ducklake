@@ -23,7 +23,8 @@ public:
 	shared_ptr<DuckLakeDeleteData> delete_data;
 
 	idx_t Filter(row_t start_row_index, idx_t count, SelectionVector &result_sel) override;
-	static unique_ptr<DuckLakeDeleteFilter> Create(ClientContext &context, const string &delete_file_path);
+	static unique_ptr<DuckLakeDeleteFilter> Create(ClientContext &context, const string &delete_file_path,
+	                                               const string &delete_encryption_key);
 };
 
 } // namespace duckdb

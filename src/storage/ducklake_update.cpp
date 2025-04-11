@@ -191,13 +191,14 @@ PhysicalOperator &child_plan) {
 		}
 	}
 	auto &table = op.table.Cast<DuckLakeTableEntry>();
+	auto encryption_key = GenerateEncryptionKey(context);
 	// updates are executed as a delete + insert - generate the two nodes (delete and insert)
 	// plan the copy for the insert
-	auto &copy_op = DuckLakeInsert::PlanCopyForInsert(context, planner, table, nullptr);
+	auto &copy_op = DuckLakeInsert::PlanCopyForInsert(context, planner, table, nullptr, encryption_key);
 	// plan the delete
-	auto &delete_op = DuckLakeDelete::PlanDelete(context, planner, table, child_plan);
+	auto &delete_op = DuckLakeDelete::PlanDelete(context, planner, table, child_plan, encryption_key);
 	// plan the actual insert
-	auto &insert_op = DuckLakeInsert::PlanInsert(context, planner, table);
+	auto &insert_op = DuckLakeInsert::PlanInsert(context, planner, table, encryption_key);
 
 	return planner.Make<DuckLakeUpdate>(table, op.columns, child_plan, copy_op, delete_op, insert_op);
 }

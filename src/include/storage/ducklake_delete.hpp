@@ -24,12 +24,15 @@ struct DuckLakeDeleteMap {
 
 class DuckLakeDelete : public PhysicalOperator {
 public:
-	DuckLakeDelete(DuckLakeTableEntry &table, PhysicalOperator &child, shared_ptr<DuckLakeDeleteMap> delete_map);
+	DuckLakeDelete(DuckLakeTableEntry &table, PhysicalOperator &child, shared_ptr<DuckLakeDeleteMap> delete_map,
+	               string encryption_key);
 
 	//! The table to delete from
 	DuckLakeTableEntry &table;
 	//! A map of filename -> data file index and filename -> delete data
 	shared_ptr<DuckLakeDeleteMap> delete_map;
+	//! The encryption key used to encrypt the written files
+	string encryption_key;
 
 public:
 	// // Source interface
@@ -40,7 +43,7 @@ public:
 	}
 
 	static PhysicalOperator &PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner,
-	                                    DuckLakeTableEntry &table, PhysicalOperator &child_plan);
+	                                    DuckLakeTableEntry &table, PhysicalOperator &child_plan, string encryption_key);
 
 public:
 	// Sink interface

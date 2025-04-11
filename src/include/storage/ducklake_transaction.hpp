@@ -86,7 +86,8 @@ public:
 	string GetDefaultSchemaName();
 
 	bool HasLocalDeletes(TableIndex table_id);
-	void GetLocalDeleteForFile(TableIndex table_id, const string &path, string &result);
+	void GetLocalDeleteForFile(TableIndex table_id, const string &path, string &delete_path,
+	                           string &delete_encryption_key);
 	void TransactionLocalDelete(TableIndex table_id, const string &data_path, DuckLakeDeleteFile delete_file);
 
 	bool HasDroppedFiles() const;

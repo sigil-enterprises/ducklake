@@ -13,6 +13,7 @@ DuckLakeDataFile::DuckLakeDataFile(const DuckLakeDataFile &other) {
 	}
 	column_stats = other.column_stats;
 	partition_values = other.partition_values;
+	encryption_key = other.encryption_key;
 }
 
 DuckLakeDataFile &DuckLakeDataFile::operator=(const DuckLakeDataFile &other) {
@@ -26,6 +27,7 @@ DuckLakeDataFile &DuckLakeDataFile::operator=(const DuckLakeDataFile &other) {
 	}
 	column_stats = other.column_stats;
 	partition_values = other.partition_values;
+	encryption_key = other.encryption_key;
 	return *this;
 }
 
