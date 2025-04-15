@@ -215,6 +215,10 @@ DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const Multi
 	string filter;
 	for (auto &entry : filters.filters) {
 		auto column_id = entry.first;
+		if (IsVirtualColumn(column_ids[column_id])) {
+			// skip pushing filters on virtual columns
+			continue;
+		}
 		// FIXME: handle structs
 		auto column_index = PhysicalIndex(column_ids[column_id]);
 		auto &root_id = read_info.table.GetFieldId(column_index);
