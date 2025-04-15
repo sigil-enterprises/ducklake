@@ -45,6 +45,9 @@ public:
 	const vector<DuckLakeFileListEntry> &GetFiles();
 	const DuckLakeFileListEntry &GetFileEntry(idx_t file_idx);
 
+	bool IsDeleteScan() const;
+	const DuckLakeDeleteScanEntry &GetDeleteScanEntry(idx_t file_idx);
+
 protected:
 	//! Get the i-th expanded file
 	OpenFileInfo GetFile(idx_t i) override;
@@ -52,6 +55,7 @@ protected:
 private:
 	void GetFilesForTable();
 	void GetTableInsertions();
+	void GetTableDeletions();
 
 private:
 	mutex file_lock;
@@ -62,6 +66,8 @@ private:
 	bool read_file_list;
 	//! The set of transaction-local files
 	vector<DuckLakeDataFile> transaction_local_files;
+	//! The set of delete scans, only used when scanning deleted tuples using ducklake_table_deletions
+	vector<DuckLakeDeleteScanEntry> delete_scans;
 	//! The filter to apply
 	string filter;
 };

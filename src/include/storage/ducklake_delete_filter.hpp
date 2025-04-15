@@ -25,6 +25,10 @@ public:
 
 	idx_t Filter(row_t start_row_index, idx_t count, SelectionVector &result_sel) override;
 	static unique_ptr<DuckLakeDeleteFilter> Create(ClientContext &context, const DuckLakeFileData &delete_file);
+	static unique_ptr<DuckLakeDeleteFilter> Create(ClientContext &context, const DuckLakeDeleteScanEntry &delete_scan);
+
+private:
+	static vector<idx_t> ScanDeleteFile(ClientContext &context, const DuckLakeFileData &delete_file);
 };
 
 } // namespace duckdb

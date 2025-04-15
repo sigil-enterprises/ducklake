@@ -419,6 +419,28 @@ void DuckLakeMultiFileList::GetTableInsertions() {
 	files = metadata_manager.GetTableInsertions(*read_info.start_snapshot, read_info.snapshot, read_info.table_id);
 }
 
+void DuckLakeMultiFileList::GetTableDeletions() {
+	if (read_info.table_id.IsTransactionLocal()) {
+		throw InternalException("Cannot get changes between snapshots for transaction-local files");
+	}
+	auto &metadata_manager = transaction.GetMetadataManager();
+	delete_scans = metadata_manager.GetTableDeletions(*read_info.start_snapshot, read_info.snapshot, read_info.table_id);
+	for(auto &file : delete_scans) {
+		DuckLakeFileListEntry file_entry;
+		file_entry.file = file.file;
+		file_entry.row_id_start = file.row_id_start;
+		files.emplace_back(std::move(file_entry));
+	}
+}
+
+bool DuckLakeMultiFileList::IsDeleteScan() const {
+	return read_info.scan_type == DuckLakeScanType::SCAN_DELETIONS;
+}
+
+const DuckLakeDeleteScanEntry &DuckLakeMultiFileList::GetDeleteScanEntry(idx_t file_idx) {
+	return delete_scans[file_idx];
+}
+
 const vector<DuckLakeFileListEntry> &DuckLakeMultiFileList::GetFiles() {
 	lock_guard<mutex> l(file_lock);
 	if (!read_file_list) {
@@ -431,7 +453,8 @@ const vector<DuckLakeFileListEntry> &DuckLakeMultiFileList::GetFiles() {
 			GetTableInsertions();
 			break;
 		case DuckLakeScanType::SCAN_DELETIONS:
-			throw InternalException("Unsupported DuckLake scan type");
+			GetTableDeletions();
+			break;
 		default:
 			throw InternalException("Unknown DuckLake scan type");
 		}

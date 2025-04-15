@@ -19,6 +19,9 @@ static void LoadInternal(DatabaseInstance &instance) {
 
 	DuckLakeTableInsertionsFunction table_insertions;
 	ExtensionUtil::RegisterFunction(instance, table_insertions);
+
+	DuckLakeTableDeletionsFunction table_deletions;
+	ExtensionUtil::RegisterFunction(instance, table_deletions);
 }
 
 void DucklakeExtension::Load(DuckDB &db) {

@@ -45,7 +45,9 @@ BoundAtClause AtClauseFromValue(const Value &input) {
 	}
 }
 
-static unique_ptr<FunctionData> DuckLakeTableInsertionsBind(ClientContext &context, TableFunctionBindInput &input, vector<LogicalType> &return_types, vector<string> &names) {
+
+
+static unique_ptr<FunctionData> DuckLakeTableChangesBind(ClientContext &context, TableFunctionBindInput &input, vector<LogicalType> &return_types, vector<string> &names, DuckLakeScanType scan_type) {
 	auto start_at_clause = AtClauseFromValue(input.inputs[2]);
 	auto end_at_clause = AtClauseFromValue(input.inputs[3]);
 
@@ -61,20 +63,31 @@ static unique_ptr<FunctionData> DuckLakeTableInsertionsBind(ClientContext &conte
 	names = function_info.column_names;
 	return_types = function_info.column_types;
 	function_info.start_snapshot = make_uniq<DuckLakeSnapshot>(transaction.GetSnapshot(start_at_clause));
-	function_info.scan_type = DuckLakeScanType::SCAN_INSERTIONS;
+	function_info.scan_type = scan_type;
 	return bind_data;
 }
 
-static unique_ptr<GlobalTableFunctionState> DuckLakeTableInsertionsInit(ClientContext &context, TableFunctionInitInput &input) {
-	throw InternalException("FIXME: init");
+static unique_ptr<FunctionData> DuckLakeTableInsertionsBind(ClientContext &context, TableFunctionBindInput &input, vector<LogicalType> &return_types, vector<string> &names) {
+	return DuckLakeTableChangesBind(context, input, return_types, names, DuckLakeScanType::SCAN_INSERTIONS);
 }
 
-static void DuckLakeTableInsertionsExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
-	throw InternalException("FIXME: execute");
+static unique_ptr<FunctionData> DuckLakeTableDeletionsBind(ClientContext &context, TableFunctionBindInput &input, vector<LogicalType> &return_types, vector<string> &names) {
+	return DuckLakeTableChangesBind(context, input, return_types, names, DuckLakeScanType::SCAN_DELETIONS);
+}
+
+static unique_ptr<GlobalTableFunctionState> DuckLakeChangesInit(ClientContext &context, TableFunctionInitInput &input) {
+	throw InternalException("DuckLakeChangesInit should never be called");
+}
+
+static void DuckLakeChangesExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
+	throw InternalException("DuckLakeChangesExecute should never be called");
 }
 
 DuckLakeTableInsertionsFunction::DuckLakeTableInsertionsFunction()
-	: TableFunction("ducklake_table_insertions", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::BIGINT, LogicalType::BIGINT}, DuckLakeTableInsertionsExecute, DuckLakeTableInsertionsBind, DuckLakeTableInsertionsInit) {
+	: TableFunction("ducklake_table_insertions", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::BIGINT, LogicalType::BIGINT}, DuckLakeChangesExecute, DuckLakeTableInsertionsBind, DuckLakeChangesInit) {
 }
 
+DuckLakeTableDeletionsFunction::DuckLakeTableDeletionsFunction()
+	: TableFunction("ducklake_table_deletions", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::BIGINT, LogicalType::BIGINT}, DuckLakeChangesExecute, DuckLakeTableDeletionsBind, DuckLakeChangesInit) {
+}
 } // namespace duckdb

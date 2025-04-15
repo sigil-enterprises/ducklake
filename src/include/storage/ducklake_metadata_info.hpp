@@ -197,6 +197,14 @@ struct DuckLakeFileListEntry {
 	idx_t row_id_start;
 };
 
+struct DuckLakeDeleteScanEntry {
+	DuckLakeFileData file;
+	DuckLakeFileData delete_file;
+	DuckLakeFileData previous_delete_file;
+	idx_t row_count;
+	idx_t row_id_start;
+};
+
 struct DuckLakeFileListExtendedEntry {
 	DataFileIndex file_id;
 	DataFileIndex delete_file_id;

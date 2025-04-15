@@ -90,13 +90,22 @@ ReaderInitializeType DuckLakeMultiFileReader::InitializeReader(
 	auto &reader = *reader_data.reader;
 	auto file_idx = reader.file_list_idx.GetIndex();
 
-	auto &file_entry = file_list.GetFileEntry(file_idx);
-	if (!file_entry.delete_file.path.empty()) {
-		auto delete_filter = DuckLakeDeleteFilter::Create(context, file_entry.delete_file);
-		if (delete_map) {
-			delete_map->AddDeleteData(reader.GetFileName(), delete_filter->delete_data);
+	if (!file_list.IsDeleteScan()) {
+		// regular scan - read the deletes from the delete file (if any)
+		auto &file_entry = file_list.GetFileEntry(file_idx);
+		if (!file_entry.delete_file.path.empty()) {
+			auto delete_filter = DuckLakeDeleteFilter::Create(context, file_entry.delete_file);
+			if (delete_map) {
+				delete_map->AddDeleteData(reader.GetFileName(), delete_filter->delete_data);
+			}
+			reader.deletion_filter = std::move(delete_filter);
 		}
+	} else {
+		// delete scan - we need to read ONLY the entries that have been deleted
+		auto &delete_entry = file_list.GetDeleteScanEntry(file_idx);
+		auto delete_filter = DuckLakeDeleteFilter::Create(context, delete_entry);
 		reader.deletion_filter = std::move(delete_filter);
+
 	}
 	return MultiFileReader::InitializeReader(reader_data, bind_data, global_columns, global_column_ids, table_filters, context, global_state);
 }

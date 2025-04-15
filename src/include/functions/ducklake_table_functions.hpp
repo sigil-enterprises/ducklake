@@ -37,4 +37,9 @@ public:
 	DuckLakeTableInsertionsFunction();
 };
 
+class DuckLakeTableDeletionsFunction : public TableFunction {
+public:
+	DuckLakeTableDeletionsFunction();
+};
+
 } // namespace duckdb

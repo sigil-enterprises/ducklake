@@ -37,7 +37,7 @@ idx_t DuckLakeDeleteFilter::Filter(row_t start_row_index, idx_t count, Selection
 	return delete_data->Filter(start_row_index, count, result_sel);
 }
 
-unique_ptr<DuckLakeDeleteFilter> DuckLakeDeleteFilter::Create(ClientContext &context, const DuckLakeFileData &delete_file) {
+vector<idx_t> DuckLakeDeleteFilter::ScanDeleteFile(ClientContext &context, const DuckLakeFileData &delete_file) {
 	auto &instance = DatabaseInstance::GetDatabase(context);
 	auto &parquet_scan_entry = ExtensionUtil::GetTableFunction(instance, "parquet_scan");
 	auto &parquet_scan = parquet_scan_entry.functions.functions[0];
@@ -83,9 +83,7 @@ unique_ptr<DuckLakeDeleteFilter> DuckLakeDeleteFilter::Create(ClientContext &con
 	auto global_state = parquet_scan.init_global(context, input);
 	auto local_state = parquet_scan.init_local(execution_context, input, global_state.get());
 
-	auto result = make_uniq<DuckLakeDeleteFilter>();
-	result->delete_data = make_shared_ptr<DuckLakeDeleteData>();
-	auto &deleted_rows = result->delete_data->deleted_rows;
+	vector<idx_t> deleted_rows;
 	int64_t last_delete = -1;
 	while(true) {
 		TableFunctionInput function_input(bind_data.get(), local_state.get(), global_state.get());
@@ -114,8 +112,60 @@ unique_ptr<DuckLakeDeleteFilter> DuckLakeDeleteFilter::Create(ClientContext &con
 			last_delete = row_id;
 		}
 	}
-	return result;
+	return deleted_rows;
+}
 
+unique_ptr<DuckLakeDeleteFilter> DuckLakeDeleteFilter::Create(ClientContext &context, const DuckLakeFileData &delete_file) {
+	auto result = make_uniq<DuckLakeDeleteFilter>();
+	result->delete_data = make_shared_ptr<DuckLakeDeleteData>();
+	result->delete_data->deleted_rows = ScanDeleteFile(context, delete_file);
+	return result;
+}
+
+unique_ptr<DuckLakeDeleteFilter> DuckLakeDeleteFilter::Create(ClientContext &context, const DuckLakeDeleteScanEntry &delete_scan) {
+	// scanning deletes - we need to scan the opposite (i.e. only the rows that were deleted)
+	auto rows_to_scan = make_unsafe_uniq_array<bool>(delete_scan.row_count);
+
+	// scan the current set of deletes
+	if (!delete_scan.delete_file.path.empty()) {
+		// we have a delete file - read the delete file from disk
+		auto current_deletes = ScanDeleteFile(context, delete_scan.delete_file);
+		// iterate over the current delets - these are the rows we need to scan
+		memset(rows_to_scan.get(), 0, sizeof(bool) * delete_scan.row_count);
+		for(auto delete_idx : current_deletes) {
+			if (delete_idx >= delete_scan.row_count) {
+				throw InvalidInputException("Invalid delete data - delete index read from file %s is out of range for data file %s", delete_scan.delete_file.path, delete_scan.file.path);
+			}
+			rows_to_scan[delete_idx] = true;
+		}
+	} else {
+		// we have no delete file - this means the entire file was deleted
+		// set all rows as being scanned
+		memset(rows_to_scan.get(), 1, sizeof(bool) * delete_scan.row_count);
+	}
+
+	if (!delete_scan.previous_delete_file.path.empty()) {
+		// if we have a previous delete file - scan that set of deletes
+		auto previous_deletes = ScanDeleteFile(context, delete_scan.previous_delete_file);
+		// these deletes are not new - we should not scan them
+		for(auto delete_idx : previous_deletes) {
+			if (delete_idx >= delete_scan.row_count) {
+				throw InvalidInputException("Invalid delete data - delete index read from file %s is out of range for data file %s", delete_scan.delete_file.path, delete_scan.file.path);
+			}
+			rows_to_scan[delete_idx] = false;
+		}
+	}
+
+	// now construct the delete filter based on the rows we want to scan
+	auto result = make_uniq<DuckLakeDeleteFilter>();
+	result->delete_data = make_shared_ptr<DuckLakeDeleteData>();
+	auto &deleted = result->delete_data->deleted_rows;
+	for(idx_t i = 0; i < delete_scan.row_count; i++) {
+		if (!rows_to_scan[i]) {
+			deleted.push_back(i);
+		}
+	}
+	return result;
 }
 
 }

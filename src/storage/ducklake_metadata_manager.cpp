@@ -420,6 +420,75 @@ WHERE data.table_id=%d AND data.begin_snapshot >= %d AND data.begin_snapshot <= 
 	return files;
 }
 
+vector<DuckLakeDeleteScanEntry> DuckLakeMetadataManager::GetTableDeletions(DuckLakeSnapshot start_snapshot, DuckLakeSnapshot end_snapshot, TableIndex table_id) {
+	string select_list = GetFileSelectList("data") + ", data.row_id_start, data.record_count, " + GetFileSelectList("current_delete") + ", " + GetFileSelectList("previous_delete");
+	// deletes come in two flavors:
+	// * deletes stored in the ducklake_delete_file table (partial deletes)
+	// * data files being deleted entirely through setting end_snapshot (full file deletes)
+	// we gather both of these deletes in two separate queries
+	// for both deletes, we need to obtain any PREVIOUS deletes as well
+	// we need these since we are only interested in rows deleted between start_snapshot and end_snapshot
+	// so we need to exclude any rows that were already deleted prior to this moment
+	auto query = StringUtil::Format(R"(
+SELECT %s FROM (
+	SELECT data_file_id,
+	       MAX(begin_snapshot) AS begin_snapshot,
+	       MAX_BY(COLUMNS(['path', 'file_size_bytes', 'footer_size', 'encryption_key']), begin_snapshot) AS '\0'
+	FROM {METADATA_CATALOG}.ducklake_delete_file
+	WHERE table_id = %d AND begin_snapshot >= %d AND begin_snapshot <= {SNAPSHOT_ID}
+	      AND (end_snapshot IS NULL OR end_snapshot > {SNAPSHOT_ID})
+	GROUP BY data_file_id
+) AS current_delete
+LEFT JOIN (
+	SELECT data_file_id, MAX_BY(COLUMNS(['path', 'file_size_bytes', 'footer_size', 'encryption_key']), begin_snapshot) AS '\0'
+	FROM {METADATA_CATALOG}.ducklake_delete_file
+	WHERE table_id = %d AND begin_snapshot < %d
+	GROUP BY data_file_id
+) AS previous_delete
+USING (data_file_id)
+JOIN (
+	FROM {METADATA_CATALOG}.ducklake_data_file
+	WHERE begin_snapshot < %d
+) data
+USING (data_file_id)
+
+UNION ALL
+
+SELECT %s FROM (
+	FROM {METADATA_CATALOG}.ducklake_data_file
+	WHERE table_id = %d AND begin_snapshot <= %d AND end_snapshot >= %d AND end_snapshot <= {SNAPSHOT_ID}
+) AS data
+LEFT JOIN (
+	SELECT data_file_id, MAX_BY(COLUMNS(['path', 'file_size_bytes', 'footer_size', 'encryption_key']), begin_snapshot) AS '\0'
+	FROM {METADATA_CATALOG}.ducklake_delete_file
+	WHERE table_id = %d AND begin_snapshot <= %d
+	GROUP BY data_file_id
+) AS previous_delete
+USING (data_file_id), (
+	SELECT NULL path, NULL file_size_bytes, NULL footer_size, NULL encryption_key
+) current_delete;
+
+		)", select_list, table_id.index, start_snapshot.snapshot_id, table_id.index, start_snapshot.snapshot_id, start_snapshot.snapshot_id,
+		    select_list, table_id.index, start_snapshot.snapshot_id, start_snapshot.snapshot_id, table_id.index, start_snapshot.snapshot_id);
+	auto result = transaction.Query(end_snapshot, query);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to get table insertion file list from DuckLake: ");
+	}
+	vector<DuckLakeDeleteScanEntry> files;
+	for (auto &row : *result) {
+		DuckLakeDeleteScanEntry entry;
+		idx_t col_idx = 0;
+		entry.file = ReadDataFile(row, col_idx, IsEncrypted());
+		entry.row_id_start = row.GetValue<idx_t>(col_idx++);
+		entry.row_count = row.GetValue<idx_t>(col_idx++);
+		entry.delete_file = ReadDataFile(row, col_idx, IsEncrypted());
+		entry.previous_delete_file = ReadDataFile(row, col_idx, IsEncrypted());
+		files.push_back(std::move(entry));
+	}
+	return files;
+
+}
+
 vector<DuckLakeFileListExtendedEntry> DuckLakeMetadataManager::GetExtendedFilesForTable(DuckLakeSnapshot snapshot, TableIndex table_id,
 const string &filter) {
 	string select_list = GetFileSelectList("data") + ", data.row_id_start, " + GetFileSelectList("del");
