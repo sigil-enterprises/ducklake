@@ -126,7 +126,7 @@ SinkResultType DuckLakeDelete::Sink(ExecutionContext &context, DataChunk &chunk,
 			if (filename != string_t(local_state.current_filename)) {
 				// filename has changed - flush
 				global_state.Flush(local_state);
-				local_state.current_filename = filename_data[0].GetString();
+				local_state.current_filename = filename_data[filename_idx].GetString();
 			}
 			auto row_number = file_row_data[row_idx];
 			local_state.file_row_numbers.push_back(row_number);

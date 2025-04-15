@@ -79,8 +79,10 @@ SELECT rowid, i FROM ducklake.test ORDER BY rowid
 7	12
 9	14
 
-statement ok
+query I
 UPDATE ducklake.test SET i=i+1000 WHERE i<3 OR i>10
+----
+4
 
 query II
 SELECT rowid, i FROM ducklake.test ORDER BY rowid

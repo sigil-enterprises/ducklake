@@ -42,8 +42,6 @@ BoundAtClause AtClauseFromValue(const Value &input) {
 	}
 }
 
-
-
 static unique_ptr<FunctionData> DuckLakeTableChangesBind(ClientContext &context, TableFunctionBindInput &input, vector<LogicalType> &return_types, vector<string> &names, DuckLakeScanType scan_type) {
 	auto start_at_clause = AtClauseFromValue(input.inputs[2]);
 	auto end_at_clause = AtClauseFromValue(input.inputs[3]);
