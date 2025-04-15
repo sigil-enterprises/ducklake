@@ -46,7 +46,12 @@ unique_ptr<LocalSinkState> DuckLakeUpdate::GetLocalSinkState(ExecutionContext &c
 	vector<LogicalType> delete_types;
 	delete_types.emplace_back(LogicalType::VARCHAR);
 	delete_types.emplace_back(LogicalType::BIGINT);
-	result->insert_chunk.Initialize(context.client, table.GetTypes());
+
+	// updates also write the row id to the file
+	auto insert_types = table.GetTypes();
+	insert_types.push_back(LogicalType::BIGINT);
+
+	result->insert_chunk.Initialize(context.client, insert_types);
 	result->delete_chunk.Initialize(context.client, delete_types);
 	return std::move(result);
 }
@@ -63,6 +68,9 @@ SinkResultType DuckLakeUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 	for (idx_t i = 0; i < columns.size(); i++) {
 		insert_chunk.data[columns[i].index].Reference(chunk.data[i]);
 	}
+	idx_t row_id_index = columns.size();
+	insert_chunk.data[row_id_index].Reference(chunk.data[row_id_index]);
+
 	OperatorSinkInput copy_input {*copy_op.sink_state, *lstate.copy_local_state, input.interrupt_state};
 	copy_op.Sink(context, insert_chunk, copy_input);
 
@@ -194,7 +202,7 @@ PhysicalOperator &child_plan) {
 	auto encryption_key = GenerateEncryptionKey(context);
 	// updates are executed as a delete + insert - generate the two nodes (delete and insert)
 	// plan the copy for the insert
-	auto &copy_op = DuckLakeInsert::PlanCopyForInsert(context, planner, table, nullptr, encryption_key);
+	auto &copy_op = DuckLakeInsert::PlanCopyForInsert(context, planner, table, nullptr, encryption_key, true);
 	// plan the delete
 	auto &delete_op = DuckLakeDelete::PlanDelete(context, planner, table, child_plan, encryption_key);
 	// plan the actual insert

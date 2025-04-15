@@ -51,11 +51,13 @@ public:
 	static DuckLakeColumnStats ParseColumnStats(const LogicalType &type, const vector<Value> stats);
 	static PhysicalOperator &PlanCopyForInsert(ClientContext &context, PhysicalPlanGenerator &planner,
 	                                           DuckLakeTableEntry &table, optional_ptr<PhysicalOperator> plan,
-	                                           string encryption_key);
-	static PhysicalOperator &
-	PlanCopyForInsert(ClientContext &context, const ColumnList &columns, PhysicalPlanGenerator &planner,
-	                  optional_ptr<DuckLakePartition> partition_data, optional_ptr<DuckLakeFieldData> field_data,
-	                  optional_ptr<PhysicalOperator> plan, const string &data_path, string encryption_key);
+	                                           string encryption_key, bool write_row_id = false);
+	static PhysicalOperator &PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
+	                                           PhysicalPlanGenerator &planner,
+	                                           optional_ptr<DuckLakePartition> partition_data,
+	                                           optional_ptr<DuckLakeFieldData> field_data,
+	                                           optional_ptr<PhysicalOperator> plan, const string &data_path,
+	                                           string encryption_key, bool write_row_id = false);
 	static PhysicalOperator &PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner,
 	                                    DuckLakeTableEntry &table, string encryption_key);
 

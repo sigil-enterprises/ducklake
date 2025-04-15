@@ -55,9 +55,14 @@ public:
 	                                      optional_ptr<TableFilterSet> table_filters, ClientContext &context,
 	                                      optional_ptr<MultiFileReaderGlobalState> global_state) override;
 
-	unique_ptr<Expression> GetVirtualColumnExpression(ClientContext &context, MultiFileReaderData &reader_data,
-	                                                  idx_t &column_id, const LogicalType &type,
-	                                                  MultiFileLocalIndex local_index) override;
+	unique_ptr<Expression>
+	GetVirtualColumnExpression(ClientContext &context, MultiFileReaderData &reader_data,
+	                           const vector<MultiFileColumnDefinition> &local_columns, idx_t &column_id,
+	                           const LogicalType &type, MultiFileLocalIndex local_index,
+	                           optional_ptr<MultiFileColumnDefinition> &global_column_reference) override;
+
+private:
+	unique_ptr<MultiFileColumnDefinition> row_id_column;
 };
 
 } // namespace duckdb

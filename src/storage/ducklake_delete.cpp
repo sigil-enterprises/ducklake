@@ -49,8 +49,8 @@ public:
 class DuckLakeDeleteGlobalState : public GlobalSinkState {
 public:
 	explicit DuckLakeDeleteGlobalState() {
-		written_columns["file_path"] = WrittenColumnInfo(LogicalType::VARCHAR, 2147483546);
-		written_columns["pos"] = WrittenColumnInfo(LogicalType::BIGINT, 2147483545);
+		written_columns["file_path"] = WrittenColumnInfo(LogicalType::VARCHAR, MultiFileReader::FILENAME_FIELD_ID);
+		written_columns["pos"] = WrittenColumnInfo(LogicalType::BIGINT, MultiFileReader::ORDINAL_FIELD_ID);
 	}
 
 	mutex lock;
@@ -199,8 +199,8 @@ void DuckLakeDelete::FlushDelete(DuckLakeTransaction &transaction, ClientContext
     // generate the field ids to be written by the parquet writer
     // these field ids follow icebergs' ids and names for the delete files
 	child_list_t<Value> values;
-	values.emplace_back("file_path", Value::INTEGER(2147483546));
-	values.emplace_back("pos", Value::INTEGER(2147483545));
+	values.emplace_back("file_path", Value::INTEGER(MultiFileReader::FILENAME_FIELD_ID));
+	values.emplace_back("pos", Value::INTEGER(MultiFileReader::ORDINAL_FIELD_ID));
 	auto field_ids = Value::STRUCT(std::move(values));
 	vector<Value> field_input;
 	field_input.push_back(std::move(field_ids));

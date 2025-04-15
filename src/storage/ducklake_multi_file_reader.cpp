@@ -26,6 +26,8 @@
 namespace duckdb {
 
 DuckLakeMultiFileReader::DuckLakeMultiFileReader(DuckLakeFunctionInfo &read_info) : read_info(read_info) {
+	row_id_column = make_uniq<MultiFileColumnDefinition>("_ducklake_internal_row_id", LogicalType::BIGINT);
+	row_id_column->identifier = Value::INTEGER(MultiFileReader::ROW_ID_FIELD_ID);
 }
 
 DuckLakeMultiFileReader::~DuckLakeMultiFileReader(){}
@@ -99,10 +101,21 @@ ReaderInitializeType DuckLakeMultiFileReader::InitializeReader(
 	return MultiFileReader::InitializeReader(reader_data, bind_data, global_columns, global_column_ids, table_filters, context, global_state);
 }
 
-unique_ptr<Expression> DuckLakeMultiFileReader::GetVirtualColumnExpression(ClientContext &context, MultiFileReaderData &reader_data, idx_t &column_id, const LogicalType &type, MultiFileLocalIndex local_idx) {
+unique_ptr<Expression> DuckLakeMultiFileReader::GetVirtualColumnExpression(ClientContext &context, MultiFileReaderData &reader_data, const vector<MultiFileColumnDefinition> &local_columns, idx_t &column_id, const LogicalType &type, MultiFileLocalIndex local_idx, optional_ptr<MultiFileColumnDefinition> &global_column_reference) {
 	if (column_id == COLUMN_IDENTIFIER_ROW_ID) {
 		// row id column
-		// this is computed as row_id_start + file_row_number
+		// this is computed as row_id_start + file_row_number OR read from the file
+		// first check if the row id is explicitly defined in this file
+		for(auto &col : local_columns) {
+			if (col.identifier.IsNull()) {
+				continue;
+			}
+			if (col.identifier.GetValue<int32_t>() == MultiFileReader::ROW_ID_FIELD_ID) {
+				// it is! return a reference to the global row id column so we can read it from the file directly
+				global_column_reference = row_id_column.get();
+				return nullptr;
+			}
+		}
 		// get the row id start for this file
 		if (!reader_data.file_to_be_opened.extended_info) {
 			throw InternalException("Extended info not found for reading row id column");
@@ -131,7 +144,7 @@ unique_ptr<Expression> DuckLakeMultiFileReader::GetVirtualColumnExpression(Clien
 		}
 		return function_expr;
 	}
-	return MultiFileReader::GetVirtualColumnExpression(context, reader_data, column_id, type, local_idx);
+	return MultiFileReader::GetVirtualColumnExpression(context, reader_data, local_columns, column_id, type, local_idx, global_column_reference);
 }
 
 } // namespace duckdb

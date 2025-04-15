@@ -346,6 +346,7 @@ vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() 
 			transaction.GetLocalDeleteForFile(read_info.table_id, file_entry.file.path, file_entry.delete_file);
 		}
 	}
+	idx_t transaction_row_start = TRANSACTION_LOCAL_ID_START;
 	for(auto &file : transaction_local_files) {
 		DuckLakeFileListExtendedEntry file_entry;
 		file_entry.file_id = DataFileIndex();
@@ -353,6 +354,8 @@ vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() 
 		file_entry.row_count = file.row_count;
 		file_entry.file = GetFileData(file);
 		file_entry.delete_file = GetDeleteData(file);
+		file_entry.row_id_start = transaction_row_start;
+		transaction_row_start += file.row_count;
 		result.push_back(std::move(file_entry));
 	}
 	if (!read_file_list) {
@@ -360,6 +363,7 @@ vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() 
 		for(auto &file : result) {
 			DuckLakeFileListEntry file_entry;
 			file_entry.file = file.file;
+			file_entry.row_id_start = file.row_id_start;
 			file_entry.delete_file = file.delete_file;
 			files.emplace_back(std::move(file_entry));
 		}
@@ -391,10 +395,13 @@ const vector<DuckLakeFileListEntry> &DuckLakeMultiFileList::GetFiles() {
 				transaction.GetLocalDeleteForFile(read_info.table_id, file_entry.file.path, file_entry.delete_file);
 			}
 		}
+		idx_t transaction_row_start = TRANSACTION_LOCAL_ID_START;
 		for(auto &file : transaction_local_files) {
 			DuckLakeFileListEntry file_entry;
 		    file_entry.file = GetFileData(file);
+		    file_entry.row_id_start = transaction_row_start;
 		    file_entry.delete_file = GetDeleteData(file);
+			transaction_row_start += file.row_count;
 			files.emplace_back(std::move(file_entry));
 		}
 		read_file_list = true;
