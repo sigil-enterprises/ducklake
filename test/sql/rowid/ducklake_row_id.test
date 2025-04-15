@@ -36,6 +36,11 @@ SELECT rowid FROM ducklake.test
 1000000000000000003
 1000000000000000004
 
+query I
+SELECT rowid FROM ducklake.test WHERE rowid=1000000000000000001
+----
+1000000000000000001
+
 statement ok
 COMMIT
 
@@ -122,4 +127,29 @@ SELECT rowid, i FROM ducklake.test ORDER BY rowid
 4	12006
 5	12010
 7	13012
+9	13014
+
+query I
+UPDATE ducklake.test SET i=rowid WHERE rowid=5
+----
+1
+
+query II
+SELECT rowid, i FROM ducklake.test WHERE rowid >= 4 AND rowid < 10 ORDER BY rowid
+----
+4	12006
+5	5
+7	13012
+9	13014
+
+statement ok
+DELETE FROM ducklake.test WHERE rowid=7
+
+query II
+SELECT rowid, i FROM ducklake.test ORDER BY rowid
+----
+0	3000
+2	3002
+4	12006
+5	5
 9	13014
