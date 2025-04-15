@@ -92,7 +92,7 @@ ReaderInitializeType DuckLakeMultiFileReader::InitializeReader(
 	if (!file_entry.delete_file.path.empty()) {
 		auto delete_filter = DuckLakeDeleteFilter::Create(context, file_entry.delete_file);
 		if (delete_map) {
-			delete_map->delete_data_map.emplace(reader.GetFileName(), delete_filter->delete_data);
+			delete_map->AddDeleteData(reader.GetFileName(), delete_filter->delete_data);
 		}
 		reader.deletion_filter = std::move(delete_filter);
 	}

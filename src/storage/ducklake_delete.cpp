@@ -150,11 +150,7 @@ SinkCombineResultType DuckLakeDelete::Combine(ExecutionContext &context, Operato
 //===--------------------------------------------------------------------===//
 void DuckLakeDelete::FlushDelete(DuckLakeTransaction &transaction, ClientContext &context, DuckLakeDeleteGlobalState &global_state, const string &filename, vector<idx_t> &deleted_rows) const {
 	// find the matching data file for the deletion
-	auto delete_entry = delete_map->file_map.find(filename);
-	if (delete_entry == delete_map->file_map.end()) {
-		throw InternalException("Could not find matching file for written delete file");
-	}
-	auto &data_file_info = delete_entry->second;
+	auto data_file_info = delete_map->GetExtendedFileInfo(filename);
 
 	// sort and duplicate eliminate the deletes
 	set<idx_t> sorted_deletes;
@@ -165,14 +161,14 @@ void DuckLakeDelete::FlushDelete(DuckLakeTransaction &transaction, ClientContext
 	delete_file.data_file_path = filename;
 	delete_file.data_file_id = data_file_info.file_id;
 	// check if the file already has deletes
-	auto entry = delete_map->delete_data_map.find(filename);
-	if (entry != delete_map->delete_data_map.end()) {
+	auto existing_delete_data = delete_map->GetDeleteData(filename);
+	if (existing_delete_data) {
 		// deletes already exist for this file - add to set of deletes to write
-		auto &existing_deletes = entry->second->deleted_rows;
+		auto &existing_deletes = existing_delete_data->deleted_rows;
 		sorted_deletes.insert(existing_deletes.begin(), existing_deletes.end());
 
 		// clear the deletes
-		delete_map->delete_data_map.erase(entry);
+		delete_map->ClearDeletes(filename);
 
 		// set the delete file as overwriting existing deletes
 		delete_file.overwrites_existing_delete = true;
@@ -388,10 +384,8 @@ PhysicalOperator &DuckLakeDelete::PlanDelete(ClientContext &context, PhysicalPla
 	    auto &reader = bind_data.multi_file_reader->Cast<DuckLakeMultiFileReader>();
 	    auto &file_list = bind_data.file_list->Cast<DuckLakeMultiFileList>();
 	    auto files = file_list.GetFilesExtended();
-	    auto &delete_file_map = delete_map->file_map;
 	    for(auto &file_entry : files) {
-	    	auto file_path = file_entry.file.path;
-	    	delete_file_map[file_path] = std::move(file_entry);
+	    	delete_map->AddExtendedFileInfo(std::move(file_entry));
 	    }
 	    reader.delete_map = delete_map;
     }

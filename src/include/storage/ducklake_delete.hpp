@@ -18,6 +18,41 @@ class DuckLakeDeleteGlobalState;
 class DuckLakeTransaction;
 
 struct DuckLakeDeleteMap {
+
+	void AddExtendedFileInfo(DuckLakeFileListExtendedEntry file_entry) {
+		auto filename = file_entry.file.path;
+		file_map.emplace(std::move(filename), std::move(file_entry));
+	}
+
+	DuckLakeFileListExtendedEntry GetExtendedFileInfo(const string &filename) {
+		auto delete_entry = file_map.find(filename);
+		if (delete_entry == file_map.end()) {
+			throw InternalException("Could not find matching file for written delete file");
+		}
+		return delete_entry->second;
+	}
+
+	optional_ptr<DuckLakeDeleteData> GetDeleteData(const string &filename) {
+		lock_guard<mutex> guard(lock);
+		auto entry = delete_data_map.find(filename);
+		if (entry == delete_data_map.end()) {
+			return nullptr;
+		}
+		return entry->second.get();
+	}
+
+	void ClearDeletes(const string &filename) {
+		lock_guard<mutex> guard(lock);
+		delete_data_map.erase(filename);
+	}
+
+	void AddDeleteData(const string &filename, shared_ptr<DuckLakeDeleteData> delete_data) {
+		lock_guard<mutex> guard(lock);
+		delete_data_map.emplace(filename, delete_data);
+	}
+
+private:
+	mutex lock;
 	unordered_map<string, DuckLakeFileListExtendedEntry> file_map;
 	unordered_map<string, shared_ptr<DuckLakeDeleteData>> delete_data_map;
 };
