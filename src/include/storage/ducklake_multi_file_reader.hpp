@@ -27,9 +27,14 @@ struct DuckLakeMultiFileReaderGlobalState : public MultiFileReaderGlobalState {
 };
 
 struct DuckLakeMultiFileReader : public MultiFileReader {
+public:
 	explicit DuckLakeMultiFileReader(DuckLakeFunctionInfo &read_info);
 	~DuckLakeMultiFileReader() override;
 
+	DuckLakeFunctionInfo &read_info;
+	shared_ptr<DuckLakeDeleteMap> delete_map;
+
+public:
 	static unique_ptr<MultiFileReader> CreateInstance(const TableFunction &table_function);
 	//! Return a DuckLakeMultiFileList
 	shared_ptr<MultiFileList> CreateFileList(ClientContext &context, const vector<string> &paths,
@@ -50,8 +55,9 @@ struct DuckLakeMultiFileReader : public MultiFileReader {
 	                                      optional_ptr<TableFilterSet> table_filters, ClientContext &context,
 	                                      optional_ptr<MultiFileReaderGlobalState> global_state) override;
 
-	DuckLakeFunctionInfo &read_info;
-	shared_ptr<DuckLakeDeleteMap> delete_map;
+	unique_ptr<Expression> GetVirtualColumnExpression(ClientContext &context, MultiFileReaderData &reader_data,
+	                                                  idx_t &column_id, const LogicalType &type,
+	                                                  MultiFileLocalIndex local_index) override;
 };
 
 } // namespace duckdb

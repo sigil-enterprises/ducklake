@@ -14,10 +14,14 @@
 #include "duckdb/optimizer/filter_combiner.hpp"
 #include "duckdb/parser/expression/constant_expression.hpp"
 #include "duckdb/parser/expression/function_expression.hpp"
+#include "duckdb/planner/expression/bound_constant_expression.hpp"
+#include "duckdb/planner/expression/bound_function_expression.hpp"
+#include "duckdb/planner/expression/bound_reference_expression.hpp"
 #include "duckdb/parser/parsed_expression.hpp"
 #include "duckdb/planner/binder.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
 #include "storage/ducklake_delete.hpp"
+#include "duckdb/function/function_binder.hpp"
 
 namespace duckdb {
 
@@ -93,6 +97,41 @@ ReaderInitializeType DuckLakeMultiFileReader::InitializeReader(
 		reader.deletion_filter = std::move(delete_filter);
 	}
 	return MultiFileReader::InitializeReader(reader_data, bind_data, global_columns, global_column_ids, table_filters, context, global_state);
+}
+
+unique_ptr<Expression> DuckLakeMultiFileReader::GetVirtualColumnExpression(ClientContext &context, MultiFileReaderData &reader_data, idx_t &column_id, const LogicalType &type, MultiFileLocalIndex local_idx) {
+	if (column_id == COLUMN_IDENTIFIER_ROW_ID) {
+		// row id column
+		// this is computed as row_id_start + file_row_number
+		// get the row id start for this file
+		if (!reader_data.file_to_be_opened.extended_info) {
+			throw InternalException("Extended info not found for reading row id column");
+		}
+		auto &options = reader_data.file_to_be_opened.extended_info->options;
+		auto entry = options.find("row_id_start");
+		if (entry == options.end()) {
+			throw InternalException("row_id_start not found for reading row id column");
+		}
+		auto row_id_expr = make_uniq<BoundConstantExpression>(entry->second);
+		auto file_row_number = make_uniq<BoundReferenceExpression>(type, local_idx.GetIndex());
+
+		// transform this virtual column to file_row_number
+		column_id = MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER;
+
+		// generate the addition
+		vector<unique_ptr<Expression>> children;
+		children.push_back(std::move(row_id_expr));
+		children.push_back(std::move(file_row_number));
+
+		FunctionBinder binder(context);
+		ErrorData error;
+		auto function_expr = binder.BindScalarFunction(DEFAULT_SCHEMA, "+", std::move(children), error, true, nullptr);
+		if (error.HasError()) {
+			error.Throw();
+		}
+		return function_expr;
+	}
+	return MultiFileReader::GetVirtualColumnExpression(context, reader_data, column_id, type, local_idx);
 }
 
 } // namespace duckdb

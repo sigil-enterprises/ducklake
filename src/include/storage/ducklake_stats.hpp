@@ -44,6 +44,7 @@ private:
 struct DuckLakeTableStats {
 	idx_t record_count = 0;
 	idx_t table_size_bytes = 0;
+	idx_t next_row_id = 0;
 	map<FieldIndex, DuckLakeColumnStats> column_stats;
 
 	void MergeStats(FieldIndex col_id, const DuckLakeColumnStats &file_stats);

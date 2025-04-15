@@ -289,6 +289,7 @@ OpenFileInfo DuckLakeMultiFileList::GetFile(idx_t i) {
 	auto extended_info = make_shared_ptr<ExtendedOpenFileInfo>();
 	extended_info->options["file_size"] = Value::UBIGINT(file.file_size_bytes);
 	extended_info->options["footer_size"] = Value::UBIGINT(file.footer_size);
+	extended_info->options["row_id_start"] = Value::UBIGINT(files[i].row_id_start);
 	if (!file.encryption_key.empty()) {
 		extended_info->options["encryption_key"] = Value::BLOB_RAW(file.encryption_key);
 	}

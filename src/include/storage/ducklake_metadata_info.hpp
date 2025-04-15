@@ -76,6 +76,7 @@ struct DuckLakeFileInfo {
 	idx_t row_count;
 	idx_t file_size_bytes;
 	idx_t footer_size;
+	optional_idx row_id_start;
 	optional_idx partition_id;
 	string encryption_key;
 	vector<DuckLakeColumnStatsInfo> column_stats;
@@ -125,6 +126,7 @@ struct DuckLakeGlobalStatsInfo {
 	TableIndex table_id;
 	bool initialized;
 	idx_t record_count;
+	idx_t next_row_id;
 	idx_t table_size_bytes;
 	vector<DuckLakeGlobalColumnStatsInfo> column_stats;
 };
@@ -192,6 +194,7 @@ struct DuckLakeFileData {
 struct DuckLakeFileListEntry {
 	DuckLakeFileData file;
 	DuckLakeFileData delete_file;
+	idx_t row_id_start;
 };
 
 struct DuckLakeFileListExtendedEntry {
@@ -199,6 +202,7 @@ struct DuckLakeFileListExtendedEntry {
 	DataFileIndex delete_file_id;
 	DuckLakeFileData file;
 	DuckLakeFileData delete_file;
+	idx_t row_id_start;
 	idx_t row_count;
 };
 

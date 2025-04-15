@@ -747,17 +747,18 @@ NewTableInfo DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &commit_snapshot
 	return result;
 }
 
-void DuckLakeTransaction::UpdateGlobalTableStats(TableIndex table_id, DuckLakeTableStats new_stats) {
+void DuckLakeTransaction::UpdateGlobalTableStats(optional_ptr<DuckLakeTableStats> current_stats, TableIndex table_id, DuckLakeTableStats new_stats) {
 	DuckLakeGlobalStatsInfo stats;
 	stats.table_id = table_id;
 
-	auto current_stats = ducklake_catalog.GetTableStats(*this, table_id);
 	stats.initialized = false;
+	new_stats.next_row_id = new_stats.record_count;
 	if (current_stats) {
 		// merge the current stats into the new stats
 		for (auto &entry : current_stats->column_stats) {
 			new_stats.MergeStats(entry.first, entry.second);
 		}
+		new_stats.next_row_id += current_stats->next_row_id;
 		new_stats.record_count += current_stats->record_count;
 		new_stats.table_size_bytes += current_stats->table_size_bytes;
 		stats.initialized = true;
@@ -785,6 +786,7 @@ void DuckLakeTransaction::UpdateGlobalTableStats(TableIndex table_id, DuckLakeTa
 		stats.column_stats.push_back(std::move(col_stats));
 	}
 	stats.record_count = new_stats.record_count;
+	stats.next_row_id = new_stats.next_row_id;
 	stats.table_size_bytes = new_stats.table_size_bytes;
 	// finally update the stats in the tables
 	metadata_manager->UpdateGlobalTableStats(stats);
@@ -796,6 +798,11 @@ vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &
 		auto table_id = entry.first;
 		if (table_id.IsTransactionLocal()) {
 			throw InternalException("Cannot commit transaction local files - these should have been cleaned up before");
+		}
+		auto current_stats = ducklake_catalog.GetTableStats(*this, table_id);
+		idx_t row_id_start = 0;
+		if (current_stats) {
+			row_id_start = current_stats->next_row_id;
 		}
 		DuckLakeTableStats new_stats;
 		vector<DuckLakeDeleteFile> delete_files;
@@ -809,6 +816,7 @@ vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &
 			data_file.footer_size = file.footer_size;
 			data_file.partition_id = file.partition_id;
 			data_file.encryption_key = file.encryption_key;
+			data_file.row_id_start = row_id_start + new_stats.record_count;
 			if (file.delete_file) {
 				// this transaction-local file already has deletes - write them out
 				DuckLakeDeleteFile delete_file = *file.delete_file;
@@ -861,7 +869,7 @@ vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &
 		AddDeletes(table_id, std::move(delete_files));
 
 		// update the global stats for this table based on the newly written files
-		UpdateGlobalTableStats(table_id, std::move(new_stats));
+		UpdateGlobalTableStats(current_stats, table_id, std::move(new_stats));
 	}
 	return result;
 }

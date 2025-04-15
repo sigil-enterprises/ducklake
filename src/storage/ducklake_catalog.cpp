@@ -300,6 +300,7 @@ unique_ptr<DuckLakeStats> DuckLakeCatalog::LoadStatsForSnapshot(DuckLakeTransact
 		}
 		auto table_stats = make_uniq<DuckLakeTableStats>();
 		table_stats->record_count = stats.record_count;
+		table_stats->next_row_id = stats.next_row_id;
 		table_stats->table_size_bytes = stats.table_size_bytes;
 		auto &table = table_entry->Cast<DuckLakeTableEntry>();
 		for (auto &col_stats : stats.column_stats) {
