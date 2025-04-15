@@ -32,4 +32,9 @@ public:
 	DuckLakeSnapshotsFunction();
 };
 
+class DuckLakeTableInsertionsFunction : public TableFunction {
+public:
+	DuckLakeTableInsertionsFunction();
+};
+
 } // namespace duckdb

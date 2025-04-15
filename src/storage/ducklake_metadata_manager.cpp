@@ -389,6 +389,37 @@ WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_I
 	return files;
 }
 
+vector<DuckLakeFileListEntry> DuckLakeMetadataManager::GetTableInsertions(DuckLakeSnapshot start_snapshot, DuckLakeSnapshot end_snapshot, TableIndex table_id) {
+	string select_list = GetFileSelectList("data") + ", data.row_id_start, " + GetFileSelectList("del");
+	auto query = StringUtil::Format(R"(
+SELECT %s
+FROM {METADATA_CATALOG}.ducklake_data_file data
+LEFT JOIN (
+    SELECT *
+    FROM {METADATA_CATALOG}.ducklake_delete_file
+    WHERE table_id=%d AND begin_snapshot >= %d
+          AND (end_snapshot IS NULL OR end_snapshot > {SNAPSHOT_ID})
+    ) del USING (data_file_id)
+WHERE data.table_id=%d AND data.begin_snapshot >= %d AND data.begin_snapshot <= {SNAPSHOT_ID}
+      AND (data.end_snapshot IS NULL OR data.end_snapshot > {SNAPSHOT_ID});
+		)", select_list, table_id.index, start_snapshot.snapshot_id, table_id.index, start_snapshot.snapshot_id);
+
+	auto result = transaction.Query(end_snapshot, query);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to get table insertion file list from DuckLake: ");
+	}
+	vector<DuckLakeFileListEntry> files;
+	for (auto &row : *result) {
+		DuckLakeFileListEntry file_entry;
+		idx_t col_idx = 0;
+		file_entry.file = ReadDataFile(row, col_idx, IsEncrypted());
+		file_entry.row_id_start = row.GetValue<idx_t>(col_idx++);
+		file_entry.delete_file = ReadDataFile(row, col_idx, IsEncrypted());
+		files.push_back(std::move(file_entry));
+	}
+	return files;
+}
+
 vector<DuckLakeFileListExtendedEntry> DuckLakeMetadataManager::GetExtendedFilesForTable(DuckLakeSnapshot snapshot, TableIndex table_id,
 const string &filter) {
 	string select_list = GetFileSelectList("data") + ", data.row_id_start, " + GetFileSelectList("del");

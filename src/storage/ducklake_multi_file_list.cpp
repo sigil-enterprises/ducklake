@@ -212,6 +212,10 @@ unique_ptr<MultiFileList>
 DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const MultiFileOptions &options,
                                              const vector<string> &names, const vector<LogicalType> &types,
                                              const vector<column_t> &column_ids, TableFilterSet &filters) const {
+    if (read_info.scan_type != DuckLakeScanType::SCAN_TABLE) {
+    	// filter pushdown is only supported when scanning full tables
+    	return nullptr;
+    }
 	string filter;
 	for (auto &entry : filters.filters) {
 		auto column_id = entry.first;
@@ -376,37 +380,60 @@ vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() 
 	return result;
 }
 
+void DuckLakeMultiFileList::GetFilesForTable() {
+	if (!read_info.table_id.IsTransactionLocal()) {
+		// not a transaction local table - read the file list from the metadata store
+		auto &metadata_manager = transaction.GetMetadataManager();
+		files = metadata_manager.GetFilesForTable(read_info.snapshot, read_info.table_id, filter);
+	}
+	if (transaction.HasDroppedFiles()) {
+		for(idx_t file_idx = 0; file_idx < files.size(); file_idx++) {
+			if (transaction.FileIsDropped(files[file_idx].file.path)) {
+				files.erase(files.begin() + file_idx);
+				file_idx--;
+			}
+		}
+	}
+	// if the transaction has any local deletes - apply them to the file list
+	if (transaction.HasLocalDeletes(read_info.table_id)) {
+		for(auto &file_entry : files) {
+			transaction.GetLocalDeleteForFile(read_info.table_id, file_entry.file.path, file_entry.delete_file);
+		}
+	}
+	idx_t transaction_row_start = TRANSACTION_LOCAL_ID_START;
+	for(auto &file : transaction_local_files) {
+		DuckLakeFileListEntry file_entry;
+		file_entry.file = GetFileData(file);
+		file_entry.row_id_start = transaction_row_start;
+		file_entry.delete_file = GetDeleteData(file);
+		transaction_row_start += file.row_count;
+		files.emplace_back(std::move(file_entry));
+	}
+}
+
+void DuckLakeMultiFileList::GetTableInsertions() {
+	if (read_info.table_id.IsTransactionLocal()) {
+		throw InternalException("Cannot get changes between snapshots for transaction-local files");
+	}
+	auto &metadata_manager = transaction.GetMetadataManager();
+	files = metadata_manager.GetTableInsertions(*read_info.start_snapshot, read_info.snapshot, read_info.table_id);
+}
+
 const vector<DuckLakeFileListEntry> &DuckLakeMultiFileList::GetFiles() {
 	lock_guard<mutex> l(file_lock);
 	if (!read_file_list) {
 		// we have not read the file list yet - read it
-		if (!read_info.table_id.IsTransactionLocal()) {
-			// not a transaction local table - read the file list from the metadata store
-			auto &metadata_manager = transaction.GetMetadataManager();
-			files = metadata_manager.GetFilesForTable(read_info.snapshot, read_info.table_id, filter);
-		}
-		if (transaction.HasDroppedFiles()) {
-			for(idx_t file_idx = 0; file_idx < files.size(); file_idx++) {
-				if (transaction.FileIsDropped(files[file_idx].file.path)) {
-					files.erase(files.begin() + file_idx);
-					file_idx--;
-				}
-			}
-		}
-		// if the transaction has any local deletes - apply them to the file list
-		if (transaction.HasLocalDeletes(read_info.table_id)) {
-			for(auto &file_entry : files) {
-				transaction.GetLocalDeleteForFile(read_info.table_id, file_entry.file.path, file_entry.delete_file);
-			}
-		}
-		idx_t transaction_row_start = TRANSACTION_LOCAL_ID_START;
-		for(auto &file : transaction_local_files) {
-			DuckLakeFileListEntry file_entry;
-		    file_entry.file = GetFileData(file);
-		    file_entry.row_id_start = transaction_row_start;
-		    file_entry.delete_file = GetDeleteData(file);
-			transaction_row_start += file.row_count;
-			files.emplace_back(std::move(file_entry));
+		switch(read_info.scan_type) {
+		case DuckLakeScanType::SCAN_TABLE:
+			GetFilesForTable();
+			break;
+		case DuckLakeScanType::SCAN_INSERTIONS:
+			GetTableInsertions();
+			break;
+		case DuckLakeScanType::SCAN_DELETIONS:
+			throw InternalException("Unsupported DuckLake scan type");
+		default:
+			throw InternalException("Unknown DuckLake scan type");
 		}
 		read_file_list = true;
 	}

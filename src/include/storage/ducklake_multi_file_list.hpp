@@ -50,6 +50,10 @@ protected:
 	OpenFileInfo GetFile(idx_t i) override;
 
 private:
+	void GetFilesForTable();
+	void GetTableInsertions();
+
+private:
 	mutex file_lock;
 	DuckLakeTransaction &transaction;
 	DuckLakeFunctionInfo &read_info;
