@@ -9,14 +9,11 @@
 namespace duckdb {
 
 
-EntryLookupInfo GetTableLookup(const Value &input, BoundAtClause &at_clause) {
+string GetTableName(const Value &input) {
 	if (input.IsNull()) {
 		throw BinderException("Table cannot be NULL");
 	}
-	// look up the database to query
-	auto table_name = input.GetValue<string>();
-	return EntryLookupInfo(CatalogType::TABLE_ENTRY, table_name, at_clause, QueryErrorContext());
-
+	return input.GetValue<string>();
 }
 
 TableCatalogEntry &GetTableEntry(ClientContext &context, Catalog &catalog, const EntryLookupInfo &lookup, optional_ptr<Value> schema = nullptr) {
@@ -52,7 +49,8 @@ static unique_ptr<FunctionData> DuckLakeTableChangesBind(ClientContext &context,
 	auto end_at_clause = AtClauseFromValue(input.inputs[3]);
 
 	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
-	auto lookup = GetTableLookup(input.inputs[1], end_at_clause);
+	auto table_name = GetTableName(input.inputs[1]);
+	EntryLookupInfo lookup(CatalogType::TABLE_ENTRY, table_name, end_at_clause, QueryErrorContext());
 	auto &table = GetTableEntry(context, catalog, lookup);
 	auto &transaction = DuckLakeTransaction::Get(context, catalog);
 

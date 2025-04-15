@@ -46,9 +46,9 @@ public:
 	virtual vector<DuckLakeFileListEntry> GetFilesForTable(DuckLakeSnapshot snapshot, TableIndex table_id,
 	                                                       const string &filter);
 	virtual vector<DuckLakeFileListEntry> GetTableInsertions(DuckLakeSnapshot start_snapshot, DuckLakeSnapshot snapshot,
-	TableIndex table_id);
-	virtual vector<DuckLakeDeleteScanEntry> GetTableDeletions(DuckLakeSnapshot start_snapshot, DuckLakeSnapshot snapshot,
-															 TableIndex table_id);
+	                                                         TableIndex table_id);
+	virtual vector<DuckLakeDeleteScanEntry> GetTableDeletions(DuckLakeSnapshot start_snapshot,
+	                                                          DuckLakeSnapshot snapshot, TableIndex table_id);
 	virtual vector<DuckLakeFileListExtendedEntry> GetExtendedFilesForTable(DuckLakeSnapshot snapshot,
 	                                                                       TableIndex table_id, const string &filter);
 	virtual void DropSchemas(DuckLakeSnapshot commit_snapshot, set<SchemaIndex> ids);
