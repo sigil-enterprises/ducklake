@@ -28,6 +28,9 @@ struct DuckLakeMultiFileReaderGlobalState : public MultiFileReaderGlobalState {
 
 struct DuckLakeMultiFileReader : public MultiFileReader {
 public:
+	static constexpr column_t COLUMN_IDENTIFIER_SNAPSHOT_ID = UINT64_C(10000000000000000000);
+
+public:
 	explicit DuckLakeMultiFileReader(DuckLakeFunctionInfo &read_info);
 	~DuckLakeMultiFileReader() override;
 
@@ -63,6 +66,7 @@ public:
 
 private:
 	unique_ptr<MultiFileColumnDefinition> row_id_column;
+	unique_ptr<MultiFileColumnDefinition> snapshot_id_column;
 };
 
 } // namespace duckdb

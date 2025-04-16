@@ -28,6 +28,8 @@ namespace duckdb {
 DuckLakeMultiFileReader::DuckLakeMultiFileReader(DuckLakeFunctionInfo &read_info) : read_info(read_info) {
 	row_id_column = make_uniq<MultiFileColumnDefinition>("_ducklake_internal_row_id", LogicalType::BIGINT);
 	row_id_column->identifier = Value::INTEGER(MultiFileReader::ROW_ID_FIELD_ID);
+	snapshot_id_column = make_uniq<MultiFileColumnDefinition>("_ducklake_internal_snapshot_id", LogicalType::BIGINT);
+	snapshot_id_column->identifier = Value::INTEGER(MultiFileReader::LAST_UPDATED_SEQUENCE_NUMBER_ID);
 }
 
 DuckLakeMultiFileReader::~DuckLakeMultiFileReader(){}
@@ -152,6 +154,28 @@ unique_ptr<Expression> DuckLakeMultiFileReader::GetVirtualColumnExpression(Clien
 			error.Throw();
 		}
 		return function_expr;
+	}
+	if (column_id == COLUMN_IDENTIFIER_SNAPSHOT_ID) {
+		for(auto &col : local_columns) {
+			if (col.identifier.IsNull()) {
+				continue;
+			}
+			if (col.identifier.GetValue<int32_t>() == MultiFileReader::LAST_UPDATED_SEQUENCE_NUMBER_ID) {
+				// it is! return a reference to the global snapshot id column so we can read it from the file directly
+				global_column_reference = snapshot_id_column.get();
+				return nullptr;
+			}
+		}
+		// get the row id start for this file
+		if (!reader_data.file_to_be_opened.extended_info) {
+			throw InternalException("Extended info not found for reading snapshot id column");
+		}
+		auto &options = reader_data.file_to_be_opened.extended_info->options;
+		auto entry = options.find("snapshot_id");
+		if (entry == options.end()) {
+			throw InternalException("snapshot_id not found for reading snapshot_id column");
+		}
+		return make_uniq<BoundConstantExpression>(entry->second);
 	}
 	return MultiFileReader::GetVirtualColumnExpression(context, reader_data, local_columns, column_id, type, local_idx, global_column_reference);
 }

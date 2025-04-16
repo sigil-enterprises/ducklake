@@ -298,6 +298,13 @@ OpenFileInfo DuckLakeMultiFileList::GetFile(idx_t i) {
 	extended_info->options["file_size"] = Value::UBIGINT(file.file_size_bytes);
 	extended_info->options["footer_size"] = Value::UBIGINT(file.footer_size);
 	extended_info->options["row_id_start"] = Value::UBIGINT(files[i].row_id_start);
+	Value snapshot_id;
+	if (files[i].snapshot_id.IsValid()) {
+		snapshot_id = Value::BIGINT(NumericCast<int64_t>(files[i].snapshot_id.GetIndex()));
+	} else {
+		snapshot_id = Value(LogicalType::BIGINT);
+	}
+	extended_info->options["snapshot_id"] = std::move(snapshot_id);
 	if (!file.encryption_key.empty()) {
 		extended_info->options["encryption_key"] = Value::BLOB_RAW(file.encryption_key);
 	}
@@ -429,6 +436,7 @@ void DuckLakeMultiFileList::GetTableDeletions() {
 		DuckLakeFileListEntry file_entry;
 		file_entry.file = file.file;
 		file_entry.row_id_start = file.row_id_start;
+		file_entry.snapshot_id = file.snapshot_id;
 		files.emplace_back(std::move(file_entry));
 	}
 }

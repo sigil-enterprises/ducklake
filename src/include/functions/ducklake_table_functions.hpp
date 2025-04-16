@@ -9,6 +9,7 @@
 #pragma once
 
 #include "duckdb/function/table_function.hpp"
+#include "duckdb/parser/parsed_data/create_macro_info.hpp"
 
 namespace duckdb {
 class DuckLakeCatalog;
@@ -35,6 +36,8 @@ public:
 class DuckLakeTableInsertionsFunction : public TableFunction {
 public:
 	DuckLakeTableInsertionsFunction();
+
+	static unique_ptr<CreateMacroInfo> GetDuckLakeTableChanges();
 };
 
 class DuckLakeTableDeletionsFunction : public TableFunction {

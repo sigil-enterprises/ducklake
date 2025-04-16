@@ -56,30 +56,30 @@ FROM ducklake.test ORDER BY ALL
 NULL
 
 # snapshot 7 deleted i=2
-query II
-SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'test', 7, 7);
+query III
+SELECT rowid, snapshot_id, * FROM ducklake_table_deletions('ducklake', 'test', 7, 7);
 ----
-1	2
+1	7	2
 
 # snapshot 8 deleted i=11
-query II
-SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'test', 8, 8);
+query III
+SELECT rowid, snapshot_id, * FROM ducklake_table_deletions('ducklake', 'test', 8, 8);
 ----
-5	11
+5	8	11
 
 # snapshot 9 deleted i=12
-query II
-SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'test', 9, 9);
+query III
+SELECT rowid, snapshot_id, * FROM ducklake_table_deletions('ducklake', 'test', 9, 9);
 ----
-6	12
+6	9	12
 
 # we can get all of these at once
-query II
-SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'test', 7, 9) ORDER BY rowid
+query III
+SELECT rowid, snapshot_id, * FROM ducklake_table_deletions('ducklake', 'test', 7, 9) ORDER BY rowid
 ----
-1	2
-5	11
-6	12
+1	7	2
+5	8	11
+6	9	12
 
 # this shows all deletions performed
 query II

@@ -17,8 +17,10 @@
 #include "duckdb/parser/parsed_data/comment_on_column_info.hpp"
 #include "duckdb/parser/constraints/not_null_constraint.hpp"
 #include "duckdb/common/multi_file/multi_file_reader.hpp"
+#include "storage/ducklake_multi_file_reader.hpp"
 
 namespace duckdb {
+constexpr column_t DuckLakeMultiFileReader::COLUMN_IDENTIFIER_SNAPSHOT_ID;
 
 DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info,
                                        TableIndex table_id, string table_uuid_p,
@@ -222,6 +224,7 @@ virtual_column_map_t DuckLakeTableEntry::GetVirtualColumns() const {
 	result.insert(make_pair(MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER, TableColumn("file_row_number", LogicalType::BIGINT)));
 	result.insert(make_pair(MultiFileReader::COLUMN_IDENTIFIER_FILE_INDEX, TableColumn("file_index", LogicalType::UBIGINT)));
 	result.insert(make_pair(COLUMN_IDENTIFIER_ROW_ID, TableColumn("rowid", LogicalType::BIGINT)));
+	result.insert(make_pair(DuckLakeMultiFileReader::COLUMN_IDENTIFIER_SNAPSHOT_ID, TableColumn("snapshot_id", LogicalType::BIGINT)));
 	result.insert(make_pair(COLUMN_IDENTIFIER_EMPTY, TableColumn("", LogicalType::BOOLEAN)));
 	return result;
 }
