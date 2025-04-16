@@ -42,8 +42,9 @@ struct WrittenColumnInfo {
 
 class DuckLakeDeleteLocalState : public LocalSinkState {
 public:
-	string current_filename;
+	optional_idx current_file_index;
 	vector<idx_t> file_row_numbers;
+	unordered_map<idx_t, string> filenames;
 };
 
 class DuckLakeDeleteGlobalState : public GlobalSinkState {
@@ -57,7 +58,8 @@ public:
 	unordered_map<string, DuckLakeDeleteFile> written_files;
 	unordered_map<string, WrittenColumnInfo> written_columns;
 	idx_t total_deleted_count = 0;
-	unordered_map<string, vector<idx_t>> deleted_rows;
+	unordered_map<uint64_t, vector<idx_t>> deleted_rows;
+	unordered_map<idx_t, string> filenames;
 
 	void Flush(DuckLakeDeleteLocalState &local_state) {
 	 	auto &local_entry = local_state.file_row_numbers;
@@ -65,10 +67,19 @@ public:
 			return;
 		}
 		lock_guard<mutex> guard(lock);
-		auto &global_entry = deleted_rows[local_state.current_filename];
+		auto &global_entry = deleted_rows[local_state.current_file_index.GetIndex()];
 		global_entry.insert(global_entry.end(), local_entry.begin(), local_entry.end());
 		total_deleted_count += local_entry.size();
 		local_entry.clear();
+	}
+
+	void FinalFlush(DuckLakeDeleteLocalState &local_state) {
+		Flush(local_state);
+		// flush the file names to the global state
+		lock_guard<mutex> guard(lock);
+		for(auto &entry : local_state.filenames) {
+			filenames.emplace(entry.first, entry.second);
+		}
 	}
 };
 
@@ -87,50 +98,46 @@ SinkResultType DuckLakeDelete::Sink(ExecutionContext &context, DataChunk &chunk,
 	auto &global_state = input.global_state.Cast<DuckLakeDeleteGlobalState>();
 	auto &local_state = input.local_state.Cast<DuckLakeDeleteLocalState>();
 
-	auto base_idx = chunk.ColumnCount() - 2;
-	auto &filename_vector = chunk.data[base_idx];
-	auto &file_row_number = chunk.data[base_idx + 1];
+	auto base_idx = chunk.ColumnCount() - 3;
+	auto &file_name_vector = chunk.data[base_idx];
+	auto &file_index_vector = chunk.data[base_idx + 1];
+	auto &file_row_number = chunk.data[base_idx + 2];
 
 	UnifiedVectorFormat row_data;
 	file_row_number.ToUnifiedFormat(chunk.size(), row_data);
 	auto file_row_data = UnifiedVectorFormat::GetData<int64_t>(row_data);
-	if (filename_vector.GetVectorType() == VectorType::CONSTANT_VECTOR) {
-		// filename is constant
-		if (ConstantVector::IsNull(filename_vector)) {
-			throw InternalException("Filename cannot be NULL!");
+
+	UnifiedVectorFormat file_name_vdata;
+	file_name_vector.ToUnifiedFormat(chunk.size(), file_name_vdata);
+
+	UnifiedVectorFormat file_index_vdata;
+	file_index_vector.ToUnifiedFormat(chunk.size(), file_index_vdata);
+
+	auto file_index_data = UnifiedVectorFormat::GetData<uint64_t>(file_index_vdata);
+	for(idx_t i = 0; i < chunk.size(); i++) {
+		auto file_idx = file_index_vdata.sel->get_index(i);
+		auto row_idx = row_data.sel->get_index(i);
+		if (!file_index_vdata.validity.RowIsValid(file_idx)) {
+			throw InternalException("File index cannot be NULL!");
 		}
-		auto filename_data = ConstantVector::GetData<string_t>(filename_vector);
-		if (filename_data[0] != string_t(local_state.current_filename)) {
-			// filename has changed - flush
+		auto file_index = file_index_data[file_idx];
+		if (!local_state.current_file_index.IsValid() || file_index != local_state.current_file_index.GetIndex()) {
+			// file has changed - flush
 			global_state.Flush(local_state);
-			local_state.current_filename = filename_data[0].GetString();
-		}
-
-		for(idx_t i = 0; i < chunk.size(); i++) {
-			auto row_idx = row_data.sel->get_index(i);
-			auto row_number = file_row_data[row_idx];
-			local_state.file_row_numbers.push_back(row_number);
-		}
-	} else {
-		UnifiedVectorFormat filename_vdata;
-		filename_vector.ToUnifiedFormat(chunk.size(), filename_vdata);
-
-		auto filename_data = UnifiedVectorFormat::GetData<string_t>(filename_vdata);
-		for(idx_t i = 0; i < chunk.size(); i++) {
-			auto filename_idx = filename_vdata.sel->get_index(i);
-			auto row_idx = row_data.sel->get_index(i);
-			if (!filename_vdata.validity.RowIsValid(filename_idx)) {
-				throw InternalException("Filename cannot be NULL!");
+			local_state.current_file_index = file_index;
+			// insert the file name for the file if it has not yet been inserted
+			auto entry = local_state.filenames.find(file_index);
+			if (entry == local_state.filenames.end()) {
+				auto file_name_idx = file_name_vdata.sel->get_index(i);
+				auto file_name_data = UnifiedVectorFormat::GetData<string_t>(file_name_vdata);
+				if (!file_name_vdata.validity.RowIsValid(file_name_idx)) {
+					throw InternalException("Filename cannot be NULL!");
+				}
+				local_state.filenames.emplace(file_index, file_name_data[file_name_idx].GetString());
 			}
-			auto filename = filename_data[filename_idx];
-			if (filename != string_t(local_state.current_filename)) {
-				// filename has changed - flush
-				global_state.Flush(local_state);
-				local_state.current_filename = filename_data[filename_idx].GetString();
-			}
-			auto row_number = file_row_data[row_idx];
-			local_state.file_row_numbers.push_back(row_number);
 		}
+		auto row_number = file_row_data[row_idx];
+		local_state.file_row_numbers.push_back(row_number);
 	}
 	return SinkResultType::NEED_MORE_INPUT;
 }
@@ -141,7 +148,7 @@ SinkResultType DuckLakeDelete::Sink(ExecutionContext &context, DataChunk &chunk,
 SinkCombineResultType DuckLakeDelete::Combine(ExecutionContext &context, OperatorSinkCombineInput &input) const {
 	auto &global_state = input.global_state.Cast<DuckLakeDeleteGlobalState>();
 	auto &local_state = input.local_state.Cast<DuckLakeDeleteLocalState>();
-	global_state.Flush(local_state);
+	global_state.FinalFlush(local_state);
 	return SinkCombineResultType::FINISHED;
 }
 
@@ -303,11 +310,18 @@ void DuckLakeDelete::FlushDelete(DuckLakeTransaction &transaction, ClientContext
 SinkFinalizeType DuckLakeDelete::Finalize(Pipeline &pipeline, Event &event, ClientContext &context,
                                           OperatorSinkFinalizeInput &input) const {
  	auto &global_state = input.global_state.Cast<DuckLakeDeleteGlobalState>();
+ 	if (global_state.deleted_rows.empty()) {
+		return SinkFinalizeType::READY;
+ 	}
 
 	auto &transaction = DuckLakeTransaction::Get(context, table.catalog);
 	// write out the delete rows
 	for(auto &entry : global_state.deleted_rows) {
-		FlushDelete(transaction, context, global_state, entry.first, entry.second);
+		auto filename_entry = global_state.filenames.find(entry.first);
+		if (filename_entry == global_state.filenames.end()) {
+			throw InternalException("Filename not found for file index");
+		}
+		FlushDelete(transaction, context, global_state, filename_entry->second, entry.second);
 	}
 	vector<DuckLakeDeleteFile> delete_files;
 	for(auto &entry : global_state.written_files) {

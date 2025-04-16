@@ -220,6 +220,7 @@ virtual_column_map_t DuckLakeTableEntry::GetVirtualColumns() const {
 	virtual_column_map_t result;
 	result.insert(make_pair(MultiFileReader::COLUMN_IDENTIFIER_FILENAME, TableColumn("filename", LogicalType::VARCHAR)));
 	result.insert(make_pair(MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER, TableColumn("file_row_number", LogicalType::BIGINT)));
+	result.insert(make_pair(MultiFileReader::COLUMN_IDENTIFIER_FILE_INDEX, TableColumn("file_index", LogicalType::UBIGINT)));
 	result.insert(make_pair(COLUMN_IDENTIFIER_ROW_ID, TableColumn("rowid", LogicalType::BIGINT)));
 	result.insert(make_pair(COLUMN_IDENTIFIER_EMPTY, TableColumn("", LogicalType::BOOLEAN)));
 	return result;
@@ -229,6 +230,7 @@ vector<column_t> DuckLakeTableEntry::GetRowIdColumns() const {
 	vector<column_t> result;
 	result.push_back(COLUMN_IDENTIFIER_ROW_ID);
 	result.push_back(MultiFileReader::COLUMN_IDENTIFIER_FILENAME);
+	result.push_back(MultiFileReader::COLUMN_IDENTIFIER_FILE_INDEX);
 	result.push_back(MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER);
 	return result;
 }

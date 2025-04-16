@@ -45,6 +45,7 @@ unique_ptr<LocalSinkState> DuckLakeUpdate::GetLocalSinkState(ExecutionContext &c
 
 	vector<LogicalType> delete_types;
 	delete_types.emplace_back(LogicalType::VARCHAR);
+	delete_types.emplace_back(LogicalType::UBIGINT);
 	delete_types.emplace_back(LogicalType::BIGINT);
 
 	// updates also write the row id to the file
@@ -77,9 +78,10 @@ SinkResultType DuckLakeUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 	// push the rowids into the delete
 	auto &delete_chunk = lstate.delete_chunk;
 	delete_chunk.SetCardinality(chunk.size());
-	idx_t delete_idx_start = chunk.ColumnCount() - 2;
-	delete_chunk.data[0].Reference(chunk.data[delete_idx_start]);
-	delete_chunk.data[1].Reference(chunk.data[delete_idx_start + 1]);
+	idx_t delete_idx_start = chunk.ColumnCount() - 3;
+	for(idx_t i = 0; i < 3; i++) {
+		delete_chunk.data[i].Reference(chunk.data[delete_idx_start + i]);
+	}
 
 	OperatorSinkInput delete_input {*delete_op.sink_state, *lstate.delete_local_state, input.interrupt_state};
 	delete_op.Sink(context, delete_chunk, delete_input);
