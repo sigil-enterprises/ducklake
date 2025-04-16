@@ -71,10 +71,13 @@ SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'test', 7, 9) ORDER BY
 5	11
 6	12
 
-# if we start from no rows (snapshot 0) we have no deletions - because the table at snapshot 0 is empty
+# this shows all deletions performed
 query II
 SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'test', 0, 9) ORDER BY rowid
 ----
+1	2
+5	11
+6	12
 
 # snapshot 10: update a subset of the rows
 statement ok
@@ -99,7 +102,33 @@ SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'test', 7, 10) ORDER B
 5	11
 6	12
 
-# if we start from no rows (snapshot 0) we have no deletions
+statement ok
+DELETE FROM ducklake.test
+
 query II
-SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'test', 0, 10) ORDER BY rowid
+SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'test', 11, 11) ORDER BY rowid
 ----
+0	101
+2	103
+3	NULL
+4	110
+7	13
+8	14
+
+
+# if we update and then delete - the same row can be there multiple times
+query II
+SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'test', 0, 11) ORDER BY ALL
+----
+0	1
+0	101
+1	2
+2	3
+2	103
+3	NULL
+4	10
+4	110
+5	11
+6	12
+7	13
+8	14

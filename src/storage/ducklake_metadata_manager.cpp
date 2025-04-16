@@ -393,16 +393,11 @@ vector<DuckLakeFileListEntry> DuckLakeMetadataManager::GetTableInsertions(DuckLa
 	string select_list = GetFileSelectList("data") + ", data.row_id_start, " + GetFileSelectList("del");
 	auto query = StringUtil::Format(R"(
 SELECT %s
-FROM {METADATA_CATALOG}.ducklake_data_file data
-LEFT JOIN (
-    SELECT *
-    FROM {METADATA_CATALOG}.ducklake_delete_file
-    WHERE table_id=%d AND begin_snapshot >= %d
-          AND (end_snapshot IS NULL OR end_snapshot > {SNAPSHOT_ID})
-    ) del USING (data_file_id)
-WHERE data.table_id=%d AND data.begin_snapshot >= %d AND data.begin_snapshot <= {SNAPSHOT_ID}
-      AND (data.end_snapshot IS NULL OR data.end_snapshot > {SNAPSHOT_ID});
-		)", select_list, table_id.index, start_snapshot.snapshot_id, table_id.index, start_snapshot.snapshot_id);
+FROM {METADATA_CATALOG}.ducklake_data_file data, (
+	SELECT NULL path, NULL file_size_bytes, NULL footer_size, NULL encryption_key
+    ) del
+WHERE data.table_id=%d AND data.begin_snapshot >= %d AND data.begin_snapshot <= {SNAPSHOT_ID};
+		)", select_list, table_id.index, start_snapshot.snapshot_id);
 
 	auto result = transaction.Query(end_snapshot, query);
 	if (result->HasError()) {
@@ -447,16 +442,16 @@ LEFT JOIN (
 ) AS previous_delete
 USING (data_file_id)
 JOIN (
-	FROM {METADATA_CATALOG}.ducklake_data_file
-	WHERE begin_snapshot < %d
-) data
+	FROM {METADATA_CATALOG}.ducklake_data_file data
+	WHERE table_id = %d AND (end_snapshot > {SNAPSHOT_ID} OR end_snapshot IS NULL)
+) AS data
 USING (data_file_id)
 
 UNION ALL
 
 SELECT %s FROM (
 	FROM {METADATA_CATALOG}.ducklake_data_file
-	WHERE table_id = %d AND begin_snapshot <= %d AND end_snapshot >= %d AND end_snapshot <= {SNAPSHOT_ID}
+	WHERE table_id = %d AND end_snapshot >= %d AND end_snapshot <= {SNAPSHOT_ID}
 ) AS data
 LEFT JOIN (
 	SELECT data_file_id, MAX_BY(COLUMNS(['path', 'file_size_bytes', 'footer_size', 'encryption_key']), begin_snapshot) AS '\0'
@@ -468,8 +463,8 @@ USING (data_file_id), (
 	SELECT NULL path, NULL file_size_bytes, NULL footer_size, NULL encryption_key
 ) current_delete;
 
-		)", select_list, table_id.index, start_snapshot.snapshot_id, table_id.index, start_snapshot.snapshot_id, start_snapshot.snapshot_id,
-		    select_list, table_id.index, start_snapshot.snapshot_id, start_snapshot.snapshot_id, table_id.index, start_snapshot.snapshot_id);
+		)", select_list, table_id.index, start_snapshot.snapshot_id, table_id.index, start_snapshot.snapshot_id, table_id.index,
+		    select_list, table_id.index, start_snapshot.snapshot_id, table_id.index, start_snapshot.snapshot_id);
 	auto result = transaction.Query(end_snapshot, query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to get table insertion file list from DuckLake: ");
