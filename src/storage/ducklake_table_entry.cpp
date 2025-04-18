@@ -214,6 +214,8 @@ TableFunction DuckLakeTableEntry::GetScanFunction(ClientContext &context, unique
 	function.function_info = std::move(function_info);
 
 	bind_data = DuckLakeFunctions::BindDuckLakeScan(context, function);
+	auto &multi_file_bind_data = bind_data->Cast<MultiFileBindData>();
+	multi_file_bind_data.virtual_columns = GetVirtualColumns();
 
 	return function;
 }

@@ -19,6 +19,7 @@ class DuckLakeCatalog;
 class DuckLakeTableEntry;
 class DuckLakeFieldData;
 struct DuckLakePartition;
+struct DuckLakeCopyOptions;
 
 class DuckLakeInsert : public PhysicalOperator {
 public:
@@ -49,6 +50,10 @@ public:
 	}
 
 	static DuckLakeColumnStats ParseColumnStats(const LogicalType &type, const vector<Value> stats);
+	static DuckLakeCopyOptions GetCopyOptions(ClientContext &context, const ColumnList &columns,
+													 optional_ptr<DuckLakePartition> partition_data,
+													 optional_ptr<DuckLakeFieldData> field_data,
+													 const string &data_path, string encryption_key, bool write_row_id);
 	static PhysicalOperator &PlanCopyForInsert(ClientContext &context, PhysicalPlanGenerator &planner,
 	                                           DuckLakeTableEntry &table, optional_ptr<PhysicalOperator> plan,
 	                                           string encryption_key, bool write_row_id = false);
@@ -79,6 +84,31 @@ public:
 
 	string GetName() const override;
 	InsertionOrderPreservingMap<string> ParamsToString() const override;
+};
+
+struct DuckLakeCopyOptions {
+	DuckLakeCopyOptions(unique_ptr<CopyInfo> info, CopyFunction copy_function);
+
+	unique_ptr<CopyInfo> info;
+	CopyFunction copy_function;
+	unique_ptr<FunctionData> bind_data;
+
+	string file_path;
+	bool use_tmp_file;
+	FilenamePattern filename_pattern;
+	string file_extension;
+	CopyOverwriteMode overwrite_mode;
+	bool per_thread_output;
+	optional_idx file_size_bytes;
+	bool rotate;
+	CopyFunctionReturnType return_type;
+
+	bool partition_output;
+	bool write_partition_columns;
+	bool write_empty_file = true;
+	vector<idx_t> partition_columns;
+	vector<string> names;
+	vector<LogicalType> expected_types;
 };
 
 } // namespace duckdb

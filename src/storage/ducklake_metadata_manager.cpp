@@ -479,7 +479,6 @@ USING (data_file_id), (
 		files.push_back(std::move(entry));
 	}
 	return files;
-
 }
 
 vector<DuckLakeFileListExtendedEntry> DuckLakeMetadataManager::GetExtendedFilesForTable(DuckLakeSnapshot snapshot, TableIndex table_id,
@@ -519,7 +518,59 @@ WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_I
 		files.push_back(std::move(file_entry));
 	}
 	return files;
+}
 
+vector<DuckLakeCompactionFileEntry> DuckLakeMetadataManager::GetFilesForCompaction(TableIndex table_id) {
+	string data_select_list = "data.data_file_id, data.record_count, data.row_id_start, data.begin_snapshot, data.end_snapshot, " + GetFileSelectList("data");
+	string delete_select_list = "del.data_file_id, del.delete_count, del.begin_snapshot, del.end_snapshot, " + GetFileSelectList("del");
+	string select_list =  data_select_list + ", " + delete_select_list;
+	auto query = StringUtil::Format(R"(
+SELECT %s
+FROM {METADATA_CATALOG}.ducklake_data_file data
+LEFT JOIN (
+	SELECT *
+    FROM {METADATA_CATALOG}.ducklake_delete_file
+    WHERE table_id=%d
+) del USING (data_file_id)
+WHERE data.table_id=%d
+ORDER BY data.row_id_start, data.data_file_id, del.begin_snapshot
+		)", select_list, table_id.index, table_id.index);
+
+	auto result = transaction.Query(query);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to get compation file list from DuckLake: ");
+	}
+	vector<DuckLakeCompactionFileEntry> files;
+	for (auto &row : *result) {
+		idx_t col_idx = 0;
+		DuckLakeCompactionFileEntry new_entry;
+		new_entry.file.id = DataFileIndex(row.GetValue<idx_t>(col_idx++));
+		new_entry.file.row_count = row.GetValue<idx_t>(col_idx++);
+		new_entry.file.row_id_start = row.GetValue<idx_t>(col_idx++);
+		new_entry.file.begin_snapshot = row.GetValue<idx_t>(col_idx++);
+		new_entry.file.end_snapshot = row.IsNull(col_idx) ? optional_idx() : row.GetValue<idx_t>(col_idx);
+		col_idx++;
+		new_entry.file.data = ReadDataFile(row, col_idx, IsEncrypted());
+		if (files.empty() || files.back().file.id != new_entry.file.id) {
+			// new file - push it into the file list
+			files.push_back(std::move(new_entry));
+		}
+		auto &file_entry = files.back();
+		// parse the delete file (if any)
+		if (row.IsNull(col_idx)) {
+			// no delete file
+			continue;
+		}
+		DuckLakeCompactionDeleteFileData delete_file;
+		delete_file.id = DataFileIndex(row.GetValue<idx_t>(col_idx++));
+		delete_file.row_count = row.GetValue<idx_t>(col_idx++);
+		delete_file.begin_snapshot = row.GetValue<idx_t>(col_idx++);
+		delete_file.end_snapshot = row.IsNull(col_idx) ? optional_idx() : row.GetValue<idx_t>(col_idx);
+		col_idx++;
+		delete_file.data = ReadDataFile(row, col_idx, IsEncrypted());
+		file_entry.delete_files.push_back(std::move(delete_file));
+	}
+	return files;
 }
 
 template <class T>

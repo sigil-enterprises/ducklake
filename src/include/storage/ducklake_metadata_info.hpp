@@ -187,8 +187,8 @@ struct DuckLakeCatalogInfo {
 struct DuckLakeFileData {
 	string path;
 	string encryption_key;
-	idx_t file_size_bytes;
-	idx_t footer_size;
+	idx_t file_size_bytes = 0;
+	idx_t footer_size = 0;
 };
 
 struct DuckLakeFileListEntry {
@@ -215,6 +215,27 @@ struct DuckLakeFileListExtendedEntry {
 	idx_t row_id_start;
 	optional_idx snapshot_id;
 	idx_t row_count;
+	idx_t delete_count = 0;
+};
+
+struct DuckLakeCompactionBaseFileData {
+	DataFileIndex id;
+	DuckLakeFileData data;
+	idx_t row_count = 0;
+	idx_t begin_snapshot = 0;
+	optional_idx end_snapshot;
+};
+
+struct DuckLakeCompactionFileData : public DuckLakeCompactionBaseFileData {
+	idx_t row_id_start;
+};
+
+struct DuckLakeCompactionDeleteFileData : public DuckLakeCompactionBaseFileData {
+};
+
+struct DuckLakeCompactionFileEntry {
+	DuckLakeCompactionFileData file;
+	vector<DuckLakeCompactionDeleteFileData> delete_files;
 };
 
 } // namespace duckdb

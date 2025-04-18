@@ -45,4 +45,9 @@ public:
 	DuckLakeTableDeletionsFunction();
 };
 
+class DuckLakeMergeAdjacentFilesFunction : public TableFunction {
+public:
+	DuckLakeMergeAdjacentFilesFunction();
+};
+
 } // namespace duckdb

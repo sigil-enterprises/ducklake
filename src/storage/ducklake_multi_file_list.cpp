@@ -27,6 +27,10 @@ DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeTransaction &transaction, D
       read_file_list(false), transaction_local_files(std::move(transaction_local_files_p)), filter(std::move(filter_p)) {
 }
 
+DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info, vector<DuckLakeFileListEntry> files_to_scan) : MultiFileList(vector<OpenFileInfo> {}, FileGlobOptions::ALLOW_EMPTY), transaction(transaction), read_info(read_info),
+files(std::move(files_to_scan)), read_file_list(true) {
+}
+
 unique_ptr<MultiFileList> DuckLakeMultiFileList::ComplexFilterPushdown(ClientContext &context,
                                                                        const MultiFileOptions &options,
                                                                        MultiFilePushdownInfo &info,

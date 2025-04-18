@@ -34,8 +34,4 @@ void DuckLakeTransactionManager::RollbackTransaction(Transaction &transaction) {
 	transactions.erase(transaction);
 }
 
-void DuckLakeTransactionManager::Checkpoint(ClientContext &context, bool force) {
-	// NOP for now
-}
-
 } // namespace duckdb

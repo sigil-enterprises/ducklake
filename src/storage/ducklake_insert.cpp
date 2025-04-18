@@ -226,11 +226,12 @@ Value WrittenFieldIds(DuckLakeFieldData &field_data, bool write_row_id) {
 	return Value::STRUCT(std::move(values));
 }
 
-PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
-                                                     PhysicalPlanGenerator &planner,
-                                                     optional_ptr<DuckLakePartition> partition_data,
-                                                     optional_ptr<DuckLakeFieldData> field_data,
-                                                     optional_ptr<PhysicalOperator> plan, const string &data_path, string encryption_key, bool write_row_id) {
+DuckLakeCopyOptions::DuckLakeCopyOptions(unique_ptr<CopyInfo> info_p, CopyFunction copy_function_p) : info(std::move(info_p)), copy_function(std::move(copy_function_p)) {}
+
+DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, const ColumnList &columns,
+													 optional_ptr<DuckLakePartition> partition_data,
+													 optional_ptr<DuckLakeFieldData> field_data,
+													 const string &data_path, string encryption_key, bool write_row_id) {
 	auto info = make_uniq<CopyInfo>();
 	info->file_path = data_path;
 	info->format = "parquet";
@@ -274,40 +275,69 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, cons
 
 	auto function_data = copy_fun.function.copy_to_bind(context, bind_input, names_to_write, types_to_write);
 
-	auto copy_return_types = GetCopyFunctionReturnLogicalTypes(CopyFunctionReturnType::WRITTEN_FILE_STATISTICS);
-	auto &physical_copy =
-	    planner.Make<PhysicalCopyToFile>(copy_return_types, copy_fun.function, std::move(function_data), 1)
-	        .Cast<PhysicalCopyToFile>();
+	DuckLakeCopyOptions result(std::move(info), copy_fun.function);
+	result.bind_data = std::move(function_data);
 
-	physical_copy.use_tmp_file = false;
+	result.use_tmp_file = false;
 	if (partition_data) {
 		vector<idx_t> partition_columns;
 		for (auto &field : partition_data->fields) {
 			partition_columns.push_back(field.column_id);
 		}
-		physical_copy.filename_pattern.SetFilenamePattern("ducklake-{uuid}");
-		physical_copy.file_path = data_path;
-		physical_copy.partition_output = true;
-		physical_copy.partition_columns = std::move(partition_columns);
-		physical_copy.write_empty_file = true;
+		result.filename_pattern.SetFilenamePattern("ducklake-{uuid}");
+		result.file_path = data_path;
+		result.partition_output = true;
+		result.partition_columns = std::move(partition_columns);
+		result.write_empty_file = true;
 	} else {
 		auto current_write_uuid = UUID::ToString(UUID::GenerateRandomUUID());
-		physical_copy.file_path = data_path + "/duckdblake-" + current_write_uuid + ".parquet";
-		physical_copy.partition_output = false;
-		physical_copy.write_empty_file = false;
+		result.file_path = data_path + "/duckdblake-" + current_write_uuid + ".parquet";
+		result.partition_output = false;
+		result.write_empty_file = false;
 	}
 
-	physical_copy.file_extension = "parquet";
-	physical_copy.overwrite_mode = CopyOverwriteMode::COPY_OVERWRITE_OR_IGNORE;
-	physical_copy.per_thread_output = false;
-	physical_copy.rotate = false;
-	physical_copy.return_type = CopyFunctionReturnType::WRITTEN_FILE_STATISTICS;
-	physical_copy.write_partition_columns = true;
+	result.file_extension = "parquet";
+	result.overwrite_mode = CopyOverwriteMode::COPY_OVERWRITE_OR_IGNORE;
+	result.per_thread_output = false;
+	result.rotate = false;
+	result.return_type = CopyFunctionReturnType::WRITTEN_FILE_STATISTICS;
+	result.write_partition_columns = true;
+	result.names = names_to_write;
+	result.expected_types = types_to_write;
+	return result;
+}
+
+PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
+                                                     PhysicalPlanGenerator &planner,
+                                                     optional_ptr<DuckLakePartition> partition_data,
+                                                     optional_ptr<DuckLakeFieldData> field_data,
+                                                     optional_ptr<PhysicalOperator> plan, const string &data_path, string encryption_key, bool write_row_id) {
+	auto copy_options = GetCopyOptions(context, columns, partition_data, field_data, data_path, std::move(encryption_key), write_row_id);
+
+	auto copy_return_types = GetCopyFunctionReturnLogicalTypes(CopyFunctionReturnType::WRITTEN_FILE_STATISTICS);
+	auto &physical_copy =
+	    planner.Make<PhysicalCopyToFile>(copy_return_types, std::move(copy_options.copy_function), std::move(copy_options.bind_data), 1)
+	        .Cast<PhysicalCopyToFile>();
+
+	physical_copy.file_path = std::move(copy_options.file_path);
+	physical_copy.use_tmp_file = copy_options.use_tmp_file;
+	physical_copy.filename_pattern = std::move(copy_options.filename_pattern);
+	physical_copy.file_extension = std::move(copy_options.file_extension);
+	physical_copy.overwrite_mode = copy_options.overwrite_mode;
+	physical_copy.per_thread_output = copy_options.per_thread_output;
+	physical_copy.file_size_bytes = copy_options.file_size_bytes;
+	physical_copy.rotate = copy_options.rotate;
+	physical_copy.return_type = copy_options.return_type;
+
+	physical_copy.partition_output = copy_options.partition_output;
+	physical_copy.write_partition_columns = copy_options.write_partition_columns;
+	physical_copy.write_empty_file = copy_options.write_empty_file;
+	physical_copy.partition_columns = std::move(copy_options.partition_columns);
+	physical_copy.names = std::move(copy_options.names);
+	physical_copy.expected_types = std::move(copy_options.expected_types);
 	if (plan) {
 		physical_copy.children.push_back(*plan);
 	}
-	physical_copy.names = names_to_write;
-	physical_copy.expected_types = types_to_write;
 
 	return physical_copy;
 }
