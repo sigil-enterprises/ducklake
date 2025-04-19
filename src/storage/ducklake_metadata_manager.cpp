@@ -44,6 +44,8 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_table_column_stats(table_id BIGINT, col
 CREATE TABLE {METADATA_CATALOG}.ducklake_partition_info(partition_id BIGINT, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_partition_columns(partition_id BIGINT, partition_key_index BIGINT, column_id BIGINT, transform VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_file_partition_values(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, partition_key_index BIGINT, partition_value VARCHAR);
+CREATE TABLE {METADATA_CATALOG}.ducklake_partial_file_information(data_file_id BIGINT, snapshot_id BIGINT, max_row_count BIGINT);
+CREATE TABLE {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion(data_file_id BIGINT, path VARCHAR, schedule_start TIMESTAMPTZ);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
 INSERT INTO {METADATA_CATALOG}.ducklake_metadata VALUES ('version', '1'), ('created_by', 'DuckDB %s'), ('data_path', {DATA_PATH}), ('encryption', '%s');
 INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main');
@@ -760,11 +762,12 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
 		}
 		auto row_id = file.row_id_start.IsValid() ? to_string(file.row_id_start.GetIndex()) : "NULL";
 		auto partition_id = file.partition_id.IsValid() ? to_string(file.partition_id.GetIndex()) : "NULL";
+		auto begin_snapshot = file.begin_snapshot.IsValid() ? to_string(file.begin_snapshot.GetIndex()) : "{SNAPSHOT_ID}";
 		auto data_file_index = file.id.index;
 		auto table_id = file.table_id.index;
 		auto encryption_key = file.encryption_key.empty() ? "NULL" : "'" + Blob::ToBase64(string_t(file.encryption_key)) + "'";
 		data_file_insert_query += StringUtil::Format(
-		    "(%d, %d, {SNAPSHOT_ID}, NULL, NULL, %s, 'parquet', %d, %d, %d, %s, %s, %s)", data_file_index, table_id,
+		    "(%d, %d, %s, NULL, NULL, %s, 'parquet', %d, %d, %d, %s, %s, %s)", data_file_index, table_id, begin_snapshot,
 		    SQLString(file.file_name), file.row_count, file.file_size_bytes, file.footer_size, row_id, partition_id, encryption_key);
 		for (auto &column_stats : file.column_stats) {
 			if (!column_stats_insert_query.empty()) {
@@ -1206,6 +1209,57 @@ idx_t DuckLakeMetadataManager::GetNextColumnId(TableIndex table_id) {
 		return row.GetValue<idx_t>(00) + 1;
 	}
 	throw InternalException("Invalid result for GetNextColumnId");
+}
+
+void DuckLakeMetadataManager::WriteCompactions(vector<DuckLakeCompactedFileInfo> compactions) {
+	string deleted_file_ids;
+	string new_file_list;
+	string scheduled_deletions;
+	for(auto &compaction : compactions) {
+		// list of data file ids to delete
+		if (!deleted_file_ids.empty()) {
+			deleted_file_ids += ", ";
+		}
+		deleted_file_ids += to_string(compaction.source_id.index);
+
+		// list of new references to the newly written data files
+		if (!new_file_list.empty()) {
+			new_file_list += ", ";
+		}
+		new_file_list += StringUtil::Format("(%d, %d, %d)", compaction.new_id.index, compaction.snapshot_id, compaction.new_row_id_limit);
+
+		// list of scheduled deletions
+		if (!scheduled_deletions.empty()) {
+			scheduled_deletions += ", ";
+		}
+		scheduled_deletions += StringUtil::Format("(%d, %s, NOW())", compaction.source_id.index, SQLString(compaction.path));
+	}
+	// for each file that has been compacted - delete it from the list of data files entirely
+	// including all other info (stats, delete files, partition values, etc)
+	vector<string> tables_to_delete_from {
+		"ducklake_data_file", "ducklake_file_column_statistics", "ducklake_delete_file", "ducklake_file_partition_values", "ducklake_partial_file_information"
+	};
+	for(auto &delete_from_tbl : tables_to_delete_from) {
+		auto result = transaction.Query(StringUtil::Format(R"(
+DELETE FROM {METADATA_CATALOG}.%s
+WHERE data_file_id IN (%s);
+)", delete_from_tbl, deleted_file_ids));
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to delete old data file information in DuckLake: ");
+		}
+	}
+	// add the files we cleared to the deletion schedule
+	scheduled_deletions = "INSERT INTO {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion VALUES " + scheduled_deletions;
+	auto result = transaction.Query(scheduled_deletions);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to insert files scheduled for deletions in DuckLake: ");
+	}
+	// point the snapshots for each of the files at the relevant section of the new file
+	new_file_list = "INSERT INTO {METADATA_CATALOG}.ducklake_partial_file_information VALUES " + new_file_list;
+	result = transaction.Query(scheduled_deletions);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to insert partial file information after compaction in DuckLake: ");
+	}
 }
 
 bool DuckLakeMetadataManager::IsEncrypted() const {

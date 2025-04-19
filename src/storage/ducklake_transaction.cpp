@@ -27,13 +27,12 @@ void DuckLakeTransaction::Start() {
 }
 
 void DuckLakeTransaction::Commit() {
-	if (ChangesMade()) {
+	if (ChangesMade() || PerformedCompaction()) {
 		FlushChanges();
-		connection.reset();
 	} else if (connection) {
 		connection->Commit();
-		connection.reset();
 	}
+	connection.reset();
 }
 
 void DuckLakeTransaction::Rollback() {
@@ -792,6 +791,47 @@ void DuckLakeTransaction::UpdateGlobalTableStats(optional_ptr<DuckLakeTableStats
 	metadata_manager->UpdateGlobalTableStats(stats);
 }
 
+DuckLakeFileInfo DuckLakeTransaction::GetNewDataFile(DuckLakeDataFile &file, DuckLakeSnapshot &commit_snapshot, TableIndex table_id, idx_t row_id_start) {
+	DuckLakeFileInfo data_file;
+	data_file.id = DataFileIndex(commit_snapshot.next_file_id++);
+	data_file.table_id = table_id;
+	data_file.file_name = file.file_name;
+	data_file.row_count = file.row_count;
+	data_file.file_size_bytes = file.file_size_bytes;
+	data_file.footer_size = file.footer_size;
+	data_file.partition_id = file.partition_id;
+	data_file.encryption_key = file.encryption_key;
+	data_file.row_id_start = row_id_start;
+	// gather the column statistics for this file
+	for (auto &column_stats_entry : file.column_stats) {
+		DuckLakeColumnStatsInfo column_stats;
+		column_stats.column_id = column_stats_entry.first;
+		auto &stats = column_stats_entry.second;
+		column_stats.min_val = stats.has_min ? DuckLakeUtil::SQLLiteralToString(stats.min) : "NULL";
+		column_stats.max_val = stats.has_max ? DuckLakeUtil::SQLLiteralToString(stats.max) : "NULL";
+		column_stats.column_size_bytes = to_string(stats.column_size_bytes);
+		if (stats.has_null_count) {
+			column_stats.value_count = to_string(file.row_count - stats.null_count);
+			column_stats.null_count = to_string(stats.null_count);
+			if (stats.null_count == file.row_count) {
+				// all values are NULL for this file
+				stats.any_valid = false;
+			}
+		} else {
+			column_stats.value_count = "NULL";
+			column_stats.null_count = "NULL";
+		}
+		if (stats.has_contains_nan) {
+			column_stats.contains_nan = stats.contains_nan ? "true" : "false";
+		} else {
+			column_stats.contains_nan = "NULL";
+		}
+
+		data_file.column_stats.push_back(std::move(column_stats));
+	}
+	return data_file;
+}
+
 vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &commit_snapshot) {
 	vector<DuckLakeFileInfo> result;
 	for (auto &entry : new_data_files) {
@@ -807,16 +847,7 @@ vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &
 		DuckLakeTableStats new_stats;
 		vector<DuckLakeDeleteFile> delete_files;
 		for (auto &file : entry.second) {
-			DuckLakeFileInfo data_file;
-			data_file.id = DataFileIndex(commit_snapshot.next_file_id++);
-			data_file.table_id = table_id;
-			data_file.file_name = file.file_name;
-			data_file.row_count = file.row_count;
-			data_file.file_size_bytes = file.file_size_bytes;
-			data_file.footer_size = file.footer_size;
-			data_file.partition_id = file.partition_id;
-			data_file.encryption_key = file.encryption_key;
-			data_file.row_id_start = row_id_start + new_stats.record_count;
+			auto data_file = GetNewDataFile(file, commit_snapshot, table_id, row_id_start + new_stats.record_count);
 			if (file.delete_file) {
 				// this transaction-local file already has deletes - write them out
 				DuckLakeDeleteFile delete_file = *file.delete_file;
@@ -824,38 +855,11 @@ vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &
 				delete_files.push_back(std::move(delete_file));
 			}
 
+			// merge the stats into the new global states
 			new_stats.record_count += file.row_count;
 			new_stats.table_size_bytes += file.file_size_bytes;
-
-			// gather the column statistics for this file
-			for (auto &column_stats_entry : file.column_stats) {
-				DuckLakeColumnStatsInfo column_stats;
-				column_stats.column_id = column_stats_entry.first;
-				auto &stats = column_stats_entry.second;
-				column_stats.min_val = stats.has_min ? DuckLakeUtil::SQLLiteralToString(stats.min) : "NULL";
-				column_stats.max_val = stats.has_max ? DuckLakeUtil::SQLLiteralToString(stats.max) : "NULL";
-				column_stats.column_size_bytes = to_string(stats.column_size_bytes);
-				if (stats.has_null_count) {
-					column_stats.value_count = to_string(file.row_count - stats.null_count);
-					column_stats.null_count = to_string(stats.null_count);
-					if (stats.null_count == file.row_count) {
-						// all values are NULL for this file
-						stats.any_valid = false;
-					}
-				} else {
-					column_stats.value_count = "NULL";
-					column_stats.null_count = "NULL";
-				}
-				if (stats.has_contains_nan) {
-					column_stats.contains_nan = stats.contains_nan ? "true" : "false";
-				} else {
-					column_stats.contains_nan = "NULL";
-				}
-
-				// merge the stats into the new global states
-				new_stats.MergeStats(column_stats.column_id, stats);
-
-				data_file.column_stats.push_back(std::move(column_stats));
+			for (auto &entry : file.column_stats) {
+				new_stats.MergeStats(entry.first, entry.second);
 			}
 			for (auto &partition_entry : file.partition_values) {
 				DuckLakeFilePartitionInfo partition_info;
@@ -898,8 +902,104 @@ vector<DuckLakeDeleteFileInfo> DuckLakeTransaction::GetNewDeleteFiles(DuckLakeSn
 	return result;
 }
 
+void DuckLakeTransaction::CommitChanges(DuckLakeSnapshot &commit_snapshot, TransactionChangeInformation &transaction_changes) {
+	// drop entries
+	if (!dropped_tables.empty()) {
+		metadata_manager->DropTables(commit_snapshot, dropped_tables);
+	}
+	if (!dropped_views.empty()) {
+		metadata_manager->DropViews(commit_snapshot, dropped_views);
+	}
+	if (!dropped_schemas.empty()) {
+		set<SchemaIndex> dropped_schema_ids;
+		for (auto &entry : dropped_schemas) {
+			dropped_schema_ids.insert(entry.first);
+		}
+		metadata_manager->DropSchemas(commit_snapshot, dropped_schema_ids);
+	}
+	// write new schemas
+	if (new_schemas) {
+		auto schema_list = GetNewSchemas(commit_snapshot);
+		metadata_manager->WriteNewSchemas(commit_snapshot, schema_list);
+	}
+
+	// write new tables
+	if (!new_tables.empty()) {
+		auto result = GetNewTables(commit_snapshot, transaction_changes);
+		metadata_manager->WriteNewTables(commit_snapshot, result.new_tables);
+		metadata_manager->WriteNewPartitionKeys(commit_snapshot, result.new_partition_keys);
+		metadata_manager->WriteNewViews(commit_snapshot, result.new_views);
+		metadata_manager->WriteNewTags(commit_snapshot, result.new_tags);
+		metadata_manager->WriteNewColumnTags(commit_snapshot, result.new_column_tags);
+		metadata_manager->WriteDroppedColumns(commit_snapshot, result.dropped_columns);
+		metadata_manager->WriteNewColumns(commit_snapshot, result.new_columns);
+	}
+
+	// write new data files
+	if (!new_data_files.empty()) {
+		auto file_list = GetNewDataFiles(commit_snapshot);
+		metadata_manager->WriteNewDataFiles(commit_snapshot, file_list);
+	}
+
+	// drop data files
+	if (!dropped_files.empty()) {
+		set<DataFileIndex> dropped_indexes;
+		for(auto &entry : dropped_files) {
+			dropped_indexes.insert(entry.second);
+		}
+		metadata_manager->DropDataFiles(commit_snapshot, dropped_indexes);
+	}
+
+	// write new delete files
+	if (!new_delete_files.empty()) {
+		set<DataFileIndex> overwritten_delete_files;
+		auto file_list = GetNewDeleteFiles(commit_snapshot, overwritten_delete_files);
+		metadata_manager->DropDeleteFiles(commit_snapshot, overwritten_delete_files);
+		metadata_manager->WriteNewDeleteFiles(commit_snapshot, file_list);
+	}
+}
+
+struct CompactionInformation {
+	vector<DuckLakeCompactedFileInfo> compacted_files;
+	vector<DuckLakeFileInfo> new_files;
+};
+
+CompactionInformation DuckLakeTransaction::GetCompactionChanges(DuckLakeSnapshot &commit_snapshot) {
+	CompactionInformation result;
+	for(auto &entry : compactions) {
+		auto table_id = entry.first;
+		for(auto &compaction : entry.second) {
+			auto new_file = GetNewDataFile(compaction.written_file, commit_snapshot, table_id, compaction.row_id_start);
+			new_file.begin_snapshot = compaction.source_files[0].file.begin_snapshot;
+
+			idx_t row_id_limit = 0;
+			for(auto &compacted_file : compaction.source_files) {
+				row_id_limit += compacted_file.file.row_count;
+
+				DuckLakeCompactedFileInfo file_info;
+				file_info.path = compacted_file.file.data.path;
+				file_info.source_id = compacted_file.file.id;
+				file_info.new_id = new_file.id;
+				file_info.snapshot_id = compacted_file.file.begin_snapshot;
+				file_info.new_row_id_limit = row_id_limit;
+				result.compacted_files.push_back(std::move(file_info));
+			}
+			result.new_files.push_back(std::move(new_file));
+		}
+	}
+	return result;
+}
+
+void DuckLakeTransaction::CommitCompaction(DuckLakeSnapshot &commit_snapshot, TransactionChangeInformation &transaction_changes) {
+	if (!compactions.empty()) {
+		auto compaction_changes = GetCompactionChanges(commit_snapshot);
+		metadata_manager->WriteCompactions(std::move(compaction_changes.compacted_files));
+		metadata_manager->WriteNewDataFiles(commit_snapshot, compaction_changes.new_files);
+	}
+}
+
 void DuckLakeTransaction::FlushChanges() {
-	if (!ChangesMade()) {
+	if (!ChangesMade() && !PerformedCompaction()) {
 		// read-only transactions don't need to do anything
 		return;
 	}
@@ -920,61 +1020,14 @@ void DuckLakeTransaction::FlushChanges() {
 				// retry - but first check for conflicts
 				CheckForConflicts(transaction_snapshot, transaction_changes);
 			}
-			// drop entries
-			if (!dropped_tables.empty()) {
-				metadata_manager->DropTables(commit_snapshot, dropped_tables);
+			if (ChangesMade() && PerformedCompaction()) {
+				throw InvalidInputException("Transactions can either make changes OR perform compaction - not both");
 			}
-			if (!dropped_views.empty()) {
-				metadata_manager->DropViews(commit_snapshot, dropped_views);
+			if (ChangesMade()) {
+				CommitChanges(commit_snapshot, transaction_changes);
+			} else {
+				CommitCompaction(commit_snapshot, transaction_changes);
 			}
-			if (!dropped_schemas.empty()) {
-				set<SchemaIndex> dropped_schema_ids;
-				for (auto &entry : dropped_schemas) {
-					dropped_schema_ids.insert(entry.first);
-				}
-				metadata_manager->DropSchemas(commit_snapshot, dropped_schema_ids);
-			}
-			// write new schemas
-			if (new_schemas) {
-				auto schema_list = GetNewSchemas(commit_snapshot);
-				metadata_manager->WriteNewSchemas(commit_snapshot, schema_list);
-			}
-
-			// write new tables
-			if (!new_tables.empty()) {
-				auto result = GetNewTables(commit_snapshot, transaction_changes);
-				metadata_manager->WriteNewTables(commit_snapshot, result.new_tables);
-				metadata_manager->WriteNewPartitionKeys(commit_snapshot, result.new_partition_keys);
-				metadata_manager->WriteNewViews(commit_snapshot, result.new_views);
-				metadata_manager->WriteNewTags(commit_snapshot, result.new_tags);
-				metadata_manager->WriteNewColumnTags(commit_snapshot, result.new_column_tags);
-				metadata_manager->WriteDroppedColumns(commit_snapshot, result.dropped_columns);
-				metadata_manager->WriteNewColumns(commit_snapshot, result.new_columns);
-			}
-
-			// write new data files
-			if (!new_data_files.empty()) {
-				auto file_list = GetNewDataFiles(commit_snapshot);
-				metadata_manager->WriteNewDataFiles(commit_snapshot, file_list);
-			}
-
-			// drop data files
-			if (!dropped_files.empty()) {
-				set<DataFileIndex> dropped_indexes;
-				for(auto &entry : dropped_files) {
-					dropped_indexes.insert(entry.second);
-				}
-				metadata_manager->DropDataFiles(commit_snapshot, dropped_indexes);
-			}
-
-			// write new delete files
-			if (!new_delete_files.empty()) {
-				set<DataFileIndex> overwritten_delete_files;
-				auto file_list = GetNewDeleteFiles(commit_snapshot, overwritten_delete_files);
-				metadata_manager->DropDeleteFiles(commit_snapshot, overwritten_delete_files);
-				metadata_manager->WriteNewDeleteFiles(commit_snapshot, file_list);
-			}
-
 			// write the new snapshot
 			metadata_manager->InsertSnapshot(commit_snapshot);
 
@@ -1145,6 +1198,17 @@ void DuckLakeTransaction::AddDeletes(TableIndex table_id, vector<DuckLakeDeleteF
 			table_delete_map.insert(make_pair(data_file_path, std::move(file)));
 		}
 	}
+}
+
+void DuckLakeTransaction::AddCompaction(TableIndex table_id, DuckLakeCompactionEntry entry) {
+	if (ChangesMade()) {
+		throw InvalidInputException("Transactions can either make changes OR perform compaction - not both");
+	}
+	compactions[table_id].push_back(std::move(entry));
+}
+
+bool DuckLakeTransaction::PerformedCompaction() {
+	return !compactions.empty();
 }
 
 bool DuckLakeTransaction::HasLocalDeletes(TableIndex table_id) {

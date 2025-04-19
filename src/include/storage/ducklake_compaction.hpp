@@ -16,11 +16,13 @@
 #include "storage/ducklake_metadata_info.hpp"
 
 namespace duckdb {
+class DuckLakeTableEntry;
 
 class DuckLakeCompaction : public PhysicalOperator {
 public:
-	DuckLakeCompaction(const vector<LogicalType> &types, vector<DuckLakeCompactionFileEntry> source_files_p, PhysicalOperator &child);
+	DuckLakeCompaction(const vector<LogicalType> &types, DuckLakeTableEntry &table, vector<DuckLakeCompactionFileEntry> source_files_p, PhysicalOperator &child);
 
+	DuckLakeTableEntry &table;
 	vector<DuckLakeCompactionFileEntry> source_files;
 
 public:

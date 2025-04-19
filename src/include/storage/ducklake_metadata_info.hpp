@@ -15,6 +15,7 @@
 #include "duckdb/common/reference_map.hpp"
 #include "duckdb/common/types/value.hpp"
 #include "common/index.hpp"
+#include "common/ducklake_data_file.hpp"
 
 namespace duckdb {
 
@@ -78,6 +79,7 @@ struct DuckLakeFileInfo {
 	idx_t footer_size;
 	optional_idx row_id_start;
 	optional_idx partition_id;
+	optional_idx begin_snapshot;
 	string encryption_key;
 	vector<DuckLakeColumnStatsInfo> column_stats;
 	vector<DuckLakeFilePartitionInfo> partition_values;
@@ -236,6 +238,20 @@ struct DuckLakeCompactionDeleteFileData : public DuckLakeCompactionBaseFileData 
 struct DuckLakeCompactionFileEntry {
 	DuckLakeCompactionFileData file;
 	vector<DuckLakeCompactionDeleteFileData> delete_files;
+};
+
+struct DuckLakeCompactionEntry {
+	vector<DuckLakeCompactionFileEntry> source_files;
+	DuckLakeDataFile written_file;
+	idx_t row_id_start;
+};
+
+struct DuckLakeCompactedFileInfo {
+	string path;
+	DataFileIndex source_id;
+	DataFileIndex new_id;
+	idx_t snapshot_id;
+	idx_t new_row_id_limit;
 };
 
 } // namespace duckdb

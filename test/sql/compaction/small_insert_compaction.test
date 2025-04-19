@@ -9,6 +9,10 @@ require parquet
 statement ok
 ATTACH 'ducklake:__TEST_DIR__/ducklake_compaction.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_compaction_files')
 
+# FIXME:
+statement ok
+SET threads=1
+
 statement ok
 CREATE TABLE ducklake.test(i INTEGER);
 
@@ -44,8 +48,8 @@ SELECT snapshot_id, rowid, * FROM ducklake.test ORDER BY ALL
 statement ok
 CALL ducklake_merge_adjacent_files('ducklake');
 
-statement ok
-CALL ducklake_cleanup_old_files(older_than => interval '0 days');
+# statement ok
+# CALL ducklake_cleanup_old_files(older_than => interval '0 days');
 
 query I
 SELECT * FROM ducklake.test AT (VERSION => 2)

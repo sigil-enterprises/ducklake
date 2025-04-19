@@ -4,6 +4,7 @@
 #include "storage/ducklake_schema_entry.hpp"
 #include "storage/ducklake_table_entry.hpp"
 #include "storage/ducklake_insert.hpp"
+#include "storage/ducklake_multi_file_reader.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/planner/operator/logical_copy_to_file.hpp"
 #include "duckdb/planner/operator/logical_extension_operator.hpp"
@@ -17,8 +18,8 @@ namespace duckdb {
 //===--------------------------------------------------------------------===//
 // Compaction Operator
 //===--------------------------------------------------------------------===//
-DuckLakeCompaction::DuckLakeCompaction(const vector<LogicalType> &types, vector<DuckLakeCompactionFileEntry> source_files_p, PhysicalOperator &child) :
-	PhysicalOperator(PhysicalOperatorType::EXTENSION, types, 0) {
+DuckLakeCompaction::DuckLakeCompaction(const vector<LogicalType> &types, DuckLakeTableEntry &table, vector<DuckLakeCompactionFileEntry> source_files_p, PhysicalOperator &child) :
+	PhysicalOperator(PhysicalOperatorType::EXTENSION, types, 0), table(table), source_files(std::move(source_files_p)) {
 	children.push_back(child);
 }
 
@@ -33,19 +34,36 @@ SourceResultType DuckLakeCompaction::GetData(ExecutionContext &context, DataChun
 // Sink
 //===--------------------------------------------------------------------===//
 unique_ptr<GlobalSinkState> DuckLakeCompaction::GetGlobalSinkState(ClientContext &context) const {
-	return make_uniq<GlobalSinkState>();
+	return make_uniq<DuckLakeInsertGlobalState>(table);
 }
 
 
 SinkResultType DuckLakeCompaction::Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const {
-	throw InternalException("eek");
+	auto &global_state = input.global_state.Cast<DuckLakeInsertGlobalState>();
+	// FIXME: set these
+	string encryption_key;
+	optional_idx partition_id;
+	DuckLakeInsert::AddWrittenFiles(global_state, chunk, encryption_key, partition_id);
+	return SinkResultType::NEED_MORE_INPUT;
 }
 
 //===--------------------------------------------------------------------===//
 // Finalize
 //===--------------------------------------------------------------------===//
 SinkFinalizeType DuckLakeCompaction::Finalize(Pipeline &pipeline, Event &event, ClientContext &context, OperatorSinkFinalizeInput &input) const {
-	throw InternalException("eek");
+	auto &global_state = input.global_state.Cast<DuckLakeInsertGlobalState>();
+
+	if (global_state.written_files.size() != 1) {
+		throw InternalException("DuckLakeCompaction - expected a single output file");
+	}
+	DuckLakeCompactionEntry compaction_entry;
+	compaction_entry.row_id_start = source_files[0].file.row_id_start;
+	compaction_entry.source_files = source_files;
+	compaction_entry.written_file = std::move(global_state.written_files[0]);
+
+	auto &transaction = DuckLakeTransaction::Get(context, global_state.table.catalog);
+	transaction.AddCompaction(global_state.table.GetTableId(), std::move(compaction_entry));
+	return SinkFinalizeType::READY;
 }
 
 //===--------------------------------------------------------------------===//
@@ -60,16 +78,17 @@ string DuckLakeCompaction::GetName() const {
 //===--------------------------------------------------------------------===//
 class DuckLakeLogicalCompaction : public LogicalExtensionOperator {
 public:
-	DuckLakeLogicalCompaction(idx_t table_index, vector<DuckLakeCompactionFileEntry> source_files_p) : table_index(table_index), source_files(std::move(source_files_p)) {
+	DuckLakeLogicalCompaction(idx_t table_index, DuckLakeTableEntry &table, vector<DuckLakeCompactionFileEntry> source_files_p) : table_index(table_index), table(table), source_files(std::move(source_files_p)) {
 	}
 
 	idx_t table_index;
+	DuckLakeTableEntry &table;
 	vector<DuckLakeCompactionFileEntry> source_files;
 
 public:
 	PhysicalOperator &CreatePlan(ClientContext &context, PhysicalPlanGenerator &planner) override {
 		auto &child = planner.CreatePlan(*children[0]);
-		return planner.Make<DuckLakeCompaction>(types, std::move(source_files), child);
+		return planner.Make<DuckLakeCompaction>(types, table, std::move(source_files), child);
 	}
 
 	string GetExtensionName() const override {
@@ -183,22 +202,19 @@ unique_ptr<LogicalOperator> DuckLakeCompactor::GenerateCompactionCommand(vector<
 	multi_file_bind_data.file_list = make_uniq<DuckLakeMultiFileList>(transaction, read_info, std::move(files_to_scan));
 
 	// generate the LogicalGet
-	vector<LogicalType> returned_types;
-	vector<string> returned_names;
 	auto &columns = table.GetColumns();
-	for(auto &col : columns.Physical()) {
-		returned_types.push_back(col.Type());
-		returned_names.push_back(col.Name());
-	}
+	string encryption_key = catalog.GenerateEncryptionKey(context);
+	auto copy_options = DuckLakeInsert::GetCopyOptions(context, columns, table.GetPartitionData(), table.GetFieldData(), table.DataPath(), std::move(encryption_key), InsertVirtualColumns::WRITE_SNAPSHOT_ID);
+
 	auto virtual_columns = table.GetVirtualColumns();
-	auto ducklake_scan = make_uniq<LogicalGet>(table_idx, std::move(scan_function), std::move(bind_data), std::move(returned_types), std::move(returned_names), std::move(virtual_columns));
+	auto ducklake_scan = make_uniq<LogicalGet>(table_idx, std::move(scan_function), std::move(bind_data), copy_options.expected_types, copy_options.names, std::move(virtual_columns));
+	auto &column_ids = ducklake_scan->GetMutableColumnIds();
 	for(idx_t i = 0; i < columns.PhysicalColumnCount(); i++) {
-		ducklake_scan->GetMutableColumnIds().emplace_back(i);
+		column_ids.emplace_back(i);
 	}
+	column_ids.emplace_back(DuckLakeMultiFileReader::COLUMN_IDENTIFIER_SNAPSHOT_ID);
 
 	// generate the LogicalCopyToFile
-	string encryption_key = catalog.GenerateEncryptionKey(context);
-	auto copy_options = DuckLakeInsert::GetCopyOptions(context, columns, table.GetPartitionData(), table.GetFieldData(), table.DataPath(), std::move(encryption_key), false);
 	auto copy = make_uniq<LogicalCopyToFile>(std::move(copy_options.copy_function), std::move(copy_options.bind_data), std::move(copy_options.info));
 
 	copy->file_path = std::move(copy_options.file_path);
@@ -221,7 +237,7 @@ unique_ptr<LogicalOperator> DuckLakeCompactor::GenerateCompactionCommand(vector<
 	copy->children.push_back(std::move(ducklake_scan));
 
 	// followed by the compaction operator (that writes the results back to the
-	auto compaction = make_uniq<DuckLakeLogicalCompaction>(binder.GenerateTableIndex(), std::move(source_files));
+	auto compaction = make_uniq<DuckLakeLogicalCompaction>(binder.GenerateTableIndex(), table, std::move(source_files));
 	compaction->children.push_back(std::move(copy));
 	return std::move(compaction);
 }

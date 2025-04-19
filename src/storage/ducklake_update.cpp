@@ -204,7 +204,7 @@ PhysicalOperator &child_plan) {
 	auto encryption_key = GenerateEncryptionKey(context);
 	// updates are executed as a delete + insert - generate the two nodes (delete and insert)
 	// plan the copy for the insert
-	auto &copy_op = DuckLakeInsert::PlanCopyForInsert(context, planner, table, nullptr, encryption_key, true);
+	auto &copy_op = DuckLakeInsert::PlanCopyForInsert(context, planner, table, nullptr, encryption_key, InsertVirtualColumns::WRITE_ROW_ID);
 	// plan the delete
 	auto &delete_op = DuckLakeDelete::PlanDelete(context, planner, table, child_plan, encryption_key);
 	// plan the actual insert

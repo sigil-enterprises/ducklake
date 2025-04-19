@@ -28,6 +28,7 @@ struct DuckLakeTableStats;
 struct SnapshotChangeInformation;
 struct TransactionChangeInformation;
 struct NewTableInfo;
+struct CompactionInformation;
 
 class DuckLakeTransaction : public Transaction {
 public:
@@ -70,6 +71,7 @@ public:
 	bool HasTransactionLocalChanges(TableIndex table_id);
 	void AppendFiles(TableIndex table_id, vector<DuckLakeDataFile> files);
 	void AddDeletes(TableIndex table_id, vector<DuckLakeDeleteFile> files);
+	void AddCompaction(TableIndex table_id, DuckLakeCompactionEntry entry);
 
 	void DropSchema(DuckLakeSchemaEntry &schema);
 	void DropTable(DuckLakeTableEntry &table);
@@ -78,6 +80,7 @@ public:
 
 	bool SchemaChangesMade();
 	bool ChangesMade();
+	bool PerformedCompaction();
 	idx_t GetLocalCatalogId();
 	static bool IsTransactionLocal(idx_t id) {
 		return id >= DuckLakeConstants::TRANSACTION_LOCAL_ID_START;
@@ -95,6 +98,8 @@ public:
 private:
 	void CleanupFiles();
 	void FlushChanges();
+	void CommitChanges(DuckLakeSnapshot &commit_snapshot, TransactionChangeInformation &transaction_changes);
+	void CommitCompaction(DuckLakeSnapshot &commit_snapshot, TransactionChangeInformation &transaction_changes);
 	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,
 	               unordered_set<idx_t> &dropped_entries);
 	vector<DuckLakeSchemaInfo> GetNewSchemas(DuckLakeSnapshot &commit_snapshot);
@@ -103,6 +108,7 @@ private:
 	DuckLakeTableInfo GetNewTable(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table);
 	DuckLakeViewInfo GetNewView(DuckLakeSnapshot &commit_snapshot, DuckLakeViewEntry &view);
 	void FlushNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table);
+	DuckLakeFileInfo GetNewDataFile(DuckLakeDataFile &file, DuckLakeSnapshot &commit_snapshot, TableIndex table_id, idx_t row_id_start);
 	vector<DuckLakeFileInfo> GetNewDataFiles(DuckLakeSnapshot &commit_snapshot);
 	vector<DuckLakeDeleteFileInfo> GetNewDeleteFiles(DuckLakeSnapshot &commit_snapshot,
 	                                                 set<DataFileIndex> &overwritten_delete_files);
@@ -117,6 +123,7 @@ private:
 	                     TransactionChangeInformation &transaction_changes);
 	void GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> table_entry, NewTableInfo &result,
 	                    TransactionChangeInformation &transaction_changes);
+	CompactionInformation GetCompactionChanges(DuckLakeSnapshot &commit_snapshot);
 
 	void AlterEntryInternal(DuckLakeTableEntry &old_entry, unique_ptr<CatalogEntry> new_entry);
 	void AlterEntryInternal(DuckLakeViewEntry &old_entry, unique_ptr<CatalogEntry> new_entry);
@@ -143,6 +150,8 @@ private:
 	map<TableIndex, vector<DuckLakeDataFile>> new_data_files;
 	//! New deletes added by this transaction
 	map<TableIndex, unordered_map<string, DuckLakeDeleteFile>> new_delete_files;
+	//! Compactions performed by this transaction
+	map<TableIndex, vector<DuckLakeCompactionEntry>> compactions;
 	//! Snapshot cache for the AT (...) conditions that are referenced in the transaction
 	value_map_t<DuckLakeSnapshot> snapshot_cache;
 };

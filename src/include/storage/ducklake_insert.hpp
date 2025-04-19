@@ -13,6 +13,7 @@
 #include "duckdb/execution/physical_operator.hpp"
 #include "duckdb/common/index_vector.hpp"
 #include "storage/ducklake_stats.hpp"
+#include "common/ducklake_data_file.hpp"
 
 namespace duckdb {
 class DuckLakeCatalog;
@@ -20,6 +21,23 @@ class DuckLakeTableEntry;
 class DuckLakeFieldData;
 struct DuckLakePartition;
 struct DuckLakeCopyOptions;
+
+enum class InsertVirtualColumns {
+	NONE,
+	WRITE_ROW_ID,
+	WRITE_SNAPSHOT_ID,
+	WRITE_ROW_ID_AND_SNAPSHOT_ID
+};
+
+class DuckLakeInsertGlobalState : public GlobalSinkState {
+public:
+	explicit DuckLakeInsertGlobalState(DuckLakeTableEntry &table);
+
+	DuckLakeTableEntry &table;
+	vector<DuckLakeDataFile> written_files;
+	idx_t total_insert_count;
+	case_insensitive_set_t not_null_fields;
+};
 
 class DuckLakeInsert : public PhysicalOperator {
 public:
@@ -53,18 +71,19 @@ public:
 	static DuckLakeCopyOptions GetCopyOptions(ClientContext &context, const ColumnList &columns,
 													 optional_ptr<DuckLakePartition> partition_data,
 													 optional_ptr<DuckLakeFieldData> field_data,
-													 const string &data_path, string encryption_key, bool write_row_id);
+													 const string &data_path, string encryption_key, InsertVirtualColumns virtual_columns);
 	static PhysicalOperator &PlanCopyForInsert(ClientContext &context, PhysicalPlanGenerator &planner,
 	                                           DuckLakeTableEntry &table, optional_ptr<PhysicalOperator> plan,
-	                                           string encryption_key, bool write_row_id = false);
+	                                           string encryption_key, InsertVirtualColumns virtual_columns = InsertVirtualColumns::NONE);
 	static PhysicalOperator &PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
 	                                           PhysicalPlanGenerator &planner,
 	                                           optional_ptr<DuckLakePartition> partition_data,
 	                                           optional_ptr<DuckLakeFieldData> field_data,
 	                                           optional_ptr<PhysicalOperator> plan, const string &data_path,
-	                                           string encryption_key, bool write_row_id = false);
+	                                           string encryption_key, InsertVirtualColumns virtual_columns = InsertVirtualColumns::NONE);
 	static PhysicalOperator &PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner,
 	                                    DuckLakeTableEntry &table, string encryption_key);
+	static void AddWrittenFiles(DuckLakeInsertGlobalState &gstate, DataChunk &chunk, const string &encryption_key, optional_idx partition_id);
 
 public:
 	// Sink interface
