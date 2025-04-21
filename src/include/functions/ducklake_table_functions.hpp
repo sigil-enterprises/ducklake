@@ -50,4 +50,9 @@ public:
 	DuckLakeMergeAdjacentFilesFunction();
 };
 
+class DuckLakeCleanupOldFilesFunction : public TableFunction {
+public:
+	DuckLakeCleanupOldFilesFunction();
+};
+
 } // namespace duckdb

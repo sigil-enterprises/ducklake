@@ -230,12 +230,17 @@ struct DuckLakeCompactionBaseFileData {
 	optional_idx max_row_count;
 };
 
+struct DuckLakeFileScheduledForCleanup {
+	DataFileIndex id;
+	string path;
+	timestamp_tz_t time;
+};
+
 struct DuckLakeCompactionFileData : public DuckLakeCompactionBaseFileData {
 	idx_t row_id_start;
 };
 
-struct DuckLakeCompactionDeleteFileData : public DuckLakeCompactionBaseFileData {
-};
+struct DuckLakeCompactionDeleteFileData : public DuckLakeCompactionBaseFileData {};
 
 struct DuckLakePartialFileInfo {
 	idx_t snapshot_id;

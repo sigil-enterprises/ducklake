@@ -1232,6 +1232,43 @@ ORDER BY snapshot_id
 	return snapshots;
 }
 
+vector<DuckLakeFileScheduledForCleanup> DuckLakeMetadataManager::GetFilesScheduledForCleanup(const string &filter) {
+	auto res = transaction.Query(R"(
+SELECT data_file_id, path, schedule_start
+FROM {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion
+)" + filter);
+	if (res->HasError()) {
+		res->GetErrorObject().Throw("Failed to get files scheduled for deletion from DuckLake: ");
+	}
+	vector<DuckLakeFileScheduledForCleanup> result;
+	for (auto &row : *res) {
+		DuckLakeFileScheduledForCleanup info;
+		info.id = DataFileIndex(row.GetValue<idx_t>(0));
+		info.path = row.GetValue<string>(1);
+		info.time = row.GetValue<timestamp_tz_t>(2);
+
+		result.push_back(std::move(info));
+	}
+	return result;
+}
+
+void DuckLakeMetadataManager::RemoveFilesScheduledForCleanup(const vector<DuckLakeFileScheduledForCleanup> &cleaned_up_files) {
+	string deleted_file_ids;
+	for(auto &file : cleaned_up_files) {
+		if (!deleted_file_ids.empty()) {
+			deleted_file_ids += ", ";
+		}
+		deleted_file_ids += to_string(file.id.index);
+	}
+	auto result = transaction.Query(StringUtil::Format(R"(
+DELETE FROM {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion
+WHERE data_file_id IN (%s);
+)", deleted_file_ids));
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to delete scheduled cleanup files in DuckLake: ");
+	}
+}
+
 idx_t DuckLakeMetadataManager::GetNextColumnId(TableIndex table_id) {
 	auto result = transaction.Query(StringUtil::Format(R"(
 	SELECT MAX(column_id)

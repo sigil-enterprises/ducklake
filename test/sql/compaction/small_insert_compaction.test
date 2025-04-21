@@ -70,14 +70,26 @@ SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_compaction_files/*')
 7
 
 # force clean-up of the files
-# statement ok
-# CALL ducklake_cleanup_old_files(older_than => interval '0 days');
+# test dry run - this just lists the files to be cleaned up
+query I
+SELECT COUNT(*) FROM ducklake_cleanup_old_files('ducklake', cleanup_all => true, dry_run => true);
+----
+5
+
+statement ok
+CALL ducklake_cleanup_old_files('ducklake', cleanup_all => true);
+
+# no more files to be deleted
+query I
+SELECT COUNT(*) FROM ducklake_cleanup_old_files('ducklake', cleanup_all => true, dry_run => true);
+----
+0
 
 # now the files are gone
-# query I
-# SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_compaction_files/*')
-# ----
-# 1
+query I
+SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_compaction_files/*')
+----
+2
 
 # verify correct behavior when operating on the compacted file
 # time travel

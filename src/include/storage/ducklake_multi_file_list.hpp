@@ -21,9 +21,10 @@ class DuckLakeMultiFileList : public MultiFileList {
 	static constexpr const idx_t TRANSACTION_LOCAL_ID_START = 1000000000000000000ULL;
 
 public:
-	explicit DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info, vector<DuckLakeDataFile> transaction_local_files, string filter = string());
 	explicit DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,
-								   vector<DuckLakeFileListEntry> files_to_scan);
+	                               vector<DuckLakeDataFile> transaction_local_files, string filter = string());
+	explicit DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,
+	                               vector<DuckLakeFileListEntry> files_to_scan);
 
 	unique_ptr<MultiFileList> ComplexFilterPushdown(ClientContext &context, const MultiFileOptions &options,
 	                                                MultiFilePushdownInfo &info,

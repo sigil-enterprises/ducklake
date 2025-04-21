@@ -32,6 +32,16 @@ CALL ducklake_merge_adjacent_files('ducklake');
 
 endloop
 
+# delete the old files
+statement ok
+CALL ducklake_cleanup_old_files('ducklake', cleanup_all => true);
+
+# all files have been compacted into one file
+query I
+SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_multi_compaction_files/*')
+----
+1
+
 # verify that after multi-compaction time travel still works
 query I
 SELECT * FROM ducklake.test AT (VERSION => 2)

@@ -49,8 +49,11 @@ public:
 	                                                         TableIndex table_id);
 	virtual vector<DuckLakeDeleteScanEntry> GetTableDeletions(DuckLakeSnapshot start_snapshot,
 	                                                          DuckLakeSnapshot snapshot, TableIndex table_id);
-	virtual vector<DuckLakeFileListExtendedEntry> GetExtendedFilesForTable(DuckLakeSnapshot snapshot, TableIndex table_id, const string &filter);
+	virtual vector<DuckLakeFileListExtendedEntry> GetExtendedFilesForTable(DuckLakeSnapshot snapshot,
+	                                                                       TableIndex table_id, const string &filter);
 	virtual vector<DuckLakeCompactionFileEntry> GetFilesForCompaction(TableIndex table_id);
+	virtual vector<DuckLakeFileScheduledForCleanup> GetFilesScheduledForCleanup(const string &filter);
+	virtual void RemoveFilesScheduledForCleanup(const vector<DuckLakeFileScheduledForCleanup> &cleaned_up_files);
 	virtual void DropSchemas(DuckLakeSnapshot commit_snapshot, set<SchemaIndex> ids);
 	virtual void DropTables(DuckLakeSnapshot commit_snapshot, set<TableIndex> ids);
 	virtual void DropViews(DuckLakeSnapshot commit_snapshot, set<TableIndex> ids);
@@ -68,7 +71,7 @@ public:
 	virtual void DropDataFiles(DuckLakeSnapshot commit_snapshot, const set<DataFileIndex> &dropped_files);
 	virtual void DropDeleteFiles(DuckLakeSnapshot commit_snapshot, const set<DataFileIndex> &dropped_files);
 	virtual void WriteNewDeleteFiles(DuckLakeSnapshot commit_snapshot,
-	const vector<DuckLakeDeleteFileInfo> &new_delete_files);
+	                                 const vector<DuckLakeDeleteFileInfo> &new_delete_files);
 	virtual void WriteCompactions(vector<DuckLakeCompactedFileInfo> compactions);
 	virtual void InsertSnapshot(DuckLakeSnapshot commit_snapshot);
 	virtual void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, const SnapshotChangeInfo &change_info);

@@ -26,6 +26,9 @@ static void LoadInternal(DatabaseInstance &instance) {
 	DuckLakeMergeAdjacentFilesFunction merge_adjacent_files;
 	ExtensionUtil::RegisterFunction(instance, merge_adjacent_files);
 
+	DuckLakeCleanupOldFilesFunction cleanup_old_files;
+	ExtensionUtil::RegisterFunction(instance, cleanup_old_files);
+
 	auto table_changes = DuckLakeTableInsertionsFunction::GetDuckLakeTableChanges();
 	ExtensionUtil::RegisterFunction(instance, *table_changes);
 }
