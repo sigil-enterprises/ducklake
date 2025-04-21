@@ -9,10 +9,6 @@ require parquet
 statement ok
 ATTACH 'ducklake:__TEST_DIR__/ducklake_compaction_encrypted.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_compaction_encrypted_files', ENCRYPTED)
 
-# FIXME:
-statement ok
-SET threads=1
-
 statement ok
 CREATE TABLE ducklake.test(i INTEGER);
 

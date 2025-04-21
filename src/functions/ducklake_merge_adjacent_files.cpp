@@ -240,6 +240,7 @@ unique_ptr<LogicalOperator> DuckLakeCompactor::GenerateCompactionCommand(vector<
 	copy->partition_columns = std::move(copy_options.partition_columns);
 	copy->names = std::move(copy_options.names);
 	copy->expected_types = std::move(copy_options.expected_types);
+	copy->preserve_order = PreserveOrderType::PRESERVE_ORDER;
 
 	copy->children.push_back(std::move(ducklake_scan));
 

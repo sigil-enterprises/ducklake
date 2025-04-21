@@ -7,11 +7,10 @@ require ducklake
 require parquet
 
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/ducklake_compaction.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_compaction_files', METADATA_CATALOG 'xx')
+SET preserve_insertion_order=false;
 
-# FIXME:
 statement ok
-SET threads=1
+ATTACH 'ducklake:__TEST_DIR__/ducklake_compaction.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_compaction_files', METADATA_CATALOG 'xx')
 
 # snapshot 1
 statement ok
@@ -105,7 +104,7 @@ SELECT * FROM ducklake.test AT (VERSION => 4)
 
 
 query I
-SELECT * FROM ducklake.test AT (VERSION => 5)
+SELECT * FROM ducklake.test AT (VERSION => 5) ORDER BY ALL
 ----
 1
 2
@@ -122,24 +121,24 @@ SELECT snapshot_id, rowid, * FROM ducklake.test ORDER BY ALL
 
 # table insertions function
 query II
-SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'test', 0, 3);
+SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'test', 0, 3) ORDER BY ALL
 ----
 0	1
 
 query II
-SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'test', 0, 4);
+SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'test', 0, 4) ORDER BY ALL
 ----
 0	1
 
 query II
-SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'test', 0, 6);
+SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'test', 0, 6) ORDER BY ALL
 ----
 0	1
 1	2
 2	3
 
 query II
-SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'test', 0, 9);
+SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'test', 0, 9) ORDER BY ALL
 ----
 0	1
 1	2
