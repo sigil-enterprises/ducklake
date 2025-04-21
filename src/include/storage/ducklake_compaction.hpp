@@ -21,10 +21,12 @@ class DuckLakeTableEntry;
 class DuckLakeCompaction : public PhysicalOperator {
 public:
 	DuckLakeCompaction(const vector<LogicalType> &types, DuckLakeTableEntry &table,
-	                   vector<DuckLakeCompactionFileEntry> source_files_p, PhysicalOperator &child);
+	                   vector<DuckLakeCompactionFileEntry> source_files_p, string encryption_key,
+	                   PhysicalOperator &child);
 
 	DuckLakeTableEntry &table;
 	vector<DuckLakeCompactionFileEntry> source_files;
+	string encryption_key;
 
 public:
 	// // Source interface
