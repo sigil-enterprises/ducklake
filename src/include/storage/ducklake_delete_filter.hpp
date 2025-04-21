@@ -21,11 +21,15 @@ struct DuckLakeDeleteData {
 
 class DuckLakeDeleteFilter : public DeleteFilter {
 public:
+	DuckLakeDeleteFilter();
+
 	shared_ptr<DuckLakeDeleteData> delete_data;
+	optional_idx max_row_count;
 
 	idx_t Filter(row_t start_row_index, idx_t count, SelectionVector &result_sel) override;
-	static unique_ptr<DuckLakeDeleteFilter> Create(ClientContext &context, const DuckLakeFileData &delete_file);
-	static unique_ptr<DuckLakeDeleteFilter> Create(ClientContext &context, const DuckLakeDeleteScanEntry &delete_scan);
+	void Initialize(ClientContext &context, const DuckLakeFileData &delete_file);
+	void Initialize(ClientContext &context, const DuckLakeDeleteScanEntry &delete_scan);
+	void SetMaxRowCount(idx_t max_row_count);
 
 private:
 	static vector<idx_t> ScanDeleteFile(ClientContext &context, const DuckLakeFileData &delete_file);

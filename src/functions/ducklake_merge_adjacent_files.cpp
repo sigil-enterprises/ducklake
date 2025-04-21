@@ -149,6 +149,13 @@ void DuckLakeCompactor::GenerateCompactions(vector<unique_ptr<LogicalOperator>> 
 				// FIXME: files with deletions cannot be merged currently
 				break;
 			}
+			if (!candidate.partial_files.empty()) {
+				// the file already has partial files - we can only accept this as a candidate if it is the first file
+				if (compaction_idx != file_idx) {
+					// not the first file - we cannot compact this file together with the existing file
+					break;
+				}
+			}
 			// FIXME: take deletions into account here once we support vacuuming deletions
 			idx_t file_size = candidate.file.data.file_size_bytes;
 			if (file_size >= TARGET_FILE_SIZE * 2) {

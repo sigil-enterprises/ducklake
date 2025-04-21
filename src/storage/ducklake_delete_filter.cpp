@@ -7,6 +7,9 @@
 
 namespace duckdb {
 
+DuckLakeDeleteFilter::DuckLakeDeleteFilter() : delete_data(make_shared_ptr<DuckLakeDeleteData>()) {
+}
+
 idx_t DuckLakeDeleteData::Filter(row_t start_row_index, idx_t count, SelectionVector &result_sel) const {
 	auto entry = std::lower_bound(deleted_rows.begin(), deleted_rows.end(), start_row_index);
 	if (entry == deleted_rows.end()) {
@@ -34,6 +37,15 @@ idx_t DuckLakeDeleteData::Filter(row_t start_row_index, idx_t count, SelectionVe
 }
 
 idx_t DuckLakeDeleteFilter::Filter(row_t start_row_index, idx_t count, SelectionVector &result_sel) {
+	// apply max row count (if it is set)
+	if (max_row_count.IsValid()) {
+		auto max_count = max_row_count.GetIndex();
+		if (max_count <= start_row_index) {
+			// no rows to read based on max row count - skip
+			return 0;
+		}
+		count = MinValue<idx_t>(max_count - start_row_index, count);
+	}
 	return delete_data->Filter(start_row_index, count, result_sel);
 }
 
@@ -115,14 +127,11 @@ vector<idx_t> DuckLakeDeleteFilter::ScanDeleteFile(ClientContext &context, const
 	return deleted_rows;
 }
 
-unique_ptr<DuckLakeDeleteFilter> DuckLakeDeleteFilter::Create(ClientContext &context, const DuckLakeFileData &delete_file) {
-	auto result = make_uniq<DuckLakeDeleteFilter>();
-	result->delete_data = make_shared_ptr<DuckLakeDeleteData>();
-	result->delete_data->deleted_rows = ScanDeleteFile(context, delete_file);
-	return result;
+void DuckLakeDeleteFilter::Initialize(ClientContext &context, const DuckLakeFileData &delete_file) {
+	delete_data->deleted_rows = ScanDeleteFile(context, delete_file);
 }
 
-unique_ptr<DuckLakeDeleteFilter> DuckLakeDeleteFilter::Create(ClientContext &context, const DuckLakeDeleteScanEntry &delete_scan) {
+void DuckLakeDeleteFilter::Initialize(ClientContext &context, const DuckLakeDeleteScanEntry &delete_scan) {
 	// scanning deletes - we need to scan the opposite (i.e. only the rows that were deleted)
 	auto rows_to_scan = make_unsafe_uniq_array<bool>(delete_scan.row_count);
 
@@ -157,15 +166,16 @@ unique_ptr<DuckLakeDeleteFilter> DuckLakeDeleteFilter::Create(ClientContext &con
 	}
 
 	// now construct the delete filter based on the rows we want to scan
-	auto result = make_uniq<DuckLakeDeleteFilter>();
-	result->delete_data = make_shared_ptr<DuckLakeDeleteData>();
-	auto &deleted = result->delete_data->deleted_rows;
+	auto &deleted = delete_data->deleted_rows;
 	for(idx_t i = 0; i < delete_scan.row_count; i++) {
 		if (!rows_to_scan[i]) {
 			deleted.push_back(i);
 		}
 	}
-	return result;
+}
+
+void DuckLakeDeleteFilter::SetMaxRowCount(idx_t max_row_count_p) {
+	max_row_count = max_row_count_p;
 }
 
 }

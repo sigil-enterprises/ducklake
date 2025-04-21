@@ -976,12 +976,37 @@ CompactionInformation DuckLakeTransaction::GetCompactionChanges(DuckLakeSnapshot
 			for(auto &compacted_file : compaction.source_files) {
 				row_id_limit += compacted_file.file.row_count;
 
+				idx_t compacted_file_snapshot = compacted_file.file.begin_snapshot;
+				if (!compacted_file.partial_files.empty()) {
+					// first process any partial file info that already existed for this file
+					if (!result.compacted_files.empty()) {
+						throw InternalException("Only the first compacted file can have existing partial file info");
+					}
+					for(auto &partial_file : compacted_file.partial_files) {
+						if (partial_file.max_row_count == compacted_file.file.row_count) {
+							// this snapshot reads the entire file
+							// set the compacted file snapshot to this snapshot
+							compacted_file_snapshot = partial_file.snapshot_id;
+						} else {
+							DuckLakeCompactedFileInfo file_info;
+							file_info.path = string();
+							file_info.source_id = DataFileIndex(0);
+							file_info.new_id = new_file.id;
+							file_info.snapshot_id = partial_file.snapshot_id;
+							file_info.new_row_id_limit = partial_file.max_row_count;
+							result.compacted_files.push_back(std::move(file_info));
+						}
+					}
+				}
 				DuckLakeCompactedFileInfo file_info;
 				file_info.path = compacted_file.file.data.path;
 				file_info.source_id = compacted_file.file.id;
 				file_info.new_id = new_file.id;
-				file_info.snapshot_id = compacted_file.file.begin_snapshot;
+				file_info.snapshot_id = compacted_file_snapshot;
 				file_info.new_row_id_limit = row_id_limit;
+				if (row_id_limit > new_file.row_count) {
+					throw InternalException("Compaction error - row id limit is larger than the row count of the file");
+				}
 				result.compacted_files.push_back(std::move(file_info));
 			}
 			result.new_files.push_back(std::move(new_file));

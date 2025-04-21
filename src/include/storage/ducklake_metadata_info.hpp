@@ -198,6 +198,7 @@ struct DuckLakeFileListEntry {
 	DuckLakeFileData delete_file;
 	idx_t row_id_start;
 	optional_idx snapshot_id;
+	optional_idx max_row_count;
 };
 
 struct DuckLakeDeleteScanEntry {
@@ -226,6 +227,7 @@ struct DuckLakeCompactionBaseFileData {
 	idx_t row_count = 0;
 	idx_t begin_snapshot = 0;
 	optional_idx end_snapshot;
+	optional_idx max_row_count;
 };
 
 struct DuckLakeCompactionFileData : public DuckLakeCompactionBaseFileData {
@@ -235,9 +237,15 @@ struct DuckLakeCompactionFileData : public DuckLakeCompactionBaseFileData {
 struct DuckLakeCompactionDeleteFileData : public DuckLakeCompactionBaseFileData {
 };
 
+struct DuckLakePartialFileInfo {
+	idx_t snapshot_id;
+	idx_t max_row_count;
+};
+
 struct DuckLakeCompactionFileEntry {
 	DuckLakeCompactionFileData file;
 	vector<DuckLakeCompactionDeleteFileData> delete_files;
+	vector<DuckLakePartialFileInfo> partial_files;
 };
 
 struct DuckLakeCompactionEntry {
