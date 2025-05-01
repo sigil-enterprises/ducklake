@@ -253,6 +253,7 @@ struct DuckLakeCompactionFileEntry {
 	DuckLakeCompactionFileData file;
 	vector<DuckLakeCompactionDeleteFileData> delete_files;
 	vector<DuckLakePartialFileInfo> partial_files;
+	idx_t schema_version;
 };
 
 struct DuckLakeCompactionEntry {

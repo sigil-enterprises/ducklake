@@ -93,6 +93,11 @@ void DuckLakeCatalog::ScanSchemas(ClientContext &context, std::function<void(Sch
 	}
 }
 
+optional_ptr<CatalogEntry> DuckLakeCatalog::GetEntryById(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot, TableIndex table_id) {
+	auto &schema = GetSchemaForSnapshot(transaction, snapshot);
+	return schema.GetEntryById(table_id);
+}
+
 DuckLakeCatalogSet &DuckLakeCatalog::GetSchemaForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot) {
 	lock_guard<mutex> guard(schemas_lock);
 	auto entry = schemas.find(snapshot.schema_version);

@@ -12,6 +12,7 @@
 #include "storage/ducklake_compaction.hpp"
 #include "duckdb/common/multi_file/multi_file_function.hpp"
 #include "storage/ducklake_multi_file_list.hpp"
+#include "duckdb/planner/tableref/bound_at_clause.hpp"
 
 namespace duckdb {
 
@@ -121,7 +122,7 @@ public:
 //===--------------------------------------------------------------------===//
 class DuckLakeCompactor {
 public:
-	DuckLakeCompactor(ClientContext &context, DuckLakeCatalog &catalog, DuckLakeTransaction &transaction, Binder &binder, DuckLakeTableEntry &table);
+	DuckLakeCompactor(ClientContext &context, DuckLakeCatalog &catalog, DuckLakeTransaction &transaction, Binder &binder, TableIndex table_id);
 
 	void GenerateCompactions(vector<unique_ptr<LogicalOperator>> &compactions);
 	unique_ptr<LogicalOperator> GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry> source_files);
@@ -131,18 +132,16 @@ private:
 	DuckLakeCatalog &catalog;
 	DuckLakeTransaction &transaction;
 	Binder &binder;
-	DuckLakeTableEntry &table;
+	TableIndex table_id;
 };
 
-DuckLakeCompactor::DuckLakeCompactor(ClientContext &context, DuckLakeCatalog &catalog, DuckLakeTransaction &transaction, Binder &binder, DuckLakeTableEntry &table) :
-	context(context), catalog(catalog), transaction(transaction), binder(binder), table(table) {}
+DuckLakeCompactor::DuckLakeCompactor(ClientContext &context, DuckLakeCatalog &catalog, DuckLakeTransaction &transaction, Binder &binder, TableIndex table_id) :
+	context(context), catalog(catalog), transaction(transaction), binder(binder), table_id(table_id) {}
 
 void DuckLakeCompactor::GenerateCompactions(vector<unique_ptr<LogicalOperator>> &compactions) {
 	auto &metadata_manager = transaction.GetMetadataManager();
-	auto files = metadata_manager.GetFilesForCompaction(table.GetTableId());
+	auto files = metadata_manager.GetFilesForCompaction(table_id);
 
-	// FIXME: we cannot vacuum across different partitions
-	// FIXME: we cannot vacuum if the files have different schemas (schema_version needs to be the same across all snapshots)
 	// target file size: 10MB
 	static constexpr const idx_t TARGET_FILE_SIZE = 10000000;
 	// simple compaction: iterate over the files and find adjacent files that can be merged
@@ -166,6 +165,10 @@ void DuckLakeCompactor::GenerateCompactions(vector<unique_ptr<LogicalOperator>> 
 					// not the first file - we cannot compact this file together with the existing file
 					break;
 				}
+			}
+			if (candidate.schema_version != files[file_idx].schema_version) {
+				// we do not merge across different schema versions - as ALTER statements might make files incompatible
+				break;
 			}
 			if (candidate.file.partition_id != files[file_idx].file.partition_id ||
 			    candidate.file.partition_values != files[file_idx].file.partition_values) {
@@ -201,8 +204,15 @@ void DuckLakeCompactor::GenerateCompactions(vector<unique_ptr<LogicalOperator>> 
 }
 
 unique_ptr<LogicalOperator> DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry> source_files) {
-	// FIXME: get the table state at the specified snapshot
-	// get the table scan function
+	// get the table entry at the specified snapshot
+	auto snapshot_id = source_files[0].file.begin_snapshot;
+	DuckLakeSnapshot snapshot(snapshot_id, source_files[0].schema_version, 0, 0);
+	auto entry = catalog.GetEntryById(transaction, snapshot, table_id);
+	if (!entry) {
+		throw InternalException("DuckLakeCompactor: failed to find table entry for given snapshot id");
+	}
+	auto &table = entry->Cast<DuckLakeTableEntry>();
+
 	auto table_idx = binder.GenerateTableIndex();
 	unique_ptr<FunctionData> bind_data;
 	EntryLookupInfo info(CatalogType::TABLE_ENTRY, table.name);
@@ -288,7 +298,8 @@ unique_ptr<LogicalOperator> MergeAdjacentFilesBind(ClientContext &context, Table
 	auto schemas = ducklake_catalog.GetSchemas(context);
 	for(auto &schema : schemas) {
 		schema.get().Scan(context, CatalogType::TABLE_ENTRY, [&](CatalogEntry &entry) {
-			DuckLakeCompactor compactor(context, ducklake_catalog, transaction, *input.binder, entry.Cast<DuckLakeTableEntry>());
+			auto &table = entry.Cast<DuckLakeTableEntry>();
+			DuckLakeCompactor compactor(context, ducklake_catalog, transaction, *input.binder, table.GetTableId());
 			compactor.GenerateCompactions(compactions);
 		});
 	}

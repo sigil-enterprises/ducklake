@@ -541,13 +541,14 @@ WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_I
 }
 
 vector<DuckLakeCompactionFileEntry> DuckLakeMetadataManager::GetFilesForCompaction(TableIndex table_id) {
-	string data_select_list = "data.data_file_id, data.record_count, data.row_id_start, data.begin_snapshot, data.end_snapshot, data.partition_id, partition_info.keys, " + GetFileSelectList("data");
+	string data_select_list = "data.data_file_id, data.record_count, data.row_id_start, data.begin_snapshot, data.end_snapshot, snapshot.schema_version, data.partition_id, partition_info.keys, " + GetFileSelectList("data");
 	string partial_file_select_list = "partial_file_info.snapshots, partial_file_info.max_row_counts";
 	string delete_select_list = "del.data_file_id, del.delete_count, del.begin_snapshot, del.end_snapshot, " + GetFileSelectList("del");
 	string select_list =  data_select_list + ", " + partial_file_select_list + ", " + delete_select_list;
 	auto query = StringUtil::Format(R"(
 SELECT %s,
 FROM {METADATA_CATALOG}.ducklake_data_file data
+JOIN {METADATA_CATALOG}.ducklake_snapshot snapshot ON (data.begin_snapshot = snapshot.snapshot_id)
 LEFT JOIN (
 	SELECT *
     FROM {METADATA_CATALOG}.ducklake_delete_file
@@ -581,6 +582,7 @@ ORDER BY data.row_id_start, data.data_file_id, del.begin_snapshot
 		new_entry.file.begin_snapshot = row.GetValue<idx_t>(col_idx++);
 		new_entry.file.end_snapshot = row.IsNull(col_idx) ? optional_idx() : row.GetValue<idx_t>(col_idx);
 		col_idx++;
+		new_entry.schema_version = row.GetValue<idx_t>(col_idx++);
 		new_entry.file.partition_id = row.IsNull(col_idx) ? optional_idx() : row.GetValue<idx_t>(col_idx);
 		col_idx++;
 		if (!row.IsNull(col_idx)) {

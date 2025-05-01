@@ -69,6 +69,9 @@ public:
 	optional_ptr<DuckLakeTableStats> GetTableStats(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
 	                                               TableIndex table_id);
 
+	optional_ptr<CatalogEntry> GetEntryById(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
+	                                        TableIndex table_id);
+
 	bool InMemory() override;
 	string GetDBPath() override;
 
