@@ -152,6 +152,7 @@ private:
 	//! New deletes added by this transaction
 	map<TableIndex, unordered_map<string, DuckLakeDeleteFile>> new_delete_files;
 	//! Compactions performed by this transaction
+	mutex compaction_lock;
 	map<TableIndex, vector<DuckLakeCompactionEntry>> compactions;
 	//! Snapshot cache for the AT (...) conditions that are referenced in the transaction
 	value_map_t<DuckLakeSnapshot> snapshot_cache;

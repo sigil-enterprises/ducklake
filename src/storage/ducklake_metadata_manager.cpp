@@ -42,8 +42,8 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_column(column_id BIGINT, begin_snapshot
 CREATE TABLE {METADATA_CATALOG}.ducklake_table_stats(table_id BIGINT, record_count BIGINT, next_row_id BIGINT, file_size_bytes BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_table_column_stats(table_id BIGINT, column_id BIGINT, contains_null BOOLEAN, contains_nan BOOLEAN, min_value VARCHAR, max_value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_partition_info(partition_id BIGINT, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_partition_columns(partition_id BIGINT, partition_key_index BIGINT, column_id BIGINT, transform VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_file_partition_values(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, partition_key_index BIGINT, partition_value VARCHAR);
+CREATE TABLE {METADATA_CATALOG}.ducklake_partition_column(partition_id BIGINT, partition_key_index BIGINT, column_id BIGINT, transform VARCHAR);
+CREATE TABLE {METADATA_CATALOG}.ducklake_file_partition_value(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, partition_key_index BIGINT, partition_value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_partial_file_info(data_file_id BIGINT, snapshot_id BIGINT, max_row_count BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion(data_file_id BIGINT, path VARCHAR, schedule_start TIMESTAMPTZ);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
@@ -236,7 +236,7 @@ WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < view.end_snapshot OR 
 	result = transaction.Query(snapshot, R"(
 SELECT partition_id, table_id, partition_key_index, column_id, transform
 FROM {METADATA_CATALOG}.ducklake_partition_info part
-JOIN {METADATA_CATALOG}.ducklake_partition_columns part_col USING (partition_id)
+JOIN {METADATA_CATALOG}.ducklake_partition_column part_col USING (partition_id)
 WHERE {SNAPSHOT_ID} >= part.begin_snapshot AND ({SNAPSHOT_ID} < part.end_snapshot OR part.end_snapshot IS NULL)
 ORDER BY table_id, partition_id, partition_key_index
 )");
@@ -541,7 +541,7 @@ WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_I
 }
 
 vector<DuckLakeCompactionFileEntry> DuckLakeMetadataManager::GetFilesForCompaction(TableIndex table_id) {
-	string data_select_list = "data.data_file_id, data.record_count, data.row_id_start, data.begin_snapshot, data.end_snapshot, " + GetFileSelectList("data");
+	string data_select_list = "data.data_file_id, data.record_count, data.row_id_start, data.begin_snapshot, data.end_snapshot, data.partition_id, partition_info.keys, " + GetFileSelectList("data");
 	string partial_file_select_list = "partial_file_info.snapshots, partial_file_info.max_row_counts";
 	string delete_select_list = "del.data_file_id, del.delete_count, del.begin_snapshot, del.end_snapshot, " + GetFileSelectList("del");
 	string select_list =  data_select_list + ", " + partial_file_select_list + ", " + delete_select_list;
@@ -558,6 +558,11 @@ LEFT JOIN (
 	FROM {METADATA_CATALOG}.ducklake_partial_file_info
 	GROUP BY data_file_id
 ) partial_file_info USING (data_file_id)
+LEFT JOIN (
+   SELECT data_file_id, LIST(partition_value ORDER BY partition_key_index) keys
+   FROM {METADATA_CATALOG}.ducklake_file_partition_value
+   GROUP BY data_file_id
+) partition_info USING (data_file_id)
 WHERE data.table_id=%d
 ORDER BY data.row_id_start, data.data_file_id, del.begin_snapshot
 		)", select_list, table_id.index, table_id.index);
@@ -575,6 +580,15 @@ ORDER BY data.row_id_start, data.data_file_id, del.begin_snapshot
 		new_entry.file.row_id_start = row.GetValue<idx_t>(col_idx++);
 		new_entry.file.begin_snapshot = row.GetValue<idx_t>(col_idx++);
 		new_entry.file.end_snapshot = row.IsNull(col_idx) ? optional_idx() : row.GetValue<idx_t>(col_idx);
+		col_idx++;
+		new_entry.file.partition_id = row.IsNull(col_idx) ? optional_idx() : row.GetValue<idx_t>(col_idx);
+		col_idx++;
+		if (!row.IsNull(col_idx)) {
+			auto list_val = row.GetValue<Value>(col_idx);
+			for(auto &entry : ListValue::GetChildren(list_val)) {
+				new_entry.file.partition_values.push_back(StringValue::Get(entry));
+			}
+		}
 		col_idx++;
 		new_entry.file.data = ReadDataFile(row, col_idx, IsEncrypted());
 		// parse the partial file info
@@ -850,7 +864,7 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
 	if (!partition_insert_query.empty()) {
 		// insert the partition values
 		partition_insert_query = StringUtil::Format(
-		    "INSERT INTO {METADATA_CATALOG}.ducklake_file_partition_values VALUES %s", partition_insert_query);
+		    "INSERT INTO {METADATA_CATALOG}.ducklake_file_partition_value VALUES %s", partition_insert_query);
 		result = transaction.Query(commit_snapshot, partition_insert_query);
 		if (result->HasError()) {
 			result->GetErrorObject().Throw("Failed to write partition value information to DuckLake: ");
@@ -1046,7 +1060,7 @@ WHERE table_id IN (%s) AND end_snapshot IS NULL)",
 	}
 	if (!insert_partition_cols.empty()) {
 		insert_partition_cols =
-		    "INSERT INTO {METADATA_CATALOG}.ducklake_partition_columns VALUES " + insert_partition_cols;
+		    "INSERT INTO {METADATA_CATALOG}.ducklake_partition_column VALUES " + insert_partition_cols;
 
 		auto result = transaction.Query(commit_snapshot, insert_partition_cols);
 		if (result->HasError()) {
@@ -1316,7 +1330,7 @@ void DuckLakeMetadataManager::WriteCompactions(vector<DuckLakeCompactedFileInfo>
 	// for each file that has been compacted - delete it from the list of data files entirely
 	// including all other info (stats, delete files, partition values, etc)
 	vector<string> tables_to_delete_from {
-		"ducklake_data_file", "ducklake_file_column_statistics", "ducklake_delete_file", "ducklake_file_partition_values", "ducklake_partial_file_info"
+		"ducklake_data_file", "ducklake_file_column_statistics", "ducklake_delete_file", "ducklake_file_partition_value", "ducklake_partial_file_info"
 	};
 	for(auto &delete_from_tbl : tables_to_delete_from) {
 		auto result = transaction.Query(StringUtil::Format(R"(

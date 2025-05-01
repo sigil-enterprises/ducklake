@@ -829,6 +829,12 @@ DuckLakeFileInfo DuckLakeTransaction::GetNewDataFile(DuckLakeDataFile &file, Duc
 
 		data_file.column_stats.push_back(std::move(column_stats));
 	}
+	for (auto &partition_entry : file.partition_values) {
+		DuckLakeFilePartitionInfo partition_info;
+		partition_info.partition_column_idx = partition_entry.partition_column_idx;
+		partition_info.partition_value = partition_entry.partition_value;
+		data_file.partition_values.push_back(std::move(partition_info));
+	}
 	return data_file;
 }
 
@@ -860,12 +866,6 @@ vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &
 			new_stats.table_size_bytes += file.file_size_bytes;
 			for (auto &entry : file.column_stats) {
 				new_stats.MergeStats(entry.first, entry.second);
-			}
-			for (auto &partition_entry : file.partition_values) {
-				DuckLakeFilePartitionInfo partition_info;
-				partition_info.partition_column_idx = partition_entry.partition_column_idx;
-				partition_info.partition_value = partition_entry.partition_value;
-				data_file.partition_values.push_back(std::move(partition_info));
 			}
 			result.push_back(std::move(data_file));
 		}
@@ -1229,6 +1229,7 @@ void DuckLakeTransaction::AddCompaction(TableIndex table_id, DuckLakeCompactionE
 	if (ChangesMade()) {
 		throw InvalidInputException("Transactions can either make changes OR perform compaction - not both");
 	}
+	lock_guard<mutex> guard(compaction_lock);
 	compactions[table_id].push_back(std::move(entry));
 }
 

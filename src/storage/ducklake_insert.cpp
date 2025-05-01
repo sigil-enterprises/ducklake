@@ -303,7 +303,7 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, const
 		result.write_empty_file = true;
 	} else {
 		auto current_write_uuid = UUID::ToString(UUID::GenerateRandomUUID());
-		result.file_path = data_path + "/duckdblake-" + current_write_uuid + ".parquet";
+		result.file_path = data_path + "/ducklake-" + current_write_uuid + ".parquet";
 		result.partition_output = false;
 		result.write_empty_file = false;
 	}
