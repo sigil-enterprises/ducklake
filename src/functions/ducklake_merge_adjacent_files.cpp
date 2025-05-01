@@ -13,6 +13,7 @@
 #include "duckdb/common/multi_file/multi_file_function.hpp"
 #include "storage/ducklake_multi_file_list.hpp"
 #include "duckdb/planner/tableref/bound_at_clause.hpp"
+#include "duckdb/planner/operator/logical_empty_result.hpp"
 
 namespace duckdb {
 
@@ -306,7 +307,11 @@ unique_ptr<LogicalOperator> MergeAdjacentFilesBind(ClientContext &context, Table
 	return_names.push_back("Success");
 	if (compactions.empty()) {
 		// nothing to compact - generate empty result
-		throw InternalException("FIXME: merge adjacent files");
+		vector<ColumnBinding> bindings;
+		vector<LogicalType> return_types;
+		bindings.emplace_back(bind_index, 0);
+		return_types.emplace_back(LogicalType::BOOLEAN);
+		return make_uniq<LogicalEmptyResult>(std::move(return_types), std::move(bindings));
 	}
 	if (compactions.size() == 1) {
 		compactions[0]->Cast<DuckLakeLogicalCompaction>().table_index = bind_index;
