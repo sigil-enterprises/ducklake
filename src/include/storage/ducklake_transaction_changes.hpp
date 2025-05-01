@@ -26,6 +26,7 @@ struct SnapshotChangeInformation {
 	set<TableIndex> dropped_views;
 	set<TableIndex> inserted_tables;
 	set<TableIndex> tables_deleted_from;
+	set<TableIndex> tables_compacted;
 
 	static SnapshotChangeInformation ParseChangesMade(const string &changes_made);
 };

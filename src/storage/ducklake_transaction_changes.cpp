@@ -13,7 +13,8 @@ enum class ChangeType {
 	INSERTED_INTO_TABLE,
 	DELETED_FROM_TABLE,
 	ALTERED_TABLE,
-	ALTERED_VIEW
+	ALTERED_VIEW,
+	COMPACTED_TABLE
 };
 
 struct ChangeInfo {
@@ -49,6 +50,8 @@ ChangeType ParseChangeType(const string &changes_made, idx_t &pos) {
 		return ChangeType::ALTERED_VIEW;
 	} else if (StringUtil::CIEquals(change_type_str, "deleted_from_table")) {
 		return ChangeType::DELETED_FROM_TABLE;
+	} else if (StringUtil::CIEquals(change_type_str, "compacted_table")) {
+		return ChangeType::COMPACTED_TABLE;
 	} else {
 		throw InvalidInputException("Unsupported change type %s", change_type_str);
 	}
@@ -139,6 +142,9 @@ SnapshotChangeInformation SnapshotChangeInformation::ParseChangesMade(const stri
 			break;
 		case ChangeType::ALTERED_VIEW:
 			result.altered_views.insert(TableIndex(StringUtil::ToUnsigned(entry.change_value)));
+			break;
+		case ChangeType::COMPACTED_TABLE:
+			result.tables_compacted.insert(TableIndex(StringUtil::ToUnsigned(entry.change_value)));
 			break;
 		default:
 			throw InternalException("Unsupported change type in ParseChangesMade");

@@ -72,6 +72,7 @@ struct TransactionChangeInformation {
 	set<TableIndex> dropped_views;
 	set<TableIndex> tables_inserted_into;
 	set<TableIndex> tables_deleted_from;
+	set<TableIndex> tables_compacted;
 };
 
 void GetTransactionTableChanges(reference<CatalogEntry> table_entry, TransactionChangeInformation &changes) {
@@ -190,6 +191,10 @@ TransactionChangeInformation DuckLakeTransaction::GetTransactionChanges() {
 		auto table_id = entry.first;
 		changes.tables_deleted_from.insert(table_id);
 	}
+	for (auto &entry : compactions) {
+		auto table_id = entry.first;
+		changes.tables_compacted.insert(table_id);
+	}
 	return changes;
 }
 
@@ -275,6 +280,14 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 		}
 		change_info.changes_made += "altered_view:";
 		change_info.changes_made += to_string(altered_view_idx.index);
+	}
+	for (auto &entry : compactions) {
+		auto table_id = entry.first;
+		if (!change_info.changes_made.empty()) {
+			change_info.changes_made += ",";
+		}
+		change_info.changes_made += "compacted_table:";
+		change_info.changes_made += to_string(table_id.index);
 	}
 	metadata_manager->WriteSnapshotChanges(commit_snapshot, change_info);
 }
@@ -397,6 +410,29 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 			// trying to delete from a table that was deleted from
 			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
 									   " - but this table has been deleted from by another transaction",
+									   table_id.index);
+		}
+		auto compact_entry = other_changes.tables_compacted.find(table_id);
+		if (compact_entry != other_changes.tables_compacted.end()) {
+			// trying to delete from a table that was compacted from
+			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
+									   " - but this table has been compacted from by another transaction",
+									   table_id.index);
+		}
+	}
+	for (auto &table_id : changes.tables_compacted) {
+		auto delete_entry = other_changes.tables_deleted_from.find(table_id);
+		if (delete_entry != other_changes.tables_deleted_from.end()) {
+			// trying to delete from a table that was deleted from
+			throw TransactionException("Transaction conflict - attempting to compact table with id %d"
+									   " - but this table has been deleted from by another transaction",
+									   table_id.index);
+		}
+		auto compact_entry = other_changes.tables_compacted.find(table_id);
+		if (compact_entry != other_changes.tables_compacted.end()) {
+			// trying to delete from a table that was compacted from
+			throw TransactionException("Transaction conflict - attempting to compact table with id %d"
+									   " - but this table has been compacted from by another transaction",
 									   table_id.index);
 		}
 	}
