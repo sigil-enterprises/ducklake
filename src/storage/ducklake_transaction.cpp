@@ -1119,6 +1119,11 @@ void DuckLakeTransaction::FlushChanges() {
 	}
 }
 
+void DuckLakeTransaction::DeleteSnapshots(const vector<DuckLakeSnapshotInfo> &snapshots) {
+	auto &metadata_manager = GetMetadataManager();
+	metadata_manager.DeleteSnapshots(snapshots);
+}
+
 unique_ptr<QueryResult> DuckLakeTransaction::Query(string query) {
 	auto &connection = GetConnection();
 	auto catalog_identifier = DuckLakeUtil::SQLIdentifierToString(ducklake_catalog.MetadataDatabaseName());

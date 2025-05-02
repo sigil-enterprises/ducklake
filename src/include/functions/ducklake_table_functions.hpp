@@ -13,6 +13,7 @@
 
 namespace duckdb {
 class DuckLakeCatalog;
+struct DuckLakeSnapshotInfo;
 
 struct MetadataBindData : public TableFunctionData {
 	MetadataBindData() {
@@ -31,6 +32,9 @@ public:
 class DuckLakeSnapshotsFunction : public BaseMetadataFunction {
 public:
 	DuckLakeSnapshotsFunction();
+
+	static void GetSnapshotTypes(vector<LogicalType> &return_types, vector<string> &names);
+	static vector<Value> GetSnapshotValues(const DuckLakeSnapshotInfo &snapshot);
 };
 
 class DuckLakeTableInsertionsFunction : public TableFunction {
@@ -53,6 +57,11 @@ public:
 class DuckLakeCleanupOldFilesFunction : public TableFunction {
 public:
 	DuckLakeCleanupOldFilesFunction();
+};
+
+class DuckLakeExpireSnapshotsFunction : public TableFunction {
+public:
+	DuckLakeExpireSnapshotsFunction();
 };
 
 } // namespace duckdb

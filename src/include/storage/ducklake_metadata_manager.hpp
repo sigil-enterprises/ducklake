@@ -81,7 +81,8 @@ public:
 	virtual unique_ptr<DuckLakeSnapshot> GetSnapshot(BoundAtClause &at_clause);
 	virtual idx_t GetNextColumnId(TableIndex table_id);
 
-	virtual vector<DuckLakeSnapshotInfo> GetAllSnapshots();
+	virtual vector<DuckLakeSnapshotInfo> GetAllSnapshots(const string &filter = string());
+	virtual void DeleteSnapshots(const vector<DuckLakeSnapshotInfo> &snapshots);
 
 private:
 	template <class T>

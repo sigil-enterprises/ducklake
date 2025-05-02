@@ -1225,13 +1225,14 @@ WHERE table_id=tid AND column_id=cid
 	}
 }
 
-vector<DuckLakeSnapshotInfo> DuckLakeMetadataManager::GetAllSnapshots() {
-	auto res = transaction.Query(R"(
+vector<DuckLakeSnapshotInfo> DuckLakeMetadataManager::GetAllSnapshots(const string &filter) {
+	auto res = transaction.Query(StringUtil::Format(R"(
 SELECT snapshot_id, snapshot_time, schema_version, changes_made
 FROM {METADATA_CATALOG}.ducklake_snapshot
 LEFT JOIN {METADATA_CATALOG}.ducklake_snapshot_changes USING (snapshot_id)
+%s %s
 ORDER BY snapshot_id
-)");
+)", filter.empty() ? "" : "WHERE", filter));
 	if (res->HasError()) {
 		res->GetErrorObject().Throw("Failed to get snapshot information from DuckLake: ");
 	}
@@ -1355,6 +1356,136 @@ WHERE data_file_id IN (%s);
 		result = transaction.Query(new_file_list);
 		if (result->HasError()) {
 			result->GetErrorObject().Throw("Failed to insert partial file information after compaction in DuckLake: ");
+		}
+	}
+}
+
+void DuckLakeMetadataManager::DeleteSnapshots(const vector<DuckLakeSnapshotInfo> &snapshots) {
+	// first delete the actual snapshots
+	string snapshot_ids;
+	for(auto &snapshot : snapshots) {
+		if (!snapshot_ids.empty()) {
+			snapshot_ids += ", ";
+		}
+		snapshot_ids += to_string(snapshot.id);
+	}
+	vector<string> tables_to_delete_from {
+		"ducklake_snapshot", "ducklake_snapshot_changes"
+	};
+	for(auto &delete_tbl : tables_to_delete_from) {
+		auto result = transaction.Query(StringUtil::Format(R"(
+DELETE FROM {METADATA_CATALOG}.%s
+WHERE snapshot_id IN (%s);
+)", delete_tbl, snapshot_ids));
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to delete snapshots in DuckLake: ");
+		}
+	}
+	// get a list of files that are no longer required after these deletions
+	auto result = transaction.Query(R"(
+SELECT data_file_id, path
+FROM {METADATA_CATALOG}.ducklake_data_file
+WHERE end_snapshot IS NOT NULL AND NOT EXISTS(
+    SELECT snapshot_id
+    FROM {METADATA_CATALOG}.ducklake_snapshot
+    WHERE snapshot_id >= begin_snapshot AND snapshot_id < end_snapshot
+);)");
+	vector<DuckLakeFileScheduledForCleanup> cleanup_files;
+	for (auto &row : *result) {
+		DuckLakeFileScheduledForCleanup info;
+		info.id = DataFileIndex(row.GetValue<idx_t>(0));
+		info.path = row.GetValue<string>(1);
+
+		cleanup_files.push_back(std::move(info));
+	}
+	if (!cleanup_files.empty()) {
+		string deleted_file_ids;
+		string files_scheduled_for_cleanup;
+		for(auto &file : cleanup_files) {
+			if (!deleted_file_ids.empty()) {
+				deleted_file_ids += ", ";
+			}
+			deleted_file_ids += to_string(file.id.index);
+
+			if (!files_scheduled_for_cleanup.empty()) {
+				files_scheduled_for_cleanup += ", ";
+			}
+			files_scheduled_for_cleanup += StringUtil::Format("(%d, %s, NOW())", file.id.index, SQLString(file.path));
+		}
+
+		// delete the data files
+		tables_to_delete_from = {
+			"ducklake_data_file", "ducklake_file_column_statistics"
+		};
+	for(auto &delete_tbl : tables_to_delete_from) {
+			result = transaction.Query(StringUtil::Format(R"(
+DELETE FROM {METADATA_CATALOG}.%s
+WHERE data_file_id IN (%s);
+)", delete_tbl, deleted_file_ids));
+			if (result->HasError()) {
+				result->GetErrorObject().Throw("Failed to delete old data file information in DuckLake: ");
+			}
+		}
+		// insert the to-be-cleaned-up files
+		result = transaction.Query(StringUtil::Format(R"(
+INSERT INTO {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion
+VALUES %s;
+)", files_scheduled_for_cleanup));
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to schedule files for clean-up in DuckLake: ");
+		}
+	}
+	// FIXME: delete files
+
+	// get a list of tables that are no longer required after these deletions
+	result = transaction.Query(R"(
+SELECT table_id
+FROM {METADATA_CATALOG}.ducklake_table
+WHERE end_snapshot IS NOT NULL AND NOT EXISTS(
+    SELECT snapshot_id
+    FROM {METADATA_CATALOG}.ducklake_snapshot
+    WHERE snapshot_id >= begin_snapshot AND snapshot_id < end_snapshot
+);)");
+	vector<TableIndex> cleanup_tables;
+	for (auto &row : *result) {
+		cleanup_tables.push_back(TableIndex(row.GetValue<idx_t>(0)));
+	}
+	// delete based on table id -> ducklake_table_stats, ducklake_table_column_stats, ducklake_partition_info
+	if (!cleanup_tables.empty()) {
+		string deleted_table_ids;
+		for(auto &table_id : cleanup_tables) {
+			if (!deleted_table_ids.empty()) {
+				deleted_table_ids += ", ";
+			}
+			deleted_table_ids += to_string(table_id.index);
+		}
+		tables_to_delete_from = {
+			"ducklake_table", "ducklake_table_stats", "ducklake_table_column_stats", "ducklake_partition_info"
+		};
+		for(auto &delete_tbl : tables_to_delete_from) {
+			auto result = transaction.Query(StringUtil::Format(R"(
+DELETE FROM {METADATA_CATALOG}.%s
+WHERE table_id IN (%s);)", delete_tbl, deleted_table_ids));
+			if (result->HasError()) {
+				result->GetErrorObject().Throw("Failed to delete from " + delete_tbl + " in DuckLake: ");
+			}
+		}
+	}
+
+	// delete any views, schemas, etc that are no longer referenced
+	tables_to_delete_from = {
+		"ducklake_schema", "ducklake_view", "ducklake_tag", "ducklake_column_tag", "ducklake_delete_file", "ducklake_column"
+	};
+	for(auto &delete_tbl : tables_to_delete_from) {
+		auto result = transaction.Query(StringUtil::Format(R"(
+DELETE FROM {METADATA_CATALOG}.%s
+WHERE end_snapshot IS NOT NULL AND NOT EXISTS(
+    SELECT snapshot_id
+    FROM {METADATA_CATALOG}.ducklake_snapshot
+    WHERE snapshot_id >= begin_snapshot AND snapshot_id < end_snapshot
+);)", delete_tbl));
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to delete from " + delete_tbl + " in DuckLake: ");
 		}
 	}
 }

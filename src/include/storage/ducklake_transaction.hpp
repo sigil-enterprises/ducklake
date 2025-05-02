@@ -78,6 +78,8 @@ public:
 	void DropView(DuckLakeViewEntry &view);
 	void DropFile(TableIndex table_id, DataFileIndex data_file_id, string path);
 
+	void DeleteSnapshots(const vector<DuckLakeSnapshotInfo> &snapshots);
+
 	bool SchemaChangesMade();
 	bool ChangesMade();
 	bool PerformedCompaction();

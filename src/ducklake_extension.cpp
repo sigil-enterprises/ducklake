@@ -29,6 +29,9 @@ static void LoadInternal(DatabaseInstance &instance) {
 	DuckLakeCleanupOldFilesFunction cleanup_old_files;
 	ExtensionUtil::RegisterFunction(instance, cleanup_old_files);
 
+	DuckLakeExpireSnapshotsFunction expire_snapshots;
+	ExtensionUtil::RegisterFunction(instance, expire_snapshots);
+
 	auto table_changes = DuckLakeTableInsertionsFunction::GetDuckLakeTableChanges();
 	ExtensionUtil::RegisterFunction(instance, *table_changes);
 }
