@@ -421,4 +421,10 @@ string DuckLakeCatalog::GetDBPath() {
 	return metadata_path;
 }
 
+void DuckLakeCatalog::OnDetach(ClientContext &context) {
+	// detach the metadata database
+	auto &transaction = DuckLakeTransaction::Get(context, *this);
+	transaction.Query("DETACH {METADATA_CATALOG_NAME_IDENTIFIER}");
+}
+
 } // namespace duckdb

@@ -86,6 +86,8 @@ public:
 	// Generate an encryption key for writing (or empty if encryption is disabled)
 	string GenerateEncryptionKey(ClientContext &context) const;
 
+	void OnDetach(ClientContext &context) override;
+
 private:
 	void DropSchema(ClientContext &context, DropInfo &info) override;
 
