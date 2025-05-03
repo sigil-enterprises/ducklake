@@ -65,7 +65,11 @@ statement ok
 CALL ducklake_expire_snapshots('ducklake', versions => [1, 3])
 
 # all traces of the table are gone
+foreach tbl ducklake_table ducklake_column ducklake_table_stats ducklake_table_column_stats
+
 query I
-SELECT COUNT(*) FROM metadata.ducklake_table
+SELECT COUNT(*) FROM metadata.${tbl}
 ----
 0
+
+endloop
