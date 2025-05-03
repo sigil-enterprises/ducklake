@@ -312,6 +312,11 @@ OpenFileInfo DuckLakeMultiFileList::GetFile(idx_t i) {
 	if (!file.encryption_key.empty()) {
 		extended_info->options["encryption_key"] = Value::BLOB_RAW(file.encryption_key);
 	}
+	// files managed by DuckLake are never modified - we can keep them cached
+	extended_info->options["validate_external_file_cache"] = Value::BOOLEAN(false);
+	// etag / last modified time can be set to dummy values
+	extended_info->options["etag"] = Value("");
+	extended_info->options["last_modified"] = Value::TIMESTAMP(timestamp_t(0));
 	result.extended_info = std::move(extended_info);
 	return result;
 }
