@@ -54,7 +54,7 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction t
 	}
 	//! get a local table-id
 	auto table_id = TableIndex(duck_transaction.GetLocalCatalogId());
-	auto table_uuid = UUID::ToString(UUID::GenerateRandomUUID());
+	auto table_uuid = duck_transaction.GenerateUUID();
 	// generate field ids based on the column ids
 	idx_t column_id = 1;
 	auto field_data = DuckLakeFieldData::FromColumns(base_info.columns, column_id);

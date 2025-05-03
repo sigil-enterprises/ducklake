@@ -296,13 +296,13 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, const
 		for (auto &field : partition_data->fields) {
 			partition_columns.push_back(field.column_id);
 		}
-		result.filename_pattern.SetFilenamePattern("ducklake-{uuid}");
+		result.filename_pattern.SetFilenamePattern("ducklake-{uuidv7}");
 		result.file_path = data_path;
 		result.partition_output = true;
 		result.partition_columns = std::move(partition_columns);
 		result.write_empty_file = true;
 	} else {
-		auto current_write_uuid = UUID::ToString(UUID::GenerateRandomUUID());
+		auto current_write_uuid = DuckLakeTransaction::GenerateUUIDv7();
 		result.file_path = data_path + "/ducklake-" + current_write_uuid + ".parquet";
 		result.partition_output = false;
 		result.write_empty_file = false;

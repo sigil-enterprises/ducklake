@@ -195,7 +195,7 @@ void DuckLakeDelete::FlushDelete(DuckLakeTransaction &transaction, ClientContext
 
 
 	auto &fs = FileSystem::GetFileSystem(context);
-	auto delete_file_uuid = UUID::ToString(UUID::GenerateRandomUUID()) + "-delete.parquet";
+	auto delete_file_uuid = transaction.GenerateUUID() + "-delete.parquet";
 	string delete_file_path = fs.JoinPath(table.DataPath(), delete_file_uuid);
 
 	auto info = make_uniq<CopyInfo>();

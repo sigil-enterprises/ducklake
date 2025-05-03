@@ -6,6 +6,7 @@
 #include "common/ducklake_types.hpp"
 #include "common/ducklake_util.hpp"
 
+#include "duckdb/common/types/uuid.hpp"
 #include "duckdb/main/database_manager.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/planner/tableref/bound_at_clause.hpp"
@@ -1558,6 +1559,14 @@ optional_ptr<DuckLakeCatalogSet> DuckLakeTransaction::GetTransactionLocalEntries
 	default:
 		return nullptr;
 	}
+}
+
+string DuckLakeTransaction::GenerateUUIDv7() {
+	return UUID::ToString(UUIDv7::GenerateRandomUUID());
+}
+
+string DuckLakeTransaction::GenerateUUID() const {
+	return GenerateUUIDv7();
 }
 
 } // namespace duckdb

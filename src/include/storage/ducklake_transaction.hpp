@@ -97,6 +97,9 @@ public:
 	bool HasDroppedFiles() const;
 	bool FileIsDropped(const string &path) const;
 
+	string GenerateUUID() const;
+	static string GenerateUUIDv7();
+
 private:
 	void CleanupFiles();
 	void FlushChanges();
