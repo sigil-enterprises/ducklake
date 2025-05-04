@@ -1,6 +1,6 @@
 # name: test/sql/alter/rename_table.test
 # description: Test renaming tables in DuckLake
-# group: [ducklake]
+# group: [alter]
 
 require ducklake
 

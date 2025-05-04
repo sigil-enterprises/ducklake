@@ -1,6 +1,6 @@
 # name: test/sql/types/map.test
 # description: test storing map types in ducklake
-# group: [ducklake]
+# group: [types]
 
 require ducklake
 

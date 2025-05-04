@@ -1,6 +1,6 @@
 # name: test/sql/comments/comments.test
 # description: test ducklake comments
-# group: [ducklake]
+# group: [comments]
 
 require ducklake
 

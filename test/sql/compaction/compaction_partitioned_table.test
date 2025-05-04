@@ -1,6 +1,6 @@
 # name: test/sql/compaction/compaction_partitioned_table.test
 # description: test compaction of partitioned tables
-# group: [ducklake]
+# group: [compaction]
 
 require ducklake
 

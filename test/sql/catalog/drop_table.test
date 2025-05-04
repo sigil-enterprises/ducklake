@@ -1,6 +1,6 @@
 # name: test/sql/catalog/drop_table.test
 # description: Test dropping of tables in DuckLake
-# group: [ducklake]
+# group: [catalog]
 
 require ducklake
 

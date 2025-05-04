@@ -1,6 +1,6 @@
 # name: test/sql/types/timestamp.test
 # description: test ducklake timestamps
-# group: [ducklake]
+# group: [types]
 
 require ducklake
 

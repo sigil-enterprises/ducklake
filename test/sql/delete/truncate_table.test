@@ -1,6 +1,6 @@
 # name: test/sql/delete/truncate_table.test
 # description: Test ducklake truncating a table
-# group: [ducklake]
+# group: [delete]
 
 require ducklake
 

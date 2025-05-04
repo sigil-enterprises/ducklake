@@ -1,6 +1,6 @@
-# name: test/sql/ducklake_view_schema.test
+# name: test/sql/view/ducklake_view_schema.test
 # description: Test views in schemas in DuckLake
-# group: [ducklake]
+# group: [view]
 
 require ducklake
 

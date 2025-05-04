@@ -8,7 +8,6 @@
 
 namespace duckdb {
 
-
 string GetTableName(const Value &input) {
 	if (input.IsNull()) {
 		throw BinderException("Table cannot be NULL");
@@ -16,7 +15,8 @@ string GetTableName(const Value &input) {
 	return input.GetValue<string>();
 }
 
-TableCatalogEntry &GetTableEntry(ClientContext &context, Catalog &catalog, const EntryLookupInfo &lookup, optional_ptr<Value> schema = nullptr) {
+TableCatalogEntry &GetTableEntry(ClientContext &context, Catalog &catalog, const EntryLookupInfo &lookup,
+                                 optional_ptr<Value> schema = nullptr) {
 	string schema_name;
 	if (schema) {
 		if (schema->IsNull()) {
@@ -32,7 +32,7 @@ BoundAtClause AtClauseFromValue(const Value &input) {
 	if (input.IsNull()) {
 		throw BinderException("Snapshot identifier cannot be NULL");
 	}
-	switch(input.type().id()) {
+	switch (input.type().id()) {
 	case LogicalTypeId::BIGINT:
 		return BoundAtClause("version", input);
 	case LogicalTypeId::TIMESTAMP:
@@ -42,7 +42,9 @@ BoundAtClause AtClauseFromValue(const Value &input) {
 	}
 }
 
-static unique_ptr<FunctionData> DuckLakeTableChangesBind(ClientContext &context, TableFunctionBindInput &input, vector<LogicalType> &return_types, vector<string> &names, DuckLakeScanType scan_type) {
+static unique_ptr<FunctionData> DuckLakeTableChangesBind(ClientContext &context, TableFunctionBindInput &input,
+                                                         vector<LogicalType> &return_types, vector<string> &names,
+                                                         DuckLakeScanType scan_type) {
 	auto start_at_clause = AtClauseFromValue(input.inputs[2]);
 	auto end_at_clause = AtClauseFromValue(input.inputs[3]);
 
@@ -63,11 +65,13 @@ static unique_ptr<FunctionData> DuckLakeTableChangesBind(ClientContext &context,
 	return bind_data;
 }
 
-static unique_ptr<FunctionData> DuckLakeTableInsertionsBind(ClientContext &context, TableFunctionBindInput &input, vector<LogicalType> &return_types, vector<string> &names) {
+static unique_ptr<FunctionData> DuckLakeTableInsertionsBind(ClientContext &context, TableFunctionBindInput &input,
+                                                            vector<LogicalType> &return_types, vector<string> &names) {
 	return DuckLakeTableChangesBind(context, input, return_types, names, DuckLakeScanType::SCAN_INSERTIONS);
 }
 
-static unique_ptr<FunctionData> DuckLakeTableDeletionsBind(ClientContext &context, TableFunctionBindInput &input, vector<LogicalType> &return_types, vector<string> &names) {
+static unique_ptr<FunctionData> DuckLakeTableDeletionsBind(ClientContext &context, TableFunctionBindInput &input,
+                                                           vector<LogicalType> &return_types, vector<string> &names) {
 	return DuckLakeTableChangesBind(context, input, return_types, names, DuckLakeScanType::SCAN_DELETIONS);
 }
 
@@ -80,10 +84,14 @@ static void DuckLakeChangesExecute(ClientContext &context, TableFunctionInput &d
 }
 
 DuckLakeTableInsertionsFunction::DuckLakeTableInsertionsFunction()
-	: TableFunction("ducklake_table_insertions", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::BIGINT, LogicalType::BIGINT}, DuckLakeChangesExecute, DuckLakeTableInsertionsBind, DuckLakeChangesInit) {
+    : TableFunction("ducklake_table_insertions",
+                    {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::BIGINT, LogicalType::BIGINT},
+                    DuckLakeChangesExecute, DuckLakeTableInsertionsBind, DuckLakeChangesInit) {
 }
 
 DuckLakeTableDeletionsFunction::DuckLakeTableDeletionsFunction()
-	: TableFunction("ducklake_table_deletions", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::BIGINT, LogicalType::BIGINT}, DuckLakeChangesExecute, DuckLakeTableDeletionsBind, DuckLakeChangesInit) {
+    : TableFunction("ducklake_table_deletions",
+                    {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::BIGINT, LogicalType::BIGINT},
+                    DuckLakeChangesExecute, DuckLakeTableDeletionsBind, DuckLakeChangesInit) {
 }
 } // namespace duckdb

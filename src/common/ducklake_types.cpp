@@ -78,7 +78,7 @@ string DuckLakeTypes::ToString(const LogicalType &type) {
 	if (type.HasAlias()) {
 		throw InvalidInputException("Unsupported user-defined type");
 	}
-	switch(type.id()) {
+	switch (type.id()) {
 	case LogicalTypeId::STRUCT:
 		return "struct";
 	case LogicalTypeId::LIST:

@@ -1,6 +1,6 @@
 # name: test/sql/virtualcolumns/ducklake_snapshot_id.test
 # description: test snapshot_id virtual column
-# group: [ducklake]
+# group: [virtualcolumns]
 
 require ducklake
 

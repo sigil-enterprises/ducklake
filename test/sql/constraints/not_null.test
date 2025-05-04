@@ -1,6 +1,6 @@
 # name: test/sql/constraints/not_null.test
 # description: test NOT NULL constraint
-# group: [ducklake]
+# group: [constraints]
 
 require ducklake
 

@@ -1,6 +1,6 @@
 # name: test/sql/compaction/compaction_delete_conflict.test
 # description: Test transaction conflicts with compaction
-# group: [ducklake]
+# group: [compaction]
 
 require ducklake
 

@@ -1,6 +1,6 @@
 # name: test/sql/compaction/compaction_alter_table.test
 # description: test compaction on a database that is altered
-# group: [ducklake]
+# group: [compaction]
 
 require ducklake
 

@@ -1,6 +1,6 @@
 # name: test/sql/update/update_partitioning.test
 # description: Update a partitioned table
-# group: [ducklake]
+# group: [update]
 
 require ducklake
 

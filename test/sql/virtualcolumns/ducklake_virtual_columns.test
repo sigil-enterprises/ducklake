@@ -1,6 +1,6 @@
 # name: test/sql/virtualcolumns/ducklake_virtual_columns.test
 # description: test ducklake virtual columns
-# group: [ducklake]
+# group: [virtualcolumns]
 
 require ducklake
 

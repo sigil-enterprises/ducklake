@@ -1,6 +1,6 @@
 # name: test/sql/table_changes/ducklake_table_changes.test
 # description: test ducklake_table_changes function
-# group: [ducklake]
+# group: [table_changes]
 
 require ducklake
 

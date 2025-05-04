@@ -7,8 +7,10 @@
 
 namespace duckdb {
 
-DuckLakeUpdate::DuckLakeUpdate(DuckLakeTableEntry &table, vector<PhysicalIndex> columns_p, PhysicalOperator &child, PhysicalOperator &copy_op, PhysicalOperator &delete_op, PhysicalOperator &insert_op)
-	: PhysicalOperator(PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, 1), table(table), columns(std::move(columns_p)), copy_op(copy_op), delete_op(delete_op), insert_op(insert_op) {
+DuckLakeUpdate::DuckLakeUpdate(DuckLakeTableEntry &table, vector<PhysicalIndex> columns_p, PhysicalOperator &child,
+                               PhysicalOperator &copy_op, PhysicalOperator &delete_op, PhysicalOperator &insert_op)
+    : PhysicalOperator(PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, 1), table(table),
+      columns(std::move(columns_p)), copy_op(copy_op), delete_op(delete_op), insert_op(insert_op) {
 	children.push_back(child);
 }
 
@@ -17,7 +19,8 @@ DuckLakeUpdate::DuckLakeUpdate(DuckLakeTableEntry &table, vector<PhysicalIndex> 
 //===--------------------------------------------------------------------===//
 class DuckLakeUpdateGlobalState : public GlobalSinkState {
 public:
-	DuckLakeUpdateGlobalState() : total_updated_count(0) {}
+	DuckLakeUpdateGlobalState() : total_updated_count(0) {
+	}
 
 	atomic<idx_t> total_updated_count;
 };
@@ -79,7 +82,7 @@ SinkResultType DuckLakeUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 	auto &delete_chunk = lstate.delete_chunk;
 	delete_chunk.SetCardinality(chunk.size());
 	idx_t delete_idx_start = chunk.ColumnCount() - 3;
-	for(idx_t i = 0; i < 3; i++) {
+	for (idx_t i = 0; i < 3; i++) {
 		delete_chunk.data[i].Reference(chunk.data[delete_idx_start + i]);
 	}
 
@@ -96,12 +99,14 @@ SinkResultType DuckLakeUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 SinkCombineResultType DuckLakeUpdate::Combine(ExecutionContext &context, OperatorSinkCombineInput &input) const {
 	auto &global_state = input.global_state.Cast<DuckLakeUpdateGlobalState>();
 	auto &local_state = input.local_state.Cast<DuckLakeUpdateLocalState>();
-	OperatorSinkCombineInput copy_combine_input {*copy_op.sink_state, *local_state.copy_local_state, input.interrupt_state};
+	OperatorSinkCombineInput copy_combine_input {*copy_op.sink_state, *local_state.copy_local_state,
+	                                             input.interrupt_state};
 	auto result = copy_op.Combine(context, copy_combine_input);
 	if (result != SinkCombineResultType::FINISHED) {
 		throw InternalException("DuckLakeUpdate::Combine does not support async child operators");
 	}
-	OperatorSinkCombineInput del_combine_input {*delete_op.sink_state, *local_state.delete_local_state, input.interrupt_state};
+	OperatorSinkCombineInput del_combine_input {*delete_op.sink_state, *local_state.delete_local_state,
+	                                            input.interrupt_state};
 	result = delete_op.Combine(context, del_combine_input);
 	if (result != SinkCombineResultType::FINISHED) {
 		throw InternalException("DuckLakeUpdate::Combine does not support async child operators");
@@ -113,13 +118,14 @@ SinkCombineResultType DuckLakeUpdate::Combine(ExecutionContext &context, Operato
 //===--------------------------------------------------------------------===//
 // Finalize
 //===--------------------------------------------------------------------===//
-SinkFinalizeType DuckLakeUpdate::Finalize(Pipeline &pipeline, Event &event, ClientContext &context, OperatorSinkFinalizeInput &input) const {
+SinkFinalizeType DuckLakeUpdate::Finalize(Pipeline &pipeline, Event &event, ClientContext &context,
+                                          OperatorSinkFinalizeInput &input) const {
 	OperatorSinkFinalizeInput copy_finalize_input {*copy_op.sink_state, input.interrupt_state};
 	auto result = copy_op.Finalize(pipeline, event, context, copy_finalize_input);
 	if (result != SinkFinalizeType::READY) {
 		throw InternalException("DuckLakeUpdate::Finalize does not support async child operators");
 	}
-	OperatorSinkFinalizeInput del_finalize_input {*delete_op.sink_state,input.interrupt_state};
+	OperatorSinkFinalizeInput del_finalize_input {*delete_op.sink_state, input.interrupt_state};
 	result = delete_op.Finalize(pipeline, event, context, del_finalize_input);
 	if (result != SinkFinalizeType::READY) {
 		throw InternalException("DuckLakeUpdate::Finalize does not support async child operators");
@@ -139,7 +145,7 @@ SinkFinalizeType DuckLakeUpdate::Finalize(Pipeline &pipeline, Event &event, Clie
 
 	OperatorSourceInput source_input {*global_source, *local_source, input.interrupt_state};
 	OperatorSinkInput sink_input {*global_sink, *local_sink, input.interrupt_state};
-	while(true) {
+	while (true) {
 		auto source_result = copy_op.GetData(execution_context, copy_source_chunk, source_input);
 		if (copy_source_chunk.size() == 0) {
 			break;
@@ -157,7 +163,7 @@ SinkFinalizeType DuckLakeUpdate::Finalize(Pipeline &pipeline, Event &event, Clie
 		}
 	}
 
-	OperatorSinkFinalizeInput insert_finalize_input { *global_sink, input.interrupt_state};
+	OperatorSinkFinalizeInput insert_finalize_input {*global_sink, input.interrupt_state};
 	result = insert_op.Finalize(pipeline, event, context, insert_finalize_input);
 	if (result != SinkFinalizeType::READY) {
 		throw InternalException("DuckLakeUpdate::Finalize does not support async child operators");
@@ -191,7 +197,7 @@ InsertionOrderPreservingMap<string> DuckLakeUpdate::ParamsToString() const {
 }
 
 PhysicalOperator &DuckLakeCatalog::PlanUpdate(ClientContext &context, PhysicalPlanGenerator &planner, LogicalUpdate &op,
-PhysicalOperator &child_plan) {
+                                              PhysicalOperator &child_plan) {
 	if (op.return_chunk) {
 		throw BinderException("RETURNING clause not yet supported for updates of a DuckLake table");
 	}
@@ -204,7 +210,8 @@ PhysicalOperator &child_plan) {
 	auto encryption_key = GenerateEncryptionKey(context);
 	// updates are executed as a delete + insert - generate the two nodes (delete and insert)
 	// plan the copy for the insert
-	auto &copy_op = DuckLakeInsert::PlanCopyForInsert(context, planner, table, nullptr, encryption_key, InsertVirtualColumns::WRITE_ROW_ID);
+	auto &copy_op = DuckLakeInsert::PlanCopyForInsert(context, planner, table, nullptr, encryption_key,
+	                                                  InsertVirtualColumns::WRITE_ROW_ID);
 	// plan the delete
 	auto &delete_op = DuckLakeDelete::PlanDelete(context, planner, table, child_plan, encryption_key);
 	// plan the actual insert
@@ -214,7 +221,7 @@ PhysicalOperator &child_plan) {
 }
 
 void DuckLakeTableEntry::BindUpdateConstraints(Binder &binder, LogicalGet &get, LogicalProjection &proj,
-											   LogicalUpdate &update, ClientContext &context) {
+                                               LogicalUpdate &update, ClientContext &context) {
 	// all updates in DuckLake are deletes + inserts
 	update.update_is_del_and_insert = true;
 

@@ -5,7 +5,7 @@
 
 namespace duckdb {
 
-struct ExpireSnapshotsBindData  : public TableFunctionData {
+struct ExpireSnapshotsBindData : public TableFunctionData {
 	explicit ExpireSnapshotsBindData(Catalog &catalog) : catalog(catalog) {
 	}
 
@@ -14,19 +14,20 @@ struct ExpireSnapshotsBindData  : public TableFunctionData {
 	bool dry_run = false;
 };
 
-static unique_ptr<FunctionData> DuckLakeExpireSnapshotsBind(ClientContext &context, TableFunctionBindInput &input, vector<LogicalType> &return_types, vector<string> &names) {
+static unique_ptr<FunctionData> DuckLakeExpireSnapshotsBind(ClientContext &context, TableFunctionBindInput &input,
+                                                            vector<LogicalType> &return_types, vector<string> &names) {
 	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
 	auto result = make_uniq<ExpireSnapshotsBindData>(catalog);
 	timestamp_tz_t from_timestamp;
 	string snapshot_list;
 	bool has_timestamp = false;
 	bool has_versions = false;
-	for(auto &entry : input.named_parameters) {
+	for (auto &entry : input.named_parameters) {
 		if (StringUtil::CIEquals(entry.first, "dry_run")) {
 			result->dry_run = true;
 		} else if (StringUtil::CIEquals(entry.first, "versions")) {
 			has_versions = true;
-			for(auto &snapshot_id : ListValue::GetChildren(entry.second)) {
+			for (auto &snapshot_id : ListValue::GetChildren(entry.second)) {
 				if (!snapshot_list.empty()) {
 					snapshot_list += ", ";
 				}
@@ -67,7 +68,8 @@ struct DuckLakeExpireSnapshotsData : public GlobalTableFunctionState {
 	bool executed;
 };
 
-unique_ptr<GlobalTableFunctionState> DuckLakeExpireSnapshotsInit(ClientContext &context, TableFunctionInitInput &input) {
+unique_ptr<GlobalTableFunctionState> DuckLakeExpireSnapshotsInit(ClientContext &context,
+                                                                 TableFunctionInitInput &input) {
 	auto result = make_uniq<DuckLakeExpireSnapshotsData>();
 	return std::move(result);
 }
@@ -86,7 +88,7 @@ void DuckLakeExpireSnapshotsExecute(ClientContext &context, TableFunctionInput &
 	idx_t count = 0;
 	while (state.offset < data.snapshots.size() && count < STANDARD_VECTOR_SIZE) {
 		auto row_values = DuckLakeSnapshotsFunction::GetSnapshotValues(data.snapshots[state.offset++]);
-		for(idx_t col_idx = 0; col_idx < row_values.size(); col_idx++) {
+		for (idx_t col_idx = 0; col_idx < row_values.size(); col_idx++) {
 			output.SetValue(col_idx, count, row_values[col_idx]);
 		}
 		count++;
@@ -95,9 +97,10 @@ void DuckLakeExpireSnapshotsExecute(ClientContext &context, TableFunctionInput &
 }
 
 DuckLakeExpireSnapshotsFunction::DuckLakeExpireSnapshotsFunction()
-    : TableFunction("ducklake_expire_snapshots", {LogicalType::VARCHAR}, DuckLakeExpireSnapshotsExecute, DuckLakeExpireSnapshotsBind, DuckLakeExpireSnapshotsInit) {
-    named_parameters["older_than"] = LogicalType::TIMESTAMP_TZ;
-    named_parameters["versions"] = LogicalType::LIST(LogicalType::UBIGINT);
+    : TableFunction("ducklake_expire_snapshots", {LogicalType::VARCHAR}, DuckLakeExpireSnapshotsExecute,
+                    DuckLakeExpireSnapshotsBind, DuckLakeExpireSnapshotsInit) {
+	named_parameters["older_than"] = LogicalType::TIMESTAMP_TZ;
+	named_parameters["versions"] = LogicalType::LIST(LogicalType::UBIGINT);
 }
 
 } // namespace duckdb

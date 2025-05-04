@@ -1,6 +1,6 @@
-# name: test/sql/ducklake_rename_view.test
+# name: test/sql/view/ducklake_rename_view.test
 # description: Test renaming views in DuckLake
-# group: [ducklake]
+# group: [view]
 
 require ducklake
 

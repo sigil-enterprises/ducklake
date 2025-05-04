@@ -1,6 +1,6 @@
 # name: test/sql/insert/insert_column_list.test
 # description: test ducklake insert column list
-# group: [ducklake]
+# group: [insert]
 
 require ducklake
 

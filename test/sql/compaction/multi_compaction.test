@@ -1,6 +1,6 @@
 # name: test/sql/compaction/multi_compaction.test
 # description: test chain of compaction statements
-# group: [ducklake]
+# group: [compaction]
 
 require ducklake
 

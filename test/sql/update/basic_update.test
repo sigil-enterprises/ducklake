@@ -1,6 +1,6 @@
 # name: test/sql/update/basic_update.test
 # description: Test ducklake updates
-# group: [ducklake]
+# group: [update]
 
 require ducklake
 

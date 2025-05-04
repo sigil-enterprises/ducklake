@@ -1,6 +1,6 @@
 # name: test/sql/catalog/schema.test
 # description: Test schema support in DuckLake
-# group: [ducklake]
+# group: [catalog]
 
 require ducklake
 

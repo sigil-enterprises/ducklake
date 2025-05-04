@@ -32,7 +32,8 @@ DuckLakeMultiFileReader::DuckLakeMultiFileReader(DuckLakeFunctionInfo &read_info
 	snapshot_id_column->identifier = Value::INTEGER(MultiFileReader::LAST_UPDATED_SEQUENCE_NUMBER_ID);
 }
 
-DuckLakeMultiFileReader::~DuckLakeMultiFileReader(){}
+DuckLakeMultiFileReader::~DuckLakeMultiFileReader() {
+}
 
 unique_ptr<MultiFileReader> DuckLakeMultiFileReader::CreateInstance(const TableFunction &table_function) {
 	auto &function_info = table_function.function_info->Cast<DuckLakeFunctionInfo>();
@@ -63,9 +64,8 @@ MultiFileColumnDefinition CreateColumnFromFieldId(const DuckLakeFieldId &field_i
 	return column;
 }
 
-bool DuckLakeMultiFileReader::Bind(MultiFileOptions &options, MultiFileList &files,
-                                   vector<LogicalType> &return_types, vector<string> &names,
-                                   MultiFileReaderBindData &bind_data) {
+bool DuckLakeMultiFileReader::Bind(MultiFileOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
+                                   vector<string> &names, MultiFileReaderBindData &bind_data) {
 	auto &field_data = read_info.table.GetFieldData();
 	auto &columns = bind_data.schema;
 	for (auto &item : field_data.GetFieldIds()) {
@@ -84,10 +84,13 @@ void DuckLakeMultiFileReader::BindOptions(MultiFileOptions &options, MultiFileLi
                                           MultiFileReaderBindData &bind_data) {
 }
 
-ReaderInitializeType DuckLakeMultiFileReader::InitializeReader(
-	MultiFileReaderData &reader_data, const MultiFileBindData &bind_data, const vector<MultiFileColumnDefinition> &global_columns,
-	const vector<ColumnIndex> &global_column_ids, optional_ptr<TableFilterSet> table_filters,
-	ClientContext &context, optional_ptr<MultiFileReaderGlobalState> global_state) {
+ReaderInitializeType DuckLakeMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
+                                                               const MultiFileBindData &bind_data,
+                                                               const vector<MultiFileColumnDefinition> &global_columns,
+                                                               const vector<ColumnIndex> &global_column_ids,
+                                                               optional_ptr<TableFilterSet> table_filters,
+                                                               ClientContext &context,
+                                                               optional_ptr<MultiFileReaderGlobalState> global_state) {
 	auto &file_list = bind_data.file_list->Cast<DuckLakeMultiFileList>();
 	auto &reader = *reader_data.reader;
 	auto file_idx = reader.file_list_idx.GetIndex();
@@ -115,15 +118,19 @@ ReaderInitializeType DuckLakeMultiFileReader::InitializeReader(
 		delete_filter->Initialize(context, delete_entry);
 		reader.deletion_filter = std::move(delete_filter);
 	}
-	return MultiFileReader::InitializeReader(reader_data, bind_data, global_columns, global_column_ids, table_filters, context, global_state);
+	return MultiFileReader::InitializeReader(reader_data, bind_data, global_columns, global_column_ids, table_filters,
+	                                         context, global_state);
 }
 
-unique_ptr<Expression> DuckLakeMultiFileReader::GetVirtualColumnExpression(ClientContext &context, MultiFileReaderData &reader_data, const vector<MultiFileColumnDefinition> &local_columns, idx_t &column_id, const LogicalType &type, MultiFileLocalIndex local_idx, optional_ptr<MultiFileColumnDefinition> &global_column_reference) {
+unique_ptr<Expression> DuckLakeMultiFileReader::GetVirtualColumnExpression(
+    ClientContext &context, MultiFileReaderData &reader_data, const vector<MultiFileColumnDefinition> &local_columns,
+    idx_t &column_id, const LogicalType &type, MultiFileLocalIndex local_idx,
+    optional_ptr<MultiFileColumnDefinition> &global_column_reference) {
 	if (column_id == COLUMN_IDENTIFIER_ROW_ID) {
 		// row id column
 		// this is computed as row_id_start + file_row_number OR read from the file
 		// first check if the row id is explicitly defined in this file
-		for(auto &col : local_columns) {
+		for (auto &col : local_columns) {
 			if (col.identifier.IsNull()) {
 				continue;
 			}
@@ -162,7 +169,7 @@ unique_ptr<Expression> DuckLakeMultiFileReader::GetVirtualColumnExpression(Clien
 		return function_expr;
 	}
 	if (column_id == COLUMN_IDENTIFIER_SNAPSHOT_ID) {
-		for(auto &col : local_columns) {
+		for (auto &col : local_columns) {
 			if (col.identifier.IsNull()) {
 				continue;
 			}
@@ -183,7 +190,8 @@ unique_ptr<Expression> DuckLakeMultiFileReader::GetVirtualColumnExpression(Clien
 		}
 		return make_uniq<BoundConstantExpression>(entry->second);
 	}
-	return MultiFileReader::GetVirtualColumnExpression(context, reader_data, local_columns, column_id, type, local_idx, global_column_reference);
+	return MultiFileReader::GetVirtualColumnExpression(context, reader_data, local_columns, column_id, type, local_idx,
+	                                                   global_column_reference);
 }
 
 } // namespace duckdb

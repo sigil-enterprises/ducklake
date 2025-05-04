@@ -1,6 +1,6 @@
 # name: test/sql/update/update_rollback.test
 # description: Test ducklake update rollback
-# group: [ducklake]
+# group: [update]
 
 require ducklake
 

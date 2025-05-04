@@ -1,6 +1,6 @@
 # name: test/sql/types/struct.test
 # description: test storing struct types in ducklake
-# group: [ducklake]
+# group: [types]
 
 require ducklake
 

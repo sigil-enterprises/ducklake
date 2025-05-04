@@ -1,6 +1,6 @@
 # name: test/sql/stats/global_stats_transactions.test
 # description: Test global stats in the presence of transaction conflicts
-# group: [ducklake]
+# group: [stats]
 
 require ducklake
 

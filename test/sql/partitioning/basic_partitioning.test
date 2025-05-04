@@ -1,6 +1,6 @@
 # name: test/sql/partitioning/basic_partitioning.test
 # description: Test partitioning
-# group: [ducklake]
+# group: [partitioning]
 
 require ducklake
 

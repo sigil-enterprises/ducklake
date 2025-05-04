@@ -1,6 +1,6 @@
 # name: test/sql/update/update_not_null.test
 # description: test updating a table with a NOT NULL constraint
-# group: [ducklake]
+# group: [update]
 
 require ducklake
 

@@ -1,6 +1,6 @@
 # name: test/sql/general/detach_ducklake.test
 # description: Test detaching ducklake
-# group: [ducklake]
+# group: [general]
 
 require ducklake
 

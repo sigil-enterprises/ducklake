@@ -1,6 +1,6 @@
 # name: test/sql/insert/insert_into_self.test
 # description: Test ducklake insert into self
-# group: [ducklake]
+# group: [insert]
 
 require ducklake
 

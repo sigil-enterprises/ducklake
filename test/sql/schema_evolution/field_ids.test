@@ -1,6 +1,6 @@
 # name: test/sql/schema_evolution/field_ids.test
 # description: Verify that field ids are correctly written
-# group: [ducklake]
+# group: [schema_evolution]
 
 require ducklake
 

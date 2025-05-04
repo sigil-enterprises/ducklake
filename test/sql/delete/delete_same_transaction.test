@@ -1,6 +1,6 @@
 # name: test/sql/delete/delete_same_transaction.test
 # description: Test ducklake deleting and creating in the same transaction
-# group: [ducklake]
+# group: [delete]
 
 require ducklake
 

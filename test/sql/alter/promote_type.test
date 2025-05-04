@@ -1,6 +1,6 @@
 # name: test/sql/alter/promote_type.test
 # description: test ducklake promoting integer columns
-# group: [ducklake]
+# group: [alter]
 
 require ducklake
 

@@ -1,6 +1,6 @@
 # name: test/sql/alter/struct_evolution_alter.test
 # description: test ducklake struct field evolution via alter
-# group: [ducklake]
+# group: [alter]
 
 require ducklake
 

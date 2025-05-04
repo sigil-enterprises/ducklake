@@ -1,6 +1,6 @@
-# name: test/sql/ducklake_view.test
+# name: test/sql/view/ducklake_view.test
 # description: test ducklake view creation
-# group: [ducklake]
+# group: [view]
 
 require ducklake
 

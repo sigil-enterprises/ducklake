@@ -1,6 +1,6 @@
 # name: test/sql/stats/filter_pushdown.test
 # description: Test filter pushdown into DuckLake files
-# group: [ducklake]
+# group: [stats]
 
 require ducklake
 

@@ -93,7 +93,8 @@ void DuckLakeCatalog::ScanSchemas(ClientContext &context, std::function<void(Sch
 	}
 }
 
-optional_ptr<CatalogEntry> DuckLakeCatalog::GetEntryById(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot, TableIndex table_id) {
+optional_ptr<CatalogEntry> DuckLakeCatalog::GetEntryById(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
+                                                         TableIndex table_id) {
 	auto &schema = GetSchemaForSnapshot(transaction, snapshot);
 	return schema.GetEntryById(table_id);
 }
@@ -154,8 +155,9 @@ unique_ptr<DuckLakeFieldId> TransformColumnType(DuckLakeColumnInfo &col) {
 		vector<unique_ptr<DuckLakeFieldId>> child_fields;
 		child_fields.push_back(std::move(key_id));
 		child_fields.push_back(std::move(value_id));
-		return make_uniq<DuckLakeFieldId>(
-		    std::move(col_data), col.name, LogicalType::MAP(std::move(key_type), std::move(value_type)), std::move(child_fields));
+		return make_uniq<DuckLakeFieldId>(std::move(col_data), col.name,
+		                                  LogicalType::MAP(std::move(key_type), std::move(value_type)),
+		                                  std::move(child_fields));
 	}
 	throw InvalidInputException("Unrecognized nested type \"%s\"", col.type);
 }
@@ -389,15 +391,17 @@ void DuckLakeCatalog::SetEncryption(DuckLakeEncryption new_encryption) {
 		// already set to this value
 		return;
 	}
-	switch(encryption) {
+	switch (encryption) {
 	case DuckLakeEncryption::AUTOMATIC:
 		// adopt whichever value here
 		encryption = new_encryption;
 		break;
 	case DuckLakeEncryption::ENCRYPTED:
-		throw InvalidInputException("Failed to set encryption - the database is not encrypted but we requested an encrypted database");
+		throw InvalidInputException(
+		    "Failed to set encryption - the database is not encrypted but we requested an encrypted database");
 	case DuckLakeEncryption::UNENCRYPTED:
-		throw InvalidInputException("Failed to set encryption - the database is encrypted but we requested an unencrypted database");
+		throw InvalidInputException(
+		    "Failed to set encryption - the database is encrypted but we requested an unencrypted database");
 	default:
 		throw InternalException("Unsupported encryption type");
 	}

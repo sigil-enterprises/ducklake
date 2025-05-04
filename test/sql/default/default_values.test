@@ -1,6 +1,6 @@
 # name: test/sql/default/default_values.test
 # description: Test default values with DuckLake
-# group: [ducklake]
+# group: [default]
 
 require ducklake
 

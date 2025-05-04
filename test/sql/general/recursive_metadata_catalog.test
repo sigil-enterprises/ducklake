@@ -1,6 +1,6 @@
 # name: test/sql/general/recursive_metadata_catalog.test
 # description: Test recursive metadata catalogs
-# group: [ducklake]
+# group: [general]
 
 require ducklake
 

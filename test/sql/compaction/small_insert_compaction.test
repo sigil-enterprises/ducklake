@@ -1,6 +1,6 @@
 # name: test/sql/compaction/small_insert_compaction.test
 # description: test ducklake compaction of consecutive small inserts
-# group: [ducklake]
+# group: [compaction]
 
 require ducklake
 

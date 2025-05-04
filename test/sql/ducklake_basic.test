@@ -1,6 +1,6 @@
 # name: test/sql/ducklake_basic.test
 # description: test ducklake extension
-# group: [ducklake]
+# group: [sql]
 
 require ducklake
 

@@ -1,6 +1,6 @@
 # name: test/sql/alter/mixed_alter.test
 # description: test ducklake mixed alter statements
-# group: [ducklake]
+# group: [alter]
 
 require ducklake
 

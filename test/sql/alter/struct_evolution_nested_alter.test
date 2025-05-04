@@ -1,6 +1,6 @@
 # name: test/sql/alter/struct_evolution_nested_alter.test
 # description: test ducklake struct nested evolution via alter
-# group: [ducklake]
+# group: [alter]
 
 require ducklake
 

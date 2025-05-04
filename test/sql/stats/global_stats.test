@@ -1,6 +1,6 @@
 # name: test/sql/stats/global_stats.test
 # description: Test global stats
-# group: [ducklake]
+# group: [stats]
 
 require ducklake
 

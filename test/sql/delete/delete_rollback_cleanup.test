@@ -1,6 +1,6 @@
 # name: test/sql/delete/delete_rollback_cleanup.test
 # description: Test ducklake cleaning up files after rollback of delete
-# group: [ducklake]
+# group: [delete]
 
 require ducklake
 

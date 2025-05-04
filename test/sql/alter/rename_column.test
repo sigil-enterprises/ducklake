@@ -1,6 +1,6 @@
 # name: test/sql/alter/rename_column.test
 # description: test ducklake renanming columns
-# group: [ducklake]
+# group: [alter]
 
 require ducklake
 

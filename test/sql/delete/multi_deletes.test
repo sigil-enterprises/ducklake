@@ -1,6 +1,6 @@
 # name: test/sql/delete/multi_deletes.test
 # description: Test ducklake deleting multiple batches
-# group: [ducklake]
+# group: [delete]
 
 require ducklake
 

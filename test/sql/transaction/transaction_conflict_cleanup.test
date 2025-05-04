@@ -1,6 +1,6 @@
 # name: test/sql/transaction/transaction_conflict_cleanup.test
 # description: Verify files are cleaned up after a transaction conflict
-# group: [ducklake]
+# group: [transaction]
 
 require ducklake
 

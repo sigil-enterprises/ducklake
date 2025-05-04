@@ -31,4 +31,4 @@ DuckLakeDataFile &DuckLakeDataFile::operator=(const DuckLakeDataFile &other) {
 	return *this;
 }
 
-}
+} // namespace duckdb

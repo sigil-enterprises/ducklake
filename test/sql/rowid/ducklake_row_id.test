@@ -1,6 +1,6 @@
 # name: test/sql/rowid/ducklake_row_id.test
 # description: test ducklake row-id tracking
-# group: [ducklake]
+# group: [rowid]
 
 require ducklake
 

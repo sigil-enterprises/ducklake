@@ -1,6 +1,6 @@
 # name: test/sql/time_travel/basic_time_travel.test
 # description: test time travel in ducklake
-# group: [ducklake]
+# group: [time_travel]
 
 require ducklake
 

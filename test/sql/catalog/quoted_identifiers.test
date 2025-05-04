@@ -1,6 +1,6 @@
 # name: test/sql/catalog/quoted_identifiers.test
 # description: Test quoted identifiers in DuckLake
-# group: [ducklake]
+# group: [catalog]
 
 require ducklake
 

@@ -20,15 +20,21 @@ namespace duckdb {
 //===--------------------------------------------------------------------===//
 // Compaction Operator
 //===--------------------------------------------------------------------===//
-DuckLakeCompaction::DuckLakeCompaction(const vector<LogicalType> &types, DuckLakeTableEntry &table, vector<DuckLakeCompactionFileEntry> source_files_p, string encryption_key_p, optional_idx partition_id, vector<string> partition_values_p, PhysicalOperator &child) :
-	PhysicalOperator(PhysicalOperatorType::EXTENSION, types, 0), table(table), source_files(std::move(source_files_p)), encryption_key(std::move(encryption_key_p)), partition_id(partition_id), partition_values(std::move(partition_values_p)) {
+DuckLakeCompaction::DuckLakeCompaction(const vector<LogicalType> &types, DuckLakeTableEntry &table,
+                                       vector<DuckLakeCompactionFileEntry> source_files_p, string encryption_key_p,
+                                       optional_idx partition_id, vector<string> partition_values_p,
+                                       PhysicalOperator &child)
+    : PhysicalOperator(PhysicalOperatorType::EXTENSION, types, 0), table(table),
+      source_files(std::move(source_files_p)), encryption_key(std::move(encryption_key_p)), partition_id(partition_id),
+      partition_values(std::move(partition_values_p)) {
 	children.push_back(child);
 }
 
 //===--------------------------------------------------------------------===//
 // GetData
 //===--------------------------------------------------------------------===//
-SourceResultType DuckLakeCompaction::GetData(ExecutionContext &context, DataChunk &chunk, OperatorSourceInput &input) const {
+SourceResultType DuckLakeCompaction::GetData(ExecutionContext &context, DataChunk &chunk,
+                                             OperatorSourceInput &input) const {
 	return SourceResultType::FINISHED;
 }
 
@@ -39,7 +45,6 @@ unique_ptr<GlobalSinkState> DuckLakeCompaction::GetGlobalSinkState(ClientContext
 	return make_uniq<DuckLakeInsertGlobalState>(table);
 }
 
-
 SinkResultType DuckLakeCompaction::Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const {
 	auto &global_state = input.global_state.Cast<DuckLakeInsertGlobalState>();
 	DuckLakeInsert::AddWrittenFiles(global_state, chunk, encryption_key, partition_id);
@@ -49,15 +54,16 @@ SinkResultType DuckLakeCompaction::Sink(ExecutionContext &context, DataChunk &ch
 //===--------------------------------------------------------------------===//
 // Finalize
 //===--------------------------------------------------------------------===//
-SinkFinalizeType DuckLakeCompaction::Finalize(Pipeline &pipeline, Event &event, ClientContext &context, OperatorSinkFinalizeInput &input) const {
+SinkFinalizeType DuckLakeCompaction::Finalize(Pipeline &pipeline, Event &event, ClientContext &context,
+                                              OperatorSinkFinalizeInput &input) const {
 	auto &global_state = input.global_state.Cast<DuckLakeInsertGlobalState>();
 
 	if (global_state.written_files.size() != 1) {
 		throw InternalException("DuckLakeCompaction - expected a single output file");
 	}
 	// set the partition values correctly
-	for(auto &file : global_state.written_files) {
-		for(idx_t col_idx = 0; col_idx < partition_values.size(); col_idx++) {
+	for (auto &file : global_state.written_files) {
+		for (idx_t col_idx = 0; col_idx < partition_values.size(); col_idx++) {
 			DuckLakeFilePartition file_partition_info;
 			file_partition_info.partition_column_idx = col_idx;
 			file_partition_info.partition_value = partition_values[col_idx];
@@ -87,8 +93,12 @@ string DuckLakeCompaction::GetName() const {
 //===--------------------------------------------------------------------===//
 class DuckLakeLogicalCompaction : public LogicalExtensionOperator {
 public:
-	DuckLakeLogicalCompaction(idx_t table_index, DuckLakeTableEntry &table, vector<DuckLakeCompactionFileEntry> source_files_p, string encryption_key_p, optional_idx partition_id, vector<string> partition_values_p) :
-	    table_index(table_index), table(table), source_files(std::move(source_files_p)), encryption_key(std::move(encryption_key_p)), partition_id(partition_id), partition_values(std::move(partition_values_p)) {
+	DuckLakeLogicalCompaction(idx_t table_index, DuckLakeTableEntry &table,
+	                          vector<DuckLakeCompactionFileEntry> source_files_p, string encryption_key_p,
+	                          optional_idx partition_id, vector<string> partition_values_p)
+	    : table_index(table_index), table(table), source_files(std::move(source_files_p)),
+	      encryption_key(std::move(encryption_key_p)), partition_id(partition_id),
+	      partition_values(std::move(partition_values_p)) {
 	}
 
 	idx_t table_index;
@@ -101,7 +111,8 @@ public:
 public:
 	PhysicalOperator &CreatePlan(ClientContext &context, PhysicalPlanGenerator &planner) override {
 		auto &child = planner.CreatePlan(*children[0]);
-		return planner.Make<DuckLakeCompaction>(types, table, std::move(source_files), std::move(encryption_key), partition_id, std::move(partition_values), child);
+		return planner.Make<DuckLakeCompaction>(types, table, std::move(source_files), std::move(encryption_key),
+		                                        partition_id, std::move(partition_values), child);
 	}
 
 	string GetExtensionName() const override {
@@ -114,7 +125,7 @@ public:
 	}
 
 	void ResolveTypes() override {
-		types = { LogicalType::BOOLEAN };
+		types = {LogicalType::BOOLEAN};
 	}
 };
 
@@ -123,7 +134,8 @@ public:
 //===--------------------------------------------------------------------===//
 class DuckLakeCompactor {
 public:
-	DuckLakeCompactor(ClientContext &context, DuckLakeCatalog &catalog, DuckLakeTransaction &transaction, Binder &binder, TableIndex table_id);
+	DuckLakeCompactor(ClientContext &context, DuckLakeCatalog &catalog, DuckLakeTransaction &transaction,
+	                  Binder &binder, TableIndex table_id);
 
 	void GenerateCompactions(vector<unique_ptr<LogicalOperator>> &compactions);
 	unique_ptr<LogicalOperator> GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry> source_files);
@@ -136,8 +148,10 @@ private:
 	TableIndex table_id;
 };
 
-DuckLakeCompactor::DuckLakeCompactor(ClientContext &context, DuckLakeCatalog &catalog, DuckLakeTransaction &transaction, Binder &binder, TableIndex table_id) :
-	context(context), catalog(catalog), transaction(transaction), binder(binder), table_id(table_id) {}
+DuckLakeCompactor::DuckLakeCompactor(ClientContext &context, DuckLakeCatalog &catalog, DuckLakeTransaction &transaction,
+                                     Binder &binder, TableIndex table_id)
+    : context(context), catalog(catalog), transaction(transaction), binder(binder), table_id(table_id) {
+}
 
 void DuckLakeCompactor::GenerateCompactions(vector<unique_ptr<LogicalOperator>> &compactions) {
 	auto &metadata_manager = transaction.GetMetadataManager();
@@ -146,11 +160,11 @@ void DuckLakeCompactor::GenerateCompactions(vector<unique_ptr<LogicalOperator>> 
 	// target file size: 10MB
 	static constexpr const idx_t TARGET_FILE_SIZE = 10000000;
 	// simple compaction: iterate over the files and find adjacent files that can be merged
-	for(idx_t file_idx = 0; file_idx < files.size(); file_idx++) {
+	for (idx_t file_idx = 0; file_idx < files.size(); file_idx++) {
 		// check if we can merge this file with subsequent files
 		idx_t current_file_size = 0;
 		idx_t compaction_idx;
-		for(compaction_idx = file_idx; compaction_idx < files.size(); compaction_idx++) {
+		for (compaction_idx = file_idx; compaction_idx < files.size(); compaction_idx++) {
 			if (current_file_size >= TARGET_FILE_SIZE) {
 				// we hit the target size already - stop
 				break;
@@ -195,7 +209,7 @@ void DuckLakeCompactor::GenerateCompactions(vector<unique_ptr<LogicalOperator>> 
 		idx_t compaction_file_count = compaction_idx - file_idx;
 		if (compaction_file_count > 1) {
 			vector<DuckLakeCompactionFileEntry> compaction_files;
-			for(idx_t i = 0; i < compaction_file_count; i++) {
+			for (idx_t i = 0; i < compaction_file_count; i++) {
 				compaction_files.push_back(std::move(files[file_idx + i]));
 			}
 			compactions.push_back(GenerateCompactionCommand(std::move(compaction_files)));
@@ -204,7 +218,8 @@ void DuckLakeCompactor::GenerateCompactions(vector<unique_ptr<LogicalOperator>> 
 	}
 }
 
-unique_ptr<LogicalOperator> DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry> source_files) {
+unique_ptr<LogicalOperator>
+DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry> source_files) {
 	// get the table entry at the specified snapshot
 	auto snapshot_id = source_files[0].file.begin_snapshot;
 	DuckLakeSnapshot snapshot(snapshot_id, source_files[0].schema_version, 0, 0);
@@ -224,7 +239,7 @@ unique_ptr<LogicalOperator> DuckLakeCompactor::GenerateCompactionCommand(vector<
 
 	// set the files to scan as only the files we are trying to compact
 	vector<DuckLakeFileListEntry> files_to_scan;
-	for(auto &source : source_files) {
+	for (auto &source : source_files) {
 		DuckLakeFileListEntry result;
 		result.file = source.file.data;
 		result.row_id_start = source.file.row_id_start;
@@ -241,18 +256,23 @@ unique_ptr<LogicalOperator> DuckLakeCompactor::GenerateCompactionCommand(vector<
 	// generate the LogicalGet
 	auto &columns = table.GetColumns();
 	string encryption_key = catalog.GenerateEncryptionKey(context);
-	auto copy_options = DuckLakeInsert::GetCopyOptions(context, columns, nullptr, table.GetFieldData(), table.DataPath(), encryption_key, InsertVirtualColumns::WRITE_SNAPSHOT_ID);
+	auto copy_options =
+	    DuckLakeInsert::GetCopyOptions(context, columns, nullptr, table.GetFieldData(), table.DataPath(),
+	                                   encryption_key, InsertVirtualColumns::WRITE_SNAPSHOT_ID);
 
 	auto virtual_columns = table.GetVirtualColumns();
-	auto ducklake_scan = make_uniq<LogicalGet>(table_idx, std::move(scan_function), std::move(bind_data), copy_options.expected_types, copy_options.names, std::move(virtual_columns));
+	auto ducklake_scan =
+	    make_uniq<LogicalGet>(table_idx, std::move(scan_function), std::move(bind_data), copy_options.expected_types,
+	                          copy_options.names, std::move(virtual_columns));
 	auto &column_ids = ducklake_scan->GetMutableColumnIds();
-	for(idx_t i = 0; i < columns.PhysicalColumnCount(); i++) {
+	for (idx_t i = 0; i < columns.PhysicalColumnCount(); i++) {
 		column_ids.emplace_back(i);
 	}
 	column_ids.emplace_back(DuckLakeMultiFileReader::COLUMN_IDENTIFIER_SNAPSHOT_ID);
 
 	// generate the LogicalCopyToFile
-	auto copy = make_uniq<LogicalCopyToFile>(std::move(copy_options.copy_function), std::move(copy_options.bind_data), std::move(copy_options.info));
+	auto copy = make_uniq<LogicalCopyToFile>(std::move(copy_options.copy_function), std::move(copy_options.bind_data),
+	                                         std::move(copy_options.info));
 
 	copy->file_path = std::move(copy_options.file_path);
 	copy->use_tmp_file = copy_options.use_tmp_file;
@@ -275,7 +295,9 @@ unique_ptr<LogicalOperator> DuckLakeCompactor::GenerateCompactionCommand(vector<
 	copy->children.push_back(std::move(ducklake_scan));
 
 	// followed by the compaction operator (that writes the results back to the
-	auto compaction = make_uniq<DuckLakeLogicalCompaction>(binder.GenerateTableIndex(), table, std::move(source_files), std::move(encryption_key), partition_id, std::move(partition_values));
+	auto compaction =
+	    make_uniq<DuckLakeLogicalCompaction>(binder.GenerateTableIndex(), table, std::move(source_files),
+	                                         std::move(encryption_key), partition_id, std::move(partition_values));
 	compaction->children.push_back(std::move(copy));
 	return std::move(compaction);
 }
@@ -283,7 +305,8 @@ unique_ptr<LogicalOperator> DuckLakeCompactor::GenerateCompactionCommand(vector<
 //===--------------------------------------------------------------------===//
 // Function
 //===--------------------------------------------------------------------===//
-unique_ptr<LogicalOperator> MergeAdjacentFilesBind(ClientContext &context, TableFunctionBindInput &input, idx_t bind_index, vector<string> &return_names) {
+unique_ptr<LogicalOperator> MergeAdjacentFilesBind(ClientContext &context, TableFunctionBindInput &input,
+                                                   idx_t bind_index, vector<string> &return_names) {
 	// bind operator ->
 	// LogicalSetOperation (LogicalGet -> LogicalCopyToFile)
 	// COPY (....) TO ... UNION ALL COPY (...) TO ... ....
@@ -297,7 +320,7 @@ unique_ptr<LogicalOperator> MergeAdjacentFilesBind(ClientContext &context, Table
 	// try to compact all tables
 	vector<unique_ptr<LogicalOperator>> compactions;
 	auto schemas = ducklake_catalog.GetSchemas(context);
-	for(auto &schema : schemas) {
+	for (auto &schema : schemas) {
 		schema.get().Scan(context, CatalogType::TABLE_ENTRY, [&](CatalogEntry &entry) {
 			auto &table = entry.Cast<DuckLakeTableEntry>();
 			DuckLakeCompactor compactor(context, ducklake_catalog, transaction, *input.binder, table.GetTableId());
@@ -323,7 +346,7 @@ unique_ptr<LogicalOperator> MergeAdjacentFilesBind(ClientContext &context, Table
 }
 
 DuckLakeMergeAdjacentFilesFunction::DuckLakeMergeAdjacentFilesFunction()
-	: TableFunction("ducklake_merge_adjacent_files", {LogicalType::VARCHAR}, nullptr, nullptr, nullptr) {
+    : TableFunction("ducklake_merge_adjacent_files", {LogicalType::VARCHAR}, nullptr, nullptr, nullptr) {
 	bind_operator = MergeAdjacentFilesBind;
 }
 

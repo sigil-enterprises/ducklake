@@ -1,6 +1,6 @@
 # name: test/sql/transaction/create_conflict.test
 # description: test conflict handling on CREATE
-# group: [ducklake]
+# group: [transaction]
 
 require ducklake
 

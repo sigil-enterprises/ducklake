@@ -1,6 +1,6 @@
 # name: test/sql/alter/add_column_nested.test
 # description: test ducklake add nested columns
-# group: [ducklake]
+# group: [alter]
 
 require ducklake
 

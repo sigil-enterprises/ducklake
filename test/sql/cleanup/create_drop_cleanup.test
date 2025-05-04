@@ -1,6 +1,6 @@
 # name: test/sql/cleanup/create_drop_cleanup.test
 # description: Cleanup files when creating and dropping a table
-# group: [ducklake]
+# group: [cleanup]
 
 require ducklake
 

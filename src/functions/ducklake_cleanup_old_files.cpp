@@ -5,7 +5,7 @@
 
 namespace duckdb {
 
-struct CleanupBindData  : public TableFunctionData {
+struct CleanupBindData : public TableFunctionData {
 	explicit CleanupBindData(Catalog &catalog) : catalog(catalog) {
 	}
 
@@ -14,13 +14,14 @@ struct CleanupBindData  : public TableFunctionData {
 	bool dry_run = false;
 };
 
-static unique_ptr<FunctionData> DuckLakeCleanupBind(ClientContext &context, TableFunctionBindInput &input, vector<LogicalType> &return_types, vector<string> &names) {
+static unique_ptr<FunctionData> DuckLakeCleanupBind(ClientContext &context, TableFunctionBindInput &input,
+                                                    vector<LogicalType> &return_types, vector<string> &names) {
 	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
 	auto result = make_uniq<CleanupBindData>(catalog);
 	timestamp_tz_t from_timestamp;
 	bool has_timestamp = false;
 	bool cleanup_all = false;
-	for(auto &entry : input.named_parameters) {
+	for (auto &entry : input.named_parameters) {
 		if (StringUtil::CIEquals(entry.first, "dry_run")) {
 			result->dry_run = true;
 		} else if (StringUtil::CIEquals(entry.first, "cleanup_all")) {
@@ -73,7 +74,7 @@ void DuckLakeCleanupExecute(ClientContext &context, TableFunctionInput &data_p, 
 	if (!state.executed && !data.dry_run) {
 		// delete the files
 		auto &fs = FileSystem::GetFileSystem(context);
-		for(auto &file : data.files) {
+		for (auto &file : data.files) {
 			fs.RemoveFile(file.path);
 		}
 		// remove the files that are scheduled for cleanup
@@ -92,10 +93,11 @@ void DuckLakeCleanupExecute(ClientContext &context, TableFunctionInput &data_p, 
 }
 
 DuckLakeCleanupOldFilesFunction::DuckLakeCleanupOldFilesFunction()
-    : TableFunction("ducklake_cleanup_old_files", {LogicalType::VARCHAR}, DuckLakeCleanupExecute, DuckLakeCleanupBind, DuckLakeCleanupInit) {
-    named_parameters["older_than"] = LogicalType::TIMESTAMP_TZ;
-    named_parameters["cleanup_all"] = LogicalType::BOOLEAN;
-    named_parameters["dry_run"] = LogicalType::BOOLEAN;
+    : TableFunction("ducklake_cleanup_old_files", {LogicalType::VARCHAR}, DuckLakeCleanupExecute, DuckLakeCleanupBind,
+                    DuckLakeCleanupInit) {
+	named_parameters["older_than"] = LogicalType::TIMESTAMP_TZ;
+	named_parameters["cleanup_all"] = LogicalType::BOOLEAN;
+	named_parameters["dry_run"] = LogicalType::BOOLEAN;
 }
 
 } // namespace duckdb

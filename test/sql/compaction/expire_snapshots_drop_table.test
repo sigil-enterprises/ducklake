@@ -1,6 +1,6 @@
 # name: test/sql/compaction/expire_snapshots_drop_table.test
 # description: test ducklake expiration of snapshots
-# group: [ducklake]
+# group: [compaction]
 
 require ducklake
 

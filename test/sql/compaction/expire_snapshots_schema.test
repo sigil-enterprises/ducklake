@@ -1,6 +1,6 @@
 # name: test/sql/compaction/expire_snapshots_schema.test
 # description: test ducklake expiration of snapshots with schema changes
-# group: [ducklake]
+# group: [compaction]
 
 require ducklake
 

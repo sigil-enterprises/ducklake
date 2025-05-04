@@ -1,6 +1,6 @@
 # name: test/sql/transaction/basic_transaction.test
 # description: Test basic transaction support of ducklakes
-# group: [ducklake]
+# group: [transaction]
 
 require ducklake
 

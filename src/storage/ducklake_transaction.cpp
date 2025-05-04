@@ -396,29 +396,29 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 		if (dropped_entry != other_changes.dropped_tables.end()) {
 			// trying to delete from a table that was dropped
 			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
-									   " - but this table has been dropped by another transaction",
-									   table_id.index);
+			                           " - but this table has been dropped by another transaction",
+			                           table_id.index);
 		}
 		auto alter_entry = other_changes.altered_tables.find(table_id);
 		if (alter_entry != other_changes.altered_tables.end()) {
 			// trying to delete from a table that was altered
 			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
-									   " - but this table has been altered by another transaction",
-									   table_id.index);
+			                           " - but this table has been altered by another transaction",
+			                           table_id.index);
 		}
 		auto delete_entry = other_changes.tables_deleted_from.find(table_id);
 		if (delete_entry != other_changes.tables_deleted_from.end()) {
 			// trying to delete from a table that was deleted from
 			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
-									   " - but this table has been deleted from by another transaction",
-									   table_id.index);
+			                           " - but this table has been deleted from by another transaction",
+			                           table_id.index);
 		}
 		auto compact_entry = other_changes.tables_compacted.find(table_id);
 		if (compact_entry != other_changes.tables_compacted.end()) {
 			// trying to delete from a table that was compacted from
 			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
-									   " - but this table has been compacted from by another transaction",
-									   table_id.index);
+			                           " - but this table has been compacted from by another transaction",
+			                           table_id.index);
 		}
 	}
 	for (auto &table_id : changes.tables_compacted) {
@@ -426,15 +426,15 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 		if (delete_entry != other_changes.tables_deleted_from.end()) {
 			// trying to delete from a table that was deleted from
 			throw TransactionException("Transaction conflict - attempting to compact table with id %d"
-									   " - but this table has been deleted from by another transaction",
-									   table_id.index);
+			                           " - but this table has been deleted from by another transaction",
+			                           table_id.index);
 		}
 		auto compact_entry = other_changes.tables_compacted.find(table_id);
 		if (compact_entry != other_changes.tables_compacted.end()) {
 			// trying to delete from a table that was compacted from
 			throw TransactionException("Transaction conflict - attempting to compact table with id %d"
-									   " - but this table has been compacted from by another transaction",
-									   table_id.index);
+			                           " - but this table has been compacted from by another transaction",
+			                           table_id.index);
 		}
 	}
 	for (auto &table_id : changes.altered_tables) {
@@ -783,7 +783,8 @@ NewTableInfo DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &commit_snapshot
 	return result;
 }
 
-void DuckLakeTransaction::UpdateGlobalTableStats(optional_ptr<DuckLakeTableStats> current_stats, TableIndex table_id, DuckLakeTableStats new_stats) {
+void DuckLakeTransaction::UpdateGlobalTableStats(optional_ptr<DuckLakeTableStats> current_stats, TableIndex table_id,
+                                                 DuckLakeTableStats new_stats) {
 	DuckLakeGlobalStatsInfo stats;
 	stats.table_id = table_id;
 
@@ -828,7 +829,8 @@ void DuckLakeTransaction::UpdateGlobalTableStats(optional_ptr<DuckLakeTableStats
 	metadata_manager->UpdateGlobalTableStats(stats);
 }
 
-DuckLakeFileInfo DuckLakeTransaction::GetNewDataFile(DuckLakeDataFile &file, DuckLakeSnapshot &commit_snapshot, TableIndex table_id, idx_t row_id_start) {
+DuckLakeFileInfo DuckLakeTransaction::GetNewDataFile(DuckLakeDataFile &file, DuckLakeSnapshot &commit_snapshot,
+                                                     TableIndex table_id, idx_t row_id_start) {
 	DuckLakeFileInfo data_file;
 	data_file.id = DataFileIndex(commit_snapshot.next_file_id++);
 	data_file.table_id = table_id;
@@ -915,11 +917,12 @@ vector<DuckLakeFileInfo> DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &
 	return result;
 }
 
-vector<DuckLakeDeleteFileInfo> DuckLakeTransaction::GetNewDeleteFiles(DuckLakeSnapshot &commit_snapshot, set<DataFileIndex> &overwritten_delete_files) {
+vector<DuckLakeDeleteFileInfo> DuckLakeTransaction::GetNewDeleteFiles(DuckLakeSnapshot &commit_snapshot,
+                                                                      set<DataFileIndex> &overwritten_delete_files) {
 	vector<DuckLakeDeleteFileInfo> result;
-	for(auto &entry : new_delete_files) {
+	for (auto &entry : new_delete_files) {
 		auto table_id = entry.first;
-		for(auto &file_entry : entry.second) {
+		for (auto &file_entry : entry.second) {
 			auto &file = file_entry.second;
 			if (file.overwrites_existing_delete) {
 				overwritten_delete_files.insert(file.data_file_id);
@@ -939,7 +942,8 @@ vector<DuckLakeDeleteFileInfo> DuckLakeTransaction::GetNewDeleteFiles(DuckLakeSn
 	return result;
 }
 
-void DuckLakeTransaction::CommitChanges(DuckLakeSnapshot &commit_snapshot, TransactionChangeInformation &transaction_changes) {
+void DuckLakeTransaction::CommitChanges(DuckLakeSnapshot &commit_snapshot,
+                                        TransactionChangeInformation &transaction_changes) {
 	// drop entries
 	if (!dropped_tables.empty()) {
 		metadata_manager->DropTables(commit_snapshot, dropped_tables);
@@ -981,7 +985,7 @@ void DuckLakeTransaction::CommitChanges(DuckLakeSnapshot &commit_snapshot, Trans
 	// drop data files
 	if (!dropped_files.empty()) {
 		set<DataFileIndex> dropped_indexes;
-		for(auto &entry : dropped_files) {
+		for (auto &entry : dropped_files) {
 			dropped_indexes.insert(entry.second);
 		}
 		metadata_manager->DropDataFiles(commit_snapshot, dropped_indexes);
@@ -1003,14 +1007,14 @@ struct CompactionInformation {
 
 CompactionInformation DuckLakeTransaction::GetCompactionChanges(DuckLakeSnapshot &commit_snapshot) {
 	CompactionInformation result;
-	for(auto &entry : compactions) {
+	for (auto &entry : compactions) {
 		auto table_id = entry.first;
-		for(auto &compaction : entry.second) {
+		for (auto &compaction : entry.second) {
 			auto new_file = GetNewDataFile(compaction.written_file, commit_snapshot, table_id, compaction.row_id_start);
 			new_file.begin_snapshot = compaction.source_files[0].file.begin_snapshot;
 
 			idx_t row_id_limit = 0;
-			for(auto &compacted_file : compaction.source_files) {
+			for (auto &compacted_file : compaction.source_files) {
 				row_id_limit += compacted_file.file.row_count;
 
 				idx_t compacted_file_snapshot = compacted_file.file.begin_snapshot;
@@ -1019,7 +1023,7 @@ CompactionInformation DuckLakeTransaction::GetCompactionChanges(DuckLakeSnapshot
 					if (!result.compacted_files.empty()) {
 						throw InternalException("Only the first compacted file can have existing partial file info");
 					}
-					for(auto &partial_file : compacted_file.partial_files) {
+					for (auto &partial_file : compacted_file.partial_files) {
 						if (partial_file.max_row_count == compacted_file.file.row_count) {
 							// this snapshot reads the entire file
 							// set the compacted file snapshot to this snapshot
@@ -1052,7 +1056,8 @@ CompactionInformation DuckLakeTransaction::GetCompactionChanges(DuckLakeSnapshot
 	return result;
 }
 
-void DuckLakeTransaction::CommitCompaction(DuckLakeSnapshot &commit_snapshot, TransactionChangeInformation &transaction_changes) {
+void DuckLakeTransaction::CommitCompaction(DuckLakeSnapshot &commit_snapshot,
+                                           TransactionChangeInformation &transaction_changes) {
 	if (!compactions.empty()) {
 		auto compaction_changes = GetCompactionChanges(commit_snapshot);
 		metadata_manager->WriteCompactions(std::move(compaction_changes.compacted_files));
@@ -1207,10 +1212,11 @@ vector<DuckLakeDataFile> DuckLakeTransaction::GetTransactionLocalFiles(TableInde
 void DuckLakeTransaction::DropTransactionLocalFile(TableIndex table_id, const string &path) {
 	auto entry = new_data_files.find(table_id);
 	if (entry == new_data_files.end()) {
-		throw InternalException("DropTransactionLocalFile called for a table for which no transaction-local files exist");
+		throw InternalException(
+		    "DropTransactionLocalFile called for a table for which no transaction-local files exist");
 	}
 	auto &table_files = entry->second;
-	for(idx_t i = 0; i < table_files.size(); i++) {
+	for (idx_t i = 0; i < table_files.size(); i++) {
 		auto &file = table_files[i];
 		if (file.file_name == path) {
 			// found the file - delete it from the table list and from disk
@@ -1232,12 +1238,12 @@ void DuckLakeTransaction::AppendFiles(TableIndex table_id, vector<DuckLakeDataFi
 	if (entry != new_data_files.end()) {
 		// already exists - append
 		auto &existing_files = entry->second;
-		for(auto &file : files) {
+		for (auto &file : files) {
 			existing_files.push_back(std::move(file));
 		}
 	} else {
 		vector<DuckLakeDataFile> file_list;
-		for(auto &file : files) {
+		for (auto &file : files) {
 			file_list.push_back(std::move(file));
 		}
 		new_data_files.insert(make_pair(table_id, std::move(file_list)));
@@ -1249,7 +1255,7 @@ void DuckLakeTransaction::AddDeletes(TableIndex table_id, vector<DuckLakeDeleteF
 		return;
 	}
 	auto &table_delete_map = new_delete_files[table_id];
-	for(auto &file : files) {
+	for (auto &file : files) {
 		auto &data_file_path = file.data_file_path;
 		if (data_file_path.empty()) {
 			throw InternalException("Data file path needs to be set in delete");
@@ -1299,12 +1305,14 @@ void DuckLakeTransaction::GetLocalDeleteForFile(TableIndex table_id, const strin
 	result.encryption_key = delete_file.encryption_key;
 }
 
-void DuckLakeTransaction::TransactionLocalDelete(TableIndex table_id, const string &data_file_path, DuckLakeDeleteFile delete_file) {
+void DuckLakeTransaction::TransactionLocalDelete(TableIndex table_id, const string &data_file_path,
+                                                 DuckLakeDeleteFile delete_file) {
 	auto entry = new_data_files.find(table_id);
 	if (entry == new_data_files.end()) {
-		throw InternalException("Transaction local delete called for table which does not have transaction local insertions");
+		throw InternalException(
+		    "Transaction local delete called for table which does not have transaction local insertions");
 	}
-	for(auto &file : entry->second) {
+	for (auto &file : entry->second) {
 		if (file.file_name == data_file_path) {
 			if (file.delete_file) {
 				// this file already has a transaction-local delete file - delete it

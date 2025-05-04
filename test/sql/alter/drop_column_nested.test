@@ -1,6 +1,6 @@
 # name: test/sql/alter/drop_column_nested.test
 # description: test ducklake dropping nested columns
-# group: [ducklake]
+# group: [alter]
 
 require ducklake
 

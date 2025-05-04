@@ -1,6 +1,6 @@
 # name: test/sql/alter/add_column.test
 # description: test ducklake add columns
-# group: [ducklake]
+# group: [alter]
 
 require ducklake
 

@@ -1,6 +1,6 @@
 # name: test/sql/default/struct_field_default.test
 # description: Test adding a struct field with default values
-# group: [ducklake]
+# group: [default]
 
 require ducklake
 

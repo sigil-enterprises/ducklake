@@ -1,6 +1,6 @@
 # name: test/sql/alter/struct_evolution_reuse.test
 # description: test ducklake struct field evolution re-use
-# group: [ducklake]
+# group: [alter]
 
 require ducklake
 

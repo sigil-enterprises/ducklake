@@ -18,21 +18,23 @@
 
 namespace duckdb {
 
-DuckLakeInsert::DuckLakeInsert(const vector<LogicalType> &types, DuckLakeTableEntry &table, optional_idx partition_id, string encryption_key_p)
+DuckLakeInsert::DuckLakeInsert(const vector<LogicalType> &types, DuckLakeTableEntry &table, optional_idx partition_id,
+                               string encryption_key_p)
     : PhysicalOperator(PhysicalOperatorType::EXTENSION, types, 1), table(&table), schema(nullptr),
       partition_id(partition_id), encryption_key(std::move(encryption_key_p)) {
 }
 
-DuckLakeInsert::DuckLakeInsert(const vector<LogicalType> &types, SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info, string encryption_key_p)
+DuckLakeInsert::DuckLakeInsert(const vector<LogicalType> &types, SchemaCatalogEntry &schema,
+                               unique_ptr<BoundCreateTableInfo> info, string encryption_key_p)
     : PhysicalOperator(PhysicalOperatorType::EXTENSION, types, 1), table(nullptr), schema(&schema),
-      info(std::move(info)), encryption_key(std::move(encryption_key_p))  {
+      info(std::move(info)), encryption_key(std::move(encryption_key_p)) {
 }
 
 //===--------------------------------------------------------------------===//
 // States
 //===--------------------------------------------------------------------===//
 DuckLakeInsertGlobalState::DuckLakeInsertGlobalState(DuckLakeTableEntry &table)
-	: table(table), total_insert_count(0), not_null_fields(table.GetNotNullFields()) {
+    : table(table), total_insert_count(0), not_null_fields(table.GetNotNullFields()) {
 }
 
 unique_ptr<GlobalSinkState> DuckLakeInsert::GetGlobalSinkState(ClientContext &context) const {
@@ -76,14 +78,14 @@ DuckLakeColumnStats DuckLakeInsert::ParseColumnStats(const LogicalType &type, co
 			column_stats.has_contains_nan = true;
 			column_stats.contains_nan = stats_value == "true";
 		} else {
-			throw NotImplementedException("Unsupported stats type \"%s\" in DuckLakeInsert::Sink()",
-										  stats_name);
+			throw NotImplementedException("Unsupported stats type \"%s\" in DuckLakeInsert::Sink()", stats_name);
 		}
 	}
 	return column_stats;
 }
 
-void DuckLakeInsert::AddWrittenFiles(DuckLakeInsertGlobalState &global_state, DataChunk &chunk, const string &encryption_key, optional_idx partition_id) {
+void DuckLakeInsert::AddWrittenFiles(DuckLakeInsertGlobalState &global_state, DataChunk &chunk,
+                                     const string &encryption_key, optional_idx partition_id) {
 	for (idx_t r = 0; r < chunk.size(); r++) {
 		DuckLakeDataFile data_file;
 		data_file.file_name = chunk.GetValue(0, r).GetValue<string>();
@@ -163,7 +165,7 @@ SinkFinalizeType DuckLakeInsert::Finalize(Pipeline &pipeline, Event &event, Clie
                                           OperatorSinkFinalizeInput &input) const {
 	auto &global_state = input.global_state.Cast<DuckLakeInsertGlobalState>();
 
-	for(auto &data_file : global_state.written_files) {
+	for (auto &data_file : global_state.written_files) {
 		global_state.total_insert_count += data_file.row_count;
 	}
 	auto &transaction = DuckLakeTransaction::Get(context, global_state.table.catalog);
@@ -212,11 +214,13 @@ Value GetFieldIdValue(const DuckLakeFieldId &field_id) {
 }
 
 bool WriteRowId(InsertVirtualColumns virtual_columns) {
-	return virtual_columns == InsertVirtualColumns::WRITE_ROW_ID || virtual_columns == InsertVirtualColumns::WRITE_ROW_ID_AND_SNAPSHOT_ID;
+	return virtual_columns == InsertVirtualColumns::WRITE_ROW_ID ||
+	       virtual_columns == InsertVirtualColumns::WRITE_ROW_ID_AND_SNAPSHOT_ID;
 }
 
 bool WriteSnapshotId(InsertVirtualColumns virtual_columns) {
-	return virtual_columns == InsertVirtualColumns::WRITE_SNAPSHOT_ID || virtual_columns == InsertVirtualColumns::WRITE_ROW_ID_AND_SNAPSHOT_ID;
+	return virtual_columns == InsertVirtualColumns::WRITE_SNAPSHOT_ID ||
+	       virtual_columns == InsertVirtualColumns::WRITE_ROW_ID_AND_SNAPSHOT_ID;
 }
 
 Value WrittenFieldIds(DuckLakeFieldData &field_data, InsertVirtualColumns virtual_columns) {
@@ -229,17 +233,20 @@ Value WrittenFieldIds(DuckLakeFieldData &field_data, InsertVirtualColumns virtua
 		values.emplace_back("_ducklake_internal_row_id", Value::BIGINT(MultiFileReader::ROW_ID_FIELD_ID));
 	}
 	if (WriteSnapshotId(virtual_columns)) {
-		values.emplace_back("_ducklake_internal_snapshot_id", Value::BIGINT(MultiFileReader::LAST_UPDATED_SEQUENCE_NUMBER_ID));
+		values.emplace_back("_ducklake_internal_snapshot_id",
+		                    Value::BIGINT(MultiFileReader::LAST_UPDATED_SEQUENCE_NUMBER_ID));
 	}
 	return Value::STRUCT(std::move(values));
 }
 
-DuckLakeCopyOptions::DuckLakeCopyOptions(unique_ptr<CopyInfo> info_p, CopyFunction copy_function_p) : info(std::move(info_p)), copy_function(std::move(copy_function_p)) {}
+DuckLakeCopyOptions::DuckLakeCopyOptions(unique_ptr<CopyInfo> info_p, CopyFunction copy_function_p)
+    : info(std::move(info_p)), copy_function(std::move(copy_function_p)) {
+}
 
 DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, const ColumnList &columns,
-													 optional_ptr<DuckLakePartition> partition_data,
-													 optional_ptr<DuckLakeFieldData> field_data,
-													 const string &data_path, string encryption_key, InsertVirtualColumns virtual_columns) {
+                                                   optional_ptr<DuckLakePartition> partition_data,
+                                                   optional_ptr<DuckLakeFieldData> field_data, const string &data_path,
+                                                   string encryption_key, InsertVirtualColumns virtual_columns) {
 	auto info = make_uniq<CopyInfo>();
 	info->file_path = data_path;
 	info->format = "parquet";
@@ -320,16 +327,19 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, const
 }
 
 PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
-                                                     PhysicalPlanGenerator &planner,
-                                                     optional_ptr<DuckLakePartition> partition_data,
-                                                     optional_ptr<DuckLakeFieldData> field_data,
-                                                     optional_ptr<PhysicalOperator> plan, const string &data_path, string encryption_key, InsertVirtualColumns virtual_columns) {
-	auto copy_options = GetCopyOptions(context, columns, partition_data, field_data, data_path, std::move(encryption_key), virtual_columns);
+                                                    PhysicalPlanGenerator &planner,
+                                                    optional_ptr<DuckLakePartition> partition_data,
+                                                    optional_ptr<DuckLakeFieldData> field_data,
+                                                    optional_ptr<PhysicalOperator> plan, const string &data_path,
+                                                    string encryption_key, InsertVirtualColumns virtual_columns) {
+	auto copy_options = GetCopyOptions(context, columns, partition_data, field_data, data_path,
+	                                   std::move(encryption_key), virtual_columns);
 
 	auto copy_return_types = GetCopyFunctionReturnLogicalTypes(CopyFunctionReturnType::WRITTEN_FILE_STATISTICS);
-	auto &physical_copy =
-	    planner.Make<PhysicalCopyToFile>(copy_return_types, std::move(copy_options.copy_function), std::move(copy_options.bind_data), 1)
-	        .Cast<PhysicalCopyToFile>();
+	auto &physical_copy = planner
+	                          .Make<PhysicalCopyToFile>(copy_return_types, std::move(copy_options.copy_function),
+	                                                    std::move(copy_options.bind_data), 1)
+	                          .Cast<PhysicalCopyToFile>();
 
 	physical_copy.file_path = std::move(copy_options.file_path);
 	physical_copy.use_tmp_file = copy_options.use_tmp_file;
@@ -354,7 +364,9 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, cons
 	return physical_copy;
 }
 
-PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, PhysicalPlanGenerator &planner, DuckLakeTableEntry &table, optional_ptr<PhysicalOperator> plan, string encryption_key, InsertVirtualColumns virtual_columns) {
+PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, PhysicalPlanGenerator &planner,
+                                                    DuckLakeTableEntry &table, optional_ptr<PhysicalOperator> plan,
+                                                    string encryption_key, InsertVirtualColumns virtual_columns) {
 	auto &columns = table.GetColumns();
 	auto partition_data = table.GetPartitionData();
 	optional_idx partition_id;
@@ -362,10 +374,12 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, Phys
 		partition_id = partition_data->partition_id;
 	}
 	auto &field_data = table.GetFieldData();
-	return PlanCopyForInsert(context, columns, planner, partition_data, field_data, plan, table.DataPath(), std::move(encryption_key), virtual_columns);
+	return PlanCopyForInsert(context, columns, planner, partition_data, field_data, plan, table.DataPath(),
+	                         std::move(encryption_key), virtual_columns);
 }
 
-PhysicalOperator &DuckLakeInsert::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner, DuckLakeTableEntry &table, string encryption_key) {
+PhysicalOperator &DuckLakeInsert::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner,
+                                             DuckLakeTableEntry &table, string encryption_key) {
 	auto partition_data = table.GetPartitionData();
 	optional_idx partition_id;
 	if (partition_data) {
@@ -416,7 +430,8 @@ PhysicalOperator &DuckLakeCatalog::PlanCreateTableAs(ClientContext &context, Phy
 	auto &columns = create_info.columns;
 	// FIXME: if table already exists and we are doing CREATE IF NOT EXISTS - skip
 	string encryption_key = GenerateEncryptionKey(context);
-	auto &physical_copy = DuckLakeInsert::PlanCopyForInsert(context, columns, planner, nullptr, nullptr, plan, DataPath(), encryption_key);
+	auto &physical_copy = DuckLakeInsert::PlanCopyForInsert(context, columns, planner, nullptr, nullptr, plan,
+	                                                        DataPath(), encryption_key);
 	auto &insert = planner.Make<DuckLakeInsert>(op.types, op.schema, std::move(op.info), std::move(encryption_key));
 	insert.children.push_back(physical_copy);
 	return insert;

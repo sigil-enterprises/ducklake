@@ -1,6 +1,6 @@
 # name: test/sql/compaction/compaction_encrypted.test
 # description: test compaction on an encrypted database
-# group: [ducklake]
+# group: [compaction]
 
 require ducklake
 

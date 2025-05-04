@@ -1,6 +1,6 @@
 # name: test/sql/default/add_column_with_default.test
 # description: Test adding a column with default values with DuckLake
-# group: [ducklake]
+# group: [default]
 
 require ducklake
 

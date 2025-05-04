@@ -1,6 +1,6 @@
 # name: test/sql/types/list.test
 # description: test storing list types in ducklake
-# group: [ducklake]
+# group: [types]
 
 require ducklake
 

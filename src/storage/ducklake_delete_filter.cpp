@@ -25,7 +25,7 @@ idx_t DuckLakeDeleteData::Filter(row_t start_row_index, idx_t count, SelectionVe
 	// we have deletes in this range
 	result_sel.Initialize(STANDARD_VECTOR_SIZE);
 	idx_t result_count = 0;
-	for(idx_t i = 0; i < count; i++) {
+	for (idx_t i = 0; i < count; i++) {
 		if (delete_idx < deleted_rows.size() && start_row_index + i == deleted_rows[delete_idx]) {
 			// this row is deleted - skip
 			delete_idx++;
@@ -77,8 +77,10 @@ vector<idx_t> DuckLakeDeleteFilter::ScanDeleteFile(ClientContext &context, const
 
 	auto bind_data = parquet_scan.bind(context, bind_input, return_types, return_names);
 
-	if (return_types.size() != 2 || return_types[0].id() != LogicalTypeId::VARCHAR || return_types[1].id() != LogicalTypeId::BIGINT) {
-		throw InvalidInputException("Invalid schema contained in the delete file %s - expected file_name/position" , delete_file.path);
+	if (return_types.size() != 2 || return_types[0].id() != LogicalTypeId::VARCHAR ||
+	    return_types[1].id() != LogicalTypeId::BIGINT) {
+		throw InvalidInputException("Invalid schema contained in the delete file %s - expected file_name/position",
+		                            delete_file.path);
 	}
 
 	DataChunk scan_chunk;
@@ -97,7 +99,7 @@ vector<idx_t> DuckLakeDeleteFilter::ScanDeleteFile(ClientContext &context, const
 
 	vector<idx_t> deleted_rows;
 	int64_t last_delete = -1;
-	while(true) {
+	while (true) {
 		TableFunctionInput function_input(bind_data.get(), local_state.get(), global_state.get());
 		scan_chunk.Reset();
 		parquet_scan.function(context, function_input, scan_chunk);
@@ -117,7 +119,9 @@ vector<idx_t> DuckLakeDeleteFilter::ScanDeleteFile(ClientContext &context, const
 			}
 			auto &row_id = row_ids[idx];
 			if (row_id <= last_delete) {
-				throw InvalidInputException("Invalid delete data - row ids must be sorted and strictly increasing - but found %d after %d", row_id, last_delete);
+				throw InvalidInputException(
+				    "Invalid delete data - row ids must be sorted and strictly increasing - but found %d after %d",
+				    row_id, last_delete);
 			}
 
 			deleted_rows.push_back(row_id);
@@ -141,9 +145,11 @@ void DuckLakeDeleteFilter::Initialize(ClientContext &context, const DuckLakeDele
 		auto current_deletes = ScanDeleteFile(context, delete_scan.delete_file);
 		// iterate over the current delets - these are the rows we need to scan
 		memset(rows_to_scan.get(), 0, sizeof(bool) * delete_scan.row_count);
-		for(auto delete_idx : current_deletes) {
+		for (auto delete_idx : current_deletes) {
 			if (delete_idx >= delete_scan.row_count) {
-				throw InvalidInputException("Invalid delete data - delete index read from file %s is out of range for data file %s", delete_scan.delete_file.path, delete_scan.file.path);
+				throw InvalidInputException(
+				    "Invalid delete data - delete index read from file %s is out of range for data file %s",
+				    delete_scan.delete_file.path, delete_scan.file.path);
 			}
 			rows_to_scan[delete_idx] = true;
 		}
@@ -157,9 +163,11 @@ void DuckLakeDeleteFilter::Initialize(ClientContext &context, const DuckLakeDele
 		// if we have a previous delete file - scan that set of deletes
 		auto previous_deletes = ScanDeleteFile(context, delete_scan.previous_delete_file);
 		// these deletes are not new - we should not scan them
-		for(auto delete_idx : previous_deletes) {
+		for (auto delete_idx : previous_deletes) {
 			if (delete_idx >= delete_scan.row_count) {
-				throw InvalidInputException("Invalid delete data - delete index read from file %s is out of range for data file %s", delete_scan.delete_file.path, delete_scan.file.path);
+				throw InvalidInputException(
+				    "Invalid delete data - delete index read from file %s is out of range for data file %s",
+				    delete_scan.delete_file.path, delete_scan.file.path);
 			}
 			rows_to_scan[delete_idx] = false;
 		}
@@ -167,7 +175,7 @@ void DuckLakeDeleteFilter::Initialize(ClientContext &context, const DuckLakeDele
 
 	// now construct the delete filter based on the rows we want to scan
 	auto &deleted = delete_data->deleted_rows;
-	for(idx_t i = 0; i < delete_scan.row_count; i++) {
+	for (idx_t i = 0; i < delete_scan.row_count; i++) {
 		if (!rows_to_scan[i]) {
 			deleted.push_back(i);
 		}
@@ -178,4 +186,4 @@ void DuckLakeDeleteFilter::SetMaxRowCount(idx_t max_row_count_p) {
 	max_row_count = max_row_count_p;
 }
 
-}
+} // namespace duckdb

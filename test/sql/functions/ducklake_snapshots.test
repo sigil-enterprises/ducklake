@@ -1,6 +1,6 @@
 # name: test/sql/functions/ducklake_snapshots.test
 # description: View DuckLake Snapshots
-# group: [ducklake]
+# group: [functions]
 
 require ducklake
 

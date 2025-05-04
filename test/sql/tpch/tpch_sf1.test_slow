@@ -1,6 +1,6 @@
 # name: test/sql/tpch/tpch_sf1.test_slow
 # description: Test running TPC-H on DuckLake
-# group: [ducklake]
+# group: [tpch]
 
 require ducklake
 

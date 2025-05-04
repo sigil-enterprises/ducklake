@@ -1,6 +1,6 @@
 # name: test/sql/types/floats.test
 # description: test ducklake floats
-# group: [ducklake]
+# group: [types]
 
 require ducklake
 

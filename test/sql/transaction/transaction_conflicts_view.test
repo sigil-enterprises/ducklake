@@ -1,6 +1,6 @@
 # name: test/sql/transaction/transaction_conflicts_view.test
 # description: Test transaction conflicts in DuckLake
-# group: [ducklake]
+# group: [transaction]
 
 require ducklake
 

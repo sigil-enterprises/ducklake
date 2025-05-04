@@ -1,6 +1,6 @@
 # name: test/sql/comments/comment_on_column.test
 # description: test ducklake comments on a column
-# group: [ducklake]
+# group: [comments]
 
 require ducklake
 

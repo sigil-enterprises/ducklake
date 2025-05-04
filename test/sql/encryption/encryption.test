@@ -1,6 +1,6 @@
 # name: test/sql/encryption/encryption.test
 # description: Test ducklake encryption support
-# group: [ducklake]
+# group: [encryption]
 
 require ducklake
 

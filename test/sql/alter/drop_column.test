@@ -1,6 +1,6 @@
 # name: test/sql/alter/drop_column.test
 # description: test ducklake drop columns
-# group: [ducklake]
+# group: [alter]
 
 require ducklake
 
