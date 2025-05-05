@@ -299,7 +299,8 @@ OpenFileInfo DuckLakeMultiFileList::GetFile(idx_t i) {
 	if (i >= files.size()) {
 		return OpenFileInfo();
 	}
-	auto &file = files[i].file;
+	auto &file_entry = files[i];
+	auto &file = file_entry.file;
 	OpenFileInfo result(file.path);
 	auto extended_info = make_shared_ptr<ExtendedOpenFileInfo>();
 	extended_info->options["file_size"] = Value::UBIGINT(file.file_size_bytes);
@@ -320,6 +321,9 @@ OpenFileInfo DuckLakeMultiFileList::GetFile(idx_t i) {
 	// etag / last modified time can be set to dummy values
 	extended_info->options["etag"] = Value("");
 	extended_info->options["last_modified"] = Value::TIMESTAMP(timestamp_t(0));
+	if (!file_entry.delete_file.path.empty() || file_entry.max_row_count.IsValid()) {
+		extended_info->options["has_deletes"] = Value::BOOLEAN(true);
+	}
 	result.extended_info = std::move(extended_info);
 	return result;
 }
