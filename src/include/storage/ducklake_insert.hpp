@@ -75,7 +75,8 @@ public:
 	PlanCopyForInsert(ClientContext &context, const ColumnList &columns, PhysicalPlanGenerator &planner,
 	                  optional_ptr<DuckLakePartition> partition_data, optional_ptr<DuckLakeFieldData> field_data,
 	                  optional_ptr<PhysicalOperator> plan, const string &data_path, string encryption_key,
-	                  InsertVirtualColumns virtual_columns = InsertVirtualColumns::NONE);
+	                  InsertVirtualColumns virtual_columns = InsertVirtualColumns::NONE,
+					  idx_t data_inlining_row_limit = 0);
 	static PhysicalOperator &PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner,
 	                                    DuckLakeTableEntry &table, string encryption_key);
 	static void AddWrittenFiles(DuckLakeInsertGlobalState &gstate, DataChunk &chunk, const string &encryption_key,

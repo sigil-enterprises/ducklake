@@ -12,6 +12,7 @@ static unique_ptr<Catalog> DuckLakeAttach(StorageExtensionInfo *storage_info, Cl
 	string schema;
 	string data_path;
 	string metadata_catalog_name;
+	idx_t data_inlining_row_limit = 0;
 	auto encrypted = DuckLakeEncryption::AUTOMATIC;
 	for (auto &entry : info.options) {
 		if (StringUtil::CIEquals(entry.first, "data_path")) {
@@ -26,13 +27,15 @@ static unique_ptr<Catalog> DuckLakeAttach(StorageExtensionInfo *storage_info, Cl
 			} else {
 				encrypted = DuckLakeEncryption::UNENCRYPTED;
 			}
+		} else if (StringUtil::CIEquals(entry.first, "data_inlining_row_limit")) {
+			data_inlining_row_limit = entry.second.GetValue<idx_t>();
 		}
 	}
 	if (metadata_catalog_name.empty()) {
 		metadata_catalog_name = "__ducklake_metadata_" + name;
 	}
 	return make_uniq<DuckLakeCatalog>(db, std::move(metadata_catalog_name), info.path, std::move(data_path),
-	                                  std::move(schema), encrypted);
+	                                  std::move(schema), encrypted, data_inlining_row_limit);
 }
 
 static unique_ptr<TransactionManager> DuckLakeCreateTransactionManager(StorageExtensionInfo *storage_info,

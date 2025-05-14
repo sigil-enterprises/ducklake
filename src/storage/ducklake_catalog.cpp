@@ -20,9 +20,10 @@
 namespace duckdb {
 
 DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, string metadata_database_p, string metadata_path_p,
-                                 string data_path_p, string metadata_schema_p, DuckLakeEncryption encryption)
+                                 string data_path_p, string metadata_schema_p, DuckLakeEncryption encryption, idx_t data_inlining_row_limit)
     : Catalog(db_p), metadata_database(std::move(metadata_database_p)), metadata_path(std::move(metadata_path_p)),
-      data_path(std::move(data_path_p)), metadata_schema(std::move(metadata_schema_p)), encryption(encryption) {
+      data_path(std::move(data_path_p)), metadata_schema(std::move(metadata_schema_p)), encryption(encryption),
+      data_inlining_row_limit(data_inlining_row_limit) {
 }
 
 DuckLakeCatalog::~DuckLakeCatalog() {

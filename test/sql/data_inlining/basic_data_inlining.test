@@ -1,0 +1,74 @@
+# name: test/sql/data_inlining/basic_data_inlining.test
+# description: test ducklake extension
+# group: [sql]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_inlining.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_inlining_files', METADATA_CATALOG 'ducklake_meta', DATA_INLINING_ROW_LIMIT 10)
+
+statement ok
+CREATE TABLE ducklake.test(i INTEGER, j INTEGER);
+
+query II
+SELECT * FROM ducklake.test
+----
+
+statement ok
+BEGIN
+
+query I
+INSERT INTO ducklake.test VALUES (1, 2), (NULL, 3);
+----
+2
+
+query II
+SELECT * FROM ducklake.test
+----
+1	2
+NULL	3
+
+statement ok
+COMMIT
+
+query II
+SELECT * FROM ducklake.test
+----
+1	2
+NULL	3
+
+# all data is inlined - so we have no files
+query I
+SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_inlining_files/**')
+----
+0
+
+# we can delete inlined data
+query I
+DELETE FROM ducklake.test WHERE i=1
+----
+1
+
+query II
+SELECT * FROM ducklake.test
+----
+NULL	3
+
+# we can update inlined data
+query I
+UPDATE ducklake.test SET i=5 WHERE j=3
+----
+1
+
+query II
+SELECT * FROM ducklake.test
+----
+5	3
+
+# still no files
+query I
+SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_inlining_files/**')
+----
+0

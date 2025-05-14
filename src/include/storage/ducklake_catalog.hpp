@@ -24,7 +24,7 @@ class LogicalGet;
 class DuckLakeCatalog : public Catalog {
 public:
 	DuckLakeCatalog(AttachedDatabase &db_p, string metadata_database, string metadata_path, string data_path,
-	                string metadata_schema, DuckLakeEncryption encryption);
+	                string metadata_schema, DuckLakeEncryption encryption, idx_t data_inlining_row_limit);
 	~DuckLakeCatalog();
 
 public:
@@ -44,6 +44,9 @@ public:
 	}
 	const string &DataPath() const {
 		return data_path;
+	}
+	idx_t DataInliningRowLimit() const {
+		return data_inlining_row_limit;
 	}
 
 	optional_ptr<CatalogEntry> CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) override;
@@ -109,6 +112,7 @@ private:
 	string data_path;
 	string metadata_schema;
 	DuckLakeEncryption encryption;
+	idx_t data_inlining_row_limit;
 };
 
 } // namespace duckdb

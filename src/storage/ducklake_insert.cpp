@@ -5,6 +5,7 @@
 #include "storage/ducklake_transaction.hpp"
 #include "common/ducklake_util.hpp"
 #include "storage/ducklake_scan.hpp"
+#include "storage/ducklake_inline_data.hpp"
 
 #include "duckdb/catalog/catalog_entry/copy_function_catalog_entry.hpp"
 #include "duckdb/execution/operator/projection/physical_projection.hpp"
@@ -331,7 +332,8 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, cons
                                                     optional_ptr<DuckLakePartition> partition_data,
                                                     optional_ptr<DuckLakeFieldData> field_data,
                                                     optional_ptr<PhysicalOperator> plan, const string &data_path,
-                                                    string encryption_key, InsertVirtualColumns virtual_columns) {
+                                                    string encryption_key, InsertVirtualColumns virtual_columns,
+                                                    idx_t data_inlining_row_limit) {
 	auto copy_options = GetCopyOptions(context, columns, partition_data, field_data, data_path,
 	                                   std::move(encryption_key), virtual_columns);
 
@@ -358,6 +360,10 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, cons
 	physical_copy.names = std::move(copy_options.names);
 	physical_copy.expected_types = std::move(copy_options.expected_types);
 	if (plan) {
+		if (data_inlining_row_limit > 0) {
+			auto &inline_data = planner.Make<DuckLakeInlineData>(*plan, data_inlining_row_limit);
+			plan = inline_data;
+		}
 		physical_copy.children.push_back(*plan);
 	}
 
@@ -374,8 +380,9 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, Phys
 		partition_id = partition_data->partition_id;
 	}
 	auto &field_data = table.GetFieldData();
+	auto &catalog = table.catalog.Cast<DuckLakeCatalog>();
 	return PlanCopyForInsert(context, columns, planner, partition_data, field_data, plan, table.DataPath(),
-	                         std::move(encryption_key), virtual_columns);
+	                         std::move(encryption_key), virtual_columns, catalog.DataInliningRowLimit());
 }
 
 PhysicalOperator &DuckLakeInsert::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner,
