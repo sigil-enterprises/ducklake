@@ -20,7 +20,8 @@
 namespace duckdb {
 
 DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, string metadata_database_p, string metadata_path_p,
-                                 string data_path_p, string metadata_schema_p, DuckLakeEncryption encryption, idx_t data_inlining_row_limit)
+                                 string data_path_p, string metadata_schema_p, DuckLakeEncryption encryption,
+                                 idx_t data_inlining_row_limit)
     : Catalog(db_p), metadata_database(std::move(metadata_database_p)), metadata_path(std::move(metadata_path_p)),
       data_path(std::move(data_path_p)), metadata_schema(std::move(metadata_schema_p)), encryption(encryption),
       data_inlining_row_limit(data_inlining_row_limit) {
@@ -225,9 +226,9 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 			create_table_info->constraints.push_back(make_uniq<NotNullConstraint>(col.Logical()));
 		}
 		// create the table and add it to the schema set
-		auto table_entry =
-		    make_uniq<DuckLakeTableEntry>(*this, schema_entry, *create_table_info, table.id, std::move(table.uuid),
-		                                  std::move(field_data), optional_idx(), LocalChangeType::NONE);
+		auto table_entry = make_uniq<DuckLakeTableEntry>(*this, schema_entry, *create_table_info, table.id,
+		                                                 std::move(table.uuid), std::move(field_data), optional_idx(),
+		                                                 std::move(table.inlined_data_tables), LocalChangeType::NONE);
 		schema_set->AddEntry(schema_entry, table.id, std::move(table_entry));
 	}
 

@@ -25,9 +25,10 @@ constexpr column_t DuckLakeMultiFileReader::COLUMN_IDENTIFIER_SNAPSHOT_ID;
 DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info,
                                        TableIndex table_id, string table_uuid_p,
                                        shared_ptr<DuckLakeFieldData> field_data_p, optional_idx next_column_id_p,
-                                       LocalChange local_change)
+                                       vector<DuckLakeInlinedTableInfo> inlined_data_tables_p, LocalChange local_change)
     : TableCatalogEntry(catalog, schema, info), table_id(table_id), table_uuid(std::move(table_uuid_p)),
-      field_data(std::move(field_data_p)), next_column_id(next_column_id_p), local_change(local_change) {
+      field_data(std::move(field_data_p)), next_column_id(next_column_id_p),
+      inlined_data_tables(std::move(inlined_data_tables_p)), local_change(local_change) {
 	for (auto &constraint : info.constraints) {
 		switch (constraint->type) {
 		case ConstraintType::NOT_NULL:
@@ -47,7 +48,8 @@ DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &sch
 // ALTER TABLE RENAME/SET COMMENT/ADD COLUMN/DROP COLUMN
 DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, LocalChange local_change)
     : DuckLakeTableEntry(parent.ParentCatalog(), parent.ParentSchema(), info, parent.GetTableId(),
-                         parent.GetTableUUID(), parent.field_data, parent.next_column_id, local_change) {
+                         parent.GetTableUUID(), parent.field_data, parent.next_column_id, parent.inlined_data_tables,
+                         local_change) {
 	if (parent.partition_data) {
 		partition_data = make_uniq<DuckLakePartition>(*parent.partition_data);
 	}
@@ -204,7 +206,7 @@ TableFunction DuckLakeTableEntry::GetScanFunction(ClientContext &context, unique
 	auto &transaction = DuckLakeTransaction::Get(context, ParentCatalog());
 
 	auto function_info =
-	    make_shared_ptr<DuckLakeFunctionInfo>(*this, transaction.GetSnapshot(lookup_info.GetAtClause()));
+	    make_shared_ptr<DuckLakeFunctionInfo>(*this, transaction, transaction.GetSnapshot(lookup_info.GetAtClause()));
 	function_info->table_name = name;
 	for (auto &col : columns.Logical()) {
 		function_info->column_names.push_back(col.Name());

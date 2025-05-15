@@ -47,6 +47,11 @@ struct DuckLakeColumnInfo {
 	vector<DuckLakeTag> tags;
 };
 
+struct DuckLakeInlinedTableInfo {
+	string table_name;
+	idx_t schema_id;
+};
+
 struct DuckLakeTableInfo {
 	TableIndex id;
 	SchemaIndex schema_id;
@@ -54,6 +59,7 @@ struct DuckLakeTableInfo {
 	string name;
 	vector<DuckLakeColumnInfo> columns;
 	vector<DuckLakeTag> tags;
+	vector<DuckLakeInlinedTableInfo> inlined_data_tables;
 };
 
 struct DuckLakeColumnStatsInfo {

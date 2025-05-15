@@ -106,6 +106,18 @@ vector<DuckLakeTag> LoadTags(const Value &tag_map) {
 	return result;
 }
 
+vector<DuckLakeInlinedTableInfo> LoadInlinedDataTables(const Value &list) {
+	vector<DuckLakeInlinedTableInfo> result;
+	for (auto &val : ListValue::GetChildren(list)) {
+		auto &struct_children = StructValue::GetChildren(val);
+		DuckLakeInlinedTableInfo inlined_data_table;
+		inlined_data_table.table_name = StringValue::Get(struct_children[0]);
+		inlined_data_table.schema_id = struct_children[1].GetValue<idx_t>();
+		result.push_back(std::move(inlined_data_table));
+	}
+	return result;
+}
+
 DuckLakeCatalogInfo DuckLakeMetadataManager::GetCatalogForSnapshot(DuckLakeSnapshot snapshot) {
 	DuckLakeCatalogInfo catalog;
 	// load the schema information
@@ -134,6 +146,11 @@ SELECT schema_id, tbl.table_id, table_uuid::VARCHAR, table_name,
 		WHERE object_id=table_id AND
 		      {SNAPSHOT_ID} >= tag.begin_snapshot AND ({SNAPSHOT_ID} < tag.end_snapshot OR tag.end_snapshot IS NULL)
 	) AS tag,
+	(
+		SELECT LIST({'name': table_name, 'schema_id': schema_id})
+		FROM {METADATA_CATALOG}.ducklake_inlined_data_tables inlined_data_tables
+		WHERE inlined_data_tables.table_id = tbl.table_id
+	) AS inlined_data_tables,
 	col.column_id, column_name, column_type, initial_default, default_value, nulls_allowed, parent_column,
 	(
 		SELECT LIST({'key': key, 'value': value})
@@ -150,7 +167,7 @@ ORDER BY table_id, parent_column NULLS FIRST, column_order
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to get table information from DuckLake: ");
 	}
-	const idx_t COLUMN_INDEX_START = 5;
+	const idx_t COLUMN_INDEX_START = 6;
 	auto &tables = catalog.tables;
 	for (auto &row : *result) {
 		auto table_id = TableIndex(row.GetValue<uint64_t>(1));
@@ -166,6 +183,10 @@ ORDER BY table_id, parent_column NULLS FIRST, column_order
 			if (!row.IsNull(4)) {
 				auto tags = row.GetValue<Value>(4);
 				table_info.tags = LoadTags(tags);
+			}
+			if (!row.IsNull(5)) {
+				auto inlined_data_tables = row.GetValue<Value>(5);
+				table_info.inlined_data_tables = LoadInlinedDataTables(inlined_data_tables);
 			}
 			tables.push_back(std::move(table_info));
 		}
@@ -942,6 +963,33 @@ WHERE table_id = %d AND schema_id=(
 			result->GetErrorObject().Throw("Failed to write inlined data to DuckLake: ");
 		}
 	}
+}
+
+shared_ptr<DuckLakeInlinedData> DuckLakeMetadataManager::ReadInlinedData(DuckLakeSnapshot snapshot,
+                                                                         const string &inlined_table_name,
+                                                                         const vector<string> &columns_to_read) {
+	auto projection = StringUtil::Join(columns_to_read, ", ");
+	auto result = transaction.Query(snapshot, StringUtil::Format(R"(
+SELECT %s
+FROM {METADATA_CATALOG}.%s
+WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL);)",
+	                                                             projection, inlined_table_name));
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to read inlined data from DuckLake: ");
+	}
+
+	auto context = transaction.context.lock();
+	auto data = make_uniq<ColumnDataCollection>(*context, result->types);
+	while (true) {
+		auto chunk = result->Fetch();
+		if (!chunk) {
+			break;
+		}
+		data->Append(*chunk);
+	}
+	auto inlined_data = make_shared_ptr<DuckLakeInlinedData>();
+	inlined_data->data = std::move(data);
+	return inlined_data;
 }
 
 void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot,

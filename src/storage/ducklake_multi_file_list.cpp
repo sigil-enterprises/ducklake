@@ -22,7 +22,8 @@
 namespace duckdb {
 
 DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,
-                                             vector<DuckLakeDataFile> transaction_local_files_p, shared_ptr<DuckLakeInlinedData> transaction_local_data_p, string filter_p)
+                                             vector<DuckLakeDataFile> transaction_local_files_p,
+                                             shared_ptr<DuckLakeInlinedData> transaction_local_data_p, string filter_p)
     : MultiFileList(vector<OpenFileInfo> {}, FileGlobOptions::ALLOW_EMPTY), transaction(transaction),
       read_info(read_info), read_file_list(false), transaction_local_files(std::move(transaction_local_files_p)),
       transaction_local_data(std::move(transaction_local_data_p)), filter(std::move(filter_p)) {
@@ -261,7 +262,8 @@ DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const Multi
 		    final_filter);
 	}
 	if (!filter.empty()) {
-		return make_uniq<DuckLakeMultiFileList>(transaction, read_info, transaction_local_files, transaction_local_data, std::move(filter));
+		return make_uniq<DuckLakeMultiFileList>(transaction, read_info, transaction_local_files, transaction_local_data,
+		                                        std::move(filter));
 	}
 	return nullptr;
 }
@@ -303,9 +305,21 @@ OpenFileInfo DuckLakeMultiFileList::GetFile(idx_t i) {
 	auto &file = file_entry.file;
 	OpenFileInfo result(file.path);
 	auto extended_info = make_shared_ptr<ExtendedOpenFileInfo>();
+	auto &inlined_data_tables = read_info.table.GetInlinedDataTables();
+	idx_t inlined_data_file_start = files.size() - inlined_data_tables.size();
+	if (transaction_local_data) {
+		inlined_data_file_start--;
+	}
 	if (transaction_local_data && i + 1 == files.size()) {
 		// scanning transaction local data
 		extended_info->options["transaction_local_data"] = Value::BOOLEAN(true);
+		extended_info->options["inlined_data"] = Value::BOOLEAN(true);
+	} else if (i >= inlined_data_file_start) {
+		// scanning inlined data
+		auto inlined_data_index = inlined_data_file_start - i;
+		auto &inlined_data_table = inlined_data_tables[inlined_data_index];
+		extended_info->options["table_name"] = inlined_data_table.table_name;
+		extended_info->options["schema_id"] = Value::BIGINT(inlined_data_table.schema_id);
 		extended_info->options["inlined_data"] = Value::BOOLEAN(true);
 	} else {
 		extended_info->options["file_size"] = Value::UBIGINT(file.file_size_bytes);
@@ -395,6 +409,16 @@ vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() 
 		transaction_row_start += file.row_count;
 		result.push_back(std::move(file_entry));
 	}
+	auto &inlined_data_tables = read_info.table.GetInlinedDataTables();
+	for (auto &table : inlined_data_tables) {
+		DuckLakeFileListExtendedEntry file_entry;
+		file_entry.file.path = table.table_name;
+		file_entry.file_id = DataFileIndex();
+		file_entry.delete_file_id = DataFileIndex();
+		file_entry.row_count = 0;
+		file_entry.row_id_start = 0;
+		result.push_back(std::move(file_entry));
+	}
 	if (transaction_local_data) {
 		// we have transaction local inlined data - create the dummy file entry
 		DuckLakeFileListExtendedEntry file_entry;
@@ -447,6 +471,13 @@ void DuckLakeMultiFileList::GetFilesForTable() {
 		file_entry.delete_file = GetDeleteData(file);
 		transaction_row_start += file.row_count;
 		files.emplace_back(std::move(file_entry));
+	}
+	auto &inlined_data_tables = read_info.table.GetInlinedDataTables();
+	for (auto &table : inlined_data_tables) {
+		DuckLakeFileListEntry file_entry;
+		file_entry.file.path = table.table_name;
+		file_entry.row_id_start = 0;
+		files.push_back(std::move(file_entry));
 	}
 	if (transaction_local_data) {
 		// we have transaction local inlined data - create the dummy file entry

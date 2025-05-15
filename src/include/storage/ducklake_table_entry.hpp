@@ -34,7 +34,7 @@ class DuckLakeTableEntry : public TableCatalogEntry {
 public:
 	DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info, TableIndex table_id,
 	                   string table_uuid, shared_ptr<DuckLakeFieldData> field_data, optional_idx next_column_id,
-	                   LocalChange local_change);
+	                   vector<DuckLakeInlinedTableInfo> inlined_data_tables, LocalChange local_change);
 
 public:
 	TableIndex GetTableId() const {
@@ -60,6 +60,9 @@ public:
 	}
 	const ColumnChangeInfo &GetChangedFields() const {
 		return *changed_fields;
+	}
+	const vector<DuckLakeInlinedTableInfo> &GetInlinedDataTables() const {
+		return inlined_data_tables;
 	}
 	const ColumnDefinition &GetColumnByFieldId(FieldIndex field_index) const;
 	//! Returns the root field id of a column
@@ -143,6 +146,7 @@ private:
 	string table_uuid;
 	shared_ptr<DuckLakeFieldData> field_data;
 	optional_idx next_column_id;
+	vector<DuckLakeInlinedTableInfo> inlined_data_tables;
 	LocalChange local_change;
 	unique_ptr<DuckLakePartition> partition_data;
 	// only set for REMOVED_COLUMN

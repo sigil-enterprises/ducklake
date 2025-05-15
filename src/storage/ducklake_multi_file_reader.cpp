@@ -53,7 +53,8 @@ shared_ptr<MultiFileList> DuckLakeMultiFileReader::CreateFileList(ClientContext 
 	auto &transaction = DuckLakeTransaction::Get(context, read_info.table.ParentCatalog());
 	auto transaction_local_files = transaction.GetTransactionLocalFiles(read_info.table_id);
 	transaction_local_data = transaction.GetTransactionLocalInlinedData(read_info.table_id);
-	auto result = make_shared_ptr<DuckLakeMultiFileList>(transaction, read_info, std::move(transaction_local_files), transaction_local_data);
+	auto result = make_shared_ptr<DuckLakeMultiFileList>(transaction, read_info, std::move(transaction_local_files),
+	                                                     transaction_local_data);
 	return std::move(result);
 }
 
@@ -144,16 +145,31 @@ shared_ptr<BaseFileReader> DuckLakeMultiFileReader::TryCreateInlinedDataReader(c
 	if (entry == file.extended_info->options.end()) {
 		return nullptr;
 	}
-	if (!transaction_local_data) {
-		throw InternalException("No transaction local data");
+	// this is not a file but inlined data
+	entry = file.extended_info->options.find("table_name");
+	if (entry == file.extended_info->options.end()) {
+		// scanning transaction local inlined data
+		if (!transaction_local_data) {
+			throw InternalException("No transaction local data");
+		}
+		auto columns = DuckLakeMultiFileReader::ColumnsFromFieldData(read_info.table.GetFieldData());
+		return make_shared_ptr<DuckLakeInlinedDataReader>(read_info, file, transaction_local_data, std::move(columns));
 	}
-	// this is not a file but inlined data - instantiate the reader
-	return make_shared_ptr<DuckLakeInlinedDataReader>(file, *transaction_local_data, read_info.table.GetFieldData());
+	// we are reading from a table - set up the inlined data reader that will read this data when requested
+	//! FIXME: we cannot just grab the field data from the table when this is not the latest inlined data table
+	auto columns = DuckLakeMultiFileReader::ColumnsFromFieldData(read_info.table.GetFieldData());
+	columns.insert(columns.begin(), *snapshot_id_column);
+	columns.insert(columns.begin(), *row_id_column);
+
+	auto inlined_table_name = StringValue::Get(entry->second);
+	return make_shared_ptr<DuckLakeInlinedDataReader>(read_info, file, std::move(inlined_table_name),
+	                                                  std::move(columns));
 }
 
-shared_ptr<BaseFileReader> DuckLakeMultiFileReader::CreateReader(ClientContext &context, GlobalTableFunctionState &gstate,
-														   const OpenFileInfo &file, idx_t file_idx,
-														   const MultiFileBindData &bind_data) {
+shared_ptr<BaseFileReader> DuckLakeMultiFileReader::CreateReader(ClientContext &context,
+                                                                 GlobalTableFunctionState &gstate,
+                                                                 const OpenFileInfo &file, idx_t file_idx,
+                                                                 const MultiFileBindData &bind_data) {
 	auto reader = TryCreateInlinedDataReader(file);
 	if (reader) {
 		return reader;
@@ -162,9 +178,9 @@ shared_ptr<BaseFileReader> DuckLakeMultiFileReader::CreateReader(ClientContext &
 }
 
 shared_ptr<BaseFileReader> DuckLakeMultiFileReader::CreateReader(ClientContext &context, const OpenFileInfo &file,
-														   BaseFileReaderOptions &options,
-														   const MultiFileOptions &file_options,
-														   MultiFileReaderInterface &interface) {
+                                                                 BaseFileReaderOptions &options,
+                                                                 const MultiFileOptions &file_options,
+                                                                 MultiFileReaderInterface &interface) {
 	auto reader = TryCreateInlinedDataReader(file);
 	if (reader) {
 		return reader;

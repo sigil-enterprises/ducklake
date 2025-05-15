@@ -81,6 +81,8 @@ public:
 	virtual unique_ptr<DuckLakeSnapshot> GetSnapshot();
 	virtual unique_ptr<DuckLakeSnapshot> GetSnapshot(BoundAtClause &at_clause);
 	virtual idx_t GetNextColumnId(TableIndex table_id);
+	virtual shared_ptr<DuckLakeInlinedData> ReadInlinedData(DuckLakeSnapshot snapshot, const string &inlined_table_name,
+	                                                        const vector<string> &columns_to_read);
 
 	virtual vector<DuckLakeSnapshotInfo> GetAllSnapshots(const string &filter = string());
 	virtual void DeleteSnapshots(const vector<DuckLakeSnapshotInfo> &snapshots);

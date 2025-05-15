@@ -15,6 +15,7 @@
 namespace duckdb {
 class DuckLakeMultiFileList;
 class DuckLakeTableEntry;
+class DuckLakeTransaction;
 
 class DuckLakeFunctions {
 public:
@@ -29,10 +30,12 @@ public:
 enum class DuckLakeScanType { SCAN_TABLE, SCAN_INSERTIONS, SCAN_DELETIONS };
 
 struct DuckLakeFunctionInfo : public TableFunctionInfo {
-	DuckLakeFunctionInfo(DuckLakeTableEntry &table, DuckLakeSnapshot snapshot) : table(table), snapshot(snapshot) {
+	DuckLakeFunctionInfo(DuckLakeTableEntry &table, DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot)
+	    : table(table), transaction(transaction), snapshot(snapshot) {
 	}
 
 	DuckLakeTableEntry &table;
+	DuckLakeTransaction &transaction;
 	string table_name;
 	vector<string> column_names;
 	vector<LogicalType> column_types;

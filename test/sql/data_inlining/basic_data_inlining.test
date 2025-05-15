@@ -1,6 +1,6 @@
 # name: test/sql/data_inlining/basic_data_inlining.test
 # description: test ducklake extension
-# group: [sql]
+# group: [data_inlining]
 
 require ducklake
 
@@ -39,6 +39,7 @@ SELECT * FROM ducklake.test
 1	2
 NULL	3
 
+# FIXME: stats
 query II
 SELECT * FROM ducklake.test WHERE i IS NULL
 ----
