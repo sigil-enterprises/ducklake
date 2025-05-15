@@ -68,6 +68,7 @@ public:
 	virtual void WriteNewTags(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeTagInfo> &new_tags);
 	virtual void WriteNewColumnTags(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeColumnTagInfo> &new_tags);
 	virtual void WriteNewDataFiles(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeFileInfo> &new_files);
+	virtual void WriteNewInlinedData(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeInlinedDataInfo> &new_data);
 	virtual void DropDataFiles(DuckLakeSnapshot commit_snapshot, const set<DataFileIndex> &dropped_files);
 	virtual void DropDeleteFiles(DuckLakeSnapshot commit_snapshot, const set<DataFileIndex> &dropped_files);
 	virtual void WriteNewDeleteFiles(DuckLakeSnapshot commit_snapshot,
@@ -83,6 +84,10 @@ public:
 
 	virtual vector<DuckLakeSnapshotInfo> GetAllSnapshots(const string &filter = string());
 	virtual void DeleteSnapshots(const vector<DuckLakeSnapshotInfo> &snapshots);
+
+protected:
+	string GetInlinedTableQuery(const DuckLakeTableInfo &table, const string &table_name);
+	string GetColumnType(const DuckLakeColumnInfo &col);
 
 private:
 	template <class T>

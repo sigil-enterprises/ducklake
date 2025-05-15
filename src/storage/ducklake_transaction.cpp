@@ -60,7 +60,8 @@ bool DuckLakeTransaction::SchemaChangesMade() {
 }
 
 bool DuckLakeTransaction::ChangesMade() {
-	return SchemaChangesMade() || !new_data_files.empty() || !new_delete_files.empty() || !dropped_files.empty() || !new_inlined_data.empty();
+	return SchemaChangesMade() || !new_data_files.empty() || !new_delete_files.empty() || !dropped_files.empty() ||
+	       !new_inlined_data.empty();
 }
 
 struct TransactionChangeInformation {
@@ -927,10 +928,10 @@ NewDataInfo DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &commit_snapsh
 			new_stats = stats_entry->second;
 		} else {
 			// read stats from table (if any)
-		    auto current_stats = ducklake_catalog.GetTableStats(*this, table_id);
-		    if (current_stats) {
-		    	new_stats = *current_stats;
-		    }
+			auto current_stats = ducklake_catalog.GetTableStats(*this, table_id);
+			if (current_stats) {
+				new_stats = *current_stats;
+			}
 		}
 		auto &inlined_data = *entry.second;
 
@@ -954,7 +955,7 @@ NewDataInfo DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &commit_snapsh
 		new_inlined_data.data = std::move(entry.second);
 		result.new_inlined_data.push_back(std::move(new_inlined_data));
 	}
-	for(auto &entry : new_global_stats) {
+	for (auto &entry : new_global_stats) {
 		auto table_id = entry.first;
 		auto &new_stats = entry.second;
 		// update the global stats for this table based on the newly written files
@@ -1026,6 +1027,7 @@ void DuckLakeTransaction::CommitChanges(DuckLakeSnapshot &commit_snapshot,
 	if (!new_data_files.empty() || !new_inlined_data.empty()) {
 		auto result = GetNewDataFiles(commit_snapshot);
 		metadata_manager->WriteNewDataFiles(commit_snapshot, result.new_files);
+		metadata_manager->WriteNewInlinedData(commit_snapshot, result.new_inlined_data);
 	}
 
 	// drop data files
@@ -1243,7 +1245,8 @@ idx_t DuckLakeTransaction::GetLocalCatalogId() {
 }
 
 bool DuckLakeTransaction::HasTransactionLocalChanges(TableIndex table_id) {
-	return new_data_files.find(table_id) != new_data_files.end() || new_inlined_data.find(table_id) != new_inlined_data.end();
+	return new_data_files.find(table_id) != new_data_files.end() ||
+	       new_inlined_data.find(table_id) != new_inlined_data.end();
 }
 
 vector<DuckLakeDataFile> DuckLakeTransaction::GetTransactionLocalFiles(TableIndex table_id) {
@@ -1264,7 +1267,7 @@ shared_ptr<DuckLakeInlinedData> DuckLakeTransaction::GetTransactionLocalInlinedD
 		auto context_ref = context.lock();
 		auto result = make_shared_ptr<DuckLakeInlinedData>();
 		result->data = make_uniq<ColumnDataCollection>(*context_ref, local_changes.data->Types());
-		for(auto &chunk : local_changes.data->Chunks()) {
+		for (auto &chunk : local_changes.data->Chunks()) {
 			result->data->Append(chunk);
 		}
 		return result;
@@ -1320,12 +1323,12 @@ void DuckLakeTransaction::AppendInlinedData(TableIndex table_id, unique_ptr<Duck
 	if (entry != new_inlined_data.end()) {
 		// already exists - append
 		auto &existing_data = entry->second;
-        ColumnDataAppendState append_state;
+		ColumnDataAppendState append_state;
 		existing_data->data->InitializeAppend(append_state);
-		for(auto &chunk : new_data->data->Chunks()) {
+		for (auto &chunk : new_data->data->Chunks()) {
 			existing_data->data->Append(chunk);
 		}
-		for(auto &entry : new_data->column_stats) {
+		for (auto &entry : new_data->column_stats) {
 			auto stats_entry = existing_data->column_stats.find(entry.first);
 			if (stats_entry == existing_data->column_stats.end()) {
 				throw InternalException("Missing stats when merging inlined data");

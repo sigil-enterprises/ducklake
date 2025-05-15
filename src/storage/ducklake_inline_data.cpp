@@ -6,16 +6,13 @@
 
 namespace duckdb {
 
-DuckLakeInlineData::DuckLakeInlineData(PhysicalOperator &child, idx_t inline_row_limit) :
-	PhysicalOperator(PhysicalOperatorType::EXTENSION, child.types, child.estimated_cardinality), inline_row_limit(inline_row_limit) {
+DuckLakeInlineData::DuckLakeInlineData(PhysicalOperator &child, idx_t inline_row_limit)
+    : PhysicalOperator(PhysicalOperatorType::EXTENSION, child.types, child.estimated_cardinality),
+      inline_row_limit(inline_row_limit) {
 	children.push_back(child);
 }
 
-enum class InlinePhase {
-	INLINING_ROWS,
-	EMITTING_PREVIOUSLY_INLINED_ROWS,
-	PASS_THROUGH_ROWS
-};
+enum class InlinePhase { INLINING_ROWS, EMITTING_PREVIOUSLY_INLINED_ROWS, PASS_THROUGH_ROWS };
 
 class InlineDataState : public OperatorState {
 public:
@@ -46,17 +43,17 @@ public:
 		return InlinePhase::INLINING_ROWS;
 	}
 
-    static void AddToCollection(unique_ptr<ColumnDataCollection> source, unique_ptr<ColumnDataCollection> &target) {
-        if (!target) {
-            target = std::move(source);
-            return;
-        }
-        ColumnDataAppendState append_state;
-        target->InitializeAppend(append_state);
-        for(auto &chunk : source->Chunks()) {
-            target->Append(append_state, chunk);
-        }
-    }
+	static void AddToCollection(unique_ptr<ColumnDataCollection> source, unique_ptr<ColumnDataCollection> &target) {
+		if (!target) {
+			target = std::move(source);
+			return;
+		}
+		ColumnDataAppendState append_state;
+		target->InitializeAppend(append_state);
+		for (auto &chunk : source->Chunks()) {
+			target->Append(append_state, chunk);
+		}
+	}
 
 	const DuckLakeInlineData &op;
 	mutex lock;
@@ -74,7 +71,7 @@ unique_ptr<GlobalOperatorState> DuckLakeInlineData::GetGlobalOperatorState(Clien
 }
 
 OperatorResultType DuckLakeInlineData::Execute(ExecutionContext &context, DataChunk &input, DataChunk &chunk,
-						   GlobalOperatorState &gstate_p, OperatorState &state_p) const {
+                                               GlobalOperatorState &gstate_p, OperatorState &state_p) const {
 	auto &state = state_p.Cast<InlineDataState>();
 	auto &gstate = gstate_p.Cast<InlineDataGlobalState>();
 	if (state.phase == InlinePhase::PASS_THROUGH_ROWS) {
@@ -107,7 +104,8 @@ OperatorResultType DuckLakeInlineData::Execute(ExecutionContext &context, DataCh
 }
 
 OperatorFinalizeResultType DuckLakeInlineData::FinalExecute(ExecutionContext &context, DataChunk &chunk,
-												GlobalOperatorState &gstate_p, OperatorState &state_p) const {
+                                                            GlobalOperatorState &gstate_p,
+                                                            OperatorState &state_p) const {
 	auto &state = state_p.Cast<InlineDataState>();
 	auto &gstate = gstate_p.Cast<InlineDataGlobalState>();
 	if (!state.inlined_data) {
@@ -123,7 +121,7 @@ OperatorFinalizeResultType DuckLakeInlineData::FinalExecute(ExecutionContext &co
 	return OperatorFinalizeResultType::FINISHED;
 }
 
-//struct DuckLakeColumnStats {
+// struct DuckLakeColumnStats {
 //	explicit DuckLakeColumnStats(LogicalType type_p) : type(std::move(type_p)) {
 //	}
 //
@@ -140,7 +138,8 @@ OperatorFinalizeResultType DuckLakeInlineData::FinalExecute(ExecutionContext &co
 //	bool has_contains_nan = false;
 
 struct DuckLakeBaseColumnStats {
-	explicit DuckLakeBaseColumnStats(FieldIndex field_id, const LogicalType &type) : field_id(field_id), stats(type) {}
+	explicit DuckLakeBaseColumnStats(FieldIndex field_id, const LogicalType &type) : field_id(field_id), stats(type) {
+	}
 
 	FieldIndex field_id;
 	DuckLakeColumnStats stats;
@@ -153,7 +152,7 @@ struct StatsNumericFallbackOperator {
 		return Value(left).DefaultCastAs(type) < Value(right).DefaultCastAs(type);
 	}
 	static bool GreaterThan(const LogicalType &type, string_t left, string_t right) {
-		return Value(left).DefaultCastAs(type) >Value(right).DefaultCastAs(type);
+		return Value(left).DefaultCastAs(type) > Value(right).DefaultCastAs(type);
 	}
 	static string GetFinalStats(string_t input) {
 		return input.GetString();
@@ -172,7 +171,7 @@ struct StatsFallbackOperator {
 	}
 };
 
-template<class T, class OP>
+template <class T, class OP>
 DuckLakeColumnStats TemplatedUpdateStats(Vector &input_vec, const LogicalType &type, idx_t row_count) {
 	UnifiedVectorFormat format;
 	input_vec.ToUnifiedFormat(row_count, format);
@@ -185,7 +184,7 @@ DuckLakeColumnStats TemplatedUpdateStats(Vector &input_vec, const LogicalType &t
 	optional_idx min_idx;
 	optional_idx max_idx;
 
-	for(idx_t i = 0; i < row_count; i++) {
+	for (idx_t i = 0; i < row_count; i++) {
 		auto idx = format.sel->get_index(i);
 		if (!validity.RowIsValid(idx)) {
 			result.null_count++;
@@ -217,15 +216,16 @@ DuckLakeColumnStats GetVectorStats(Vector &input_vec, idx_t row_count) {
 	auto &type = input_vec.GetType();
 	Vector str_vector(LogicalType::VARCHAR, row_count);
 	VectorOperations::DefaultCast(input_vec, str_vector, row_count);
+	// FIXME: we can be more efficient here by templating on other types (numerics...)
+	// FIXME: we can gather nan statistics for FLOAT/DOUBLE
 	if (type.IsNumeric()) {
 		return TemplatedUpdateStats<string_t, StatsNumericFallbackOperator>(str_vector, type, row_count);
 	}
-
 	return TemplatedUpdateStats<string_t, StatsFallbackOperator>(str_vector, type, row_count);
-
 }
 
-void UpdateStats(vector<DuckLakeBaseColumnStats> &stats, idx_t c, Vector &data, idx_t row_count, const DuckLakeFieldId &field_id) {
+void UpdateStats(vector<DuckLakeBaseColumnStats> &stats, idx_t c, Vector &data, idx_t row_count,
+                 const DuckLakeFieldId &field_id) {
 	if (c >= stats.size()) {
 		if (c != stats.size()) {
 			throw InternalException("Column stats not accessed in order?");
@@ -236,31 +236,32 @@ void UpdateStats(vector<DuckLakeBaseColumnStats> &stats, idx_t c, Vector &data, 
 	auto &type = data.GetType();
 	if (type.IsNested()) {
 		// nested - recurse into children
-	    switch(data.GetType().id()) {
-	    case LogicalTypeId::STRUCT: {
-	    	auto &children = StructVector::GetEntries(data);
-	    	for(idx_t child_idx = 0; child_idx < children.size(); child_idx++) {
-	    		UpdateStats(column_stats.children, child_idx, *children[child_idx], row_count, field_id.GetChildByIndex(child_idx));
-	    	}
-	    	break;
-	    }
-	    case LogicalTypeId::LIST:{
-	    	auto &child = ListVector::GetEntry(data);
-	    	UpdateStats(column_stats.children, 0, child, ListVector::GetListSize(child), field_id.GetChildByIndex(0));
-	    	break;
-	    }
-	    case LogicalTypeId::MAP: {
-	    	auto &keys = MapVector::GetKeys(data);
-	    	auto &values = MapVector::GetValues(data);
-	    	auto map_size = ListVector::GetListSize(data);
-	    	UpdateStats(column_stats.children, 0, keys, map_size, field_id.GetChildByIndex(0));
-	    	UpdateStats(column_stats.children, 1, values, map_size, field_id.GetChildByIndex(1));
-	    	break;
-	    }
-	    default:
-	    	throw InternalException("FIXME: unsupported nested type");
-	    }
-	    return;
+		switch (data.GetType().id()) {
+		case LogicalTypeId::STRUCT: {
+			auto &children = StructVector::GetEntries(data);
+			for (idx_t child_idx = 0; child_idx < children.size(); child_idx++) {
+				UpdateStats(column_stats.children, child_idx, *children[child_idx], row_count,
+				            field_id.GetChildByIndex(child_idx));
+			}
+			break;
+		}
+		case LogicalTypeId::LIST: {
+			auto &child = ListVector::GetEntry(data);
+			UpdateStats(column_stats.children, 0, child, ListVector::GetListSize(child), field_id.GetChildByIndex(0));
+			break;
+		}
+		case LogicalTypeId::MAP: {
+			auto &keys = MapVector::GetKeys(data);
+			auto &values = MapVector::GetValues(data);
+			auto map_size = ListVector::GetListSize(data);
+			UpdateStats(column_stats.children, 0, keys, map_size, field_id.GetChildByIndex(0));
+			UpdateStats(column_stats.children, 1, values, map_size, field_id.GetChildByIndex(1));
+			break;
+		}
+		default:
+			throw InternalException("FIXME: unsupported nested type");
+		}
+		return;
 	}
 	auto new_stats = GetVectorStats(data, row_count);
 	if (column_stats.has_stats) {
@@ -275,12 +276,13 @@ void SetFinalStats(DuckLakeBaseColumnStats &stats, DuckLakeInlinedData &result) 
 	if (stats.has_stats) {
 		result.column_stats.insert(make_pair(stats.field_id, std::move(stats.stats)));
 	}
-	for(auto &child_stats : stats.children) {
+	for (auto &child_stats : stats.children) {
 		SetFinalStats(child_stats, result);
 	}
 }
 
-OperatorFinalResultType DuckLakeInlineData::OperatorFinalize(Pipeline &pipeline, Event &event, ClientContext &context, OperatorFinalizeInput &input) const {
+OperatorFinalResultType DuckLakeInlineData::OperatorFinalize(Pipeline &pipeline, Event &event, ClientContext &context,
+                                                             OperatorFinalizeInput &input) const {
 	// push inlined data to transaction
 	auto &gstate = input.global_state.Cast<InlineDataGlobalState>();
 	if (!gstate.global_inlined_data) {
@@ -301,13 +303,13 @@ OperatorFinalResultType DuckLakeInlineData::OperatorFinalize(Pipeline &pipeline,
 	// compute the column stats for the data
 	vector<DuckLakeBaseColumnStats> new_stats;
 	auto &field_data = table.GetFieldData();
-	for(auto &chunk : inlined_data.Chunks()) {
-		for(idx_t c = 0; c < chunk.ColumnCount(); c++) {
+	for (auto &chunk : inlined_data.Chunks()) {
+		for (idx_t c = 0; c < chunk.ColumnCount(); c++) {
 			UpdateStats(new_stats, c, chunk.data[c], chunk.size(), field_data.GetByRootIndex(PhysicalIndex(c)));
 		}
 	}
 	// set the final stats
-	for(auto &column_stats : new_stats) {
+	for (auto &column_stats : new_stats) {
 		SetFinalStats(column_stats, *result);
 	}
 
@@ -321,4 +323,4 @@ string DuckLakeInlineData::GetName() const {
 	return "DUCKLAKE_INLINE_DATA";
 }
 
-}
+} // namespace duckdb
