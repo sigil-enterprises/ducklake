@@ -4,6 +4,72 @@
 
 namespace duckdb {
 
+void DuckLakeColumnStats::MergeStats(const DuckLakeColumnStats &new_stats) {
+	if (!new_stats.has_null_count) {
+		has_null_count = false;
+	} else if (has_null_count) {
+		// both stats have a null count - add them up
+		null_count += new_stats.null_count;
+	}
+	column_size_bytes += new_stats.column_size_bytes;
+	if (!new_stats.has_contains_nan) {
+		has_contains_nan = false;
+	} else if (has_contains_nan) {
+		// both stats have a null count - add them up
+		if (new_stats.contains_nan) {
+			contains_nan = true;
+		}
+	}
+
+	if (!new_stats.any_valid) {
+		// all values in the source are NULL - don't update min/max
+		return;
+	}
+	if (!any_valid) {
+		// all values in the current stats are null - copy the min/max
+		min = new_stats.min;
+		has_min = new_stats.has_min;
+		max = new_stats.max;
+		has_max = new_stats.has_max;
+		any_valid = true;
+		return;
+	}
+
+	if (!new_stats.has_min) {
+		has_min = false;
+	} else if (has_min) {
+		// both stats have a min - select the smallest
+		if (type.IsNumeric()) {
+			// for numerics we need to parse the stats
+			auto current_min = Value(min).DefaultCastAs(type);
+			auto new_min = Value(new_stats.min).DefaultCastAs(type);
+			if (new_min < current_min) {
+				min = new_stats.min;
+			}
+		} else if (new_stats.min < min) {
+			// for other types we can compare the strings directly
+			min = new_stats.min;
+		}
+	}
+
+	if (!new_stats.has_max) {
+		has_max = false;
+	} else if (has_max) {
+		// both stats have a min - select the smallest
+		if (type.IsNumeric()) {
+			// for numerics we need to parse the stats
+			auto current_max = Value(max).DefaultCastAs(type);
+			auto new_max = Value(new_stats.max).DefaultCastAs(type);
+			if (new_max > current_max) {
+				max = new_stats.max;
+			}
+		} else if (new_stats.max > max) {
+			// for other types we can compare the strings directly
+			max = new_stats.max;
+		}
+	}
+}
+
 void DuckLakeTableStats::MergeStats(FieldIndex col_id, const DuckLakeColumnStats &file_stats) {
 	auto entry = column_stats.find(col_id);
 	if (entry == column_stats.end()) {
@@ -12,69 +78,7 @@ void DuckLakeTableStats::MergeStats(FieldIndex col_id, const DuckLakeColumnStats
 	}
 	// merge the stats
 	auto &current_stats = entry->second;
-	if (!file_stats.has_null_count) {
-		current_stats.has_null_count = false;
-	} else if (current_stats.has_null_count) {
-		// both stats have a null count - add them up
-		current_stats.null_count += file_stats.null_count;
-	}
-	current_stats.column_size_bytes += file_stats.column_size_bytes;
-	if (!file_stats.has_contains_nan) {
-		current_stats.has_contains_nan = false;
-	} else if (current_stats.has_contains_nan) {
-		// both stats have a null count - add them up
-		if (file_stats.contains_nan) {
-			current_stats.contains_nan = true;
-		}
-	}
-
-	if (!file_stats.any_valid) {
-		// all values in the source are NULL - don't update min/max
-		return;
-	}
-	if (!current_stats.any_valid) {
-		// all values in the current stats are null - copy the min/max
-		current_stats.min = file_stats.min;
-		current_stats.has_min = file_stats.has_min;
-		current_stats.max = file_stats.max;
-		current_stats.has_max = file_stats.has_max;
-		current_stats.any_valid = true;
-		return;
-	}
-
-	if (!file_stats.has_min) {
-		current_stats.has_min = false;
-	} else if (current_stats.has_min) {
-		// both stats have a min - select the smallest
-		if (current_stats.type.IsNumeric()) {
-			// for numerics we need to parse the stats
-			auto current_min = Value(current_stats.min).DefaultCastAs(current_stats.type);
-			auto new_min = Value(file_stats.min).DefaultCastAs(current_stats.type);
-			if (new_min < current_min) {
-				current_stats.min = file_stats.min;
-			}
-		} else if (file_stats.min < current_stats.min) {
-			// for other types we can compare the strings directly
-			current_stats.min = file_stats.min;
-		}
-	}
-
-	if (!file_stats.has_max) {
-		current_stats.has_max = false;
-	} else if (current_stats.has_max) {
-		// both stats have a min - select the smallest
-		if (current_stats.type.IsNumeric()) {
-			// for numerics we need to parse the stats
-			auto current_max = Value(current_stats.max).DefaultCastAs(current_stats.type);
-			auto new_max = Value(file_stats.max).DefaultCastAs(current_stats.type);
-			if (new_max > current_max) {
-				current_stats.max = file_stats.max;
-			}
-		} else if (file_stats.max > current_stats.max) {
-			// for other types we can compare the strings directly
-			current_stats.max = file_stats.max;
-		}
-	}
+	current_stats.MergeStats(file_stats);
 }
 
 unique_ptr<BaseStatistics> DuckLakeColumnStats::CreateNumericStats() const {

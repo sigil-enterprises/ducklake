@@ -123,6 +123,163 @@ OperatorFinalizeResultType DuckLakeInlineData::FinalExecute(ExecutionContext &co
 	return OperatorFinalizeResultType::FINISHED;
 }
 
+//struct DuckLakeColumnStats {
+//	explicit DuckLakeColumnStats(LogicalType type_p) : type(std::move(type_p)) {
+//	}
+//
+//	LogicalType type;
+//	string min;
+//	string max;
+//	idx_t null_count = 0;
+//	idx_t column_size_bytes = 0;
+//	bool contains_nan = false;
+//	bool has_null_count = false;
+//	bool has_min = false;
+//	bool has_max = false;
+//	bool any_valid = true;
+//	bool has_contains_nan = false;
+
+struct DuckLakeBaseColumnStats {
+	explicit DuckLakeBaseColumnStats(FieldIndex field_id, const LogicalType &type) : field_id(field_id), stats(type) {}
+
+	FieldIndex field_id;
+	DuckLakeColumnStats stats;
+	bool has_stats = false;
+	vector<DuckLakeBaseColumnStats> children;
+};
+
+struct StatsNumericFallbackOperator {
+	static bool SmallerThan(const LogicalType &type, string_t left, string_t right) {
+		return Value(left).DefaultCastAs(type) < Value(right).DefaultCastAs(type);
+	}
+	static bool GreaterThan(const LogicalType &type, string_t left, string_t right) {
+		return Value(left).DefaultCastAs(type) >Value(right).DefaultCastAs(type);
+	}
+	static string GetFinalStats(string_t input) {
+		return input.GetString();
+	}
+};
+
+struct StatsFallbackOperator {
+	static bool SmallerThan(const LogicalType &type, string_t left, string_t right) {
+		return left < right;
+	}
+	static bool GreaterThan(const LogicalType &type, string_t left, string_t right) {
+		return left > right;
+	}
+	static string GetFinalStats(string_t input) {
+		return input.GetString();
+	}
+};
+
+template<class T, class OP>
+DuckLakeColumnStats TemplatedUpdateStats(Vector &input_vec, const LogicalType &type, idx_t row_count) {
+	UnifiedVectorFormat format;
+	input_vec.ToUnifiedFormat(row_count, format);
+
+	auto data = UnifiedVectorFormat::GetData<T>(format);
+	auto &validity = format.validity;
+	DuckLakeColumnStats result(type);
+	result.any_valid = false;
+	result.has_null_count = true;
+	optional_idx min_idx;
+	optional_idx max_idx;
+
+	for(idx_t i = 0; i < row_count; i++) {
+		auto idx = format.sel->get_index(i);
+		if (!validity.RowIsValid(idx)) {
+			result.null_count++;
+			continue;
+		}
+		auto &val = data[idx];
+		if (!min_idx.IsValid()) {
+			min_idx = idx;
+		} else if (OP::SmallerThan(type, val, data[min_idx.GetIndex()])) {
+			min_idx = idx;
+		}
+		if (!max_idx.IsValid()) {
+			max_idx = idx;
+		} else if (OP::GreaterThan(type, val, data[max_idx.GetIndex()])) {
+			max_idx = idx;
+		}
+		result.any_valid = true;
+	}
+	if (min_idx.IsValid()) {
+		result.has_min = true;
+		result.has_max = true;
+		result.min = OP::GetFinalStats(data[min_idx.GetIndex()]);
+		result.max = OP::GetFinalStats(data[max_idx.GetIndex()]);
+	}
+	return result;
+}
+
+DuckLakeColumnStats GetVectorStats(Vector &input_vec, idx_t row_count) {
+	auto &type = input_vec.GetType();
+	Vector str_vector(LogicalType::VARCHAR, row_count);
+	VectorOperations::DefaultCast(input_vec, str_vector, row_count);
+	if (type.IsNumeric()) {
+		return TemplatedUpdateStats<string_t, StatsNumericFallbackOperator>(str_vector, type, row_count);
+	}
+
+	return TemplatedUpdateStats<string_t, StatsFallbackOperator>(str_vector, type, row_count);
+
+}
+
+void UpdateStats(vector<DuckLakeBaseColumnStats> &stats, idx_t c, Vector &data, idx_t row_count, const DuckLakeFieldId &field_id) {
+	if (c >= stats.size()) {
+		if (c != stats.size()) {
+			throw InternalException("Column stats not accessed in order?");
+		}
+		stats.emplace_back(field_id.GetFieldIndex(), data.GetType());
+	}
+	auto &column_stats = stats[c];
+	auto &type = data.GetType();
+	if (type.IsNested()) {
+		// nested - recurse into children
+	    switch(data.GetType().id()) {
+	    case LogicalTypeId::STRUCT: {
+	    	auto &children = StructVector::GetEntries(data);
+	    	for(idx_t child_idx = 0; child_idx < children.size(); child_idx++) {
+	    		UpdateStats(column_stats.children, child_idx, *children[child_idx], row_count, field_id.GetChildByIndex(child_idx));
+	    	}
+	    	break;
+	    }
+	    case LogicalTypeId::LIST:{
+	    	auto &child = ListVector::GetEntry(data);
+	    	UpdateStats(column_stats.children, 0, child, ListVector::GetListSize(child), field_id.GetChildByIndex(0));
+	    	break;
+	    }
+	    case LogicalTypeId::MAP: {
+	    	auto &keys = MapVector::GetKeys(data);
+	    	auto &values = MapVector::GetValues(data);
+	    	auto map_size = ListVector::GetListSize(data);
+	    	UpdateStats(column_stats.children, 0, keys, map_size, field_id.GetChildByIndex(0));
+	    	UpdateStats(column_stats.children, 1, values, map_size, field_id.GetChildByIndex(1));
+	    	break;
+	    }
+	    default:
+	    	throw InternalException("FIXME: unsupported nested type");
+	    }
+	    return;
+	}
+	auto new_stats = GetVectorStats(data, row_count);
+	if (column_stats.has_stats) {
+		column_stats.stats.MergeStats(new_stats);
+	} else {
+		column_stats.stats = std::move(new_stats);
+		column_stats.has_stats = true;
+	}
+}
+
+void SetFinalStats(DuckLakeBaseColumnStats &stats, DuckLakeInlinedData &result) {
+	if (stats.has_stats) {
+		result.column_stats.insert(make_pair(stats.field_id, std::move(stats.stats)));
+	}
+	for(auto &child_stats : stats.children) {
+		SetFinalStats(child_stats, result);
+	}
+}
+
 OperatorFinalResultType DuckLakeInlineData::OperatorFinalize(Pipeline &pipeline, Event &event, ClientContext &context, OperatorFinalizeInput &input) const {
 	// push inlined data to transaction
 	auto &gstate = input.global_state.Cast<InlineDataGlobalState>();
@@ -134,13 +291,28 @@ OperatorFinalResultType DuckLakeInlineData::OperatorFinalize(Pipeline &pipeline,
 	if (insert_gstate.total_insert_count != 0) {
 		throw InternalException("Inlining rows but also inserting rows through a file");
 	}
-	// set the insert count to the total number of inlined rows
-	insert_gstate.total_insert_count = gstate.global_inlined_data->Count();
 	auto &table = insert_gstate.table;
-	auto &transaction = DuckLakeTransaction::Get(context, table.ParentCatalog());
-	// push the inlined data into the transaction
 	auto result = make_uniq<DuckLakeInlinedData>();
+	auto &inlined_data = *gstate.global_inlined_data;
 	result->data = std::move(gstate.global_inlined_data);
+	// set the insert count to the total number of inlined rows
+	insert_gstate.total_insert_count = inlined_data.Count();
+
+	// compute the column stats for the data
+	vector<DuckLakeBaseColumnStats> new_stats;
+	auto &field_data = table.GetFieldData();
+	for(auto &chunk : inlined_data.Chunks()) {
+		for(idx_t c = 0; c < chunk.ColumnCount(); c++) {
+			UpdateStats(new_stats, c, chunk.data[c], chunk.size(), field_data.GetByRootIndex(PhysicalIndex(c)));
+		}
+	}
+	// set the final stats
+	for(auto &column_stats : new_stats) {
+		SetFinalStats(column_stats, *result);
+	}
+
+	// push the inlined data into the transaction
+	auto &transaction = DuckLakeTransaction::Get(context, table.ParentCatalog());
 	transaction.AppendInlinedData(table.GetTableId(), std::move(result));
 	return OperatorFinalResultType::FINISHED;
 }

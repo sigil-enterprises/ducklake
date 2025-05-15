@@ -39,6 +39,16 @@ SELECT * FROM ducklake.test
 1	2
 NULL	3
 
+query II
+SELECT * FROM ducklake.test WHERE i IS NULL
+----
+NULL	3
+
+query II
+SELECT * FROM ducklake.test WHERE i=1
+----
+1	2
+
 # all data is inlined - so we have no files
 query I
 SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_inlining_files/**')

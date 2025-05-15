@@ -16,6 +16,7 @@
 #include "duckdb/common/types/value.hpp"
 #include "common/index.hpp"
 #include "common/ducklake_data_file.hpp"
+#include "storage/ducklake_inlined_data.hpp"
 
 namespace duckdb {
 
@@ -83,6 +84,12 @@ struct DuckLakeFileInfo {
 	string encryption_key;
 	vector<DuckLakeColumnStatsInfo> column_stats;
 	vector<DuckLakeFilePartitionInfo> partition_values;
+};
+
+struct DuckLakeInlinedDataInfo {
+	TableIndex table_id;
+	idx_t row_id_start;
+	unique_ptr<DuckLakeInlinedData> data;
 };
 
 struct DuckLakeDeleteFileInfo {

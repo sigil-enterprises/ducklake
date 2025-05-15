@@ -34,6 +34,7 @@ struct DuckLakeColumnStats {
 
 public:
 	unique_ptr<BaseStatistics> ToStats() const;
+	void MergeStats(const DuckLakeColumnStats &new_stats);
 
 private:
 	unique_ptr<BaseStatistics> CreateNumericStats() const;

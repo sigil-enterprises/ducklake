@@ -828,6 +828,9 @@ void DuckLakeMetadataManager::WriteNewViews(DuckLakeSnapshot commit_snapshot,
 
 void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot,
                                                 const vector<DuckLakeFileInfo> &new_files) {
+    if (new_files.empty()) {
+	    return;
+    }
 	string data_file_insert_query;
 	string column_stats_insert_query;
 	string partition_insert_query;
