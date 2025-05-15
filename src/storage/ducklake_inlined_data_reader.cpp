@@ -1,11 +1,10 @@
 #include "storage/ducklake_inlined_data_reader.hpp"
+#include "storage/ducklake_multi_file_reader.hpp"
 
 namespace duckdb {
 
-DuckLakeInlinedDataReader::DuckLakeInlinedDataReader(const OpenFileInfo &info) : BaseFileReader(info) {
-	MultiFileColumnDefinition column("i", LogicalType::BIGINT);
-	column.identifier = Value::INTEGER(1);
-	columns.push_back(std::move(column));
+DuckLakeInlinedDataReader::DuckLakeInlinedDataReader(const OpenFileInfo &info, const DuckLakeInlinedData &data, const DuckLakeFieldData &field_data) : BaseFileReader(info), data(data) {
+	columns = DuckLakeMultiFileReader::ColumnsFromFieldData(field_data);
 }
 
 bool DuckLakeInlinedDataReader::TryInitializeScan(ClientContext &context, GlobalTableFunctionState &gstate,
@@ -15,17 +14,13 @@ bool DuckLakeInlinedDataReader::TryInitializeScan(ClientContext &context, Global
 		return false;
 	}
 	initialized_scan = true;
+	data.data->InitializeScan(state);
 	return true;
 }
 
 void DuckLakeInlinedDataReader::Scan(ClientContext &context, GlobalTableFunctionState &global_state,
 				  LocalTableFunctionState &local_state, DataChunk &chunk) {
-	if (row_idx > 0) {
-		return;
-	}
-	chunk.SetValue(0, 0, Value::BIGINT(42));
-	chunk.SetCardinality(1);
-	row_idx++;
+	data.data->Scan(state, chunk);
 }
 
 string DuckLakeInlinedDataReader::GetReaderType() const {

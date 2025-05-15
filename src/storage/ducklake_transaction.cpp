@@ -1209,16 +1209,17 @@ vector<DuckLakeDataFile> DuckLakeTransaction::GetTransactionLocalFiles(TableInde
 	}
 }
 
-shared_ptr<ColumnDataCollection> DuckLakeTransaction::GetTransactionLocalInlinedData(TableIndex table_id) {
+shared_ptr<DuckLakeInlinedData> DuckLakeTransaction::GetTransactionLocalInlinedData(TableIndex table_id) {
 	auto entry = new_inlined_data.find(table_id);
 	if (entry == new_inlined_data.end()) {
 		return nullptr;
 	} else {
 		auto &local_changes = *entry->second;
 		auto context_ref = context.lock();
-		auto result = make_shared_ptr<ColumnDataCollection>(*context_ref, local_changes.Types());
-		for(auto &chunk : local_changes.Chunks()) {
-			result->Append(chunk);
+		auto result = make_shared_ptr<DuckLakeInlinedData>();
+		result->data = make_uniq<ColumnDataCollection>(*context_ref, local_changes.data->Types());
+		for(auto &chunk : local_changes.data->Chunks()) {
+			result->data->Append(chunk);
 		}
 		return result;
 	}
@@ -1265,18 +1266,18 @@ void DuckLakeTransaction::AppendFiles(TableIndex table_id, vector<DuckLakeDataFi
 	}
 }
 
-void DuckLakeTransaction::AppendInlinedData(TableIndex table_id, unique_ptr<ColumnDataCollection> collection) {
+void DuckLakeTransaction::AppendInlinedData(TableIndex table_id, unique_ptr<DuckLakeInlinedData> new_data) {
 	auto entry = new_inlined_data.find(table_id);
 	if (entry != new_inlined_data.end()) {
 		// already exists - append
 		auto &existing_data = entry->second;
         ColumnDataAppendState append_state;
-		existing_data->InitializeAppend(append_state);
-		for(auto &chunk : collection->Chunks()) {
-			existing_data->Append(chunk);
+		existing_data->data->InitializeAppend(append_state);
+		for(auto &chunk : new_data->data->Chunks()) {
+			existing_data->data->Append(chunk);
 		}
 	} else {
-		new_inlined_data.emplace(table_id, std::move(collection));
+		new_inlined_data.emplace(table_id, std::move(new_data));
 	}
 }
 void DuckLakeTransaction::AddDeletes(TableIndex table_id, vector<DuckLakeDeleteFile> files) {

@@ -16,6 +16,7 @@
 #include "common/ducklake_snapshot.hpp"
 #include "common/ducklake_data_file.hpp"
 #include "duckdb/common/types/value_map.hpp"
+#include "storage/ducklake_inlined_data.hpp"
 
 namespace duckdb {
 class DuckLakeCatalog;
@@ -67,13 +68,13 @@ public:
 	optional_ptr<CatalogEntry> GetTransactionLocalEntry(CatalogType catalog_type, const string &schema_name,
 	                                                    const string &entry_name);
 	vector<DuckLakeDataFile> GetTransactionLocalFiles(TableIndex table_id);
-	shared_ptr<ColumnDataCollection> GetTransactionLocalInlinedData(TableIndex table_id);
+	shared_ptr<DuckLakeInlinedData> GetTransactionLocalInlinedData(TableIndex table_id);
 	void DropTransactionLocalFile(TableIndex table_id, const string &path);
 	bool HasTransactionLocalChanges(TableIndex table_id);
 	void AppendFiles(TableIndex table_id, vector<DuckLakeDataFile> files);
 	void AddDeletes(TableIndex table_id, vector<DuckLakeDeleteFile> files);
 	void AddCompaction(TableIndex table_id, DuckLakeCompactionEntry entry);
-	void AppendInlinedData(TableIndex table_id, unique_ptr<ColumnDataCollection> collection);
+	void AppendInlinedData(TableIndex table_id, unique_ptr<DuckLakeInlinedData> collection);
 
 	void DropSchema(DuckLakeSchemaEntry &schema);
 	void DropTable(DuckLakeTableEntry &table);
@@ -157,7 +158,7 @@ private:
 	//! Data files added by this transaction
 	map<TableIndex, vector<DuckLakeDataFile>> new_data_files;
 	//! Inlined data, added by this transaction
-	map<TableIndex, unique_ptr<ColumnDataCollection>> new_inlined_data;
+	map<TableIndex, unique_ptr<DuckLakeInlinedData>> new_inlined_data;
 	//! New deletes added by this transaction
 	map<TableIndex, unordered_map<string, DuckLakeDeleteFile>> new_delete_files;
 	//! Compactions performed by this transaction

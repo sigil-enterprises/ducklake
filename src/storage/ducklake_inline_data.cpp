@@ -139,7 +139,9 @@ OperatorFinalResultType DuckLakeInlineData::OperatorFinalize(Pipeline &pipeline,
 	auto &table = insert_gstate.table;
 	auto &transaction = DuckLakeTransaction::Get(context, table.ParentCatalog());
 	// push the inlined data into the transaction
-	transaction.AppendInlinedData(table.GetTableId(), std::move(gstate.global_inlined_data));
+	auto result = make_uniq<DuckLakeInlinedData>();
+	result->data = std::move(gstate.global_inlined_data);
+	transaction.AppendInlinedData(table.GetTableId(), std::move(result));
 	return OperatorFinalResultType::FINISHED;
 }
 

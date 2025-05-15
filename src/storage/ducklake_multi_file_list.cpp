@@ -22,7 +22,7 @@
 namespace duckdb {
 
 DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,
-                                             vector<DuckLakeDataFile> transaction_local_files_p, shared_ptr<ColumnDataCollection> transaction_local_data_p, string filter_p)
+                                             vector<DuckLakeDataFile> transaction_local_files_p, shared_ptr<DuckLakeInlinedData> transaction_local_data_p, string filter_p)
     : MultiFileList(vector<OpenFileInfo> {}, FileGlobOptions::ALLOW_EMPTY), transaction(transaction),
       read_info(read_info), read_file_list(false), transaction_local_files(std::move(transaction_local_files_p)),
       transaction_local_data(std::move(transaction_local_data_p)), filter(std::move(filter_p)) {
@@ -401,7 +401,7 @@ vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() 
 		file_entry.file.path = "[transaction_local_data]";
 		file_entry.file_id = DataFileIndex();
 		file_entry.delete_file_id = DataFileIndex();
-		file_entry.row_count = transaction_local_data->Count();
+		file_entry.row_count = transaction_local_data->data->Count();
 		file_entry.row_id_start = transaction_row_start;
 		result.push_back(std::move(file_entry));
 	}

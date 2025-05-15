@@ -9,12 +9,14 @@
 #pragma once
 
 #include "duckdb/common/multi_file/base_file_reader.hpp"
+#include "storage/ducklake_inlined_data.hpp"
 
 namespace duckdb {
+class DuckLakeFieldData;
 
 class DuckLakeInlinedDataReader : public BaseFileReader {
 public:
-	DuckLakeInlinedDataReader(const OpenFileInfo &info);
+	DuckLakeInlinedDataReader(const OpenFileInfo &info, const DuckLakeInlinedData &data, const DuckLakeFieldData &field_data);
 public:
 	bool TryInitializeScan(ClientContext &context, GlobalTableFunctionState &gstate,
 								   LocalTableFunctionState &lstate) override;
@@ -25,8 +27,9 @@ public:
 
 private:
 	mutex lock;
+	const DuckLakeInlinedData &data;
 	bool initialized_scan = false;
-	idx_t row_idx = 0;
+	ColumnDataScanState state;
 
 };
 

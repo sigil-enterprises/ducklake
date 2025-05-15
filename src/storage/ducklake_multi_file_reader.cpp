@@ -36,6 +36,12 @@ DuckLakeMultiFileReader::DuckLakeMultiFileReader(DuckLakeFunctionInfo &read_info
 DuckLakeMultiFileReader::~DuckLakeMultiFileReader() {
 }
 
+unique_ptr<MultiFileReader> DuckLakeMultiFileReader::Copy() const {
+	auto result = make_uniq<DuckLakeMultiFileReader>(read_info);
+	result->transaction_local_data = transaction_local_data;
+	return result;
+}
+
 unique_ptr<MultiFileReader> DuckLakeMultiFileReader::CreateInstance(const TableFunction &table_function) {
 	auto &function_info = table_function.function_info->Cast<DuckLakeFunctionInfo>();
 	auto result = make_uniq<DuckLakeMultiFileReader>(function_info);
@@ -46,8 +52,8 @@ shared_ptr<MultiFileList> DuckLakeMultiFileReader::CreateFileList(ClientContext 
                                                                   FileGlobOptions options) {
 	auto &transaction = DuckLakeTransaction::Get(context, read_info.table.ParentCatalog());
 	auto transaction_local_files = transaction.GetTransactionLocalFiles(read_info.table_id);
-	this->transaction_local_data = transaction.GetTransactionLocalInlinedData(read_info.table_id);
-	auto result = make_shared_ptr<DuckLakeMultiFileList>(transaction, read_info, std::move(transaction_local_files), std::move(transaction_local_data));
+	transaction_local_data = transaction.GetTransactionLocalInlinedData(read_info.table_id);
+	auto result = make_shared_ptr<DuckLakeMultiFileList>(transaction, read_info, std::move(transaction_local_files), transaction_local_data);
 	return std::move(result);
 }
 
@@ -66,13 +72,19 @@ MultiFileColumnDefinition CreateColumnFromFieldId(const DuckLakeFieldId &field_i
 	return column;
 }
 
+vector<MultiFileColumnDefinition> DuckLakeMultiFileReader::ColumnsFromFieldData(const DuckLakeFieldData &field_data) {
+	vector<MultiFileColumnDefinition> result;
+	for (auto &item : field_data.GetFieldIds()) {
+		result.push_back(CreateColumnFromFieldId(*item));
+	}
+	return result;
+}
+
 bool DuckLakeMultiFileReader::Bind(MultiFileOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
                                    vector<string> &names, MultiFileReaderBindData &bind_data) {
 	auto &field_data = read_info.table.GetFieldData();
 	auto &columns = bind_data.schema;
-	for (auto &item : field_data.GetFieldIds()) {
-		columns.push_back(CreateColumnFromFieldId(*item));
-	}
+	columns = ColumnsFromFieldData(field_data);
 	//	bind_data.file_row_number_idx = names.size();
 	bind_data.mapping = MultiFileColumnMappingMode::BY_FIELD_ID;
 	names = read_info.column_names;
@@ -132,9 +144,11 @@ shared_ptr<BaseFileReader> DuckLakeMultiFileReader::TryCreateInlinedDataReader(c
 	if (entry == file.extended_info->options.end()) {
 		return nullptr;
 	}
-	// this is not a file but inlined data
-	read_info.table;
-	return make_shared_ptr<DuckLakeInlinedDataReader>(file);
+	if (!transaction_local_data) {
+		throw InternalException("No transaction local data");
+	}
+	// this is not a file but inlined data - instantiate the reader
+	return make_shared_ptr<DuckLakeInlinedDataReader>(file, *transaction_local_data, read_info.table.GetFieldData());
 }
 
 shared_ptr<BaseFileReader> DuckLakeMultiFileReader::CreateReader(ClientContext &context, GlobalTableFunctionState &gstate,

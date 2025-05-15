@@ -10,10 +10,12 @@
 
 #include "duckdb/common/multi_file/multi_file_reader.hpp"
 #include "storage/ducklake_scan.hpp"
+#include "storage/ducklake_inlined_data.hpp"
 
 namespace duckdb {
 class DuckLakeMultiFileList;
 struct DuckLakeDeleteMap;
+class DuckLakeFieldData;
 
 struct DuckLakeMultiFileReaderGlobalState : public MultiFileReaderGlobalState {
 	DuckLakeMultiFileReaderGlobalState(vector<LogicalType> extra_columns_p,
@@ -72,6 +74,9 @@ public:
 	                           const LogicalType &type, MultiFileLocalIndex local_index,
 	                           optional_ptr<MultiFileColumnDefinition> &global_column_reference) override;
 
+	unique_ptr<MultiFileReader> Copy() const override;
+
+	static vector<MultiFileColumnDefinition> ColumnsFromFieldData(const DuckLakeFieldData &field_data);
 private:
 	shared_ptr<BaseFileReader> TryCreateInlinedDataReader(const OpenFileInfo &file);
 
@@ -79,7 +84,7 @@ private:
 	unique_ptr<MultiFileColumnDefinition> row_id_column;
 	unique_ptr<MultiFileColumnDefinition> snapshot_id_column;
 	//! Inlined transaction-local data
-	shared_ptr<ColumnDataCollection> transaction_local_data;
+	shared_ptr<DuckLakeInlinedData> transaction_local_data;
 };
 
 } // namespace duckdb
