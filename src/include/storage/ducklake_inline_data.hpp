@@ -14,6 +14,7 @@
 #include "common/ducklake_data_file.hpp"
 
 namespace duckdb {
+class DuckLakeInsert;
 
 class DuckLakeInlineData : public PhysicalOperator {
 public:
@@ -23,6 +24,7 @@ public:
 	DuckLakeInlineData(PhysicalOperator &child, idx_t inline_row_limit);
 
 	idx_t inline_row_limit;
+	optional_ptr<DuckLakeInsert> insert;
 
 public:
 	unique_ptr<OperatorState> GetOperatorState(ExecutionContext &context) const override;
@@ -31,8 +33,13 @@ public:
 							   GlobalOperatorState &gstate, OperatorState &state) const override;
 	OperatorFinalizeResultType FinalExecute(ExecutionContext &context, DataChunk &chunk,
 	                                                GlobalOperatorState &gstate, OperatorState &state) const override;
+	OperatorFinalResultType OperatorFinalize(Pipeline &pipeline, Event &event, ClientContext &context,
+									  OperatorFinalizeInput &input) const override;
 
 	bool RequiresFinalExecute() const override {
+		return true;
+	}
+	bool RequiresOperatorFinalize() const override {
 		return true;
 	}
 	bool ParallelOperator() const override {

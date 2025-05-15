@@ -332,8 +332,7 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, cons
                                                     optional_ptr<DuckLakePartition> partition_data,
                                                     optional_ptr<DuckLakeFieldData> field_data,
                                                     optional_ptr<PhysicalOperator> plan, const string &data_path,
-                                                    string encryption_key, InsertVirtualColumns virtual_columns,
-                                                    idx_t data_inlining_row_limit) {
+                                                    string encryption_key, InsertVirtualColumns virtual_columns) {
 	auto copy_options = GetCopyOptions(context, columns, partition_data, field_data, data_path,
 	                                   std::move(encryption_key), virtual_columns);
 
@@ -360,10 +359,6 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, cons
 	physical_copy.names = std::move(copy_options.names);
 	physical_copy.expected_types = std::move(copy_options.expected_types);
 	if (plan) {
-		if (data_inlining_row_limit > 0) {
-			auto &inline_data = planner.Make<DuckLakeInlineData>(*plan, data_inlining_row_limit);
-			plan = inline_data;
-		}
 		physical_copy.children.push_back(*plan);
 	}
 
@@ -380,9 +375,8 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, Phys
 		partition_id = partition_data->partition_id;
 	}
 	auto &field_data = table.GetFieldData();
-	auto &catalog = table.catalog.Cast<DuckLakeCatalog>();
 	return PlanCopyForInsert(context, columns, planner, partition_data, field_data, plan, table.DataPath(),
-	                         std::move(encryption_key), virtual_columns, catalog.DataInliningRowLimit());
+	                         std::move(encryption_key), virtual_columns);
 }
 
 PhysicalOperator &DuckLakeInsert::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner,
@@ -425,8 +419,16 @@ PhysicalOperator &DuckLakeCatalog::PlanInsert(ClientContext &context, PhysicalPl
 	}
 	string encryption_key = GenerateEncryptionKey(context);
 	auto &ducklake_table = op.table.Cast<DuckLakeTableEntry>();
+	optional_ptr<DuckLakeInlineData> inline_data;
+	if (data_inlining_row_limit > 0) {
+		plan = planner.Make<DuckLakeInlineData>(*plan, data_inlining_row_limit);
+		inline_data = plan->Cast<DuckLakeInlineData>();
+	}
 	auto &physical_copy = DuckLakeInsert::PlanCopyForInsert(context, planner, ducklake_table, plan, encryption_key);
 	auto &insert = DuckLakeInsert::PlanInsert(context, planner, ducklake_table, std::move(encryption_key));
+	if (inline_data) {
+		inline_data->insert = insert.Cast<DuckLakeInsert>();
+	}
 	insert.children.push_back(physical_copy);
 	return insert;
 }
@@ -437,6 +439,9 @@ PhysicalOperator &DuckLakeCatalog::PlanCreateTableAs(ClientContext &context, Phy
 	auto &columns = create_info.columns;
 	// FIXME: if table already exists and we are doing CREATE IF NOT EXISTS - skip
 	string encryption_key = GenerateEncryptionKey(context);
+	if (data_inlining_row_limit > 0) {
+		throw InternalException("FIXME: inline data for CREATE TABLE AS");
+	}
 	auto &physical_copy = DuckLakeInsert::PlanCopyForInsert(context, columns, planner, nullptr, nullptr, plan,
 	                                                        DataPath(), encryption_key);
 	auto &insert = planner.Make<DuckLakeInsert>(op.types, op.schema, std::move(op.info), std::move(encryption_key));

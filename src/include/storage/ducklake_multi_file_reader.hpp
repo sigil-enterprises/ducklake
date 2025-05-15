@@ -58,6 +58,14 @@ public:
 	                                      optional_ptr<TableFilterSet> table_filters, ClientContext &context,
 	                                      optional_ptr<MultiFileReaderGlobalState> global_state) override;
 
+	shared_ptr<BaseFileReader> CreateReader(ClientContext &context, GlobalTableFunctionState &gstate,
+															   const OpenFileInfo &file, idx_t file_idx,
+															   const MultiFileBindData &bind_data) override;
+	shared_ptr<BaseFileReader> CreateReader(ClientContext &context, const OpenFileInfo &file,
+															   BaseFileReaderOptions &options,
+															   const MultiFileOptions &file_options,
+															   MultiFileReaderInterface &interface) override;
+
 	unique_ptr<Expression>
 	GetVirtualColumnExpression(ClientContext &context, MultiFileReaderData &reader_data,
 	                           const vector<MultiFileColumnDefinition> &local_columns, idx_t &column_id,
@@ -65,8 +73,13 @@ public:
 	                           optional_ptr<MultiFileColumnDefinition> &global_column_reference) override;
 
 private:
+	shared_ptr<BaseFileReader> TryCreateInlinedDataReader(const OpenFileInfo &file);
+
+private:
 	unique_ptr<MultiFileColumnDefinition> row_id_column;
 	unique_ptr<MultiFileColumnDefinition> snapshot_id_column;
+	//! Inlined transaction-local data
+	shared_ptr<ColumnDataCollection> transaction_local_data;
 };
 
 } // namespace duckdb

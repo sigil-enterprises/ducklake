@@ -60,7 +60,7 @@ bool DuckLakeTransaction::SchemaChangesMade() {
 }
 
 bool DuckLakeTransaction::ChangesMade() {
-	return SchemaChangesMade() || !new_data_files.empty() || !new_delete_files.empty() || !dropped_files.empty();
+	return SchemaChangesMade() || !new_data_files.empty() || !new_delete_files.empty() || !dropped_files.empty() || !new_inlined_data.empty();
 }
 
 struct TransactionChangeInformation {
@@ -298,9 +298,9 @@ void DuckLakeTransaction::CleanupFiles() {
 	auto &fs = FileSystem::GetFileSystem(db);
 	for (auto &table_entry : new_data_files) {
 		for (auto &file : table_entry.second) {
-			fs.RemoveFile(file.file_name);
+			fs.TryRemoveFile(file.file_name);
 			if (file.delete_file) {
-				fs.RemoveFile(file.delete_file->file_name);
+				fs.TryRemoveFile(file.delete_file->file_name);
 			}
 		}
 	}
@@ -1197,7 +1197,7 @@ idx_t DuckLakeTransaction::GetLocalCatalogId() {
 }
 
 bool DuckLakeTransaction::HasTransactionLocalChanges(TableIndex table_id) {
-	return new_data_files.find(table_id) != new_data_files.end();
+	return new_data_files.find(table_id) != new_data_files.end() || new_inlined_data.find(table_id) != new_inlined_data.end();
 }
 
 vector<DuckLakeDataFile> DuckLakeTransaction::GetTransactionLocalFiles(TableIndex table_id) {
@@ -1206,6 +1206,21 @@ vector<DuckLakeDataFile> DuckLakeTransaction::GetTransactionLocalFiles(TableInde
 		return vector<DuckLakeDataFile>();
 	} else {
 		return entry->second;
+	}
+}
+
+shared_ptr<ColumnDataCollection> DuckLakeTransaction::GetTransactionLocalInlinedData(TableIndex table_id) {
+	auto entry = new_inlined_data.find(table_id);
+	if (entry == new_inlined_data.end()) {
+		return nullptr;
+	} else {
+		auto &local_changes = *entry->second;
+		auto context_ref = context.lock();
+		auto result = make_shared_ptr<ColumnDataCollection>(*context_ref, local_changes.Types());
+		for(auto &chunk : local_changes.Chunks()) {
+			result->Append(chunk);
+		}
+		return result;
 	}
 }
 
@@ -1250,6 +1265,20 @@ void DuckLakeTransaction::AppendFiles(TableIndex table_id, vector<DuckLakeDataFi
 	}
 }
 
+void DuckLakeTransaction::AppendInlinedData(TableIndex table_id, unique_ptr<ColumnDataCollection> collection) {
+	auto entry = new_inlined_data.find(table_id);
+	if (entry != new_inlined_data.end()) {
+		// already exists - append
+		auto &existing_data = entry->second;
+        ColumnDataAppendState append_state;
+		existing_data->InitializeAppend(append_state);
+		for(auto &chunk : collection->Chunks()) {
+			existing_data->Append(chunk);
+		}
+	} else {
+		new_inlined_data.emplace(table_id, std::move(collection));
+	}
+}
 void DuckLakeTransaction::AddDeletes(TableIndex table_id, vector<DuckLakeDeleteFile> files) {
 	if (files.empty()) {
 		return;

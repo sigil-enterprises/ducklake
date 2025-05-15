@@ -1,0 +1,27 @@
+# name: test/sql/alter/add_column.test
+# description: test ducklake add columns
+# group: [alter]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_add_col.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_add_col_files')
+
+statement ok
+CREATE TABLE ducklake.test(col1 INTEGER);
+
+statement ok
+BEGIN
+
+statement ok
+INSERT INTO ducklake.test VALUES (42);
+
+statement ok
+ALTER TABLE ducklake.test ADD COLUMN new_col2 INTEGER
+
+query II
+SELECT * FROM ducklake.test
+----
+42	NULL

@@ -5,6 +5,7 @@ add_library(
   ducklake_delete_filter.cpp
   ducklake_field_data.cpp
   ducklake_inline_data.cpp
+  ducklake_inlined_data_reader.cpp
   ducklake_insert.cpp
   ducklake_schema_entry.cpp
   ducklake_transaction_manager.cpp

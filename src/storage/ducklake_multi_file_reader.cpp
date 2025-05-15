@@ -22,6 +22,7 @@
 #include "duckdb/planner/operator/logical_get.hpp"
 #include "storage/ducklake_delete.hpp"
 #include "duckdb/function/function_binder.hpp"
+#include "storage/ducklake_inlined_data_reader.hpp"
 
 namespace duckdb {
 
@@ -45,7 +46,8 @@ shared_ptr<MultiFileList> DuckLakeMultiFileReader::CreateFileList(ClientContext 
                                                                   FileGlobOptions options) {
 	auto &transaction = DuckLakeTransaction::Get(context, read_info.table.ParentCatalog());
 	auto transaction_local_files = transaction.GetTransactionLocalFiles(read_info.table_id);
-	auto result = make_shared_ptr<DuckLakeMultiFileList>(transaction, read_info, std::move(transaction_local_files));
+	this->transaction_local_data = transaction.GetTransactionLocalInlinedData(read_info.table_id);
+	auto result = make_shared_ptr<DuckLakeMultiFileList>(transaction, read_info, std::move(transaction_local_files), std::move(transaction_local_data));
 	return std::move(result);
 }
 
@@ -120,6 +122,40 @@ ReaderInitializeType DuckLakeMultiFileReader::InitializeReader(MultiFileReaderDa
 	}
 	return MultiFileReader::InitializeReader(reader_data, bind_data, global_columns, global_column_ids, table_filters,
 	                                         context, global_state);
+}
+
+shared_ptr<BaseFileReader> DuckLakeMultiFileReader::TryCreateInlinedDataReader(const OpenFileInfo &file) {
+	if (!file.extended_info) {
+		return nullptr;
+	}
+	auto entry = file.extended_info->options.find("inlined_data");
+	if (entry == file.extended_info->options.end()) {
+		return nullptr;
+	}
+	// this is not a file but inlined data
+	read_info.table;
+	return make_shared_ptr<DuckLakeInlinedDataReader>(file);
+}
+
+shared_ptr<BaseFileReader> DuckLakeMultiFileReader::CreateReader(ClientContext &context, GlobalTableFunctionState &gstate,
+														   const OpenFileInfo &file, idx_t file_idx,
+														   const MultiFileBindData &bind_data) {
+	auto reader = TryCreateInlinedDataReader(file);
+	if (reader) {
+		return reader;
+	}
+	return MultiFileReader::CreateReader(context, gstate, file, file_idx, bind_data);
+}
+
+shared_ptr<BaseFileReader> DuckLakeMultiFileReader::CreateReader(ClientContext &context, const OpenFileInfo &file,
+														   BaseFileReaderOptions &options,
+														   const MultiFileOptions &file_options,
+														   MultiFileReaderInterface &interface) {
+	auto reader = TryCreateInlinedDataReader(file);
+	if (reader) {
+		return reader;
+	}
+	return MultiFileReader::CreateReader(context, file, options, file_options, interface);
 }
 
 unique_ptr<Expression> DuckLakeMultiFileReader::GetVirtualColumnExpression(

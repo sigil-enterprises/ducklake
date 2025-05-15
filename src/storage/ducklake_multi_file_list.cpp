@@ -22,10 +22,10 @@
 namespace duckdb {
 
 DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,
-                                             vector<DuckLakeDataFile> transaction_local_files_p, string filter_p)
+                                             vector<DuckLakeDataFile> transaction_local_files_p, shared_ptr<ColumnDataCollection> transaction_local_data_p, string filter_p)
     : MultiFileList(vector<OpenFileInfo> {}, FileGlobOptions::ALLOW_EMPTY), transaction(transaction),
       read_info(read_info), read_file_list(false), transaction_local_files(std::move(transaction_local_files_p)),
-      filter(std::move(filter_p)) {
+      transaction_local_data(std::move(transaction_local_data_p)), filter(std::move(filter_p)) {
 }
 
 DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,
@@ -261,7 +261,7 @@ DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const Multi
 		    final_filter);
 	}
 	if (!filter.empty()) {
-		return make_uniq<DuckLakeMultiFileList>(transaction, read_info, transaction_local_files, std::move(filter));
+		return make_uniq<DuckLakeMultiFileList>(transaction, read_info, transaction_local_files, transaction_local_data, std::move(filter));
 	}
 	return nullptr;
 }
@@ -303,26 +303,32 @@ OpenFileInfo DuckLakeMultiFileList::GetFile(idx_t i) {
 	auto &file = file_entry.file;
 	OpenFileInfo result(file.path);
 	auto extended_info = make_shared_ptr<ExtendedOpenFileInfo>();
-	extended_info->options["file_size"] = Value::UBIGINT(file.file_size_bytes);
-	extended_info->options["footer_size"] = Value::UBIGINT(file.footer_size);
-	extended_info->options["row_id_start"] = Value::UBIGINT(files[i].row_id_start);
-	Value snapshot_id;
-	if (files[i].snapshot_id.IsValid()) {
-		snapshot_id = Value::BIGINT(NumericCast<int64_t>(files[i].snapshot_id.GetIndex()));
+	if (transaction_local_data && i + 1 == files.size()) {
+		// scanning transaction local data
+		extended_info->options["transaction_local_data"] = Value::BOOLEAN(true);
+		extended_info->options["inlined_data"] = Value::BOOLEAN(true);
 	} else {
-		snapshot_id = Value(LogicalType::BIGINT);
-	}
-	extended_info->options["snapshot_id"] = std::move(snapshot_id);
-	if (!file.encryption_key.empty()) {
-		extended_info->options["encryption_key"] = Value::BLOB_RAW(file.encryption_key);
-	}
-	// files managed by DuckLake are never modified - we can keep them cached
-	extended_info->options["validate_external_file_cache"] = Value::BOOLEAN(false);
-	// etag / last modified time can be set to dummy values
-	extended_info->options["etag"] = Value("");
-	extended_info->options["last_modified"] = Value::TIMESTAMP(timestamp_t(0));
-	if (!file_entry.delete_file.path.empty() || file_entry.max_row_count.IsValid()) {
-		extended_info->options["has_deletes"] = Value::BOOLEAN(true);
+		extended_info->options["file_size"] = Value::UBIGINT(file.file_size_bytes);
+		extended_info->options["footer_size"] = Value::UBIGINT(file.footer_size);
+		extended_info->options["row_id_start"] = Value::UBIGINT(files[i].row_id_start);
+		Value snapshot_id;
+		if (files[i].snapshot_id.IsValid()) {
+			snapshot_id = Value::BIGINT(NumericCast<int64_t>(files[i].snapshot_id.GetIndex()));
+		} else {
+			snapshot_id = Value(LogicalType::BIGINT);
+		}
+		extended_info->options["snapshot_id"] = std::move(snapshot_id);
+		if (!file.encryption_key.empty()) {
+			extended_info->options["encryption_key"] = Value::BLOB_RAW(file.encryption_key);
+		}
+		// files managed by DuckLake are never modified - we can keep them cached
+		extended_info->options["validate_external_file_cache"] = Value::BOOLEAN(false);
+		// etag / last modified time can be set to dummy values
+		extended_info->options["etag"] = Value("");
+		extended_info->options["last_modified"] = Value::TIMESTAMP(timestamp_t(0));
+		if (!file_entry.delete_file.path.empty() || file_entry.max_row_count.IsValid()) {
+			extended_info->options["has_deletes"] = Value::BOOLEAN(true);
+		}
 	}
 	result.extended_info = std::move(extended_info);
 	return result;
@@ -389,6 +395,16 @@ vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() 
 		transaction_row_start += file.row_count;
 		result.push_back(std::move(file_entry));
 	}
+	if (transaction_local_data) {
+		// we have transaction local inlined data - create the dummy file entry
+		DuckLakeFileListExtendedEntry file_entry;
+		file_entry.file.path = "[transaction_local_data]";
+		file_entry.file_id = DataFileIndex();
+		file_entry.delete_file_id = DataFileIndex();
+		file_entry.row_count = transaction_local_data->Count();
+		file_entry.row_id_start = transaction_row_start;
+		result.push_back(std::move(file_entry));
+	}
 	if (!read_file_list) {
 		// we have not read the file list yet - construct it from the extended file list
 		for (auto &file : result) {
@@ -431,6 +447,13 @@ void DuckLakeMultiFileList::GetFilesForTable() {
 		file_entry.delete_file = GetDeleteData(file);
 		transaction_row_start += file.row_count;
 		files.emplace_back(std::move(file_entry));
+	}
+	if (transaction_local_data) {
+		// we have transaction local inlined data - create the dummy file entry
+		DuckLakeFileListEntry file_entry;
+		file_entry.file.path = "[transaction_local_data]";
+		file_entry.row_id_start = transaction_row_start;
+		files.push_back(std::move(file_entry));
 	}
 }
 
