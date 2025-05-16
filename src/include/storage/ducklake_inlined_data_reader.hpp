@@ -33,13 +33,19 @@ public:
 
 	string GetReaderType() const override;
 
+	void AddVirtualColumn(column_t virtual_column_id) override;
+
 private:
 	mutex lock;
 	DuckLakeFunctionInfo &read_info;
 	string table_name;
 	shared_ptr<DuckLakeInlinedData> data;
 	bool initialized_scan = false;
+	vector<bool> is_virtual;
+	int64_t file_row_number = 0;
+	vector<column_t> scan_column_ids;
 	ColumnDataScanState state;
+	DataChunk scan_chunk;
 };
 
 } // namespace duckdb

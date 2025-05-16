@@ -14,7 +14,6 @@
 #include "storage/ducklake_metadata_info.hpp"
 #include "storage/ducklake_inlined_data.hpp"
 
-
 namespace duckdb {
 
 //! The DuckLakeMultiFileList implements the MultiFileList API to allow injecting it into the regular DuckDB parquet
@@ -24,7 +23,8 @@ class DuckLakeMultiFileList : public MultiFileList {
 
 public:
 	explicit DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,
-	                               vector<DuckLakeDataFile> transaction_local_files, shared_ptr<DuckLakeInlinedData> transaction_local_data, string filter = string());
+	                               vector<DuckLakeDataFile> transaction_local_files,
+	                               shared_ptr<DuckLakeInlinedData> transaction_local_data, string filter = string());
 	explicit DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,
 	                               vector<DuckLakeFileListEntry> files_to_scan);
 

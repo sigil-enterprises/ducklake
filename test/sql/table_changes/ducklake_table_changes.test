@@ -15,7 +15,7 @@ CREATE TABLE ducklake.test(i INTEGER);
 
 # snapshot 2
 statement ok
-INSERT INTO ducklake.test FROm range(3);
+INSERT INTO ducklake.test FROM range(3);
 
 # snapshot 3
 statement ok

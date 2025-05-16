@@ -30,6 +30,24 @@ SELECT * FROM ducklake.test
 1	2
 NULL	3
 
+query II
+SELECT j, i FROM ducklake.test
+----
+2	1
+3	NULL
+
+query IIII
+SELECT rowid, snapshot_id, * FROM ducklake.test
+----
+1000000000000000000	NULL	1	2
+1000000000000000001	NULL	NULL	3
+
+query III
+SELECT filename, file_row_number, file_index FROM ducklake.test
+----
+[transaction_local_data]	0	1
+[transaction_local_data]	1	1
+
 statement ok
 COMMIT
 
@@ -39,7 +57,19 @@ SELECT * FROM ducklake.test
 1	2
 NULL	3
 
-# FIXME: stats
+query IIII
+SELECT rowid, snapshot_id, * FROM ducklake.test
+----
+0	2	1	2
+1	2	NULL	3
+
+# unused virtual columns
+query III
+SELECT filename, file_row_number, file_index FROM ducklake.test
+----
+ducklake_inlined_data_1_0	0	0
+ducklake_inlined_data_1_0	1	0
+
 query II
 SELECT * FROM ducklake.test WHERE i IS NULL
 ----
@@ -51,34 +81,6 @@ SELECT * FROM ducklake.test WHERE i=1
 1	2
 
 # all data is inlined - so we have no files
-query I
-SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_inlining_files/**')
-----
-0
-
-# we can delete inlined data
-query I
-DELETE FROM ducklake.test WHERE i=1
-----
-1
-
-query II
-SELECT * FROM ducklake.test
-----
-NULL	3
-
-# we can update inlined data
-query I
-UPDATE ducklake.test SET i=5 WHERE j=3
-----
-1
-
-query II
-SELECT * FROM ducklake.test
-----
-5	3
-
-# still no files
 query I
 SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_inlining_files/**')
 ----

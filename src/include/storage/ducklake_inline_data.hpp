@@ -30,11 +30,11 @@ public:
 	unique_ptr<OperatorState> GetOperatorState(ExecutionContext &context) const override;
 	unique_ptr<GlobalOperatorState> GetGlobalOperatorState(ClientContext &context) const override;
 	OperatorResultType Execute(ExecutionContext &context, DataChunk &input, DataChunk &chunk,
-							   GlobalOperatorState &gstate, OperatorState &state) const override;
-	OperatorFinalizeResultType FinalExecute(ExecutionContext &context, DataChunk &chunk,
-	                                                GlobalOperatorState &gstate, OperatorState &state) const override;
+	                           GlobalOperatorState &gstate, OperatorState &state) const override;
+	OperatorFinalizeResultType FinalExecute(ExecutionContext &context, DataChunk &chunk, GlobalOperatorState &gstate,
+	                                        OperatorState &state) const override;
 	OperatorFinalResultType OperatorFinalize(Pipeline &pipeline, Event &event, ClientContext &context,
-									  OperatorFinalizeInput &input) const override;
+	                                         OperatorFinalizeInput &input) const override;
 
 	bool RequiresFinalExecute() const override {
 		return true;
@@ -47,6 +47,5 @@ public:
 	}
 	string GetName() const override;
 };
-
 
 } // namespace duckdb

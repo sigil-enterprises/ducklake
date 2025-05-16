@@ -1,0 +1,18 @@
+# name: test/sql/data_inlining/data_inlining_constraints.test
+# description: test data inlining with NOT NULL constraints
+# group: [data_inlining]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_inlining_constraint.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_inlining_constraint_files', METADATA_CATALOG 'ducklake_meta', DATA_INLINING_ROW_LIMIT 10)
+
+statement ok
+CREATE TABLE ducklake.test(i INTEGER, j INTEGER NOT NULL);
+
+statement error
+INSERT INTO ducklake.test VALUES (42, NULL)
+----
+xxx

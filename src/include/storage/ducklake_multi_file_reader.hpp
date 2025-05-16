@@ -61,12 +61,11 @@ public:
 	                                      optional_ptr<MultiFileReaderGlobalState> global_state) override;
 
 	shared_ptr<BaseFileReader> CreateReader(ClientContext &context, GlobalTableFunctionState &gstate,
-															   const OpenFileInfo &file, idx_t file_idx,
-															   const MultiFileBindData &bind_data) override;
+	                                        const OpenFileInfo &file, idx_t file_idx,
+	                                        const MultiFileBindData &bind_data) override;
 	shared_ptr<BaseFileReader> CreateReader(ClientContext &context, const OpenFileInfo &file,
-															   BaseFileReaderOptions &options,
-															   const MultiFileOptions &file_options,
-															   MultiFileReaderInterface &interface) override;
+	                                        BaseFileReaderOptions &options, const MultiFileOptions &file_options,
+	                                        MultiFileReaderInterface &interface) override;
 
 	unique_ptr<Expression>
 	GetVirtualColumnExpression(ClientContext &context, MultiFileReaderData &reader_data,
@@ -77,6 +76,7 @@ public:
 	unique_ptr<MultiFileReader> Copy() const override;
 
 	static vector<MultiFileColumnDefinition> ColumnsFromFieldData(const DuckLakeFieldData &field_data);
+
 private:
 	shared_ptr<BaseFileReader> TryCreateInlinedDataReader(const OpenFileInfo &file);
 

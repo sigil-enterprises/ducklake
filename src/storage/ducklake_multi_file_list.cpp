@@ -314,6 +314,8 @@ OpenFileInfo DuckLakeMultiFileList::GetFile(idx_t i) {
 		// scanning transaction local data
 		extended_info->options["transaction_local_data"] = Value::BOOLEAN(true);
 		extended_info->options["inlined_data"] = Value::BOOLEAN(true);
+		extended_info->options["row_id_start"] = Value::BIGINT(files[i].row_id_start);
+		extended_info->options["snapshot_id"] = Value(LogicalType::BIGINT);
 	} else if (i >= inlined_data_file_start) {
 		// scanning inlined data
 		auto inlined_data_index = inlined_data_file_start - i;

@@ -1,4 +1,4 @@
-# name: test/sql/alter/add_column.test
+# name: test/sql/alter/add_column_transaction_local.test
 # description: test ducklake add columns
 # group: [alter]
 
