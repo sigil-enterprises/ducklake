@@ -21,6 +21,7 @@ public:
 
 	InlinePhase phase = InlinePhase::INLINING_ROWS;
 	unique_ptr<ColumnDataCollection> inlined_data;
+	ColumnDataScanState emit_scan;
 };
 
 class InlineDataGlobalState : public GlobalOperatorState {
@@ -81,18 +82,27 @@ OperatorResultType DuckLakeInlineData::Execute(ExecutionContext &context, DataCh
 	}
 	if (state.phase == InlinePhase::EMITTING_PREVIOUSLY_INLINED_ROWS) {
 		// we are emitting previously inlined rows - this happens if we decided not to inline data after all
-		throw InternalException("FIXME: emitting previously inlined rows");
-
-		// finished emitting previously inlined rows - destroy them and pass through any subsequent rows
-		state.inlined_data.reset();
-		state.phase = InlinePhase::PASS_THROUGH_ROWS;
+		state.inlined_data->Scan(state.emit_scan, chunk);
+		if (chunk.size() == 0) {
+			// finished emitting previously inlined rows - destroy them and pass through any subsequent rows
+			state.inlined_data.reset();
+			state.phase = InlinePhase::PASS_THROUGH_ROWS;
+		}
+		return OperatorResultType::HAVE_MORE_OUTPUT;
 	}
 	// we have a new batch of rows
 	// add the count to the global count and check if we are still inlining rows
 	auto new_phase = gstate.AddRows(state, input.size());
 	if (new_phase != InlinePhase::INLINING_ROWS) {
-		// we have exceeded the limit - start emitting rows from the `inlined_data`
-		state.phase = InlinePhase::EMITTING_PREVIOUSLY_INLINED_ROWS;
+		// we have exceeded the limit - start emitting rows from the `inlined_data` if we have it
+		if (state.inlined_data) {
+			// start a scan
+			state.inlined_data->InitializeScan(state.emit_scan);
+			state.phase = InlinePhase::EMITTING_PREVIOUSLY_INLINED_ROWS;
+		} else {
+			// no inline data yet - immediately start emitting rows
+			state.phase = InlinePhase::PASS_THROUGH_ROWS;
+		}
 		return OperatorResultType::HAVE_MORE_OUTPUT;
 	}
 	// we are inlining these rows - append to the local collection

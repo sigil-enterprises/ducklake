@@ -1,0 +1,30 @@
+# name: test/sql/data_inlining/data_inlining_large.test
+# description: test data inlining with many rows
+# group: [data_inlining]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_inlining_large.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_inlining_large_files', METADATA_CATALOG 'ducklake_meta', DATA_INLINING_ROW_LIMIT 10)
+
+statement ok
+CREATE TABLE ducklake.test AS SELECT 1 i, 2 j UNION ALL SELECT NULL, 3
+
+# we can delete inlined data
+query I
+DELETE FROM ducklake.test WHERE i=1
+----
+1
+
+query II
+SELECT * FROM ducklake.test
+----
+NULL	3
+
+# no files
+query I
+SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_inlining_delete_files/**')
+----
+0

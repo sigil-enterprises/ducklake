@@ -63,7 +63,7 @@ SELECT rowid, snapshot_id, * FROM ducklake.test
 0	2	1	2
 1	2	NULL	3
 
-# unused virtual columns
+# virtual columns
 query III
 SELECT filename, file_row_number, file_index FROM ducklake.test
 ----
@@ -85,3 +85,20 @@ query I
 SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_inlining_files/**')
 ----
 0
+
+# insert more rows than the inlining limit allows
+query I
+INSERT INTO ducklake.test SELECT i, 100 + i FROM range(11) t(i);
+----
+11
+
+query III
+SELECT COUNT(*), SUM(i), SUM(j) FROM ducklake.test
+----
+13	56	1160
+
+# now we have a file
+query I
+SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_inlining_files/**')
+----
+1
