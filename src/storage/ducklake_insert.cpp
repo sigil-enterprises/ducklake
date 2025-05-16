@@ -358,6 +358,7 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, cons
 	physical_copy.partition_columns = std::move(copy_options.partition_columns);
 	physical_copy.names = std::move(copy_options.names);
 	physical_copy.expected_types = std::move(copy_options.expected_types);
+	physical_copy.parallel = true;
 	if (plan) {
 		physical_copy.children.push_back(*plan);
 	}

@@ -118,6 +118,16 @@ OperatorFinalizeResultType DuckLakeInlineData::FinalExecute(ExecutionContext &co
                                                             OperatorState &state_p) const {
 	auto &state = state_p.Cast<InlineDataState>();
 	auto &gstate = gstate_p.Cast<InlineDataGlobalState>();
+	if (state.phase == InlinePhase::EMITTING_PREVIOUSLY_INLINED_ROWS) {
+		// emitting previously inlined rows
+		state.inlined_data->Scan(state.emit_scan, chunk);
+		if (chunk.size() != 0) {
+			return OperatorFinalizeResultType::HAVE_MORE_OUTPUT;
+		}
+		// finished emitting previously inlined rows - we're done
+		state.inlined_data.reset();
+		return OperatorFinalizeResultType::FINISHED;
+	}
 	if (!state.inlined_data) {
 		// no inlined data, we are done
 		return OperatorFinalizeResultType::FINISHED;
@@ -125,27 +135,14 @@ OperatorFinalizeResultType DuckLakeInlineData::FinalExecute(ExecutionContext &co
 	// push the inlined data into the global inlined data
 	lock_guard<mutex> guard(gstate.lock);
 	if (gstate.total_inlined_rows > inline_row_limit) {
-		throw InternalException("FIXME: emit inlined rows again");
+		// we have changed our mind on inlining - we need to emit the rows again
+		state.inlined_data->InitializeScan(state.emit_scan);
+		state.phase = InlinePhase::EMITTING_PREVIOUSLY_INLINED_ROWS;
+		return OperatorFinalizeResultType::HAVE_MORE_OUTPUT;
 	}
 	InlineDataGlobalState::AddToCollection(std::move(state.inlined_data), gstate.global_inlined_data);
 	return OperatorFinalizeResultType::FINISHED;
 }
-
-// struct DuckLakeColumnStats {
-//	explicit DuckLakeColumnStats(LogicalType type_p) : type(std::move(type_p)) {
-//	}
-//
-//	LogicalType type;
-//	string min;
-//	string max;
-//	idx_t null_count = 0;
-//	idx_t column_size_bytes = 0;
-//	bool contains_nan = false;
-//	bool has_null_count = false;
-//	bool has_min = false;
-//	bool has_max = false;
-//	bool any_valid = true;
-//	bool has_contains_nan = false;
 
 struct DuckLakeBaseColumnStats {
 	explicit DuckLakeBaseColumnStats(FieldIndex field_id, const LogicalType &type) : field_id(field_id), stats(type) {

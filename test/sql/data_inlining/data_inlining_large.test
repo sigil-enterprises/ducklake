@@ -7,24 +7,26 @@ require ducklake
 require parquet
 
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/ducklake_inlining_large.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_inlining_large_files', METADATA_CATALOG 'ducklake_meta', DATA_INLINING_ROW_LIMIT 10)
+ATTACH 'ducklake:__TEST_DIR__/ducklake_inlining_large.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_inlining_large_files', METADATA_CATALOG 'ducklake_meta', DATA_INLINING_ROW_LIMIT 999999)
 
 statement ok
-CREATE TABLE ducklake.test AS SELECT 1 i, 2 j UNION ALL SELECT NULL, 3
+CREATE TABLE bigtbl AS FROM range(1000000) t(i);
 
-# we can delete inlined data
+statement ok
+CREATE TABLE ducklake.test(i INTEGER)
+
 query I
-DELETE FROM ducklake.test WHERE i=1
+INSERT INTO ducklake.test FROM bigtbl
+----
+1000000
+
+query IIII
+SELECT COUNT(*), SUM(i), MIN(i), MAX(i) FROM bigtbl
+----
+1000000	499999500000	0	999999
+
+# this exceeds the inline limit so we have a file
+query I
+SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_inlining_large_files/**')
 ----
 1
-
-query II
-SELECT * FROM ducklake.test
-----
-NULL	3
-
-# no files
-query I
-SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_inlining_delete_files/**')
-----
-0
