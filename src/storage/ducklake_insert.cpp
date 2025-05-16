@@ -440,12 +440,18 @@ PhysicalOperator &DuckLakeCatalog::PlanCreateTableAs(ClientContext &context, Phy
 	auto &columns = create_info.columns;
 	// FIXME: if table already exists and we are doing CREATE IF NOT EXISTS - skip
 	string encryption_key = GenerateEncryptionKey(context);
+	reference<PhysicalOperator> root = plan;
+	optional_ptr<DuckLakeInlineData> inline_data;
 	if (data_inlining_row_limit > 0) {
-		throw InternalException("FIXME: inline data for CREATE TABLE AS");
+		root = planner.Make<DuckLakeInlineData>(root.get(), data_inlining_row_limit);
+		inline_data = root.get().Cast<DuckLakeInlineData>();
 	}
-	auto &physical_copy = DuckLakeInsert::PlanCopyForInsert(context, columns, planner, nullptr, nullptr, plan,
+	auto &physical_copy = DuckLakeInsert::PlanCopyForInsert(context, columns, planner, nullptr, nullptr, root.get(),
 	                                                        DataPath(), encryption_key);
 	auto &insert = planner.Make<DuckLakeInsert>(op.types, op.schema, std::move(op.info), std::move(encryption_key));
+	if (inline_data) {
+		inline_data->insert = insert.Cast<DuckLakeInsert>();
+	}
 	insert.children.push_back(physical_copy);
 	return insert;
 }
