@@ -10,7 +10,10 @@ statement ok
 ATTACH 'ducklake:__TEST_DIR__/ducklake_inlining_delete.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_inlining_delete_files', METADATA_CATALOG 'ducklake_meta', DATA_INLINING_ROW_LIMIT 10)
 
 statement ok
-CREATE TABLE ducklake.test AS SELECT 1 i, 2 j UNION ALL SELECT NULL, 3
+CREATE TABLE ducklake.test AS SELECT 1 i, 2 j UNION ALL SELECT NULL, 3 UNION ALL SELECT 10, 20
+
+statement ok
+BEGIN
 
 # we can delete inlined data
 query I
@@ -22,9 +25,133 @@ query II
 SELECT * FROM ducklake.test
 ----
 NULL	3
+10	20
+
+statement ok
+COMMIT
+
+query II
+SELECT * FROM ducklake.test
+----
+NULL	3
+10	20
+
+# delete the other row
+statement ok
+BEGIN
+
+query I
+DELETE FROM ducklake.test WHERE i=10
+----
+1
+
+query II
+SELECT * FROM ducklake.test
+----
+NULL	3
+
+statement ok
+COMMIT
+
+query II
+SELECT * FROM ducklake.test
+----
+NULL	3
 
 # no files
 query I
 SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_inlining_delete_files/**')
 ----
 0
+
+# delete all remaining rows in the table
+query I
+DELETE FROM ducklake.test
+----
+1
+
+query II
+SELECT * FROM ducklake.test
+----
+
+mode skip
+
+# delete data from transaction-local inlined insertions
+statement ok
+BEGIN
+
+statement ok
+INSERT INTO ducklake.test VALUES (42, 84), (100, 200), (200, 300), (300, 400), (400, 500);
+
+query II
+SELECT * FROM ducklake.test
+----
+42	84
+100	200
+200	300
+300	400
+400	500
+
+query I
+DELETE FROM ducklake.test WHERE i=100
+----
+1
+
+query II
+SELECT * FROM ducklake.test
+----
+42	84
+200	300
+300	400
+400	500
+
+statement ok
+COMMIT
+
+query II
+SELECT * FROM ducklake.test
+----
+42	84
+200	300
+300	400
+400	500
+
+# multiple deletes in the same transaction
+
+statement ok
+BEGIN
+
+query I
+DELETE FROM ducklake.test WHERE i=300;
+----
+1
+
+query I
+DELETE FROM ducklake.test WHERE i=200;
+----
+1
+
+query II
+SELECT * FROM ducklake.test
+----
+42	84
+400	500
+
+query II
+SELECT * FROM ducklake.test WHERE i=400
+----
+400	500
+
+statement ok
+COMMIT
+
+query II
+SELECT * FROM ducklake.test
+----
+42	84
+400	500
+
+query II
+SELECT * FROM ducklake.test WHERE i=400
+----
+400	500

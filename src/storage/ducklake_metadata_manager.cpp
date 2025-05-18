@@ -965,6 +965,37 @@ WHERE table_id = %d AND schema_id=(
 	}
 }
 
+void DuckLakeMetadataManager::WriteNewInlinedDeletes(DuckLakeSnapshot commit_snapshot,
+                                                     const vector<DuckLakeDeletedInlinedDataInfo> &new_deletes) {
+	if (new_deletes.empty()) {
+		return;
+	}
+	for (auto &entry : new_deletes) {
+		// get a list of all deleted row-ids for this table
+		string row_id_list;
+		for (auto &deleted_id : entry.deleted_row_ids) {
+			if (!row_id_list.empty()) {
+				row_id_list += ", ";
+			}
+			row_id_list += StringUtil::Format("(%d)", deleted_id);
+		}
+		// overwrite the snapshot for the old tags
+		auto result = transaction.Query(commit_snapshot, StringUtil::Format(R"(
+WITH deleted_row_list(deleted_row_id) AS (
+VALUES %s
+)
+UPDATE {METADATA_CATALOG}.%s
+SET end_snapshot = {SNAPSHOT_ID}
+FROM deleted_row_list
+WHERE row_id=deleted_row_id
+)",
+		                                                                    row_id_list, entry.table_name));
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to write inlined delete information in DuckLake: ");
+		}
+	}
+}
+
 shared_ptr<DuckLakeInlinedData> DuckLakeMetadataManager::ReadInlinedData(DuckLakeSnapshot snapshot,
                                                                          const string &inlined_table_name,
                                                                          const vector<string> &columns_to_read) {

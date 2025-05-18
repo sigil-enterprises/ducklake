@@ -113,7 +113,15 @@ ReaderInitializeType DuckLakeMultiFileReader::InitializeReader(MultiFileReaderDa
 	if (!file_list.IsDeleteScan()) {
 		// regular scan - read the deletes from the delete file (if any) and apply the max row count
 		auto &file_entry = file_list.GetFileEntry(file_idx);
-		if (!file_entry.delete_file.path.empty() || file_entry.max_row_count.IsValid()) {
+		if (file_entry.is_inlined_data) {
+			auto inlined_deletes =
+			    read_info.transaction.GetInlinedDeletes(read_info.table.GetTableId(), file_entry.file.path);
+			if (inlined_deletes) {
+				auto delete_filter = make_uniq<DuckLakeDeleteFilter>();
+				delete_filter->Initialize(*inlined_deletes);
+				reader.deletion_filter = std::move(delete_filter);
+			}
+		} else if (!file_entry.delete_file.path.empty() || file_entry.max_row_count.IsValid()) {
 			auto delete_filter = make_uniq<DuckLakeDeleteFilter>();
 			if (!file_entry.delete_file.path.empty()) {
 				delete_filter->Initialize(context, file_entry.delete_file);

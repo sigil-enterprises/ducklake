@@ -61,7 +61,7 @@ bool DuckLakeTransaction::SchemaChangesMade() {
 
 bool DuckLakeTransaction::ChangesMade() {
 	return SchemaChangesMade() || !new_data_files.empty() || !new_delete_files.empty() || !dropped_files.empty() ||
-	       !new_inlined_data.empty();
+	       !new_inlined_data.empty() || !new_inlined_data_deletes.empty();
 }
 
 struct TransactionChangeInformation {
@@ -193,6 +193,10 @@ TransactionChangeInformation DuckLakeTransaction::GetTransactionChanges() {
 		auto table_id = entry.first;
 		changes.tables_deleted_from.insert(table_id);
 	}
+	for (auto &entry : new_inlined_data_deletes) {
+		auto table_id = entry.first;
+		changes.tables_deleted_from.insert(table_id);
+	}
 	for (auto &entry : compactions) {
 		auto table_id = entry.first;
 		changes.tables_compacted.insert(table_id);
@@ -211,6 +215,10 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 	}
 	changes.tables_deleted_from = tables_deleted_from;
 	for (auto &entry : new_delete_files) {
+		auto table_id = entry.first;
+		changes.tables_deleted_from.insert(table_id);
+	}
+	for (auto &entry : new_inlined_data_deletes) {
 		auto table_id = entry.first;
 		changes.tables_deleted_from.insert(table_id);
 	}
@@ -989,6 +997,23 @@ vector<DuckLakeDeleteFileInfo> DuckLakeTransaction::GetNewDeleteFiles(DuckLakeSn
 	return result;
 }
 
+vector<DuckLakeDeletedInlinedDataInfo> DuckLakeTransaction::GetNewInlinedDeletes(DuckLakeSnapshot &commit_snapshot) {
+	vector<DuckLakeDeletedInlinedDataInfo> result;
+	for (auto &entry : new_inlined_data_deletes) {
+		auto table_id = entry.first;
+		for (auto &delete_entry : entry.second) {
+			DuckLakeDeletedInlinedDataInfo info;
+			info.table_id = table_id;
+			info.table_name = delete_entry.first;
+			for (auto &row_id : delete_entry.second->rows) {
+				info.deleted_row_ids.push_back(row_id);
+			}
+			result.push_back(std::move(info));
+		}
+	}
+	return result;
+}
+
 void DuckLakeTransaction::CommitChanges(DuckLakeSnapshot &commit_snapshot,
                                         TransactionChangeInformation &transaction_changes) {
 	// drop entries
@@ -1045,6 +1070,10 @@ void DuckLakeTransaction::CommitChanges(DuckLakeSnapshot &commit_snapshot,
 		auto file_list = GetNewDeleteFiles(commit_snapshot, overwritten_delete_files);
 		metadata_manager->DropDeleteFiles(commit_snapshot, overwritten_delete_files);
 		metadata_manager->WriteNewDeleteFiles(commit_snapshot, file_list);
+	}
+	if (!new_inlined_data_deletes.empty()) {
+		auto inlined_deletes = GetNewInlinedDeletes(commit_snapshot);
+		metadata_manager->WriteNewInlinedDeletes(commit_snapshot, inlined_deletes);
 	}
 }
 
@@ -1339,6 +1368,37 @@ void DuckLakeTransaction::AppendInlinedData(TableIndex table_id, unique_ptr<Duck
 		new_inlined_data.emplace(table_id, std::move(new_data));
 	}
 }
+
+void DuckLakeTransaction::AddNewInlinedDeletes(TableIndex table_id, const string &table_name, set<idx_t> new_deletes) {
+	auto &table_deletes = new_inlined_data_deletes[table_id];
+	auto entry = table_deletes.find(table_name);
+	if (entry != table_deletes.end()) {
+		// merge deletes
+		auto &existing_rows = entry->second->rows;
+		for (auto &row_idx : new_deletes) {
+			existing_rows.insert(row_idx);
+		}
+	} else {
+		auto new_data = make_uniq<DuckLakeInlinedDataDeletes>();
+		new_data->rows = std::move(new_deletes);
+		table_deletes.emplace(table_name, std::move(new_data));
+	}
+}
+
+optional_ptr<DuckLakeInlinedDataDeletes> DuckLakeTransaction::GetInlinedDeletes(TableIndex table_id,
+                                                                                const string &table_name) {
+	auto entry = new_inlined_data_deletes.find(table_id);
+	if (entry == new_inlined_data_deletes.end()) {
+		return nullptr;
+	}
+	auto &table_deletes = entry->second;
+	auto delete_entry = table_deletes.find(table_name);
+	if (delete_entry == table_deletes.end()) {
+		return nullptr;
+	}
+	return delete_entry->second.get();
+}
+
 void DuckLakeTransaction::AddDeletes(TableIndex table_id, vector<DuckLakeDeleteFile> files) {
 	if (files.empty()) {
 		return;

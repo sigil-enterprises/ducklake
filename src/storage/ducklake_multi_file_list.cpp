@@ -419,16 +419,18 @@ vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() 
 		file_entry.delete_file_id = DataFileIndex();
 		file_entry.row_count = 0;
 		file_entry.row_id_start = 0;
+		file_entry.is_inlined_data = true;
 		result.push_back(std::move(file_entry));
 	}
 	if (transaction_local_data) {
 		// we have transaction local inlined data - create the dummy file entry
 		DuckLakeFileListExtendedEntry file_entry;
-		file_entry.file.path = "[transaction_local_data]";
+		file_entry.file.path = DUCKLAKE_TRANSACTION_LOCAL_INLINED_FILENAME;
 		file_entry.file_id = DataFileIndex();
 		file_entry.delete_file_id = DataFileIndex();
 		file_entry.row_count = transaction_local_data->data->Count();
 		file_entry.row_id_start = transaction_row_start;
+		file_entry.is_inlined_data = true;
 		result.push_back(std::move(file_entry));
 	}
 	if (!read_file_list) {
@@ -479,13 +481,15 @@ void DuckLakeMultiFileList::GetFilesForTable() {
 		DuckLakeFileListEntry file_entry;
 		file_entry.file.path = table.table_name;
 		file_entry.row_id_start = 0;
+		file_entry.is_inlined_data = true;
 		files.push_back(std::move(file_entry));
 	}
 	if (transaction_local_data) {
 		// we have transaction local inlined data - create the dummy file entry
 		DuckLakeFileListEntry file_entry;
-		file_entry.file.path = "[transaction_local_data]";
+		file_entry.file.path = DUCKLAKE_TRANSACTION_LOCAL_INLINED_FILENAME;
 		file_entry.row_id_start = transaction_row_start;
+		file_entry.is_inlined_data = true;
 		files.push_back(std::move(file_entry));
 	}
 }

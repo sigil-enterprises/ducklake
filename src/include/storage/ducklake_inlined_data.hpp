@@ -19,4 +19,8 @@ struct DuckLakeInlinedData {
 	map<FieldIndex, DuckLakeColumnStats> column_stats;
 };
 
+struct DuckLakeInlinedDataDeletes {
+	set<idx_t> rows;
+};
+
 } // namespace duckdb

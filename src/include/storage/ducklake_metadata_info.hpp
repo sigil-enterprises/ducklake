@@ -98,6 +98,12 @@ struct DuckLakeInlinedDataInfo {
 	unique_ptr<DuckLakeInlinedData> data;
 };
 
+struct DuckLakeDeletedInlinedDataInfo {
+	TableIndex table_id;
+	string table_name;
+	vector<idx_t> deleted_row_ids;
+};
+
 struct DuckLakeDeleteFileInfo {
 	DataFileIndex id;
 	TableIndex table_id;
@@ -212,6 +218,7 @@ struct DuckLakeFileListEntry {
 	idx_t row_id_start;
 	optional_idx snapshot_id;
 	optional_idx max_row_count;
+	bool is_inlined_data = false;
 };
 
 struct DuckLakeDeleteScanEntry {
@@ -232,6 +239,7 @@ struct DuckLakeFileListExtendedEntry {
 	optional_idx snapshot_id;
 	idx_t row_count;
 	idx_t delete_count = 0;
+	bool is_inlined_data = false;
 };
 
 struct DuckLakeCompactionBaseFileData {

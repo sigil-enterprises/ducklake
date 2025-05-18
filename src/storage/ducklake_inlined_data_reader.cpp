@@ -4,6 +4,7 @@
 #include "storage/ducklake_metadata_manager.hpp"
 #include "duckdb/storage/table/column_segment.hpp"
 #include "duckdb/planner/table_filter_state.hpp"
+#include "storage/ducklake_delete_filter.hpp"
 
 namespace duckdb {
 
@@ -63,11 +64,45 @@ bool DuckLakeInlinedDataReader::TryInitializeScan(ClientContext &context, Global
 			}
 			columns_to_read.push_back(columns[index].name);
 		}
+		if (deletion_filter) {
+			// we have a deletion filter - the deletions are on row-ids, not on ordinals
+			// we need to transform from row-ids to ordinals by scanning the ACTUAL row-ids and doing the mapping
+			// set-up the scan to emit the row-id column, but to ignore it in the final result
+			for (idx_t i = 0; i < columns_to_read.size(); i++) {
+				scan_column_ids.push_back(i);
+				is_virtual.push_back(false);
+			}
+			columns_to_read.push_back("row_id");
+		}
 		data = metadata_manager.ReadInlinedData(read_info.snapshot, table_name, columns_to_read);
+		if (deletion_filter) {
+			auto scan_types = data->data->Types();
+			scan_chunk.Initialize(context, scan_types);
+
+			// map the deleted row-ids to the deleted ordinals to obtain the correct deleted rows
+			auto &filter = reinterpret_cast<DuckLakeDeleteFilter &>(*deletion_filter);
+			vector<idx_t> deleted_ordinals;
+			auto &deleted_row_ids = filter.delete_data->deleted_rows;
+			idx_t current_idx = 0;
+			idx_t ordinal_position = 0;
+			for (auto &chunk : data->data->Chunks()) {
+				auto &row_id_vector = chunk.data.back();
+				auto row_id_data = FlatVector::GetData<int64_t>(row_id_vector);
+				for (idx_t r = 0; r < chunk.size(); r++) {
+					auto row_id = NumericCast<idx_t>(row_id_data[r]);
+					if (current_idx < deleted_row_ids.size() && deleted_row_ids[current_idx] == row_id) {
+						deleted_ordinals.push_back(ordinal_position);
+						current_idx++;
+					}
+					ordinal_position++;
+				}
+			}
+			filter.delete_data->deleted_rows = std::move(deleted_ordinals);
+		}
 		data->data->InitializeScan(state);
 	} else {
 		// scanning from transaction-local data - we already have the data
-		// push the projections ivector<column_t> column_ids;nto the scan
+		// push the projections into the scan
 		vector<LogicalType> scan_types;
 		auto &types = data->data->Types();
 		for (idx_t i = 0; i < column_indexes.size(); ++i) {
@@ -110,29 +145,37 @@ void DuckLakeInlinedDataReader::Scan(ClientContext &context, GlobalTableFunction
 			auto column_id = source_idx++;
 			chunk.data[c].Reference(scan_chunk.data[column_id]);
 		}
-		file_row_number += scan_chunk.size();
 		chunk.SetCardinality(scan_chunk.size());
 	} else {
 		data->data->Scan(state, chunk);
 	}
-	if (filters) {
+	idx_t scan_count = chunk.size();
+	if (filters || deletion_filter) {
 		SelectionVector sel;
 		idx_t approved_tuple_count = chunk.size();
-		for (auto &entry : filters->filters) {
-			auto column_id = entry.first;
-			auto &vec = chunk.data[column_id];
-
-			UnifiedVectorFormat vdata;
-			vec.ToUnifiedFormat(chunk.size(), vdata);
-
-			auto &filter = *entry.second;
-			auto filter_state = TableFilterState::Initialize(context, filter);
-
-			approved_tuple_count = ColumnSegment::FilterSelection(sel, vec, vdata, filter, *filter_state, chunk.size(),
-			                                                      approved_tuple_count);
+		if (deletion_filter) {
+			approved_tuple_count = deletion_filter->Filter(file_row_number, approved_tuple_count, sel);
 		}
-		chunk.Slice(sel, approved_tuple_count);
+		if (filters) {
+			for (auto &entry : filters->filters) {
+				auto column_id = entry.first;
+				auto &vec = chunk.data[column_id];
+
+				UnifiedVectorFormat vdata;
+				vec.ToUnifiedFormat(chunk.size(), vdata);
+
+				auto &filter = *entry.second;
+				auto filter_state = TableFilterState::Initialize(context, filter);
+
+				approved_tuple_count = ColumnSegment::FilterSelection(sel, vec, vdata, filter, *filter_state,
+				                                                      chunk.size(), approved_tuple_count);
+			}
+		}
+		if (approved_tuple_count != chunk.size()) {
+			chunk.Slice(sel, approved_tuple_count);
+		}
 	}
+	file_row_number += scan_count;
 }
 
 void DuckLakeInlinedDataReader::AddVirtualColumn(column_t virtual_column_id) {

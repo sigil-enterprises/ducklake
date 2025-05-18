@@ -135,6 +135,12 @@ void DuckLakeDeleteFilter::Initialize(ClientContext &context, const DuckLakeFile
 	delete_data->deleted_rows = ScanDeleteFile(context, delete_file);
 }
 
+void DuckLakeDeleteFilter::Initialize(const DuckLakeInlinedDataDeletes &inlined_deletes) {
+	for (auto &idx : inlined_deletes.rows) {
+		delete_data->deleted_rows.push_back(idx);
+	}
+}
+
 void DuckLakeDeleteFilter::Initialize(ClientContext &context, const DuckLakeDeleteScanEntry &delete_scan) {
 	// scanning deletes - we need to scan the opposite (i.e. only the rows that were deleted)
 	auto rows_to_scan = make_unsafe_uniq_array<bool>(delete_scan.row_count);

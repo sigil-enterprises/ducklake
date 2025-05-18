@@ -20,6 +20,8 @@ namespace duckdb {
 //! scan
 class DuckLakeMultiFileList : public MultiFileList {
 	static constexpr const idx_t TRANSACTION_LOCAL_ID_START = 1000000000000000000ULL;
+	static constexpr const char *DUCKLAKE_TRANSACTION_LOCAL_INLINED_FILENAME =
+	    "__ducklake_inlined_transaction_local_data";
 
 public:
 	explicit DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,

@@ -169,6 +169,10 @@ void DuckLakeDelete::FlushDelete(DuckLakeTransaction &transaction, ClientContext
 	for (auto &row_idx : deleted_rows) {
 		sorted_deletes.insert(row_idx);
 	}
+	if (data_file_info.is_inlined_data) {
+		transaction.AddNewInlinedDeletes(table.GetTableId(), data_file_info.file.path, std::move(sorted_deletes));
+		return;
+	}
 	DuckLakeDeleteFile delete_file;
 	delete_file.data_file_path = filename;
 	delete_file.data_file_id = data_file_info.file_id;

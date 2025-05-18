@@ -75,7 +75,11 @@ public:
 	void AppendFiles(TableIndex table_id, vector<DuckLakeDataFile> files);
 	void AddDeletes(TableIndex table_id, vector<DuckLakeDeleteFile> files);
 	void AddCompaction(TableIndex table_id, DuckLakeCompactionEntry entry);
+
 	void AppendInlinedData(TableIndex table_id, unique_ptr<DuckLakeInlinedData> collection);
+	void AddNewInlinedDeletes(TableIndex table_id, const string &table_name, set<idx_t> new_deletes);
+	optional_ptr<DuckLakeInlinedDataDeletes> GetInlinedDeletes(TableIndex table_id, const string &table_name);
+	vector<DuckLakeDeletedInlinedDataInfo> GetNewInlinedDeletes(DuckLakeSnapshot &commit_snapshot);
 
 	void DropSchema(DuckLakeSchemaEntry &schema);
 	void DropTable(DuckLakeTableEntry &table);
@@ -161,6 +165,8 @@ private:
 	map<TableIndex, unique_ptr<DuckLakeInlinedData>> new_inlined_data;
 	//! New deletes added by this transaction
 	map<TableIndex, unordered_map<string, DuckLakeDeleteFile>> new_delete_files;
+	//! New deletes performed on inlined rows by this transaction
+	map<TableIndex, unordered_map<string, unique_ptr<DuckLakeInlinedDataDeletes>>> new_inlined_data_deletes;
 	//! Compactions performed by this transaction
 	mutex compaction_lock;
 	map<TableIndex, vector<DuckLakeCompactionEntry>> compactions;
