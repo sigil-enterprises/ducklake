@@ -44,8 +44,8 @@ public:
 	idx_t GetTotalFileCount() override;
 	unique_ptr<NodeStatistics> GetCardinality(ClientContext &context) override;
 	DuckLakeTableEntry &GetTable();
-	bool HasTransactionLocalFiles() const {
-		return !transaction_local_files.empty();
+	bool HasTransactionLocalData() const {
+		return !transaction_local_files.empty() || transaction_local_data;
 	}
 	vector<DuckLakeFileListExtendedEntry> GetFilesExtended();
 	const vector<DuckLakeFileListEntry> &GetFiles();
