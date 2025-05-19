@@ -91,6 +91,8 @@ public:
 
 	void OnDetach(ClientContext &context) override;
 
+	optional_idx GetCatalogVersion(ClientContext &context) override;
+
 private:
 	void DropSchema(ClientContext &context, DropInfo &info) override;
 

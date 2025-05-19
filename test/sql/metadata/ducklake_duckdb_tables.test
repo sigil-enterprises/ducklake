@@ -1,6 +1,6 @@
 # name: test/sql/metadata/ducklake_duckdb_tables.test
 # description: test duckdb_tables with ducklake
-# group: [sql]
+# group: [metadata]
 
 require ducklake
 

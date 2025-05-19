@@ -433,4 +433,9 @@ void DuckLakeCatalog::OnDetach(ClientContext &context) {
 	transaction.Query("DETACH {METADATA_CATALOG_NAME_IDENTIFIER}");
 }
 
+optional_idx DuckLakeCatalog::GetCatalogVersion(ClientContext &context) {
+	auto &transaction = DuckLakeTransaction::Get(context, *this);
+	return transaction.GetSnapshot().schema_version;
+}
+
 } // namespace duckdb
