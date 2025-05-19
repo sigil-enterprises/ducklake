@@ -36,6 +36,12 @@ SELECT * FROM ducklake.test
 NULL	3
 10	20
 
+# no files
+query I
+SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_inlining_delete_files/**')
+----
+0
+
 # delete the other row
 statement ok
 BEGIN
@@ -58,12 +64,6 @@ SELECT * FROM ducklake.test
 ----
 NULL	3
 
-# no files
-query I
-SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_inlining_delete_files/**')
-----
-0
-
 # delete all remaining rows in the table
 query I
 DELETE FROM ducklake.test
@@ -74,84 +74,8 @@ query II
 SELECT * FROM ducklake.test
 ----
 
-mode skip
-
-# delete data from transaction-local inlined insertions
-statement ok
-BEGIN
-
-statement ok
-INSERT INTO ducklake.test VALUES (42, 84), (100, 200), (200, 300), (300, 400), (400, 500);
-
-query II
-SELECT * FROM ducklake.test
-----
-42	84
-100	200
-200	300
-300	400
-400	500
-
+# no files
 query I
-DELETE FROM ducklake.test WHERE i=100
+SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_inlining_delete_files/**')
 ----
-1
-
-query II
-SELECT * FROM ducklake.test
-----
-42	84
-200	300
-300	400
-400	500
-
-statement ok
-COMMIT
-
-query II
-SELECT * FROM ducklake.test
-----
-42	84
-200	300
-300	400
-400	500
-
-# multiple deletes in the same transaction
-
-statement ok
-BEGIN
-
-query I
-DELETE FROM ducklake.test WHERE i=300;
-----
-1
-
-query I
-DELETE FROM ducklake.test WHERE i=200;
-----
-1
-
-query II
-SELECT * FROM ducklake.test
-----
-42	84
-400	500
-
-query II
-SELECT * FROM ducklake.test WHERE i=400
-----
-400	500
-
-statement ok
-COMMIT
-
-query II
-SELECT * FROM ducklake.test
-----
-42	84
-400	500
-
-query II
-SELECT * FROM ducklake.test WHERE i=400
-----
-400	500
+0

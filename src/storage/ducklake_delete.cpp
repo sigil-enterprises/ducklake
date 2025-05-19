@@ -169,7 +169,14 @@ void DuckLakeDelete::FlushDelete(DuckLakeTransaction &transaction, ClientContext
 	for (auto &row_idx : deleted_rows) {
 		sorted_deletes.insert(row_idx);
 	}
-	if (data_file_info.is_inlined_data) {
+
+	if (data_file_info.data_type == DuckLakeDataType::TRANSACTION_LOCAL_INLINED_DATA) {
+		// deletes from transaction-local inlined data are directly deleted from the inlined data
+		transaction.DeleteFromLocalInlinedData(table.GetTableId(), std::move(sorted_deletes));
+		return;
+	}
+	if (data_file_info.data_type == DuckLakeDataType::INLINED_DATA) {
+		// deletes from inlined data are not written to a file but pushed directly into the metadata manager
 		transaction.AddNewInlinedDeletes(table.GetTableId(), data_file_info.file.path, std::move(sorted_deletes));
 		return;
 	}

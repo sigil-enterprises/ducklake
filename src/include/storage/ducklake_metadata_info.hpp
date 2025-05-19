@@ -212,13 +212,19 @@ struct DuckLakeFileData {
 	idx_t footer_size = 0;
 };
 
+enum class DuckLakeDataType {
+	DATA_FILE,
+	INLINED_DATA,
+	TRANSACTION_LOCAL_INLINED_DATA,
+};
+
 struct DuckLakeFileListEntry {
 	DuckLakeFileData file;
 	DuckLakeFileData delete_file;
 	idx_t row_id_start;
 	optional_idx snapshot_id;
 	optional_idx max_row_count;
-	bool is_inlined_data = false;
+	DuckLakeDataType data_type = DuckLakeDataType::DATA_FILE;
 };
 
 struct DuckLakeDeleteScanEntry {
@@ -239,7 +245,7 @@ struct DuckLakeFileListExtendedEntry {
 	optional_idx snapshot_id;
 	idx_t row_count;
 	idx_t delete_count = 0;
-	bool is_inlined_data = false;
+	DuckLakeDataType data_type = DuckLakeDataType::DATA_FILE;
 };
 
 struct DuckLakeCompactionBaseFileData {

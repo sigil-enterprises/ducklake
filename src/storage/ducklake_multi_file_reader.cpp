@@ -113,7 +113,7 @@ ReaderInitializeType DuckLakeMultiFileReader::InitializeReader(MultiFileReaderDa
 	if (!file_list.IsDeleteScan()) {
 		// regular scan - read the deletes from the delete file (if any) and apply the max row count
 		auto &file_entry = file_list.GetFileEntry(file_idx);
-		if (file_entry.is_inlined_data) {
+		if (file_entry.data_type != DuckLakeDataType::DATA_FILE) {
 			auto inlined_deletes =
 			    read_info.transaction.GetInlinedDeletes(read_info.table.GetTableId(), file_entry.file.path);
 			if (inlined_deletes) {

@@ -1385,6 +1385,44 @@ void DuckLakeTransaction::AddNewInlinedDeletes(TableIndex table_id, const string
 	}
 }
 
+void DuckLakeTransaction::DeleteFromLocalInlinedData(TableIndex table_id, set<idx_t> new_deletes) {
+	auto entry = new_inlined_data.find(table_id);
+	if (entry == new_inlined_data.end()) {
+		throw InternalException("DeleteFromLocalInlinedData called but no transaction-local data exists for table");
+	}
+	auto &existing = *entry->second->data;
+	// construct a new collection from the existing data minus the deletes
+	auto context_ref = context.lock();
+	auto new_data = make_uniq<ColumnDataCollection>(*context_ref, existing.Types());
+
+	idx_t base_row_id = 0;
+	ColumnDataAppendState append_state;
+	new_data->InitializeAppend(append_state);
+	for (auto &chunk : existing.Chunks()) {
+		// slice out non-deleted rows
+		SelectionVector sel(chunk.size());
+		idx_t selected_rows = 0;
+
+		for (idx_t r = 0; r < chunk.size(); r++) {
+			auto row_id = base_row_id + r;
+			if (new_deletes.find(row_id) != new_deletes.end()) {
+				// deleted - skip
+				continue;
+			}
+			sel.set_index(selected_rows++, r);
+		}
+		base_row_id += chunk.size();
+		if (selected_rows == 0) {
+			continue;
+		}
+		chunk.Slice(sel, selected_rows);
+		new_data->Append(append_state, chunk);
+	}
+
+	// override the existing collection
+	entry->second->data = std::move(new_data);
+}
+
 optional_ptr<DuckLakeInlinedDataDeletes> DuckLakeTransaction::GetInlinedDeletes(TableIndex table_id,
                                                                                 const string &table_name) {
 	auto entry = new_inlined_data_deletes.find(table_id);
