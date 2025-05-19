@@ -996,7 +996,12 @@ DuckLakeColumnInfo DuckLakeTableEntry::GetAddColumnInfo() const {
 }
 
 TableStorageInfo DuckLakeTableEntry::GetStorageInfo(ClientContext &context) {
-	return TableStorageInfo();
+	TableStorageInfo storage_info;
+	auto table_stats = GetTableStats(context);
+	if (table_stats) {
+		storage_info.cardinality = table_stats->record_count;
+	}
+	return storage_info;
 }
 
 } // namespace duckdb
