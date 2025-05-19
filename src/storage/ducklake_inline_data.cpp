@@ -315,9 +315,18 @@ OperatorFinalResultType DuckLakeInlineData::OperatorFinalize(Pipeline &pipeline,
 			UpdateStats(new_stats, c, chunk.data[c], chunk.size(), field_data.GetByRootIndex(PhysicalIndex(c)));
 		}
 	}
-	// set the final stats
-	for (auto &column_stats : new_stats) {
+	// set the final stats and verify NOT NULL constraints
+	auto not_null_fields = table.GetNotNullFields();
+	for (idx_t c = 0; c < new_stats.size(); c++) {
+		auto &column_stats = new_stats[c];
 		SetFinalStats(column_stats, *result);
+
+		if (column_stats.stats.null_count > 0) {
+			auto column_name = table.GetColumn(LogicalIndex(c)).GetName();
+			if (not_null_fields.count(column_name)) {
+				throw ConstraintException("NOT NULL constraint failed: %s.%s", table.name, column_name);
+			}
+		}
 	}
 
 	// push the inlined data into the transaction

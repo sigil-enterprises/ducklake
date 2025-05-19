@@ -15,4 +15,4 @@ CREATE TABLE ducklake.test(i INTEGER, j INTEGER NOT NULL);
 statement error
 INSERT INTO ducklake.test VALUES (42, NULL)
 ----
-xxx
+NOT NULL constraint failed
