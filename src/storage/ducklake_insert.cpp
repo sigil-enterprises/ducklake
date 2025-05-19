@@ -359,6 +359,7 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, cons
 	physical_copy.names = std::move(copy_options.names);
 	physical_copy.expected_types = std::move(copy_options.expected_types);
 	physical_copy.parallel = true;
+	physical_copy.hive_file_pattern = encryption_key.empty() ? true : false;
 	if (plan) {
 		physical_copy.children.push_back(*plan);
 	}
