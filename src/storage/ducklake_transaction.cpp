@@ -542,6 +542,21 @@ DuckLakePartitionInfo DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &
 	return partition_key;
 }
 
+vector<DuckLakeColumnInfo> DuckLakeTransaction::GetTableColumns(DuckLakeTableEntry &table) {
+	vector<DuckLakeColumnInfo> result;
+	auto not_null_fields = table.GetNotNullFields();
+	for (auto &col : table.GetColumns().Logical()) {
+		auto col_info =
+		    DuckLakeTableEntry::ConvertColumn(col.GetName(), col.GetType(), table.GetFieldId(col.Physical()));
+		if (not_null_fields.count(col.GetName())) {
+			// no null values allowed in this field
+			col_info.nulls_allowed = false;
+		}
+		result.push_back(std::move(col_info));
+	}
+	return result;
+}
+
 DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table) {
 	auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
 	DuckLakeTableInfo table_entry;
@@ -561,16 +576,8 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 	table_entry.name = table.name;
 	if (is_new_table) {
 		// if this is a new table - write the columns
-		auto not_null_fields = table.GetNotNullFields();
-		for (auto &col : table.GetColumns().Logical()) {
-			auto col_info =
-			    DuckLakeTableEntry::ConvertColumn(col.GetName(), col.GetType(), table.GetFieldId(col.Physical()));
-			if (not_null_fields.count(col.GetName())) {
-				// no null values allowed in this field
-				col_info.nulls_allowed = false;
-			}
-			table_entry.columns.push_back(std::move(col_info));
-		}
+		table_entry.columns = GetTableColumns(table);
+
 		// if we have written any data to this table - move them to the new (correct) table id as well
 		auto data_file_entry = new_data_files.find(original_id);
 		if (data_file_entry != new_data_files.end()) {
@@ -594,6 +601,7 @@ struct NewTableInfo {
 	vector<DuckLakeColumnTagInfo> new_column_tags;
 	vector<DuckLakeDroppedColumn> dropped_columns;
 	vector<DuckLakeNewColumn> new_columns;
+	vector<DuckLakeTableInfo> new_inlined_data_tables;
 };
 
 void HandleChangedFields(TableIndex table_id, const ColumnChangeInfo &change_info, NewTableInfo &result) {
@@ -626,6 +634,7 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 		table_entry = table_entry.get().Child();
 	}
 	// traverse in reverse order
+	bool column_schema_change = false;
 	TableIndex new_table_id;
 	for (idx_t table_idx = tables.size(); table_idx > 0; table_idx--) {
 		auto &table = tables[table_idx - 1].get();
@@ -633,12 +642,13 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 			table.SetTableId(new_table_id);
 		}
 		auto local_change = table.GetLocalChange();
+		auto table_id = table.GetTableId();
 		switch (local_change.type) {
 		case LocalChangeType::SET_PARTITION_KEY: {
 			auto partition_key = GetNewPartitionKey(commit_snapshot, table);
 			result.new_partition_keys.push_back(std::move(partition_key));
 
-			transaction_changes.altered_tables.insert(table.GetTableId());
+			transaction_changes.altered_tables.insert(table_id);
 			break;
 		}
 		case LocalChangeType::SET_COMMENT: {
@@ -648,7 +658,7 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 			comment_info.value = table.comment;
 			result.new_tags.push_back(std::move(comment_info));
 
-			transaction_changes.altered_tables.insert(table.GetTableId());
+			transaction_changes.altered_tables.insert(table_id);
 			break;
 		}
 		case LocalChangeType::SET_COLUMN_COMMENT: {
@@ -659,7 +669,7 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 			comment_info.value = table.GetColumnByFieldId(local_change.field_index).Comment();
 			result.new_column_tags.push_back(std::move(comment_info));
 
-			transaction_changes.altered_tables.insert(table.GetTableId());
+			transaction_changes.altered_tables.insert(table_id);
 			break;
 		}
 		case LocalChangeType::SET_NULL:
@@ -678,7 +688,10 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 			new_col.column_info = table.GetColumnInfo(local_change.field_index);
 			result.new_columns.push_back(std::move(new_col));
 
-			transaction_changes.altered_tables.insert(table.GetTableId());
+			transaction_changes.altered_tables.insert(table_id);
+			if (local_change.type == LocalChangeType::RENAME_COLUMN) {
+				column_schema_change = true;
+			}
 			break;
 		}
 		case LocalChangeType::REMOVE_COLUMN:
@@ -686,6 +699,7 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 			// drop the indicated column
 			// note that in case of nested types we might be dropping multiple columns here
 			HandleChangedFields(table.GetTableId(), table.GetChangedFields(), result);
+			column_schema_change = true;
 			break;
 		}
 		case LocalChangeType::ADD_COLUMN: {
@@ -696,6 +710,7 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 			result.new_columns.push_back(std::move(new_col));
 
 			transaction_changes.altered_tables.insert(table.GetTableId());
+			column_schema_change = true;
 			break;
 		}
 		case LocalChangeType::NONE:
@@ -709,6 +724,17 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 		default:
 			throw NotImplementedException("Unsupported transaction local change");
 		}
+	}
+	if (column_schema_change) {
+		// we changed the column definitions of a table - we need to create a new inlined data table (if data inlining
+		// is enabled)
+		auto &table = tables.front().get();
+
+		DuckLakeTableInfo table_entry;
+		table_entry.id = table.GetTableId();
+		table_entry.uuid = table.GetTableUUID();
+		table_entry.columns = GetTableColumns(table);
+		result.new_inlined_data_tables.push_back(std::move(table_entry));
 	}
 }
 
@@ -1060,6 +1086,7 @@ void DuckLakeTransaction::CommitChanges(DuckLakeSnapshot &commit_snapshot,
 		metadata_manager->WriteNewColumnTags(commit_snapshot, result.new_column_tags);
 		metadata_manager->WriteDroppedColumns(commit_snapshot, result.dropped_columns);
 		metadata_manager->WriteNewColumns(commit_snapshot, result.new_columns);
+		metadata_manager->WriteNewInlinedTables(commit_snapshot, result.new_inlined_data_tables);
 	}
 
 	// write new data / data files

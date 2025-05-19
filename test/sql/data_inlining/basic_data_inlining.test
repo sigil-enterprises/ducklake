@@ -67,8 +67,8 @@ SELECT rowid, snapshot_id, * FROM ducklake.test
 query III
 SELECT filename, file_row_number, file_index FROM ducklake.test
 ----
-ducklake_inlined_data_1_0	0	0
-ducklake_inlined_data_1_0	1	0
+ducklake_inlined_data_1_1	0	0
+ducklake_inlined_data_1_1	1	0
 
 query II
 SELECT * FROM ducklake.test WHERE i IS NULL

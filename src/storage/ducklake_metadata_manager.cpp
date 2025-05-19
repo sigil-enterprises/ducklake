@@ -46,7 +46,7 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_partition_column(partition_id BIGINT, t
 CREATE TABLE {METADATA_CATALOG}.ducklake_file_partition_value(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, partition_key_index BIGINT, partition_value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_partial_file_info(data_file_id BIGINT, snapshot_id BIGINT, max_row_count BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion(data_file_id BIGINT, path VARCHAR, schedule_start TIMESTAMPTZ);
-CREATE TABLE {METADATA_CATALOG}.ducklake_inlined_data_tables(table_id BIGINT, table_name VARCHAR, schema_id BIGINT);
+CREATE TABLE {METADATA_CATALOG}.ducklake_inlined_data_tables(table_id BIGINT, table_name VARCHAR, schema_snapshot BIGINT);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
 INSERT INTO {METADATA_CATALOG}.ducklake_metadata VALUES ('version', '1'), ('created_by', 'DuckDB %s'), ('data_path', {DATA_PATH}), ('encryption', '%s');
 INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main');
@@ -112,7 +112,7 @@ vector<DuckLakeInlinedTableInfo> LoadInlinedDataTables(const Value &list) {
 		auto &struct_children = StructValue::GetChildren(val);
 		DuckLakeInlinedTableInfo inlined_data_table;
 		inlined_data_table.table_name = StringValue::Get(struct_children[0]);
-		inlined_data_table.schema_id = struct_children[1].GetValue<idx_t>();
+		inlined_data_table.schema_snapshot = struct_children[1].GetValue<idx_t>();
 		result.push_back(std::move(inlined_data_table));
 	}
 	return result;
@@ -147,7 +147,7 @@ SELECT schema_id, tbl.table_id, table_uuid::VARCHAR, table_name,
 		      {SNAPSHOT_ID} >= tag.begin_snapshot AND ({SNAPSHOT_ID} < tag.end_snapshot OR tag.end_snapshot IS NULL)
 	) AS tag,
 	(
-		SELECT LIST({'name': table_name, 'schema_id': schema_id})
+		SELECT LIST({'name': table_name, 'schema_snapshot': schema_snapshot})
 		FROM {METADATA_CATALOG}.ducklake_inlined_data_tables inlined_data_tables
 		WHERE inlined_data_tables.table_id = tbl.table_id
 	) AS inlined_data_tables,
@@ -779,11 +779,8 @@ string DuckLakeMetadataManager::GetInlinedTableQuery(const DuckLakeTableInfo &ta
 
 void DuckLakeMetadataManager::WriteNewTables(DuckLakeSnapshot commit_snapshot,
                                              const vector<DuckLakeTableInfo> &new_tables) {
-	auto &catalog = transaction.GetCatalog();
 	string column_insert_sql;
 	string table_insert_sql;
-	string inlined_tables;
-	string inlined_table_queries;
 	for (auto &table : new_tables) {
 		if (!table_insert_sql.empty()) {
 			table_insert_sql += ", ";
@@ -793,18 +790,6 @@ void DuckLakeMetadataManager::WriteNewTables(DuckLakeSnapshot commit_snapshot,
 		                                       schema_id, SQLString(table.name));
 		for (auto &column : table.columns) {
 			ColumnToSQLRecursive(column, table.id, optional_idx(), column_insert_sql);
-		}
-		if (catalog.DataInliningRowLimit() > 0) {
-			if (!inlined_tables.empty()) {
-				inlined_tables += ", ";
-			}
-			string inlined_table_name = StringUtil::Format("ducklake_inlined_data_%d_%d", table.id.index, schema_id);
-			inlined_tables +=
-			    StringUtil::Format("(%d, %s, %d)", table.id.index, SQLString(inlined_table_name), schema_id);
-			if (inlined_table_queries.empty()) {
-				inlined_table_queries += "\n";
-			}
-			inlined_table_queries += GetInlinedTableQuery(table, inlined_table_name);
 		}
 	}
 	if (!table_insert_sql.empty()) {
@@ -823,6 +808,32 @@ void DuckLakeMetadataManager::WriteNewTables(DuckLakeSnapshot commit_snapshot,
 			result->GetErrorObject().Throw("Failed to write column information to DuckLake: ");
 		}
 	}
+	// write new data-inlining tables (if data-inlining is enabled)
+	WriteNewInlinedTables(commit_snapshot, new_tables);
+}
+
+void DuckLakeMetadataManager::WriteNewInlinedTables(DuckLakeSnapshot commit_snapshot,
+                                                    const vector<DuckLakeTableInfo> &new_tables) {
+	auto &catalog = transaction.GetCatalog();
+	if (catalog.DataInliningRowLimit() == 0) {
+		return;
+	}
+	string inlined_tables;
+	string inlined_table_queries;
+	for (auto &table : new_tables) {
+		if (!inlined_tables.empty()) {
+			inlined_tables += ", ";
+		}
+		auto schema_version = commit_snapshot.schema_version;
+		string inlined_table_name = StringUtil::Format("ducklake_inlined_data_%d_%d", table.id.index, schema_version);
+		inlined_tables +=
+		    StringUtil::Format("(%d, %s, %d)", table.id.index, SQLString(inlined_table_name), schema_version);
+		if (inlined_table_queries.empty()) {
+			inlined_table_queries += "\n";
+		}
+		inlined_table_queries += GetInlinedTableQuery(table, inlined_table_name);
+	}
+
 	if (!inlined_tables.empty()) {
 		inlined_tables = "INSERT INTO {METADATA_CATALOG}.ducklake_inlined_data_tables VALUES " + inlined_tables;
 		auto result = transaction.Query(commit_snapshot, inlined_tables);
@@ -917,8 +928,8 @@ void DuckLakeMetadataManager::WriteNewInlinedData(DuckLakeSnapshot commit_snapsh
 		auto query = StringUtil::Format(R"(
 SELECT table_name
 FROM {METADATA_CATALOG}.ducklake_inlined_data_tables
-WHERE table_id = %d AND schema_id=(
-    SELECT MAX(schema_id)
+WHERE table_id = %d AND schema_snapshot=(
+    SELECT MAX(schema_snapshot)
     FROM {METADATA_CATALOG}.ducklake_inlined_data_tables
     WHERE table_id=%d
 );)",

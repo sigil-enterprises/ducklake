@@ -39,10 +39,14 @@ FROM ducklake.test
 20	30
 
 statement ok
-ALTER TABLE ducklake.test ALTER i SET TYPE i BIGINT
+ALTER TABLE ducklake.test ALTER j SET TYPE BIGINT
+
+statement ok
+INSERT INTO ducklake.test VALUES (1000000000000, 0)
 
 query II
 FROM ducklake.test
 ----
 2	NULL
 20	30
+1000000000000	0

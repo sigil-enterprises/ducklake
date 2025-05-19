@@ -49,7 +49,7 @@ struct DuckLakeColumnInfo {
 
 struct DuckLakeInlinedTableInfo {
 	string table_name;
-	idx_t schema_id;
+	idx_t schema_snapshot;
 };
 
 struct DuckLakeTableInfo {

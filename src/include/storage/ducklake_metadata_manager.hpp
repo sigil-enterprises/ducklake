@@ -71,6 +71,7 @@ public:
 	virtual void WriteNewInlinedData(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeInlinedDataInfo> &new_data);
 	virtual void WriteNewInlinedDeletes(DuckLakeSnapshot commit_snapshot,
 	                                    const vector<DuckLakeDeletedInlinedDataInfo> &new_deletes);
+	virtual void WriteNewInlinedTables(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeTableInfo> &tables);
 	virtual void DropDataFiles(DuckLakeSnapshot commit_snapshot, const set<DataFileIndex> &dropped_files);
 	virtual void DropDeleteFiles(DuckLakeSnapshot commit_snapshot, const set<DataFileIndex> &dropped_files);
 	virtual void WriteNewDeleteFiles(DuckLakeSnapshot commit_snapshot,

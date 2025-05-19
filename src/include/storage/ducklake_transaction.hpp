@@ -119,6 +119,7 @@ private:
 	               unordered_set<idx_t> &dropped_entries);
 	vector<DuckLakeSchemaInfo> GetNewSchemas(DuckLakeSnapshot &commit_snapshot);
 	NewTableInfo GetNewTables(DuckLakeSnapshot &commit_snapshot, TransactionChangeInformation &transaction_changes);
+	vector<DuckLakeColumnInfo> GetTableColumns(DuckLakeTableEntry &table);
 	DuckLakePartitionInfo GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &tabletable_id);
 	DuckLakeTableInfo GetNewTable(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table);
 	DuckLakeViewInfo GetNewView(DuckLakeSnapshot &commit_snapshot, DuckLakeViewEntry &view);

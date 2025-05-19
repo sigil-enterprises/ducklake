@@ -318,11 +318,21 @@ OpenFileInfo DuckLakeMultiFileList::GetFile(idx_t i) {
 		extended_info->options["snapshot_id"] = Value(LogicalType::BIGINT);
 	} else if (i >= inlined_data_file_start) {
 		// scanning inlined data
-		auto inlined_data_index = inlined_data_file_start - i;
+		auto inlined_data_index = i - inlined_data_file_start;
 		auto &inlined_data_table = inlined_data_tables[inlined_data_index];
 		extended_info->options["table_name"] = inlined_data_table.table_name;
-		extended_info->options["schema_id"] = Value::BIGINT(inlined_data_table.schema_id);
 		extended_info->options["inlined_data"] = Value::BOOLEAN(true);
+		// does this table have the highest schema version? if so - we can use the table schema directly
+		bool max_schema_version = true;
+		for (auto &other_inlined_table : inlined_data_tables) {
+			if (other_inlined_table.schema_snapshot > inlined_data_table.schema_snapshot) {
+				max_schema_version = false;
+				break;
+			}
+		}
+		if (!max_schema_version) {
+			extended_info->options["schema_snapshot"] = Value::BIGINT(inlined_data_table.schema_snapshot);
+		}
 	} else {
 		extended_info->options["file_size"] = Value::UBIGINT(file.file_size_bytes);
 		extended_info->options["footer_size"] = Value::UBIGINT(file.footer_size);

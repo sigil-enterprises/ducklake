@@ -1,6 +1,7 @@
 #include "storage/ducklake_multi_file_list.hpp"
 #include "storage/ducklake_multi_file_reader.hpp"
 #include "storage/ducklake_table_entry.hpp"
+#include "storage/ducklake_catalog.hpp"
 
 #include "duckdb/common/local_file_system.hpp"
 #include "duckdb/common/types/data_chunk.hpp"
@@ -163,9 +164,22 @@ shared_ptr<BaseFileReader> DuckLakeMultiFileReader::TryCreateInlinedDataReader(c
 		auto columns = DuckLakeMultiFileReader::ColumnsFromFieldData(read_info.table.GetFieldData());
 		return make_shared_ptr<DuckLakeInlinedDataReader>(read_info, file, transaction_local_data, std::move(columns));
 	}
+	optional_idx schema_snapshot;
+	auto version_entry = file.extended_info->options.find("schema_snapshot");
+	if (version_entry != file.extended_info->options.end()) {
+		schema_snapshot = version_entry->second.GetValue<idx_t>();
+	}
+	reference<DuckLakeTableEntry> schema_table = read_info.table;
+	if (schema_snapshot.IsValid()) {
+		// read the table at the specified version
+		auto &catalog = read_info.transaction.GetCatalog();
+
+		DuckLakeSnapshot snapshot(0, schema_snapshot.GetIndex(), 0, 0);
+		auto entry = catalog.GetEntryById(read_info.transaction, snapshot, read_info.table.GetTableId());
+		schema_table = entry->Cast<DuckLakeTableEntry>();
+	}
 	// we are reading from a table - set up the inlined data reader that will read this data when requested
-	//! FIXME: we cannot just grab the field data from the table when this is not the latest inlined data table
-	auto columns = DuckLakeMultiFileReader::ColumnsFromFieldData(read_info.table.GetFieldData());
+	auto columns = DuckLakeMultiFileReader::ColumnsFromFieldData(schema_table.get().GetFieldData());
 	columns.insert(columns.begin(), *snapshot_id_column);
 	columns.insert(columns.begin(), *row_id_column);
 

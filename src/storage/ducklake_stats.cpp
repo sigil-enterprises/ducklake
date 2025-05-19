@@ -5,6 +5,10 @@
 namespace duckdb {
 
 void DuckLakeColumnStats::MergeStats(const DuckLakeColumnStats &new_stats) {
+	if (type != new_stats.type) {
+		// handle type promotion - adopt the new type
+		type = new_stats.type;
+	}
 	if (!new_stats.has_null_count) {
 		has_null_count = false;
 	} else if (has_null_count) {
@@ -34,7 +38,6 @@ void DuckLakeColumnStats::MergeStats(const DuckLakeColumnStats &new_stats) {
 		any_valid = true;
 		return;
 	}
-
 	if (!new_stats.has_min) {
 		has_min = false;
 	} else if (has_min) {
