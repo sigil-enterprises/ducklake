@@ -32,7 +32,9 @@ statement ok
 COMMIT
 
 query I
-SELECT stats(i) FROM ducklake.test
+SELECT stats(i) FROM ducklake.test LIMIT 1
+----
+[Min: 1, Max: 101][Has Null: true, Has No Null: true]
 
 query IIII
 SELECT rowid, snapshot_id, * FROM ducklake.test ORDER BY rowid
@@ -65,4 +67,4 @@ SELECT rowid, snapshot_id, * FROM ducklake.test ORDER BY rowid
 ----
 0	2	101	2
 1	1	NULL	3
-2	NULL	1010	20
+2	3	1010	20

@@ -797,11 +797,17 @@ NewTableInfo DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &commit_snapshot
 	return result;
 }
 
-void DuckLakeTransaction::UpdateGlobalTableStats(TableIndex table_id, DuckLakeTableStats new_stats) {
+struct DuckLakeNewGlobalStats {
+	DuckLakeTableStats stats;
+	bool initialized = false;
+};
+
+void DuckLakeTransaction::UpdateGlobalTableStats(TableIndex table_id, DuckLakeNewGlobalStats new_global_stats) {
 	DuckLakeGlobalStatsInfo stats;
 	stats.table_id = table_id;
 
-	stats.initialized = false;
+	stats.initialized = new_global_stats.initialized;
+	auto &new_stats = new_global_stats.stats;
 	for (auto &entry : new_stats.column_stats) {
 		DuckLakeGlobalColumnStatsInfo col_stats;
 		col_stats.column_id = entry.first;
@@ -886,7 +892,7 @@ struct NewDataInfo {
 
 NewDataInfo DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &commit_snapshot) {
 	NewDataInfo result;
-	map<TableIndex, DuckLakeTableStats> new_global_stats;
+	map<TableIndex, DuckLakeNewGlobalStats> new_global_stats;
 
 	for (auto &entry : new_data_files) {
 		auto table_id = entry.first;
@@ -894,11 +900,13 @@ NewDataInfo DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &commit_snapsh
 			throw InternalException("Cannot commit transaction local files - these should have been cleaned up before");
 		}
 		// get the global table stats
-		DuckLakeTableStats new_stats;
+		DuckLakeNewGlobalStats new_globals;
 		auto current_stats = ducklake_catalog.GetTableStats(*this, table_id);
 		if (current_stats) {
-			new_stats = *current_stats;
+			new_globals.stats = *current_stats;
+			new_globals.initialized = true;
 		}
+		auto &new_stats = new_globals.stats;
 		vector<DuckLakeDeleteFile> delete_files;
 		for (auto &file : entry.second) {
 			auto data_file = GetNewDataFile(file, commit_snapshot, table_id, new_stats.next_row_id);
@@ -921,7 +929,7 @@ NewDataInfo DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &commit_snapsh
 		// write any deletes that were made on top of these transaction-local files
 		AddDeletes(table_id, std::move(delete_files));
 
-		new_global_stats.emplace(table_id, std::move(new_stats));
+		new_global_stats.emplace(table_id, std::move(new_globals));
 	}
 	for (auto &entry : new_inlined_data) {
 		auto table_id = entry.first;
@@ -929,18 +937,20 @@ NewDataInfo DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &commit_snapsh
 			throw InternalException("Cannot commit transaction local data - these should have been cleaned up before");
 		}
 		// get the global table stats
-		DuckLakeTableStats new_stats;
+		DuckLakeNewGlobalStats new_globals;
 		auto stats_entry = new_global_stats.find(table_id);
 		if (stats_entry != new_global_stats.end()) {
 			// we wrote files to this table in addition to the inlined data
-			new_stats = stats_entry->second;
+			new_globals = stats_entry->second;
 		} else {
 			// read stats from table (if any)
 			auto current_stats = ducklake_catalog.GetTableStats(*this, table_id);
 			if (current_stats) {
-				new_stats = *current_stats;
+				new_globals.stats = *current_stats;
+				new_globals.initialized = true;
 			}
 		}
+		auto &new_stats = new_globals.stats;
 		auto &inlined_data = *entry.second;
 
 		idx_t record_count = inlined_data.data->Count();
@@ -957,11 +967,15 @@ NewDataInfo DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &commit_snapsh
 		// update global stats
 		new_stats.record_count += record_count;
 		new_stats.next_row_id += record_count;
-		new_global_stats.emplace(table_id, std::move(new_stats));
+		new_global_stats.emplace(table_id, std::move(new_globals));
 
 		// add the file to the to-be-written inlined data list
 		new_inlined_data.data = std::move(entry.second);
 		result.new_inlined_data.push_back(std::move(new_inlined_data));
+	}
+	if (!new_inlined_data.empty() && new_data_files.empty()) {
+		// force an increment of file_id to signal a data change if we have only inlined data changes
+		commit_snapshot.next_file_id++;
 	}
 	for (auto &entry : new_global_stats) {
 		auto table_id = entry.first;

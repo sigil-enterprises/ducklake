@@ -208,9 +208,9 @@ PhysicalOperator &DuckLakeCatalog::PlanUpdate(ClientContext &context, PhysicalPl
 	}
 	auto &table = op.table.Cast<DuckLakeTableEntry>();
 	auto encryption_key = GenerateEncryptionKey(context);
-	// FIXME: we should take the inlining limit into account here and write new updates to the inline data tables if possible
-	// updates are executed as a delete + insert - generate the two nodes (delete and insert)
-	// plan the copy for the insert
+	// FIXME: we should take the inlining limit into account here and write new updates to the inline data tables if
+	// possible updates are executed as a delete + insert - generate the two nodes (delete and insert) plan the copy for
+	// the insert
 	auto &copy_op = DuckLakeInsert::PlanCopyForInsert(context, planner, table, nullptr, encryption_key,
 	                                                  InsertVirtualColumns::WRITE_ROW_ID);
 	// plan the delete
