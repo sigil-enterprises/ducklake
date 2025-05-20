@@ -82,7 +82,6 @@ string DuckLakeTypes::ToString(const LogicalType &type) {
 	case LogicalTypeId::STRUCT:
 		return "struct";
 	case LogicalTypeId::LIST:
-	case LogicalTypeId::ARRAY:
 		return "list";
 	case LogicalTypeId::MAP:
 		return "map";

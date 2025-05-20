@@ -254,7 +254,7 @@ void UpdateStats(vector<DuckLakeBaseColumnStats> &stats, idx_t c, Vector &data, 
 		}
 		case LogicalTypeId::LIST: {
 			auto &child = ListVector::GetEntry(data);
-			UpdateStats(column_stats.children, 0, child, ListVector::GetListSize(child), field_id.GetChildByIndex(0));
+			UpdateStats(column_stats.children, 0, child, ListVector::GetListSize(data), field_id.GetChildByIndex(0));
 			break;
 		}
 		case LogicalTypeId::MAP: {

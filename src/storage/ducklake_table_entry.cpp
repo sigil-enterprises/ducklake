@@ -18,9 +18,19 @@
 #include "duckdb/parser/constraints/not_null_constraint.hpp"
 #include "duckdb/common/multi_file/multi_file_reader.hpp"
 #include "storage/ducklake_multi_file_reader.hpp"
+#include "duckdb/common/type_visitor.hpp"
 
 namespace duckdb {
 constexpr column_t DuckLakeMultiFileReader::COLUMN_IDENTIFIER_SNAPSHOT_ID;
+
+void DuckLakeTableEntry::CheckSupportedTypes() {
+	for (auto &col : columns.Logical()) {
+		TypeVisitor::VisitReplace(col.Type(), [](const LogicalType &type) {
+			DuckLakeTypes::ToString(type);
+			return type;
+		});
+	}
+}
 
 DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info,
                                        TableIndex table_id, string table_uuid_p,
@@ -29,6 +39,7 @@ DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &sch
     : TableCatalogEntry(catalog, schema, info), table_id(table_id), table_uuid(std::move(table_uuid_p)),
       field_data(std::move(field_data_p)), next_column_id(next_column_id_p),
       inlined_data_tables(std::move(inlined_data_tables_p)), local_change(local_change) {
+	CheckSupportedTypes();
 	for (auto &constraint : info.constraints) {
 		switch (constraint->type) {
 		case ConstraintType::NOT_NULL:
@@ -53,6 +64,7 @@ DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableIn
 	if (parent.partition_data) {
 		partition_data = make_uniq<DuckLakePartition>(*parent.partition_data);
 	}
+	CheckSupportedTypes();
 	if (local_change.type == LocalChangeType::ADD_COLUMN) {
 		LogicalIndex new_col_idx(columns.LogicalColumnCount() - 1);
 		auto &new_col = GetColumn(new_col_idx);
@@ -86,6 +98,7 @@ DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableIn
                                        unique_ptr<ColumnChangeInfo> changed_fields_p,
                                        shared_ptr<DuckLakeFieldData> new_field_data)
     : DuckLakeTableEntry(parent, info, local_change) {
+	CheckSupportedTypes();
 	D_ASSERT(local_change.type == LocalChangeType::CHANGE_COLUMN_TYPE);
 	changed_fields = std::move(changed_fields_p);
 	field_data = std::move(new_field_data);
