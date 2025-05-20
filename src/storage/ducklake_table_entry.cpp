@@ -873,6 +873,9 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 }
 
 unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transaction, AlterTableInfo &info) {
+	if (transaction.HasTransactionInlinedData(GetTableId())) {
+		throw NotImplementedException("ALTER on a table with transaction-local inlined data is not supported");
+	}
 	switch (info.alter_table_type) {
 	case AlterTableType::RENAME_TABLE:
 		return AlterTable(transaction, info.Cast<RenameTableInfo>());

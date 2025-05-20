@@ -1314,9 +1314,12 @@ idx_t DuckLakeTransaction::GetLocalCatalogId() {
 	return local_catalog_id++;
 }
 
-bool DuckLakeTransaction::HasTransactionLocalChanges(TableIndex table_id) {
-	return new_data_files.find(table_id) != new_data_files.end() ||
-	       new_inlined_data.find(table_id) != new_inlined_data.end();
+bool DuckLakeTransaction::HasTransactionLocalChanges(TableIndex table_id) const {
+	return new_data_files.find(table_id) != new_data_files.end() || HasTransactionInlinedData(table_id);
+}
+
+bool DuckLakeTransaction::HasTransactionInlinedData(TableIndex table_id) const {
+	return new_inlined_data.find(table_id) != new_inlined_data.end();
 }
 
 vector<DuckLakeDataFile> DuckLakeTransaction::GetTransactionLocalFiles(TableIndex table_id) {
