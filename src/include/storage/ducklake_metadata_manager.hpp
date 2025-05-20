@@ -28,6 +28,7 @@ class DuckLakeSchemaEntry;
 class DuckLakeTableEntry;
 class DuckLakeTransaction;
 class BoundAtClause;
+class QueryResult;
 
 // The DuckLake metadata manger is the communication layer between the system and the metadata catalog
 class DuckLakeMetadataManager {
@@ -86,6 +87,10 @@ public:
 	virtual idx_t GetNextColumnId(TableIndex table_id);
 	virtual shared_ptr<DuckLakeInlinedData> ReadInlinedData(DuckLakeSnapshot snapshot, const string &inlined_table_name,
 	                                                        const vector<string> &columns_to_read);
+	virtual shared_ptr<DuckLakeInlinedData> ReadInlinedDataInsertions(DuckLakeSnapshot start_snapshot,
+	                                                                  DuckLakeSnapshot end_snapshot,
+	                                                                  const string &inlined_table_name,
+	                                                                  const vector<string> &columns_to_read);
 
 	virtual vector<DuckLakeSnapshotInfo> GetAllSnapshots(const string &filter = string());
 	virtual void DeleteSnapshots(const vector<DuckLakeSnapshotInfo> &snapshots);
@@ -93,6 +98,7 @@ public:
 protected:
 	string GetInlinedTableQuery(const DuckLakeTableInfo &table, const string &table_name);
 	string GetColumnType(const DuckLakeColumnInfo &col);
+	shared_ptr<DuckLakeInlinedData> TransformInlinedData(QueryResult &result);
 
 private:
 	template <class T>

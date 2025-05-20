@@ -1007,23 +1007,15 @@ WHERE row_id=deleted_row_id
 	}
 }
 
-shared_ptr<DuckLakeInlinedData> DuckLakeMetadataManager::ReadInlinedData(DuckLakeSnapshot snapshot,
-                                                                         const string &inlined_table_name,
-                                                                         const vector<string> &columns_to_read) {
-	auto projection = StringUtil::Join(columns_to_read, ", ");
-	auto result = transaction.Query(snapshot, StringUtil::Format(R"(
-SELECT %s
-FROM {METADATA_CATALOG}.%s
-WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL);)",
-	                                                             projection, inlined_table_name));
-	if (result->HasError()) {
-		result->GetErrorObject().Throw("Failed to read inlined data from DuckLake: ");
+shared_ptr<DuckLakeInlinedData> DuckLakeMetadataManager::TransformInlinedData(QueryResult &result) {
+	if (result.HasError()) {
+		result.GetErrorObject().Throw("Failed to read inlined data from DuckLake: ");
 	}
 
 	auto context = transaction.context.lock();
-	auto data = make_uniq<ColumnDataCollection>(*context, result->types);
+	auto data = make_uniq<ColumnDataCollection>(*context, result.types);
 	while (true) {
-		auto chunk = result->Fetch();
+		auto chunk = result.Fetch();
 		if (!chunk) {
 			break;
 		}
@@ -1032,6 +1024,32 @@ WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_s
 	auto inlined_data = make_shared_ptr<DuckLakeInlinedData>();
 	inlined_data->data = std::move(data);
 	return inlined_data;
+}
+
+shared_ptr<DuckLakeInlinedData> DuckLakeMetadataManager::ReadInlinedData(DuckLakeSnapshot snapshot,
+                                                                         const string &inlined_table_name,
+                                                                         const vector<string> &columns_to_read) {
+	auto projection = StringUtil::Join(columns_to_read, ", ");
+	auto result = transaction.Query(snapshot, StringUtil::Format(R"(
+SELECT %s
+FROM {METADATA_CATALOG}.%s inlined_data
+WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL);)",
+	                                                             projection, inlined_table_name));
+	return TransformInlinedData(*result);
+}
+
+shared_ptr<DuckLakeInlinedData>
+DuckLakeMetadataManager::ReadInlinedDataInsertions(DuckLakeSnapshot start_snapshot, DuckLakeSnapshot end_snapshot,
+                                                   const string &inlined_table_name,
+                                                   const vector<string> &columns_to_read) {
+	auto projection = StringUtil::Join(columns_to_read, ", ");
+	auto result =
+	    transaction.Query(end_snapshot, StringUtil::Format(R"(
+SELECT %s
+FROM {METADATA_CATALOG}.%s inlined_data
+WHERE inlined_data.begin_snapshot >= %d AND inlined_data.begin_snapshot <= {SNAPSHOT_ID};)",
+	                                                       projection, inlined_table_name, start_snapshot.snapshot_id));
+	return TransformInlinedData(*result);
 }
 
 void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot,

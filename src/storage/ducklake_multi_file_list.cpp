@@ -510,6 +510,15 @@ void DuckLakeMultiFileList::GetTableInsertions() {
 	}
 	auto &metadata_manager = transaction.GetMetadataManager();
 	files = metadata_manager.GetTableInsertions(*read_info.start_snapshot, read_info.snapshot, read_info.table_id);
+	// add inlined data tables as sources (if any)
+	auto &inlined_data_tables = read_info.table.GetInlinedDataTables();
+	for (auto &table : inlined_data_tables) {
+		DuckLakeFileListEntry file_entry;
+		file_entry.file.path = table.table_name;
+		file_entry.row_id_start = 0;
+		file_entry.data_type = DuckLakeDataType::INLINED_DATA;
+		files.push_back(std::move(file_entry));
+	}
 }
 
 void DuckLakeMultiFileList::GetTableDeletions() {
@@ -525,6 +534,15 @@ void DuckLakeMultiFileList::GetTableDeletions() {
 		file_entry.row_id_start = file.row_id_start;
 		file_entry.snapshot_id = file.snapshot_id;
 		files.emplace_back(std::move(file_entry));
+	}
+	// add inlined data tables as sources (if any)
+	auto &inlined_data_tables = read_info.table.GetInlinedDataTables();
+	for (auto &table : inlined_data_tables) {
+		DuckLakeFileListEntry file_entry;
+		file_entry.file.path = table.table_name;
+		file_entry.row_id_start = 0;
+		file_entry.data_type = DuckLakeDataType::INLINED_DATA;
+		files.push_back(std::move(file_entry));
 	}
 }
 

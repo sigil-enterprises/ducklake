@@ -74,7 +74,14 @@ bool DuckLakeInlinedDataReader::TryInitializeScan(ClientContext &context, Global
 			}
 			columns_to_read.push_back("row_id");
 		}
-		data = metadata_manager.ReadInlinedData(read_info.snapshot, table_name, columns_to_read);
+		if (read_info.start_snapshot) {
+			// read insertions
+			data = metadata_manager.ReadInlinedDataInsertions(*read_info.start_snapshot, read_info.snapshot, table_name,
+			                                                  columns_to_read);
+		} else {
+			// regular read of inlined data
+			data = metadata_manager.ReadInlinedData(read_info.snapshot, table_name, columns_to_read);
+		}
 		if (deletion_filter) {
 			auto scan_types = data->data->Types();
 			scan_chunk.Initialize(context, scan_types);
