@@ -1,6 +1,6 @@
 # name: test/sql/clickbench/clickbench.test_slow
 # description: Test running Clickbench on DuckLake
-# group: [tpch]
+# group: [clickbench]
 
 require ducklake
 

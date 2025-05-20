@@ -6,6 +6,7 @@
 #include "common/ducklake_util.hpp"
 #include "storage/ducklake_scan.hpp"
 #include "storage/ducklake_inline_data.hpp"
+#include "common/ducklake_types.hpp"
 
 #include "duckdb/catalog/catalog_entry/copy_function_catalog_entry.hpp"
 #include "duckdb/execution/operator/projection/physical_projection.hpp"
@@ -446,6 +447,9 @@ PhysicalOperator &DuckLakeCatalog::PlanCreateTableAs(ClientContext &context, Phy
 	if (data_inlining_row_limit > 0) {
 		root = planner.Make<DuckLakeInlineData>(root.get(), data_inlining_row_limit);
 		inline_data = root.get().Cast<DuckLakeInlineData>();
+	}
+	for (auto &col : op.info->Base().columns.Logical()) {
+		DuckLakeTypes::CheckSupportedType(col.Type());
 	}
 	auto &physical_copy = DuckLakeInsert::PlanCopyForInsert(context, columns, planner, nullptr, nullptr, root.get(),
 	                                                        DataPath(), encryption_key);

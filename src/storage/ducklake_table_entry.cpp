@@ -18,17 +18,13 @@
 #include "duckdb/parser/constraints/not_null_constraint.hpp"
 #include "duckdb/common/multi_file/multi_file_reader.hpp"
 #include "storage/ducklake_multi_file_reader.hpp"
-#include "duckdb/common/type_visitor.hpp"
 
 namespace duckdb {
 constexpr column_t DuckLakeMultiFileReader::COLUMN_IDENTIFIER_SNAPSHOT_ID;
 
 void DuckLakeTableEntry::CheckSupportedTypes() {
 	for (auto &col : columns.Logical()) {
-		TypeVisitor::VisitReplace(col.Type(), [](const LogicalType &type) {
-			DuckLakeTypes::ToString(type);
-			return type;
-		});
+		DuckLakeTypes::CheckSupportedType(col.Type());
 	}
 }
 

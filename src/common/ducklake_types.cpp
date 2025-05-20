@@ -2,6 +2,8 @@
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/to_string.hpp"
 #include "duckdb/common/array.hpp"
+#include "duckdb/common/optional_idx.hpp"
+#include "duckdb/common/type_visitor.hpp"
 
 namespace duckdb {
 
@@ -90,6 +92,13 @@ string DuckLakeTypes::ToString(const LogicalType &type) {
 	default:
 		return ToStringBaseType(type);
 	}
+}
+
+void DuckLakeTypes::CheckSupportedType(const LogicalType &type) {
+	TypeVisitor::VisitReplace(type, [](const LogicalType &type) {
+		DuckLakeTypes::ToString(type);
+		return type;
+	});
 }
 
 } // namespace duckdb
