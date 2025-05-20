@@ -105,9 +105,8 @@ ReaderInitializeType DuckLakeMultiFileReader::InitializeReader(MultiFileReaderDa
                                                                const vector<MultiFileColumnDefinition> &global_columns,
                                                                const vector<ColumnIndex> &global_column_ids,
                                                                optional_ptr<TableFilterSet> table_filters,
-                                                               ClientContext &context,
-                                                               optional_ptr<MultiFileReaderGlobalState> global_state) {
-	auto &file_list = bind_data.file_list->Cast<DuckLakeMultiFileList>();
+                                                               ClientContext &context, MultiFileGlobalState &gstate) {
+	auto &file_list = gstate.file_list.Cast<DuckLakeMultiFileList>();
 	auto &reader = *reader_data.reader;
 	auto file_idx = reader.file_list_idx.GetIndex();
 
@@ -143,7 +142,7 @@ ReaderInitializeType DuckLakeMultiFileReader::InitializeReader(MultiFileReaderDa
 		reader.deletion_filter = std::move(delete_filter);
 	}
 	return MultiFileReader::InitializeReader(reader_data, bind_data, global_columns, global_column_ids, table_filters,
-	                                         context, global_state);
+	                                         context, gstate);
 }
 
 shared_ptr<BaseFileReader> DuckLakeMultiFileReader::TryCreateInlinedDataReader(const OpenFileInfo &file) {

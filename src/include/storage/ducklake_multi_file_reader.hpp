@@ -58,7 +58,7 @@ public:
 	                                      const vector<MultiFileColumnDefinition> &global_columns,
 	                                      const vector<ColumnIndex> &global_column_ids,
 	                                      optional_ptr<TableFilterSet> table_filters, ClientContext &context,
-	                                      optional_ptr<MultiFileReaderGlobalState> global_state) override;
+	                                      MultiFileGlobalState &gstate) override;
 
 	shared_ptr<BaseFileReader> CreateReader(ClientContext &context, GlobalTableFunctionState &gstate,
 	                                        const OpenFileInfo &file, idx_t file_idx,

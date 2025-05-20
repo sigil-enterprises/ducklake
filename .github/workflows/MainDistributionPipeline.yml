@@ -16,7 +16,7 @@
 #    name: Build extension binaries
 #    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@main
 #    with:
-#      duckdb_version: main
+#      duckdb_version: v1.3-ossivalis
 #      ci_tools_version: main
 #      extension_name: ducklake
 #
@@ -24,6 +24,6 @@
 #    name: Build extension binaries
 #    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.2.0
 #    with:
-#      duckdb_version: v1.2.0
-#      ci_tools_version: v1.2.0
+#      duckdb_version: v1.3-ossivalis
+#      ci_tools_version: main
 #      extension_name: ducklake
