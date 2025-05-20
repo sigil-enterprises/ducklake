@@ -36,7 +36,7 @@ DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &sch
       field_data(std::move(field_data_p)), next_column_id(next_column_id_p),
       inlined_data_tables(std::move(inlined_data_tables_p)), local_change(local_change) {
 	CheckSupportedTypes();
-	for (auto &constraint : info.constraints) {
+	for (auto &constraint : constraints) {
 		switch (constraint->type) {
 		case ConstraintType::NOT_NULL:
 			break;
@@ -175,7 +175,7 @@ case_insensitive_set_t DuckLakeTableEntry::GetNotNullFields() const {
 	case_insensitive_set_t result;
 	for (auto &constraint : GetConstraints()) {
 		if (constraint->type != ConstraintType::NOT_NULL) {
-			throw InternalException("Unsupported constraint type in DuckLakeInsert");
+			continue;
 		}
 		auto &not_null = constraint->Cast<NotNullConstraint>();
 		auto &col = GetColumn(not_null.index);

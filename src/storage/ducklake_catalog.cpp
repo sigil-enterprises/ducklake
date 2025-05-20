@@ -412,7 +412,7 @@ void DuckLakeCatalog::SetEncryption(DuckLakeEncryption new_encryption) {
 unique_ptr<LogicalOperator> DuckLakeCatalog::BindCreateIndex(Binder &binder, CreateStatement &stmt,
                                                              TableCatalogEntry &table,
                                                              unique_ptr<LogicalOperator> plan) {
-	throw InternalException("Unsupported DuckLake function");
+	throw NotImplementedException("DuckLake does not support indexes");
 }
 
 DatabaseSize DuckLakeCatalog::GetDatabaseSize(ClientContext &context) {
