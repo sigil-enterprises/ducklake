@@ -25,9 +25,11 @@
 namespace duckdb {
 
 DuckLakeDelete::DuckLakeDelete(DuckLakeTableEntry &table, PhysicalOperator &child,
-                               shared_ptr<DuckLakeDeleteMap> delete_map_p, string encryption_key_p)
+                               shared_ptr<DuckLakeDeleteMap> delete_map_p, vector<idx_t> row_id_indexes_p,
+                               string encryption_key_p)
     : PhysicalOperator(PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, 1), table(table),
-      delete_map(std::move(delete_map_p)), encryption_key(std::move(encryption_key_p)) {
+      delete_map(std::move(delete_map_p)), row_id_indexes(std::move(row_id_indexes_p)),
+      encryption_key(std::move(encryption_key_p)) {
 	children.push_back(child);
 }
 
@@ -101,10 +103,9 @@ SinkResultType DuckLakeDelete::Sink(ExecutionContext &context, DataChunk &chunk,
 	auto &global_state = input.global_state.Cast<DuckLakeDeleteGlobalState>();
 	auto &local_state = input.local_state.Cast<DuckLakeDeleteLocalState>();
 
-	auto base_idx = chunk.ColumnCount() - 3;
-	auto &file_name_vector = chunk.data[base_idx];
-	auto &file_index_vector = chunk.data[base_idx + 1];
-	auto &file_row_number = chunk.data[base_idx + 2];
+	auto &file_name_vector = chunk.data[row_id_indexes[0]];
+	auto &file_index_vector = chunk.data[row_id_indexes[1]];
+	auto &file_row_number = chunk.data[row_id_indexes[2]];
 
 	UnifiedVectorFormat row_data;
 	file_row_number.ToUnifiedFormat(chunk.size(), row_data);
@@ -407,7 +408,7 @@ optional_ptr<PhysicalTableScan> FindDeleteSource(PhysicalOperator &plan) {
 
 PhysicalOperator &DuckLakeDelete::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner,
                                              DuckLakeTableEntry &table, PhysicalOperator &child_plan,
-                                             string encryption_key) {
+                                             vector<idx_t> row_id_indexes, string encryption_key) {
 	auto delete_source = FindDeleteSource(child_plan);
 	auto delete_map = make_shared_ptr<DuckLakeDeleteMap>();
 	if (delete_source) {
@@ -420,7 +421,8 @@ PhysicalOperator &DuckLakeDelete::PlanDelete(ClientContext &context, PhysicalPla
 		}
 		reader.delete_map = delete_map;
 	}
-	return planner.Make<DuckLakeDelete>(table, child_plan, std::move(delete_map), std::move(encryption_key));
+	return planner.Make<DuckLakeDelete>(table, child_plan, std::move(delete_map), std::move(row_id_indexes),
+	                                    std::move(encryption_key));
 }
 
 PhysicalOperator &DuckLakeCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op,
@@ -429,8 +431,13 @@ PhysicalOperator &DuckLakeCatalog::PlanDelete(ClientContext &context, PhysicalPl
 		throw BinderException("RETURNING clause not yet supported for deletion of a DuckLake table");
 	}
 	auto encryption_key = GenerateEncryptionKey(context);
+	vector<idx_t> row_id_indexes;
+	for (idx_t i = 0; i < 3; i++) {
+		auto &bound_ref = op.expressions[i + 1]->Cast<BoundReferenceExpression>();
+		row_id_indexes.push_back(bound_ref.index);
+	}
 	return DuckLakeDelete::PlanDelete(context, planner, op.table.Cast<DuckLakeTableEntry>(), child_plan,
-	                                  std::move(encryption_key));
+	                                  std::move(row_id_indexes), std::move(encryption_key));
 }
 
 } // namespace duckdb

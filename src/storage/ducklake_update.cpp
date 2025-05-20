@@ -214,7 +214,12 @@ PhysicalOperator &DuckLakeCatalog::PlanUpdate(ClientContext &context, PhysicalPl
 	auto &copy_op = DuckLakeInsert::PlanCopyForInsert(context, planner, table, nullptr, encryption_key,
 	                                                  InsertVirtualColumns::WRITE_ROW_ID);
 	// plan the delete
-	auto &delete_op = DuckLakeDelete::PlanDelete(context, planner, table, child_plan, encryption_key);
+	vector<idx_t> row_id_indexes;
+	for (idx_t i = 0; i < 3; i++) {
+		row_id_indexes.push_back(i);
+	}
+	auto &delete_op =
+	    DuckLakeDelete::PlanDelete(context, planner, table, child_plan, std::move(row_id_indexes), encryption_key);
 	// plan the actual insert
 	auto &insert_op = DuckLakeInsert::PlanInsert(context, planner, table, encryption_key);
 
