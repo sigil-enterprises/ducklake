@@ -110,9 +110,9 @@ ReaderInitializeType DuckLakeMultiFileReader::InitializeReader(MultiFileReaderDa
 	auto &reader = *reader_data.reader;
 	auto file_idx = reader.file_list_idx.GetIndex();
 
+	auto &file_entry = file_list.GetFileEntry(file_idx);
 	if (!file_list.IsDeleteScan()) {
 		// regular scan - read the deletes from the delete file (if any) and apply the max row count
-		auto &file_entry = file_list.GetFileEntry(file_idx);
 		if (file_entry.data_type != DuckLakeDataType::DATA_FILE) {
 			auto inlined_deletes =
 			    read_info.transaction.GetInlinedDeletes(read_info.table.GetTableId(), file_entry.file.path);
@@ -136,10 +136,12 @@ ReaderInitializeType DuckLakeMultiFileReader::InitializeReader(MultiFileReaderDa
 		}
 	} else {
 		// delete scan - we need to read ONLY the entries that have been deleted
-		auto &delete_entry = file_list.GetDeleteScanEntry(file_idx);
-		auto delete_filter = make_uniq<DuckLakeDeleteFilter>();
-		delete_filter->Initialize(context, delete_entry);
-		reader.deletion_filter = std::move(delete_filter);
+		if (file_entry.data_type == DuckLakeDataType::DATA_FILE) {
+			auto &delete_entry = file_list.GetDeleteScanEntry(file_idx);
+			auto delete_filter = make_uniq<DuckLakeDeleteFilter>();
+			delete_filter->Initialize(context, delete_entry);
+			reader.deletion_filter = std::move(delete_filter);
+		}
 	}
 	return MultiFileReader::InitializeReader(reader_data, bind_data, global_columns, global_column_ids, table_filters,
 	                                         context, gstate);

@@ -1026,10 +1026,21 @@ shared_ptr<DuckLakeInlinedData> DuckLakeMetadataManager::TransformInlinedData(Qu
 	return inlined_data;
 }
 
+static string GetProjection(const vector<string> &columns_to_read) {
+	string result;
+	for (auto &entry : columns_to_read) {
+		if (!result.empty()) {
+			result += ", ";
+		}
+		result += KeywordHelper::WriteOptionallyQuoted(entry);
+	}
+	return result;
+}
+
 shared_ptr<DuckLakeInlinedData> DuckLakeMetadataManager::ReadInlinedData(DuckLakeSnapshot snapshot,
                                                                          const string &inlined_table_name,
                                                                          const vector<string> &columns_to_read) {
-	auto projection = StringUtil::Join(columns_to_read, ", ");
+	auto projection = GetProjection(columns_to_read);
 	auto result = transaction.Query(snapshot, StringUtil::Format(R"(
 SELECT %s
 FROM {METADATA_CATALOG}.%s inlined_data
@@ -1042,12 +1053,26 @@ shared_ptr<DuckLakeInlinedData>
 DuckLakeMetadataManager::ReadInlinedDataInsertions(DuckLakeSnapshot start_snapshot, DuckLakeSnapshot end_snapshot,
                                                    const string &inlined_table_name,
                                                    const vector<string> &columns_to_read) {
-	auto projection = StringUtil::Join(columns_to_read, ", ");
+	auto projection = GetProjection(columns_to_read);
 	auto result =
 	    transaction.Query(end_snapshot, StringUtil::Format(R"(
 SELECT %s
 FROM {METADATA_CATALOG}.%s inlined_data
 WHERE inlined_data.begin_snapshot >= %d AND inlined_data.begin_snapshot <= {SNAPSHOT_ID};)",
+	                                                       projection, inlined_table_name, start_snapshot.snapshot_id));
+	return TransformInlinedData(*result);
+}
+
+shared_ptr<DuckLakeInlinedData>
+DuckLakeMetadataManager::ReadInlinedDataDeletions(DuckLakeSnapshot start_snapshot, DuckLakeSnapshot end_snapshot,
+                                                  const string &inlined_table_name,
+                                                  const vector<string> &columns_to_read) {
+	auto projection = GetProjection(columns_to_read);
+	auto result =
+	    transaction.Query(end_snapshot, StringUtil::Format(R"(
+SELECT %s
+FROM {METADATA_CATALOG}.%s inlined_data
+WHERE inlined_data.end_snapshot >= %d AND inlined_data.end_snapshot <= {SNAPSHOT_ID};)",
 	                                                       projection, inlined_table_name, start_snapshot.snapshot_id));
 	return TransformInlinedData(*result);
 }

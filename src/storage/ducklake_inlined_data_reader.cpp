@@ -52,7 +52,12 @@ bool DuckLakeInlinedDataReader::TryInitializeScan(ClientContext &context, Global
 					virtual_column = "row_id";
 					break;
 				case MultiFileReader::LAST_UPDATED_SEQUENCE_NUMBER_ID:
-					virtual_column = "begin_snapshot";
+					if (read_info.scan_type == DuckLakeScanType::SCAN_DELETIONS) {
+						// when scanning deletions end_snapshot is the snapshot marker
+						virtual_column = "end_snapshot";
+					} else {
+						virtual_column = "begin_snapshot";
+					}
 					break;
 				default:
 					break;
@@ -74,13 +79,20 @@ bool DuckLakeInlinedDataReader::TryInitializeScan(ClientContext &context, Global
 			}
 			columns_to_read.push_back("row_id");
 		}
-		if (read_info.start_snapshot) {
-			// read insertions
+		switch (read_info.scan_type) {
+		case DuckLakeScanType::SCAN_TABLE:
+			data = metadata_manager.ReadInlinedData(read_info.snapshot, table_name, columns_to_read);
+			break;
+		case DuckLakeScanType::SCAN_INSERTIONS:
 			data = metadata_manager.ReadInlinedDataInsertions(*read_info.start_snapshot, read_info.snapshot, table_name,
 			                                                  columns_to_read);
-		} else {
-			// regular read of inlined data
-			data = metadata_manager.ReadInlinedData(read_info.snapshot, table_name, columns_to_read);
+			break;
+		case DuckLakeScanType::SCAN_DELETIONS:
+			data = metadata_manager.ReadInlinedDataDeletions(*read_info.start_snapshot, read_info.snapshot, table_name,
+			                                                 columns_to_read);
+			break;
+		default:
+			throw InternalException("Unknown DuckLake scan type");
 		}
 		if (deletion_filter) {
 			auto scan_types = data->data->Types();
