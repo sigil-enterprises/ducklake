@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "duckdb/common/common.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "common/ducklake_snapshot.hpp"
 #include "common/index.hpp"
@@ -30,12 +31,10 @@ public:
 enum class DuckLakeScanType { SCAN_TABLE, SCAN_INSERTIONS, SCAN_DELETIONS };
 
 struct DuckLakeFunctionInfo : public TableFunctionInfo {
-	DuckLakeFunctionInfo(DuckLakeTableEntry &table, DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot)
-	    : table(table), transaction(transaction), snapshot(snapshot) {
-	}
+	DuckLakeFunctionInfo(DuckLakeTableEntry &table, DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
 
 	DuckLakeTableEntry &table;
-	DuckLakeTransaction &transaction;
+	weak_ptr<DuckLakeTransaction> transaction;
 	string table_name;
 	vector<string> column_names;
 	vector<LogicalType> column_types;
@@ -44,6 +43,8 @@ struct DuckLakeFunctionInfo : public TableFunctionInfo {
 	DuckLakeScanType scan_type = DuckLakeScanType::SCAN_TABLE;
 	//! Start snapshot - only set for DuckLakeScanType::SCAN_INSERTIONS and DuckLakeScanType::SCAN_DELETIONS
 	unique_ptr<DuckLakeSnapshot> start_snapshot;
+
+	shared_ptr<DuckLakeTransaction> GetTransaction();
 };
 
 } // namespace duckdb

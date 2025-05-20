@@ -33,7 +33,7 @@ struct NewDataInfo;
 struct NewTableInfo;
 struct CompactionInformation;
 
-class DuckLakeTransaction : public Transaction {
+class DuckLakeTransaction : public Transaction, public enable_shared_from_this<DuckLakeTransaction> {
 public:
 	DuckLakeTransaction(DuckLakeCatalog &ducklake_catalog, TransactionManager &manager, ClientContext &context);
 	~DuckLakeTransaction() override;

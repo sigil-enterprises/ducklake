@@ -88,4 +88,18 @@ TableFunction DuckLakeFunctions::GetDuckLakeScanFunction(DatabaseInstance &insta
 	return function;
 }
 
+DuckLakeFunctionInfo::DuckLakeFunctionInfo(DuckLakeTableEntry &table, DuckLakeTransaction &transaction_p,
+                                           DuckLakeSnapshot snapshot)
+    : table(table), transaction(transaction_p.shared_from_this()), snapshot(snapshot) {
+}
+
+shared_ptr<DuckLakeTransaction> DuckLakeFunctionInfo::GetTransaction() {
+	auto result = transaction.lock();
+	if (!result) {
+		throw NotImplementedException(
+		    "Scanning a DuckLake table after the transaction has ended - this use case is not yet supported");
+	}
+	return result;
+}
+
 } // namespace duckdb

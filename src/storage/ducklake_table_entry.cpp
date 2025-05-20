@@ -213,7 +213,6 @@ TableFunction DuckLakeTableEntry::GetScanFunction(ClientContext &context, unique
                                                   const EntryLookupInfo &lookup_info) {
 	auto function = DuckLakeFunctions::GetDuckLakeScanFunction(*context.db);
 	auto &transaction = DuckLakeTransaction::Get(context, ParentCatalog());
-
 	auto function_info =
 	    make_shared_ptr<DuckLakeFunctionInfo>(*this, transaction, transaction.GetSnapshot(lookup_info.GetAtClause()));
 	function_info->table_name = name;

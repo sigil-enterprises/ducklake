@@ -54,8 +54,8 @@ shared_ptr<MultiFileList> DuckLakeMultiFileReader::CreateFileList(ClientContext 
 	auto &transaction = DuckLakeTransaction::Get(context, read_info.table.ParentCatalog());
 	auto transaction_local_files = transaction.GetTransactionLocalFiles(read_info.table_id);
 	transaction_local_data = transaction.GetTransactionLocalInlinedData(read_info.table_id);
-	auto result = make_shared_ptr<DuckLakeMultiFileList>(transaction, read_info, std::move(transaction_local_files),
-	                                                     transaction_local_data);
+	auto result =
+	    make_shared_ptr<DuckLakeMultiFileList>(read_info, std::move(transaction_local_files), transaction_local_data);
 	return std::move(result);
 }
 
@@ -114,8 +114,8 @@ ReaderInitializeType DuckLakeMultiFileReader::InitializeReader(MultiFileReaderDa
 	if (!file_list.IsDeleteScan()) {
 		// regular scan - read the deletes from the delete file (if any) and apply the max row count
 		if (file_entry.data_type != DuckLakeDataType::DATA_FILE) {
-			auto inlined_deletes =
-			    read_info.transaction.GetInlinedDeletes(read_info.table.GetTableId(), file_entry.file.path);
+			auto transaction = read_info.GetTransaction();
+			auto inlined_deletes = transaction->GetInlinedDeletes(read_info.table.GetTableId(), file_entry.file.path);
 			if (inlined_deletes) {
 				auto delete_filter = make_uniq<DuckLakeDeleteFilter>();
 				delete_filter->Initialize(*inlined_deletes);
@@ -173,10 +173,11 @@ shared_ptr<BaseFileReader> DuckLakeMultiFileReader::TryCreateInlinedDataReader(c
 	reference<DuckLakeTableEntry> schema_table = read_info.table;
 	if (schema_snapshot.IsValid()) {
 		// read the table at the specified version
-		auto &catalog = read_info.transaction.GetCatalog();
+		auto transaction = read_info.GetTransaction();
+		auto &catalog = transaction->GetCatalog();
 
 		DuckLakeSnapshot snapshot(0, schema_snapshot.GetIndex(), 0, 0);
-		auto entry = catalog.GetEntryById(read_info.transaction, snapshot, read_info.table.GetTableId());
+		auto entry = catalog.GetEntryById(*transaction, snapshot, read_info.table.GetTableId());
 		schema_table = entry->Cast<DuckLakeTableEntry>();
 	}
 	// we are reading from a table - set up the inlined data reader that will read this data when requested

@@ -1,0 +1,24 @@
+# name: test/sql/general/prepared_statement.test
+# description: Test prepared statements with DuckLake
+# group: [general]
+
+require ducklake
+
+require parquet
+
+statement ok
+SET parquet_metadata_cache=true;
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_pq_metadata_cache.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_pq_metadata_cache_files')
+
+statement ok
+CREATE TABLE ducklake.tbl AS FROM range(1000) t(i);
+
+statement ok
+PREPARE v1 AS SELECT * FROM ducklake.tbl LIMIT 3
+
+statement error
+EXECUTE v1
+----
+this use case is not yet supported

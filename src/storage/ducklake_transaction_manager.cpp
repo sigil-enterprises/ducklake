@@ -7,7 +7,7 @@ DuckLakeTransactionManager::DuckLakeTransactionManager(AttachedDatabase &db_p, D
 }
 
 Transaction &DuckLakeTransactionManager::StartTransaction(ClientContext &context) {
-	auto transaction = make_uniq<DuckLakeTransaction>(ducklake_catalog, *this, context);
+	auto transaction = make_shared_ptr<DuckLakeTransaction>(ducklake_catalog, *this, context);
 	transaction->Start();
 	auto &result = *transaction;
 	lock_guard<mutex> l(transaction_lock);

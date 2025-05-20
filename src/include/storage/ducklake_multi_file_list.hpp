@@ -24,11 +24,9 @@ class DuckLakeMultiFileList : public MultiFileList {
 	    "__ducklake_inlined_transaction_local_data";
 
 public:
-	explicit DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,
-	                               vector<DuckLakeDataFile> transaction_local_files,
+	explicit DuckLakeMultiFileList(DuckLakeFunctionInfo &read_info, vector<DuckLakeDataFile> transaction_local_files,
 	                               shared_ptr<DuckLakeInlinedData> transaction_local_data, string filter = string());
-	explicit DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,
-	                               vector<DuckLakeFileListEntry> files_to_scan);
+	explicit DuckLakeMultiFileList(DuckLakeFunctionInfo &read_info, vector<DuckLakeFileListEntry> files_to_scan);
 
 	unique_ptr<MultiFileList> ComplexFilterPushdown(ClientContext &context, const MultiFileOptions &options,
 	                                                MultiFilePushdownInfo &info,
@@ -44,6 +42,7 @@ public:
 	idx_t GetTotalFileCount() override;
 	unique_ptr<NodeStatistics> GetCardinality(ClientContext &context) override;
 	DuckLakeTableEntry &GetTable();
+	unique_ptr<MultiFileList> Copy() override;
 	bool HasTransactionLocalData() const {
 		return !transaction_local_files.empty() || transaction_local_data;
 	}
@@ -65,7 +64,6 @@ private:
 
 private:
 	mutex file_lock;
-	DuckLakeTransaction &transaction;
 	DuckLakeFunctionInfo &read_info;
 	//! The set of files to read
 	vector<DuckLakeFileListEntry> files;

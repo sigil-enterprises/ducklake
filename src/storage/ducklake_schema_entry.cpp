@@ -79,12 +79,12 @@ bool DuckLakeSchemaEntry::CatalogTypeIsSupported(CatalogType type) {
 
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateFunction(CatalogTransaction transaction,
                                                                CreateFunctionInfo &info) {
-	throw InternalException("Unsupported schema operation");
+	throw NotImplementedException("DuckLake does not support functions");
 }
 
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateIndex(CatalogTransaction transaction, CreateIndexInfo &info,
                                                             TableCatalogEntry &table) {
-	throw InternalException("Unsupported schema operation");
+	throw NotImplementedException("DuckLake does not support indexes");
 }
 
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateView(CatalogTransaction transaction, CreateViewInfo &info) {
@@ -106,31 +106,31 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateView(CatalogTransaction tr
 
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateSequence(CatalogTransaction transaction,
                                                                CreateSequenceInfo &info) {
-	throw InternalException("Unsupported schema operation");
+	throw NotImplementedException("DuckLake does not support sequences");
 }
 
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTableFunction(CatalogTransaction transaction,
                                                                     CreateTableFunctionInfo &info) {
-	throw InternalException("Unsupported schema operation");
+	throw NotImplementedException("DuckLake does not support table functions");
 }
 
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateCopyFunction(CatalogTransaction transaction,
                                                                    CreateCopyFunctionInfo &info) {
-	throw InternalException("Unsupported schema operation");
+	throw NotImplementedException("DuckLake does not support copy functions");
 }
 
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreatePragmaFunction(CatalogTransaction transaction,
                                                                      CreatePragmaFunctionInfo &info) {
-	throw InternalException("Unsupported schema operation");
+	throw NotImplementedException("DuckLake does not support pragma functions");
 }
 
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateCollation(CatalogTransaction transaction,
                                                                 CreateCollationInfo &info) {
-	throw InternalException("Unsupported schema operation");
+	throw NotImplementedException("DuckLake does not support collations");
 }
 
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateType(CatalogTransaction transaction, CreateTypeInfo &info) {
-	throw InternalException("Unsupported schema operation");
+	throw NotImplementedException("DuckLake does not support user-defined types");
 }
 
 void DuckLakeSchemaEntry::Alter(CatalogTransaction catalog_transaction, AlterInfo &info) {
@@ -311,7 +311,7 @@ DuckLakeCatalogSet &DuckLakeSchemaEntry::GetCatalogSet(CatalogType type) {
 	case CatalogType::VIEW_ENTRY:
 		return tables;
 	default:
-		throw NotImplementedException("Unimplemented catalog type for schema");
+		throw NotImplementedException("Unsupported catalog type %s for DuckLake", CatalogTypeToString(type));
 	}
 }
 

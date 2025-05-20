@@ -251,7 +251,7 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	}
 	auto &multi_file_bind_data = bind_data->Cast<MultiFileBindData>();
 	auto &read_info = scan_function.function_info->Cast<DuckLakeFunctionInfo>();
-	multi_file_bind_data.file_list = make_uniq<DuckLakeMultiFileList>(transaction, read_info, std::move(files_to_scan));
+	multi_file_bind_data.file_list = make_uniq<DuckLakeMultiFileList>(read_info, std::move(files_to_scan));
 
 	// generate the LogicalGet
 	auto &columns = table.GetColumns();

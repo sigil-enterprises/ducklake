@@ -36,7 +36,8 @@ bool DuckLakeInlinedDataReader::TryInitializeScan(ClientContext &context, Global
 
 	if (!data) {
 		// scanning data from a table - read it from the metadata catalog
-		auto &metadata_manager = read_info.transaction.GetMetadataManager();
+		auto transaction = read_info.GetTransaction();
+		auto &metadata_manager = transaction->GetMetadataManager();
 
 		// push the projections directly into the read
 		vector<string> columns_to_read;

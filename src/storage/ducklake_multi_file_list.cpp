@@ -21,18 +21,18 @@
 
 namespace duckdb {
 
-DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,
+DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeFunctionInfo &read_info,
                                              vector<DuckLakeDataFile> transaction_local_files_p,
                                              shared_ptr<DuckLakeInlinedData> transaction_local_data_p, string filter_p)
-    : MultiFileList(vector<OpenFileInfo> {}, FileGlobOptions::ALLOW_EMPTY), transaction(transaction),
-      read_info(read_info), read_file_list(false), transaction_local_files(std::move(transaction_local_files_p)),
+    : MultiFileList(vector<OpenFileInfo> {}, FileGlobOptions::ALLOW_EMPTY), read_info(read_info), read_file_list(false),
+      transaction_local_files(std::move(transaction_local_files_p)),
       transaction_local_data(std::move(transaction_local_data_p)), filter(std::move(filter_p)) {
 }
 
-DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeTransaction &transaction, DuckLakeFunctionInfo &read_info,
+DuckLakeMultiFileList::DuckLakeMultiFileList(DuckLakeFunctionInfo &read_info,
                                              vector<DuckLakeFileListEntry> files_to_scan)
-    : MultiFileList(vector<OpenFileInfo> {}, FileGlobOptions::ALLOW_EMPTY), transaction(transaction),
-      read_info(read_info), files(std::move(files_to_scan)), read_file_list(true) {
+    : MultiFileList(vector<OpenFileInfo> {}, FileGlobOptions::ALLOW_EMPTY), read_info(read_info),
+      files(std::move(files_to_scan)), read_file_list(true) {
 }
 
 unique_ptr<MultiFileList> DuckLakeMultiFileList::ComplexFilterPushdown(ClientContext &context,
@@ -262,7 +262,7 @@ DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const Multi
 		    final_filter);
 	}
 	if (!filter.empty()) {
-		return make_uniq<DuckLakeMultiFileList>(transaction, read_info, transaction_local_files, transaction_local_data,
+		return make_uniq<DuckLakeMultiFileList>(read_info, transaction_local_files, transaction_local_data,
 		                                        std::move(filter));
 	}
 	return nullptr;
@@ -350,6 +350,14 @@ OpenFileInfo DuckLakeMultiFileList::GetFile(idx_t i) {
 	return result;
 }
 
+unique_ptr<MultiFileList> DuckLakeMultiFileList::Copy() {
+	auto result = make_uniq<DuckLakeMultiFileList>(read_info, transaction_local_files, transaction_local_data, filter);
+	result->files = GetFiles();
+	result->read_file_list = read_file_list;
+	result->delete_scans = delete_scans;
+	return std::move(result);
+}
+
 const DuckLakeFileListEntry &DuckLakeMultiFileList::GetFileEntry(idx_t file_idx) {
 	auto &files = GetFiles();
 	return files[file_idx];
@@ -380,6 +388,8 @@ DuckLakeFileData GetDeleteData(const DuckLakeDataFile &file) {
 vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() {
 	lock_guard<mutex> l(file_lock);
 	vector<DuckLakeFileListExtendedEntry> result;
+	auto transaction_ref = read_info.GetTransaction();
+	auto &transaction = *transaction_ref;
 	if (!read_info.table_id.IsTransactionLocal()) {
 		// not a transaction local table - read the file list from the metadata store
 		auto &metadata_manager = transaction.GetMetadataManager();
@@ -448,6 +458,8 @@ vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() 
 }
 
 void DuckLakeMultiFileList::GetFilesForTable() {
+	auto transaction_ref = read_info.GetTransaction();
+	auto &transaction = *transaction_ref;
 	if (!read_info.table_id.IsTransactionLocal()) {
 		// not a transaction local table - read the file list from the metadata store
 		auto &metadata_manager = transaction.GetMetadataManager();
@@ -498,6 +510,8 @@ void DuckLakeMultiFileList::GetTableInsertions() {
 	if (read_info.table_id.IsTransactionLocal()) {
 		throw InternalException("Cannot get changes between snapshots for transaction-local files");
 	}
+	auto transaction_ref = read_info.GetTransaction();
+	auto &transaction = *transaction_ref;
 	auto &metadata_manager = transaction.GetMetadataManager();
 	files = metadata_manager.GetTableInsertions(*read_info.start_snapshot, read_info.snapshot, read_info.table_id);
 	// add inlined data tables as sources (if any)
@@ -515,6 +529,8 @@ void DuckLakeMultiFileList::GetTableDeletions() {
 	if (read_info.table_id.IsTransactionLocal()) {
 		throw InternalException("Cannot get changes between snapshots for transaction-local files");
 	}
+	auto transaction_ref = read_info.GetTransaction();
+	auto &transaction = *transaction_ref;
 	auto &metadata_manager = transaction.GetMetadataManager();
 	delete_scans =
 	    metadata_manager.GetTableDeletions(*read_info.start_snapshot, read_info.snapshot, read_info.table_id);
