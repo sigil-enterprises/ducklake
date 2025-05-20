@@ -36,6 +36,11 @@ DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &sch
       field_data(std::move(field_data_p)), next_column_id(next_column_id_p),
       inlined_data_tables(std::move(inlined_data_tables_p)), local_change(local_change) {
 	CheckSupportedTypes();
+	for (auto &col : columns.Logical()) {
+		if (col.Generated()) {
+			throw NotImplementedException("DuckLake does not support generated columns");
+		}
+	}
 	for (auto &constraint : constraints) {
 		switch (constraint->type) {
 		case ConstraintType::NOT_NULL:

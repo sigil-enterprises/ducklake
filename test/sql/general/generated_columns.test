@@ -1,0 +1,15 @@
+# name: test/sql/general/generated_columns.test
+# description: Test generated columns in ducklake
+# group: [general]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_generated.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_generated')
+
+statement error
+CREATE TABLE ducklake.t0(c0 INT AS (1), c1 INT);
+----
+does not support
