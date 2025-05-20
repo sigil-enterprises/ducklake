@@ -840,6 +840,9 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	auto parent_path = info.column_path;
 	parent_path.pop_back();
 	auto &parent_id = GetFieldId(parent_path);
+	if (parent_id.Type().id() != LogicalTypeId::STRUCT) {
+		throw NotImplementedException("Only rename on top-level struct fields is supported currently");
+	}
 	for (auto &child : StructType::GetChildTypes(parent_id.Type())) {
 		if (StringUtil::CIEquals(child.first, info.new_name)) {
 			throw CatalogException(
