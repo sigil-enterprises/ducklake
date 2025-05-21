@@ -345,6 +345,9 @@ optional_idx FindNotNullConstraint(CreateTableInfo &table_info, LogicalIndex ind
 unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, SetNotNullInfo &info) {
 	auto create_info = GetInfo();
 	auto &table_info = create_info->Cast<CreateTableInfo>();
+	if (!table_info.columns.ColumnExists(info.column_name)) {
+		throw CatalogException("Failed to alter column - column %s does not exist", info.column_name);
+	}
 	auto &col = table_info.columns.GetColumn(info.column_name);
 	auto &field_id = GetFieldId(col.Physical());
 
@@ -378,6 +381,9 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, DropNotNullInfo &info) {
 	auto create_info = GetInfo();
 	auto &table_info = create_info->Cast<CreateTableInfo>();
+	if (!table_info.columns.ColumnExists(info.column_name)) {
+		throw CatalogException("Failed to alter column - column %s does not exist", info.column_name);
+	}
 	auto &col = table_info.columns.GetColumn(info.column_name);
 	auto &field_id = GetFieldId(col.Physical());
 
@@ -395,6 +401,9 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, RenameColumnInfo &info) {
 	auto create_info = GetInfo();
 	auto &table_info = create_info->Cast<CreateTableInfo>();
+	if (!table_info.columns.ColumnExists(info.old_name)) {
+		throw CatalogException("Failed to rename column - column %s does not exist", info.old_name);
+	}
 	auto &col = table_info.columns.GetColumn(info.old_name);
 	auto &field_id = GetFieldId(col.Physical());
 

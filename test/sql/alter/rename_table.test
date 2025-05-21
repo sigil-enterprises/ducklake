@@ -139,4 +139,7 @@ SELECT * FROM ducklake.test6
 statement ok
 COMMIT
 
-# what if there is a conflict when renaming?
+statement error
+ALTER TABLE ducklake.nonexistent_table RENAME TO target
+----
+nonexistent_table

@@ -39,6 +39,17 @@ ALTER TABLE ducklake.test ALTER j DROP NOT NULL;
 ----
 no NOT NULL constraint
 
+# column does not exist
+statement error
+ALTER TABLE ducklake.test ALTER nonexistent_column SET NOT NULL;
+----
+nonexistent_column
+
+statement error
+ALTER TABLE ducklake.test ALTER nonexistent_column DROP NOT NULL;
+----
+nonexistent_column
+
 # we can drop the NOT NULL constraint
 statement ok
 ALTER TABLE ducklake.test ALTER i DROP NOT NULL;

@@ -37,3 +37,8 @@ statement error
 ALTER TABLE ducklake.test ALTER COLUMN col1 SET DATA TYPE SMALLINT;
 ----
 only widening
+
+statement error
+ALTER TABLE ducklake.test ALTER COLUMN nonexistent_column SET DATA TYPE SMALLINT;
+----
+nonexistent_column

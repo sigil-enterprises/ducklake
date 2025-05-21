@@ -38,3 +38,8 @@ SELECT new_col1, new_col2 FROM ducklake.test
 ----
 1	2
 NULL	3
+
+statement error
+ALTER TABLE ducklake.test RENAME COLUMN blablabla TO k
+----
+column blablabla does not exist

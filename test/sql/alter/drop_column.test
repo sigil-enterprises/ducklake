@@ -40,3 +40,8 @@ FROM ducklake.test
 1
 2
 3
+
+statement error
+ALTER TABLE ducklake.test DROP COLUMN nonexistent_column
+----
+nonexistent_column
