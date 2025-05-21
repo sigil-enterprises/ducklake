@@ -52,10 +52,9 @@ def process_file(file_path):
     if dbms == "sqlite":
         lines = [line.replace("ducklake:__TEST_DIR__", "ducklake:sqlite:__TEST_DIR__") for line in lines]
     elif dbms == "postgres":
-        lines = [re.sub(r"'ducklake:__TEST_DIR__[^']*'", "'ducklake:postgres:dbname=postgresducklake'",line)for line in lines]
+        lines = [re.sub(r"'ducklake:__TEST_DIR__[^']*'", "'ducklake:postgres:dbname=ducklakedb'",line)for line in lines]
     elif dbms == "mysql":
-        print(f"Nop")
-        sys.exit(1)
+        lines = [re.sub(r"'ducklake:__TEST_DIR__[^']*'", "'ducklake:mysql:db=ducklakedb'",line)for line in lines]
 
     with open(file_path, 'w', encoding='utf-8') as f:
         f.writelines(lines)
@@ -74,16 +73,22 @@ def collect_test_files(root_folder):
 test_files = collect_test_files(folder_to_process)
 
 if dbms == "postgres":
-        subprocess.run("dropdb --if-exists postgresducklake", shell=True, capture_output=True, text=True)
+        subprocess.run("dropdb --if-exists ducklakedb", shell=True, capture_output=True, text=True)
+elif dbms == "mysql":
+        subprocess.run(" mysql -u root -e \"DROP DATABASE ducklakedb\"", shell=True, capture_output=True, text=True)
 
 for test_file in test_files:
     process_file(test_file)
     print(f"Running {test_file}")
     if dbms == "postgres":
-        subprocess.run("createdb postgresducklake", shell=True, capture_output=True, text=True)
+        subprocess.run("createdb ducklakedb", shell=True, capture_output=True, text=True)
+    elif dbms == "mysql":
+        subprocess.run(" mysql -u root -e \"CREATE DATABASE ducklakedb\"", shell=True, capture_output=True, text=True)
     result = subprocess.run(f"{release_folder}/unittest {test_file}", shell=True, capture_output=True, text=True)
     if dbms == "postgres":
-        subprocess.run("dropdb --if-exists postgresducklake", shell=True, capture_output=True, text=True)
+        subprocess.run("dropdb --if-exists ducklakedb", shell=True, capture_output=True, text=True)
+    elif dbms == "mysql":
+        subprocess.run(" mysql -u root -e \"DROP DATABASE ducklakedb\"", shell=True, capture_output=True, text=True)
     print(result.stdout)
     if result.stderr:
         print("Errors:")
