@@ -31,6 +31,10 @@ bool DuckLakeSchemaEntry::HandleCreateConflict(CatalogTransaction transaction, C
 		// ignore - skip without throwing an error
 		return false;
 	case OnCreateConflict::REPLACE_ON_CONFLICT: {
+		if (existing_entry->type != catalog_type) {
+			throw CatalogException("Existing object %s is of type %s, trying to replace with type %s", entry_name,
+			                       CatalogTypeToString(existing_entry->type), CatalogTypeToString(catalog_type));
+		}
 		// try to drop the entry prior to creating
 		DropInfo info;
 		info.type = catalog_type;
@@ -247,6 +251,10 @@ void DuckLakeSchemaEntry::DropEntry(ClientContext &context, DropInfo &info) {
 			return;
 		}
 		throw InternalException("Failed to drop entry \"%s\" - could not find entry", info.name);
+	}
+	if (catalog_entry->type != info.type) {
+		throw CatalogException("Existing object %s is of type %s, trying to drop type %s", catalog_entry->name,
+		                       CatalogTypeToString(catalog_entry->type), CatalogTypeToString(info.type));
 	}
 	auto &transaction = DuckLakeTransaction::Get(context, catalog);
 	transaction.DropEntry(*catalog_entry);
