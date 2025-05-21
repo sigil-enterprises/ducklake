@@ -17,6 +17,7 @@
 #include "duckdb/planner/expression/bound_cast_expression.hpp"
 #include "duckdb/planner/expression/bound_reference_expression.hpp"
 #include "duckdb/common/multi_file/multi_file_reader.hpp"
+#include "duckdb/main/extension_helper.hpp"
 
 namespace duckdb {
 
@@ -193,11 +194,25 @@ InsertionOrderPreservingMap<string> DuckLakeInsert::ParamsToString() const {
 // Plan
 //===--------------------------------------------------------------------===//
 CopyFunctionCatalogEntry &DuckLakeFunctions::GetCopyFunction(DatabaseInstance &db, const string &name) {
+	// Logic is partially duplicated from Catalog::AutoLoadExtensionByCatalogEntry(db, CatalogType::COPY_FUNCTION_ENTRY,
+	// name), but that do not offer enough control
+	string extension_name = ExtensionHelper::FindExtensionInEntries(name, EXTENSION_COPY_FUNCTIONS);
+	if (!extension_name.empty() && db.config.options.autoload_known_extensions &&
+	    ExtensionHelper::CanAutoloadExtension(extension_name)) {
+		// This will either succeed or throw
+		ExtensionHelper::AutoLoadExtension(db, extension_name);
+	}
 	D_ASSERT(!name.empty());
 	auto &system_catalog = Catalog::GetSystemCatalog(db);
 	auto data = CatalogTransaction::GetSystemTransaction(db);
 	auto &schema = system_catalog.GetSchema(data, DEFAULT_SCHEMA);
-	return schema.GetEntry(data, CatalogType::COPY_FUNCTION_ENTRY, name)->Cast<CopyFunctionCatalogEntry>();
+	auto entry = schema.GetEntry(data, CatalogType::COPY_FUNCTION_ENTRY, name);
+	if (!entry) {
+		throw MissingExtensionException("We could not load, due to configuration or else, an extension that offers the "
+		                                "copy functon for \"%s\", try to explicitly load the relevant extension",
+		                                name);
+	}
+	return entry->Cast<CopyFunctionCatalogEntry>();
 }
 
 Value GetFieldIdValue(const DuckLakeFieldId &field_id) {
