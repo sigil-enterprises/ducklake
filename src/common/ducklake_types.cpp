@@ -21,7 +21,7 @@ static constexpr const ducklake_type_array DUCKLAKE_TYPES {{{"boolean", LogicalT
                                                             {"int64", LogicalTypeId::BIGINT},
                                                             {"int128", LogicalTypeId::HUGEINT},
                                                             {"uint8", LogicalTypeId::UTINYINT},
-                                                            {"uint16", LogicalTypeId::UTINYINT},
+                                                            {"uint16", LogicalTypeId::USMALLINT},
                                                             {"uint32", LogicalTypeId::UINTEGER},
                                                             {"uint64", LogicalTypeId::UBIGINT},
                                                             {"uint128", LogicalTypeId::UHUGEINT},
