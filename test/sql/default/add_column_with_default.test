@@ -88,3 +88,13 @@ FROM ducklake.test ORDER BY ALL
 1000	NULL
 1000	NULL
 NULL	42
+
+statement error
+ALTER TABLE ducklake.test ALTER nonexistent_column SET DEFAULT 1000
+----
+nonexistent_column
+
+statement error
+ALTER TABLE ducklake.test ALTER nonexistent_column DROP DEFAULT
+----
+nonexistent_column
