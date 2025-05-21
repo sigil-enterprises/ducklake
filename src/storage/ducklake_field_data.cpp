@@ -154,6 +154,19 @@ LogicalType GetStructType(const vector<unique_ptr<DuckLakeFieldId>> &new_childre
 	return LogicalType::STRUCT(std::move(child_types));
 }
 
+LogicalType GetNewNestedType(const LogicalType &type, const vector<unique_ptr<DuckLakeFieldId>> &new_children) {
+	switch (type.id()) {
+	case LogicalTypeId::LIST:
+		return LogicalType::LIST(new_children[0]->Type());
+	case LogicalTypeId::STRUCT:
+		return GetStructType(new_children);
+	case LogicalTypeId::MAP:
+		return LogicalType::MAP(new_children[0]->Type(), new_children[1]->Type());
+	default:
+		throw InternalException("Unsupported type for AddField");
+	}
+}
+
 unique_ptr<DuckLakeFieldId> DuckLakeFieldId::AddField(const vector<string> &column_path,
                                                       unique_ptr<DuckLakeFieldId> new_child, idx_t depth) const {
 	vector<unique_ptr<DuckLakeFieldId>> new_children;
@@ -183,7 +196,7 @@ unique_ptr<DuckLakeFieldId> DuckLakeFieldId::AddField(const vector<string> &colu
 			throw InternalException("DuckLakeFieldId::AddField - child not found in struct path");
 		}
 	}
-	auto new_type = GetStructType(new_children);
+	LogicalType new_type = GetNewNestedType(type, new_children);
 	return make_uniq<DuckLakeFieldId>(column_data, Name(), std::move(new_type), std::move(new_children));
 }
 
@@ -210,7 +223,7 @@ unique_ptr<DuckLakeFieldId> DuckLakeFieldId::RemoveField(const vector<string> &c
 	if (!found) {
 		throw InternalException("DuckLakeFieldId::AddField - child not found in struct path");
 	}
-	auto new_type = GetStructType(new_children);
+	LogicalType new_type = GetNewNestedType(type, new_children);
 	return make_uniq<DuckLakeFieldId>(column_data, Name(), std::move(new_type), std::move(new_children));
 }
 

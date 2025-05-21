@@ -589,15 +589,56 @@ bool IsSimpleCast(const ParsedExpression &expr) {
 	return true;
 }
 
-unique_ptr<DuckLakeFieldId> DuckLakeTableEntry::GetStructEvolution(const DuckLakeFieldId &source_id,
+idx_t GetNestedChildCount(const LogicalType &type) {
+	switch (type.id()) {
+	case LogicalTypeId::LIST:
+		return 1;
+	case LogicalTypeId::MAP:
+		return 2;
+	case LogicalTypeId::STRUCT:
+		return StructType::GetChildTypes(type).size();
+	default:
+		throw NotImplementedException("Unimplemented nested type %s for DuckLake type evolution", type);
+	}
+}
+
+string GetNestedChildName(const LogicalType &type, idx_t index) {
+	switch (type.id()) {
+	case LogicalTypeId::LIST:
+		return "element";
+	case LogicalTypeId::MAP:
+		return index == 0 ? "key" : "value";
+	case LogicalTypeId::STRUCT:
+		return StructType::GetChildTypes(type)[index].first;
+	default:
+		throw NotImplementedException("Unimplemented nested type %s for DuckLake type evolution", type);
+	}
+}
+const LogicalType &GetNestedChildType(const LogicalType &type, idx_t index) {
+	switch (type.id()) {
+	case LogicalTypeId::LIST:
+		return ListType::GetChildType(type);
+	case LogicalTypeId::MAP:
+		return index == 0 ? MapType::KeyType(type) : MapType::ValueType(type);
+	case LogicalTypeId::STRUCT:
+		return StructType::GetChildTypes(type)[index].second;
+	default:
+		throw NotImplementedException("Unimplemented nested type %s for DuckLake type evolution", type);
+	}
+}
+
+unique_ptr<DuckLakeFieldId> DuckLakeTableEntry::GetNestedEvolution(const DuckLakeFieldId &source_id,
                                                                    const LogicalType &target, ColumnChangeInfo &result,
                                                                    optional_idx parent_idx) {
-	auto &source_types = StructType::GetChildTypes(source_id.Type());
-	auto &target_types = StructType::GetChildTypes(target);
+
+	auto &source_type = source_id.Type();
+	if (source_type.id() != target.id()) {
+		throw NotImplementedException("Type evolution is not supported from type %s to type %s", source_type, target);
+	}
 
 	case_insensitive_map_t<idx_t> source_type_map;
-	for (idx_t source_idx = 0; source_idx < source_types.size(); ++source_idx) {
-		source_type_map[source_types[source_idx].first] = source_idx;
+	for (idx_t source_idx = 0; source_idx < GetNestedChildCount(source_type); ++source_idx) {
+		source_type_map[GetNestedChildName(source_type, source_idx)] = source_idx;
 	}
 	auto &source_children = source_id.Children();
 	DuckLakeColumnData column_data;
@@ -605,19 +646,20 @@ unique_ptr<DuckLakeFieldId> DuckLakeTableEntry::GetStructEvolution(const DuckLak
 
 	vector<unique_ptr<DuckLakeFieldId>> children;
 	// for each type in target_types, check if it is in source types
-	for (idx_t target_idx = 0; target_idx < target_types.size(); ++target_idx) {
-		auto &target_type = target_types[target_idx];
-		auto entry = source_type_map.find(target_type.first);
+	for (idx_t target_idx = 0; target_idx < GetNestedChildCount(target); ++target_idx) {
+		auto target_name = GetNestedChildName(target, target_idx);
+		auto &target_type = GetNestedChildType(target, target_idx);
+		auto entry = source_type_map.find(target_name);
 		if (entry == source_type_map.end()) {
 			// type not found - this is a new entry
 			// first construct a new field id for this entry
 			idx_t next_col = next_column_id.GetIndex();
-			auto field_id = DuckLakeFieldId::FieldIdFromType(target_type.first, target_type.second, nullptr, next_col);
+			auto field_id = DuckLakeFieldId::FieldIdFromType(target_name, target_type, nullptr, next_col);
 			next_column_id = next_col;
 
 			// add the column to the list of "to-be-added" columns
 			DuckLakeNewColumn new_col;
-			new_col.column_info = ConvertColumn(target_type.first, target_type.second, *field_id);
+			new_col.column_info = ConvertColumn(target_name, target_type, *field_id);
 			new_col.parent_idx = column_data.id.index;
 			result.new_fields.push_back(std::move(new_col));
 			children.push_back(std::move(field_id));
@@ -627,12 +669,11 @@ unique_ptr<DuckLakeFieldId> DuckLakeTableEntry::GetStructEvolution(const DuckLak
 
 		// the name exists in both the source and target
 		// recursively perform type promotion
-		auto new_child_id =
-		    TypePromotion(*source_children[source_idx], target_type.second, result, column_data.id.index);
+		auto new_child_id = TypePromotion(*source_children[source_idx], target_type, result, column_data.id.index);
 
 		children.push_back(std::move(new_child_id));
 		// erase from the source map to indicate this field has been handled
-		source_type_map.erase(target_type.first);
+		source_type_map.erase(target_name);
 	}
 	for (auto &entry : source_type_map) {
 		auto source_idx = entry.second;
@@ -645,17 +686,13 @@ unique_ptr<DuckLakeFieldId> DuckLakeTableEntry::GetStructEvolution(const DuckLak
 unique_ptr<DuckLakeFieldId> DuckLakeTableEntry::TypePromotion(const DuckLakeFieldId &source_id,
                                                               const LogicalType &target, ColumnChangeInfo &result,
                                                               optional_idx parent_idx) {
-	auto &source_type = source_id.Type();
-	if (source_type.id() == LogicalTypeId::STRUCT && target.id() == LogicalTypeId::STRUCT) {
-		// both types are structs - perform struct type evolution
-		return GetStructEvolution(source_id, target, result, parent_idx);
+	if (!source_id.Children().empty()) {
+		return GetNestedEvolution(source_id, target, result, parent_idx);
 	}
+	auto &source_type = source_id.Type();
 	if (source_type == target) {
 		// type is unchanged - return field id directly
 		return source_id.Copy();
-	}
-	if (!source_id.Children().empty()) {
-		throw NotImplementedException("Unsupported type evolution on nested field");
 	}
 	// primitive type promotion
 	// only widening type promotions are allowed
@@ -700,7 +737,7 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 		throw NotImplementedException("Column type cannot be modified using an expression");
 	}
 	auto change_info = make_uniq<ColumnChangeInfo>();
-	if (info.target_type.id() == LogicalTypeId::STRUCT) {
+	if (info.target_type.IsNested()) {
 		RequireNextColumnId(transaction);
 	}
 	auto new_field_id = TypePromotion(field_id, info.target_type, *change_info, optional_idx());
