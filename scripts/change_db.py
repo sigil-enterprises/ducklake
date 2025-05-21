@@ -1,16 +1,30 @@
 import os
 import sys
+import subprocess
+from enum import Enum
+import re
+
+class DBMS(Enum):
+    SQLITE = "sqlite"
+    POSTGRES = "postgres"
+    MYSQL = "mysql"
 
 if len(sys.argv) != 3:
     print("Usage: python script.py <dependency_path> <dbms>")
     sys.exit(1)
 
 dependency_path = sys.argv[1]
-dbms = sys.argv[2]
+dbms_input = sys.argv[2].lower()
 
-# Automatically resolve folder_to_process as ../test/sql relative to this script
+try:
+    dbms = DBMS(dbms_input).value
+except ValueError:
+    print(f"Error: Unsupported dbms '{dbms_input}'. Must be one of: {', '.join(d.value for d in DBMS)}")
+    sys.exit(1)
+
 script_dir = os.path.dirname(os.path.abspath(__file__))
 folder_to_process = os.path.abspath(os.path.join(script_dir, "..", "test", "sql"))
+release_folder = os.path.abspath(os.path.join(script_dir, "..", "build", "release", "test"))
 
 LOAD_STATEMENT = (
     "\nstatement ok\n"
@@ -20,22 +34,57 @@ LOAD_STATEMENT = (
 def process_file(file_path):
     with open(file_path, 'r', encoding='utf-8') as f:
         lines = f.readlines()
+
+    if lines and lines[0].strip() == "# [GENERATED]":
+        return  # Already marked as generated, skip
+
+    lines = ["# [GENERATED]\n"] + lines[1:] if lines else ["# [GENERATED]\n"]
+
     insert_idx = 0
     while insert_idx < len(lines) and lines[insert_idx].startswith('#'):
         insert_idx += 1
+
     if any("LOAD" in line and dependency_path in line for line in lines):
         return
+
     lines = lines[:insert_idx] + [LOAD_STATEMENT + "\n"] + lines[insert_idx:]
-    lines = [line.replace("ducklake:__TEST_DIR__", f"ducklake:{dbms}:__TEST_DIR__") for line in lines]
+
+    if dbms == "sqlite":
+        lines = [line.replace("ducklake:__TEST_DIR__", "ducklake:sqlite:__TEST_DIR__") for line in lines]
+    elif dbms == "postgres":
+        lines = [re.sub(r"'ducklake:__TEST_DIR__[^']*'", "'ducklake:postgres:dbname=postgresducklake'",line)for line in lines]
+    elif dbms == "mysql":
+        print(f"Nop")
+        sys.exit(1)
+
     with open(file_path, 'w', encoding='utf-8') as f:
         f.writelines(lines)
+
     print(f"Updated: {file_path}")
 
-def walk_directory(root_folder):
+def collect_test_files(root_folder):
+    test_files = []
     for dirpath, _, filenames in os.walk(root_folder):
         for filename in filenames:
             if filename.endswith('.test'):
                 full_path = os.path.join(dirpath, filename)
-                process_file(full_path)
+                test_files.append(full_path)
+    return test_files
 
-walk_directory(folder_to_process)
+test_files = collect_test_files(folder_to_process)
+
+if dbms == "postgres":
+        subprocess.run("dropdb --if-exists postgresducklake", shell=True, capture_output=True, text=True)
+
+for test_file in test_files:
+    process_file(test_file)
+    print(f"Running {test_file}")
+    if dbms == "postgres":
+        subprocess.run("createdb postgresducklake", shell=True, capture_output=True, text=True)
+    result = subprocess.run(f"{release_folder}/unittest {test_file}", shell=True, capture_output=True, text=True)
+    if dbms == "postgres":
+        subprocess.run("dropdb --if-exists postgresducklake", shell=True, capture_output=True, text=True)
+    print(result.stdout)
+    if result.stderr:
+        print("Errors:")
+        print(result.stderr)
