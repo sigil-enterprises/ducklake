@@ -40,8 +40,7 @@ static constexpr const ducklake_type_array DUCKLAKE_TYPES {{{"boolean", LogicalT
                                                             {"interval", LogicalTypeId::INTERVAL},
                                                             {"varchar", LogicalTypeId::VARCHAR},
                                                             {"blob", LogicalTypeId::BLOB},
-                                                            {"uuid", LogicalTypeId::UUID},
-                                                            {"enum", LogicalTypeId::ENUM}}};
+                                                            {"uuid", LogicalTypeId::UUID}}};
 
 LogicalTypeId ParseBaseType(const string &str) {
 	for (auto &ducklake_type : DUCKLAKE_TYPES) {

@@ -23,6 +23,12 @@ CREATE TABLE ducklake.test(ts UNION(i INT, j INT));
 ----
 unsupported type
 
+# enum
+statement error
+CREATE TABLE test AS SELECT 'hello'::ENUM('world', 'hello') AS h;
+----
+unsupported type
+
 # unsupported type in a struct
 statement error
 CREATE TABLE ducklake.test(ts STRUCT(x INT[3]));
