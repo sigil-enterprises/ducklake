@@ -461,7 +461,23 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	if (columns.LogicalColumnCount() == 1) {
 		throw CatalogException("Cannot drop column: table only has one column remaining!");
 	}
-
+	auto removed_index = col.Logical();
+	for (idx_t c_idx = 0; c_idx < table_info.constraints.size(); c_idx++) {
+		auto &constraint = table_info.constraints[c_idx];
+		if (constraint->type == ConstraintType::NOT_NULL) {
+			auto &not_null = constraint->Cast<NotNullConstraint>();
+			if (not_null.index == removed_index) {
+				// this index belongs to the removed column - remove it
+				table_info.constraints.erase(table_info.constraints.begin() + c_idx);
+				c_idx--;
+				continue;
+			}
+			if (not_null.index.index > removed_index.index) {
+				// this index belongs to a column after the removed column - shift the index
+				not_null.index.index--;
+			}
+		}
+	}
 	// remove the column from the column list
 	ColumnList new_columns;
 	for (auto &col : columns.Logical()) {
