@@ -80,7 +80,6 @@ TableFunction DuckLakeFunctions::GetDuckLakeScanFunction(DatabaseInstance &insta
 	// TODO: implement/fix these
 	function.serialize = DuckLakeScanSerialize;
 	function.deserialize = nullptr;
-	function.table_scan_progress = nullptr;
 
 	function.to_string = DuckLakeFunctionToString;
 
