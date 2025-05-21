@@ -79,4 +79,13 @@ string DuckLakeUtil::SQLLiteralToString(const string &text) {
 	return "'" + StringUtil::Replace(text, "'", "''") + "'";
 }
 
+string DuckLakeUtil::StatsToString(const string &text) {
+	for (auto c : text) {
+		if (c == '\0') {
+			return "NULL";
+		}
+	}
+	return DuckLakeUtil::SQLLiteralToString(text);
+}
+
 } // namespace duckdb

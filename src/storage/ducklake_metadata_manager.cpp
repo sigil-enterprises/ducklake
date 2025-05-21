@@ -1462,8 +1462,8 @@ void DuckLakeMetadataManager::UpdateGlobalTableStats(const DuckLakeGlobalStatsIn
 		} else {
 			contains_nan = "NULL";
 		}
-		string min_val = col_stats.has_min ? DuckLakeUtil::SQLLiteralToString(col_stats.min_val) : "NULL";
-		string max_val = col_stats.has_max ? DuckLakeUtil::SQLLiteralToString(col_stats.max_val) : "NULL";
+		string min_val = col_stats.has_min ? DuckLakeUtil::StatsToString(col_stats.min_val) : "NULL";
+		string max_val = col_stats.has_max ? DuckLakeUtil::StatsToString(col_stats.max_val) : "NULL";
 		column_stats_values +=
 		    StringUtil::Format("(%d, %d, %s, %s, %s, %s)", stats.table_id.index, col_stats.column_id.index,
 		                       contains_null, contains_nan, min_val, max_val);

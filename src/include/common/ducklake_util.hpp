@@ -25,6 +25,7 @@ public:
 	static vector<string> ParseQuotedList(const string &input, char list_separator = ',');
 	static string SQLIdentifierToString(const string &text);
 	static string SQLLiteralToString(const string &text);
+	static string StatsToString(const string &text);
 
 	static ParsedCatalogEntry ParseCatalogEntry(const string &input);
 };

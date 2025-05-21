@@ -880,8 +880,8 @@ DuckLakeFileInfo DuckLakeTransaction::GetNewDataFile(DuckLakeDataFile &file, Duc
 		DuckLakeColumnStatsInfo column_stats;
 		column_stats.column_id = column_stats_entry.first;
 		auto &stats = column_stats_entry.second;
-		column_stats.min_val = stats.has_min ? DuckLakeUtil::SQLLiteralToString(stats.min) : "NULL";
-		column_stats.max_val = stats.has_max ? DuckLakeUtil::SQLLiteralToString(stats.max) : "NULL";
+		column_stats.min_val = stats.has_min ? DuckLakeUtil::StatsToString(stats.min) : "NULL";
+		column_stats.max_val = stats.has_max ? DuckLakeUtil::StatsToString(stats.max) : "NULL";
 		column_stats.column_size_bytes = to_string(stats.column_size_bytes);
 		if (stats.has_null_count) {
 			column_stats.value_count = to_string(file.row_count - stats.null_count);
