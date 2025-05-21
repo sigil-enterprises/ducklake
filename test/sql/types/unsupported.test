@@ -7,9 +7,6 @@ require ducklake
 require parquet
 
 statement ok
-PRAGMA enable_verification
-
-statement ok
 ATTACH 'ducklake:__TEST_DIR__/ducklake_union.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_union_files')
 
 # unsupported types
@@ -25,9 +22,20 @@ unsupported type
 
 # enum
 statement error
-CREATE TABLE test AS SELECT 'hello'::ENUM('world', 'hello') AS h;
+CREATE TABLE ducklake.test AS SELECT 'hello'::ENUM('world', 'hello') AS h;
 ----
 unsupported type
+
+# varchar with collation
+statement error
+CREATE TABLE ducklake.test(s VARCHAR COLLATE NOACCENT);
+----
+Collations are not supported
+
+statement error
+CREATE TABLE ducklake.test(s VARCHAR USING COMPRESSION ZSTD);
+----
+compression type for a column is not supported in DuckLake
 
 # unsupported type in a struct
 statement error

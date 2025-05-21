@@ -40,6 +40,9 @@ DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &sch
 		if (col.Generated()) {
 			throw NotImplementedException("DuckLake does not support generated columns");
 		}
+		if (col.CompressionType() != CompressionType::COMPRESSION_AUTO) {
+			throw NotImplementedException("Defining a compression type for a column is not supported in DuckLake");
+		}
 	}
 	for (auto &constraint : constraints) {
 		switch (constraint->type) {

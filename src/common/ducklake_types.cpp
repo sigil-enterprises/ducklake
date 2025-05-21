@@ -88,6 +88,11 @@ string DuckLakeTypes::ToString(const LogicalType &type) {
 		return "map";
 	case LogicalTypeId::DECIMAL:
 		return "decimal(" + to_string(DecimalType::GetWidth(type)) + "," + to_string(DecimalType::GetScale(type)) + ")";
+	case LogicalTypeId::VARCHAR:
+		if (!StringType::GetCollation(type).empty()) {
+			throw InvalidInputException("Collations are not supported in DuckLake storage");
+		}
+		return ToStringBaseType(type);
 	default:
 		return ToStringBaseType(type);
 	}
