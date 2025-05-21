@@ -47,12 +47,17 @@ public:
 	bool HasTypes() const override {
 		return false;
 	}
+	unique_ptr<CreateInfo> GetInfo() const override;
+	string ToSQL() const override;
 
 	string GetQuerySQL();
 
 public:
 	// ALTER VIEW
 	DuckLakeViewEntry(DuckLakeViewEntry &parent, CreateViewInfo &info, LocalChange local_change);
+
+private:
+	unique_ptr<SelectStatement> ParseSelectStatement() const;
 
 private:
 	mutex parse_lock;

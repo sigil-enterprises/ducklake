@@ -47,6 +47,19 @@ unique_ptr<CatalogEntry> DuckLakeViewEntry::AlterEntry(ClientContext &context, A
 	}
 }
 
+unique_ptr<CreateInfo> DuckLakeViewEntry::GetInfo() const {
+	auto info = ViewCatalogEntry::GetInfo();
+	auto &view_info = info->Cast<CreateViewInfo>();
+	if (!view_info.query) {
+		view_info.query = ParseSelectStatement();
+	}
+	return info;
+}
+
+string DuckLakeViewEntry::ToSQL() const {
+	return GetInfo()->ToString();
+}
+
 unique_ptr<CatalogEntry> DuckLakeViewEntry::Copy(ClientContext &context) const {
 	D_ASSERT(!internal);
 	auto create_info = GetInfo();
@@ -55,17 +68,21 @@ unique_ptr<CatalogEntry> DuckLakeViewEntry::Copy(ClientContext &context) const {
 	                                    query_sql, local_change);
 }
 
+unique_ptr<SelectStatement> DuckLakeViewEntry::ParseSelectStatement() const {
+	Parser parser;
+	parser.ParseQuery(query_sql);
+	if (parser.statements.size() != 1 || parser.statements[0]->type != StatementType::SELECT_STATEMENT) {
+		throw InvalidInputException("Invalid input for view - view must have a single SELECT statement: \"%s\"",
+		                            query_sql);
+	}
+	return unique_ptr_cast<SQLStatement, SelectStatement>(std::move(parser.statements[0]));
+}
+
 const SelectStatement &DuckLakeViewEntry::GetQuery() {
 	lock_guard<mutex> l(parse_lock);
 	if (!query) {
 		// parse the query
-		Parser parser;
-		parser.ParseQuery(query_sql);
-		if (parser.statements.size() != 1 || parser.statements[0]->type != StatementType::SELECT_STATEMENT) {
-			throw InvalidInputException("Invalid input for view - view must have a single SELECT statement: \"%s\"",
-			                            query_sql);
-		}
-		query = unique_ptr_cast<SQLStatement, SelectStatement>(std::move(parser.statements[0]));
+		query = ParseSelectStatement();
 	}
 	return *query;
 }

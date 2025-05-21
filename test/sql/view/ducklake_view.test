@@ -18,6 +18,11 @@ SELECT * FROM ducklake.v1
 ----
 42
 
+query I
+SELECT sql FROM duckdb_views() WHERE database_name='ducklake'
+----
+CREATE VIEW v1 AS SELECT 42;
+
 # we can drop the view
 statement ok
 DROP VIEW ducklake.v1
