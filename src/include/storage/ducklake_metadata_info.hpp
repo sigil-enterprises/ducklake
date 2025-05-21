@@ -297,4 +297,13 @@ struct DuckLakeCompactedFileInfo {
 	idx_t new_row_id_limit;
 };
 
+struct DuckLakeTableSizeInfo {
+	TableIndex table_id;
+	string table_name;
+	idx_t file_size_bytes = 0;
+	idx_t delete_file_size_bytes = 0;
+	idx_t file_count = 0;
+	idx_t delete_file_count = 0;
+};
+
 } // namespace duckdb

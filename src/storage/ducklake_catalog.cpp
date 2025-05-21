@@ -416,7 +416,15 @@ unique_ptr<LogicalOperator> DuckLakeCatalog::BindCreateIndex(Binder &binder, Cre
 }
 
 DatabaseSize DuckLakeCatalog::GetDatabaseSize(ClientContext &context) {
-	throw InternalException("Unsupported DuckLake function");
+	DatabaseSize database_size;
+	auto &transaction = DuckLakeTransaction::Get(context, *this);
+	auto &metadata_manager = transaction.GetMetadataManager();
+	auto table_sizes = metadata_manager.GetTableSizes(transaction.GetSnapshot());
+	for (auto &table_size : table_sizes) {
+		database_size.bytes += table_size.file_size_bytes;
+		database_size.bytes += table_size.delete_file_size_bytes;
+	}
+	return database_size;
 }
 
 bool DuckLakeCatalog::InMemory() {
