@@ -13,8 +13,8 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 folder_to_process = os.path.abspath(os.path.join(script_dir, "..", "test", "sql"))
 
 LOAD_STATEMENT = (
-    "statement ok\n"
-    f"LOAD '{dependency_path}'\n"
+    "\nstatement ok\n"
+    f"LOAD '{dependency_path}'"
 )
 
 def process_file(file_path):
