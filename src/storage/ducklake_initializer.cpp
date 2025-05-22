@@ -31,6 +31,9 @@ string DuckLakeInitializer::GetAttachOptions() {
 			throw InternalException("Unsupported access mode in DuckLake attach");
 		}
 	}
+	for (auto &option : options.metadata_parameters) {
+		attach_options.push_back(option.first + " " + option.second.ToSQLString());
+	}
 
 	if (attach_options.empty()) {
 		return string();

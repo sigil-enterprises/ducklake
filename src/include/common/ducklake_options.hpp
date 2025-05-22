@@ -25,6 +25,7 @@ struct DuckLakeOptions {
 	DuckLakeEncryption encryption = DuckLakeEncryption::AUTOMATIC;
 	idx_t data_inlining_row_limit = 0;
 	unique_ptr<BoundAtClause> at_clause;
+	unordered_map<string, Value> metadata_parameters;
 };
 
 } // namespace duckdb
