@@ -12,11 +12,8 @@
 
 namespace duckdb {
 
-DuckLakeInitializer::DuckLakeInitializer(ClientContext &context, DuckLakeCatalog &catalog,
-                                         const string &metadata_database, const string &metadata_path, string &schema,
-                                         string &data_path_p)
-    : context(context), catalog(catalog), metadata_database(metadata_database), metadata_path(metadata_path),
-      schema(schema), data_path(data_path_p) {
+DuckLakeInitializer::DuckLakeInitializer(ClientContext &context, DuckLakeCatalog &catalog, DuckLakeOptions &options_p)
+    : context(context), catalog(catalog), options(options_p) {
 	InitializeDataPath();
 }
 
@@ -26,13 +23,13 @@ void DuckLakeInitializer::Initialize() {
 	auto result = transaction.Query("ATTACH {METADATA_PATH} AS {METADATA_CATALOG_NAME_IDENTIFIER}");
 	if (result->HasError()) {
 		auto &error_obj = result->GetErrorObject();
-		error_obj.Throw("Failed to attach DuckLake MetaData \"" + metadata_database + "\" at path + \"" +
-		                metadata_path + "\"");
+		error_obj.Throw("Failed to attach DuckLake MetaData \"" + catalog.MetadataDatabaseName() + "\" at path + \"" +
+		                catalog.MetadataPath() + "\"");
 	}
-	bool has_explicit_schema = !schema.empty();
-	if (schema.empty()) {
+	bool has_explicit_schema = !options.metadata_schema.empty();
+	if (options.metadata_schema.empty()) {
 		// if the schema is not explicitly set by the user - set it to the default schema in the catalog
-		schema = transaction.GetDefaultSchemaName();
+		options.metadata_schema = transaction.GetDefaultSchemaName();
 	}
 	// after the metadata database is attached initialize the ducklake
 	// check if we are loading an existing DuckLake or creating a new one
@@ -53,6 +50,7 @@ void DuckLakeInitializer::Initialize() {
 }
 
 void DuckLakeInitializer::InitializeDataPath() {
+	auto &data_path = options.data_path;
 	if (data_path.empty()) {
 		return;
 	}
@@ -64,7 +62,7 @@ void DuckLakeInitializer::InitializeDataPath() {
 }
 
 void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction, bool has_explicit_schema) {
-	if (data_path.empty()) {
+	if (options.data_path.empty()) {
 		throw InvalidInputException("Attempting to create a new ducklake instance but data_path is not set - set the "
 		                            "DATA_PATH parameter to the desired location of the data files");
 	}
@@ -87,8 +85,8 @@ void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction)
 			}
 		}
 		if (tag.key == "data_path") {
-			if (data_path.empty()) {
-				data_path = tag.value;
+			if (options.data_path.empty()) {
+				options.data_path = tag.value;
 				InitializeDataPath();
 			}
 		}

@@ -13,6 +13,7 @@
 #include "storage/ducklake_stats.hpp"
 #include "storage/ducklake_partition_data.hpp"
 #include "common/ducklake_encryption.hpp"
+#include "common/ducklake_options.hpp"
 
 namespace duckdb {
 class ColumnList;
@@ -23,8 +24,7 @@ class LogicalGet;
 
 class DuckLakeCatalog : public Catalog {
 public:
-	DuckLakeCatalog(AttachedDatabase &db_p, string metadata_database, string metadata_path, string data_path,
-	                string metadata_schema, DuckLakeEncryption encryption, idx_t data_inlining_row_limit);
+	DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options);
 	~DuckLakeCatalog();
 
 public:
@@ -34,19 +34,19 @@ public:
 		return "ducklake";
 	}
 	const string &MetadataDatabaseName() const {
-		return metadata_database;
+		return options.metadata_database;
 	}
 	const string &MetadataSchemaName() const {
-		return metadata_schema;
+		return options.metadata_schema;
 	}
 	const string &MetadataPath() const {
-		return metadata_path;
+		return options.metadata_path;
 	}
 	const string &DataPath() const {
-		return data_path;
+		return options.data_path;
 	}
 	idx_t DataInliningRowLimit() const {
-		return data_inlining_row_limit;
+		return options.data_inlining_row_limit;
 	}
 
 	optional_ptr<CatalogEntry> CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) override;
@@ -83,7 +83,7 @@ public:
 	}
 
 	DuckLakeEncryption Encryption() const {
-		return encryption;
+		return options.encryption;
 	}
 	void SetEncryption(DuckLakeEncryption encryption);
 	// Generate an encryption key for writing (or empty if encryption is disabled)
@@ -109,12 +109,8 @@ private:
 	unordered_map<idx_t, unique_ptr<DuckLakeCatalogSet>> schemas;
 	//! Map of data file index -> table stats
 	unordered_map<idx_t, unique_ptr<DuckLakeStats>> stats;
-	string metadata_database;
-	string metadata_path;
-	string data_path;
-	string metadata_schema;
-	DuckLakeEncryption encryption;
-	idx_t data_inlining_row_limit;
+	//! The DuckLake options
+	DuckLakeOptions options;
 };
 
 } // namespace duckdb

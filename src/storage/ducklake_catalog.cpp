@@ -19,12 +19,8 @@
 
 namespace duckdb {
 
-DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, string metadata_database_p, string metadata_path_p,
-                                 string data_path_p, string metadata_schema_p, DuckLakeEncryption encryption,
-                                 idx_t data_inlining_row_limit)
-    : Catalog(db_p), metadata_database(std::move(metadata_database_p)), metadata_path(std::move(metadata_path_p)),
-      data_path(std::move(data_path_p)), metadata_schema(std::move(metadata_schema_p)), encryption(encryption),
-      data_inlining_row_limit(data_inlining_row_limit) {
+DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options_p)
+    : Catalog(db_p), options(std::move(options_p)) {
 }
 
 DuckLakeCatalog::~DuckLakeCatalog() {
@@ -36,7 +32,7 @@ void DuckLakeCatalog::Initialize(bool load_builtin) {
 
 void DuckLakeCatalog::Initialize(optional_ptr<ClientContext> context, bool load_builtin) {
 	// initialize the metadata database
-	DuckLakeInitializer initializer(*context, *this, metadata_database, metadata_path, metadata_schema, data_path);
+	DuckLakeInitializer initializer(*context, *this, options);
 	initializer.Initialize();
 }
 
@@ -389,14 +385,14 @@ optional_ptr<SchemaCatalogEntry> DuckLakeCatalog::LookupSchema(CatalogTransactio
 }
 
 void DuckLakeCatalog::SetEncryption(DuckLakeEncryption new_encryption) {
-	if (encryption == new_encryption) {
+	if (options.encryption == new_encryption) {
 		// already set to this value
 		return;
 	}
-	switch (encryption) {
+	switch (options.encryption) {
 	case DuckLakeEncryption::AUTOMATIC:
 		// adopt whichever value here
-		encryption = new_encryption;
+		options.encryption = new_encryption;
 		break;
 	case DuckLakeEncryption::ENCRYPTED:
 		throw InvalidInputException(
@@ -432,7 +428,7 @@ bool DuckLakeCatalog::InMemory() {
 }
 
 string DuckLakeCatalog::GetDBPath() {
-	return metadata_path;
+	return options.metadata_path;
 }
 
 void DuckLakeCatalog::OnDetach(ClientContext &context) {

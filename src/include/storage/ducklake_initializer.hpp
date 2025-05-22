@@ -17,8 +17,7 @@ class DuckLakeTransaction;
 
 class DuckLakeInitializer {
 public:
-	DuckLakeInitializer(ClientContext &context, DuckLakeCatalog &catalog, const string &metadata_database,
-	                    const string &metadata_path, string &schema, string &data_path);
+	DuckLakeInitializer(ClientContext &context, DuckLakeCatalog &catalog, DuckLakeOptions &options);
 
 public:
 	void Initialize();
@@ -31,10 +30,7 @@ private:
 private:
 	ClientContext &context;
 	DuckLakeCatalog &catalog;
-	const string &metadata_database;
-	const string &metadata_path;
-	string &schema;
-	string &data_path;
+	DuckLakeOptions &options;
 };
 
 } // namespace duckdb

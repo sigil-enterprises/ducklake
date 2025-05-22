@@ -426,8 +426,8 @@ PhysicalOperator &DuckLakeCatalog::PlanInsert(ClientContext &context, PhysicalPl
 	string encryption_key = GenerateEncryptionKey(context);
 	auto &ducklake_table = op.table.Cast<DuckLakeTableEntry>();
 	optional_ptr<DuckLakeInlineData> inline_data;
-	if (data_inlining_row_limit > 0) {
-		plan = planner.Make<DuckLakeInlineData>(*plan, data_inlining_row_limit);
+	if (DataInliningRowLimit() > 0) {
+		plan = planner.Make<DuckLakeInlineData>(*plan, DataInliningRowLimit());
 		inline_data = plan->Cast<DuckLakeInlineData>();
 	}
 	auto &physical_copy = DuckLakeInsert::PlanCopyForInsert(context, planner, ducklake_table, plan, encryption_key);
@@ -447,8 +447,8 @@ PhysicalOperator &DuckLakeCatalog::PlanCreateTableAs(ClientContext &context, Phy
 	string encryption_key = GenerateEncryptionKey(context);
 	reference<PhysicalOperator> root = plan;
 	optional_ptr<DuckLakeInlineData> inline_data;
-	if (data_inlining_row_limit > 0) {
-		root = planner.Make<DuckLakeInlineData>(root.get(), data_inlining_row_limit);
+	if (DataInliningRowLimit() > 0) {
+		root = planner.Make<DuckLakeInlineData>(root.get(), DataInliningRowLimit());
 		inline_data = root.get().Cast<DuckLakeInlineData>();
 	}
 	for (auto &col : op.info->Base().columns.Logical()) {
