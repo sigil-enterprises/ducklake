@@ -32,7 +32,7 @@ BoundAtClause AtClauseFromValue(const Value &input) {
 	switch (input.type().id()) {
 	case LogicalTypeId::BIGINT:
 		return BoundAtClause("version", input);
-	case LogicalTypeId::TIMESTAMP:
+	case LogicalTypeId::TIMESTAMP_TZ:
 		return BoundAtClause("timestamp", input);
 	default:
 		throw InternalException("Unsupported type for At Clause");
@@ -80,17 +80,23 @@ static void DuckLakeChangesExecute(ClientContext &context, TableFunctionInput &d
 	throw InternalException("DuckLakeChangesExecute should never be called");
 }
 
-DuckLakeTableInsertionsFunction::DuckLakeTableInsertionsFunction()
-    : TableFunction(
-          "ducklake_table_insertions",
-          {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::BIGINT, LogicalType::BIGINT},
-          DuckLakeChangesExecute, DuckLakeTableInsertionsBind, DuckLakeChangesInit) {
+TableFunctionSet DuckLakeTableInsertionsFunction::GetFunctions() {
+	TableFunctionSet set("ducklake_table_insertions");
+	vector<LogicalType> at_types {LogicalType::BIGINT, LogicalType::TIMESTAMP_TZ};
+	for (auto &type : at_types) {
+		set.AddFunction(TableFunction({LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, type, type},
+		                              DuckLakeChangesExecute, DuckLakeTableInsertionsBind, DuckLakeChangesInit));
+	}
+	return set;
 }
 
-DuckLakeTableDeletionsFunction::DuckLakeTableDeletionsFunction()
-    : TableFunction(
-          "ducklake_table_deletions",
-          {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::BIGINT, LogicalType::BIGINT},
-          DuckLakeChangesExecute, DuckLakeTableDeletionsBind, DuckLakeChangesInit) {
+TableFunctionSet DuckLakeTableDeletionsFunction::GetFunctions() {
+	TableFunctionSet set("ducklake_table_deletions");
+	vector<LogicalType> at_types {LogicalType::BIGINT, LogicalType::TIMESTAMP_TZ};
+	for (auto &type : at_types) {
+		set.AddFunction(TableFunction({LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, type, type},
+		                              DuckLakeChangesExecute, DuckLakeTableDeletionsBind, DuckLakeChangesInit));
+	}
+	return set;
 }
 } // namespace duckdb

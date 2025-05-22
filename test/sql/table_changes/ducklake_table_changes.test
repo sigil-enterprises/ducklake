@@ -36,6 +36,20 @@ FROM ducklake.table_changes('test', 0, 2) ORDER BY ALL
 2	1	insert	1
 2	2	insert	2
 
+# with timestamps
+statement ok
+SET VARIABLE begin_ts = (SELECT snapshot_time FROM ducklake.snapshots() WHERE snapshot_id = 0)
+
+statement ok
+SET VARIABLE end_ts = (SELECT snapshot_time FROM ducklake.snapshots() WHERE snapshot_id = 2)
+
+query IIII
+FROM ducklake.table_changes('test', getvariable('begin_ts'), getvariable('end_ts')) ORDER BY ALL
+----
+2	0	insert	0
+2	1	insert	1
+2	2	insert	2
+
 query IIII
 FROM ducklake.table_changes('test', 3, 3) ORDER BY ALL
 ----

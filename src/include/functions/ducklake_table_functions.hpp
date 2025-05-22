@@ -10,6 +10,7 @@
 
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/parser/parsed_data/create_macro_info.hpp"
+#include "duckdb/function/function_set.hpp"
 
 namespace duckdb {
 class DuckLakeCatalog;
@@ -42,15 +43,15 @@ public:
 	DuckLakeTableInfoFunction();
 };
 
-class DuckLakeTableInsertionsFunction : public TableFunction {
+class DuckLakeTableInsertionsFunction {
 public:
-	DuckLakeTableInsertionsFunction();
-
+	static TableFunctionSet GetFunctions();
 	static unique_ptr<CreateMacroInfo> GetDuckLakeTableChanges();
 };
 
-class DuckLakeTableDeletionsFunction : public TableFunction {
+class DuckLakeTableDeletionsFunction {
 public:
+	static TableFunctionSet GetFunctions();
 	DuckLakeTableDeletionsFunction();
 };
 

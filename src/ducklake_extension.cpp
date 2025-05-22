@@ -20,10 +20,10 @@ static void LoadInternal(DatabaseInstance &instance) {
 	DuckLakeTableInfoFunction table_info;
 	ExtensionUtil::RegisterFunction(instance, table_info);
 
-	DuckLakeTableInsertionsFunction table_insertions;
+	auto table_insertions = DuckLakeTableInsertionsFunction::GetFunctions();
 	ExtensionUtil::RegisterFunction(instance, table_insertions);
 
-	DuckLakeTableDeletionsFunction table_deletions;
+	auto table_deletions = DuckLakeTableDeletionsFunction::GetFunctions();
 	ExtensionUtil::RegisterFunction(instance, table_deletions);
 
 	DuckLakeMergeAdjacentFilesFunction merge_adjacent_files;
