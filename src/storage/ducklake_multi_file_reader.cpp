@@ -59,7 +59,7 @@ shared_ptr<MultiFileList> DuckLakeMultiFileReader::CreateFileList(ClientContext 
 	return std::move(result);
 }
 
-MultiFileColumnDefinition CreateColumnFromFieldId(const DuckLakeFieldId &field_id) {
+MultiFileColumnDefinition CreateColumnFromFieldId(const DuckLakeFieldId &field_id, bool emit_key_value) {
 	MultiFileColumnDefinition column(field_id.Name(), field_id.Type());
 	auto &column_data = field_id.GetColumnData();
 	if (column_data.initial_default.IsNull()) {
@@ -69,15 +69,23 @@ MultiFileColumnDefinition CreateColumnFromFieldId(const DuckLakeFieldId &field_i
 	}
 	column.identifier = Value::INTEGER(field_id.GetFieldIndex().index);
 	for (auto &child : field_id.Children()) {
-		column.children.push_back(CreateColumnFromFieldId(*child));
+		column.children.push_back(CreateColumnFromFieldId(*child, emit_key_value));
+	}
+	if (field_id.Type().id() == LogicalTypeId::MAP && emit_key_value) {
+		// for maps, insert a dummy "key_value" entry
+		MultiFileColumnDefinition key_val("key_value", LogicalTypeId::INVALID);
+		key_val.children = std::move(column.children);
+		column.children.push_back(std::move(key_val));
 	}
 	return column;
 }
 
-vector<MultiFileColumnDefinition> DuckLakeMultiFileReader::ColumnsFromFieldData(const DuckLakeFieldData &field_data) {
+// FIXME: emit_key_value is a work-around for an inconsistency in the MultiFileColumnMapper
+vector<MultiFileColumnDefinition> DuckLakeMultiFileReader::ColumnsFromFieldData(const DuckLakeFieldData &field_data,
+                                                                                bool emit_key_value) {
 	vector<MultiFileColumnDefinition> result;
 	for (auto &item : field_data.GetFieldIds()) {
-		result.push_back(CreateColumnFromFieldId(*item));
+		result.push_back(CreateColumnFromFieldId(*item, emit_key_value));
 	}
 	return result;
 }
@@ -162,7 +170,7 @@ shared_ptr<BaseFileReader> DuckLakeMultiFileReader::TryCreateInlinedDataReader(c
 		if (!transaction_local_data) {
 			throw InternalException("No transaction local data");
 		}
-		auto columns = DuckLakeMultiFileReader::ColumnsFromFieldData(read_info.table.GetFieldData());
+		auto columns = DuckLakeMultiFileReader::ColumnsFromFieldData(read_info.table.GetFieldData(), true);
 		return make_shared_ptr<DuckLakeInlinedDataReader>(read_info, file, transaction_local_data, std::move(columns));
 	}
 	optional_idx schema_snapshot;
@@ -181,7 +189,7 @@ shared_ptr<BaseFileReader> DuckLakeMultiFileReader::TryCreateInlinedDataReader(c
 		schema_table = entry->Cast<DuckLakeTableEntry>();
 	}
 	// we are reading from a table - set up the inlined data reader that will read this data when requested
-	auto columns = DuckLakeMultiFileReader::ColumnsFromFieldData(schema_table.get().GetFieldData());
+	auto columns = DuckLakeMultiFileReader::ColumnsFromFieldData(schema_table.get().GetFieldData(), true);
 	columns.insert(columns.begin(), *snapshot_id_column);
 	columns.insert(columns.begin(), *row_id_column);
 

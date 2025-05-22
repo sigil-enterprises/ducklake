@@ -93,13 +93,13 @@ string DuckLakeUtil::ValueToSQL(const Value &val) {
 	if (val.IsNull()) {
 		return val.ToSQLString();
 	}
-	switch(val.type().id()) {
+	switch (val.type().id()) {
 	case LogicalTypeId::VARCHAR: {
 		auto &str_val = StringValue::Get(val);
 		string ret;
 		bool concat = false;
-		for(auto c : str_val) {
-			switch(c) {
+		for (auto c : str_val) {
+			switch (c) {
 			case '\0':
 				// need to concat to place a null byte
 				concat = true;

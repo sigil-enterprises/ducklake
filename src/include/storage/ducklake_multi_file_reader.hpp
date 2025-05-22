@@ -75,7 +75,8 @@ public:
 
 	unique_ptr<MultiFileReader> Copy() const override;
 
-	static vector<MultiFileColumnDefinition> ColumnsFromFieldData(const DuckLakeFieldData &field_data);
+	static vector<MultiFileColumnDefinition> ColumnsFromFieldData(const DuckLakeFieldData &field_data,
+	                                                              bool emit_key_value = false);
 
 private:
 	shared_ptr<BaseFileReader> TryCreateInlinedDataReader(const OpenFileInfo &file);
