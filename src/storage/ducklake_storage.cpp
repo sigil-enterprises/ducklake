@@ -38,6 +38,9 @@ static unique_ptr<Catalog> DuckLakeAttach(StorageExtensionInfo *storage_info, Cl
 			}
 			options.at_clause =
 			    make_uniq<BoundAtClause>("timestamp", entry.second.DefaultCastAs(LogicalType::TIMESTAMP_TZ));
+		} else if (StringUtil::StartsWith(lcase, "meta_")) {
+			auto parameter_name = lcase.substr(5);
+			options.metadata_parameters[parameter_name] = entry.second;
 		} else if (lcase == "readonly" || lcase == "read_only" || lcase == "readwrite" || lcase == "read_write" ||
 		           lcase == "type" || lcase == "default_table") {
 			// built-in options
