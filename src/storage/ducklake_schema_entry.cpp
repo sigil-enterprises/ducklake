@@ -264,6 +264,12 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::LookupEntry(CatalogTransaction t
                                                             const EntryLookupInfo &lookup_info) {
 	auto catalog_type = lookup_info.GetCatalogType();
 	auto &entry_name = lookup_info.GetEntryName();
+	if (catalog_type == CatalogType::TABLE_FUNCTION_ENTRY) {
+		auto entry = TryLoadBuiltInFunction(entry_name);
+		if (entry) {
+			return entry;
+		}
+	}
 	if (!CatalogTypeIsSupported(catalog_type)) {
 		return nullptr;
 	}

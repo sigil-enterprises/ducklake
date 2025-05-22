@@ -13,6 +13,7 @@
 
 namespace duckdb {
 class DuckLakeTransaction;
+struct DefaultTableMacro;
 
 class DuckLakeSchemaEntry : public SchemaCatalogEntry {
 public:
@@ -60,10 +61,15 @@ private:
 	bool HandleCreateConflict(CatalogTransaction transaction, CatalogType type, const string &name,
 	                          OnCreateConflict on_conflict);
 
+	optional_ptr<CatalogEntry> TryLoadBuiltInFunction(const string &entry_name);
+	optional_ptr<CatalogEntry> LoadBuiltInFunction(DefaultTableMacro macro);
+
 private:
 	SchemaIndex schema_id;
 	string schema_uuid;
 	DuckLakeCatalogSet tables;
+	mutex default_function_lock;
+	case_insensitive_map_t<unique_ptr<CatalogEntry>> default_function_map;
 };
 
 } // namespace duckdb
