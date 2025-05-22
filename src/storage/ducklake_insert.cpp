@@ -274,10 +274,11 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, const
 	// Get Parquet Copy function
 	auto &copy_fun = DuckLakeFunctions::GetCopyFunction(*context.db, "parquet");
 
-	//! FIXME: we only need to do this if this is a local path
 	auto &fs = FileSystem::GetFileSystem(context);
-	if (!fs.DirectoryExists(data_path)) {
-		fs.CreateDirectory(data_path);
+	if (!fs.IsRemoteFile(data_path)) {
+		if (!fs.DirectoryExists(data_path)) {
+			fs.CreateDirectory(data_path);
+		}
 	}
 
 	// Bind Copy Function
