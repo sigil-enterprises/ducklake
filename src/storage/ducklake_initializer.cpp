@@ -14,9 +14,10 @@ namespace duckdb {
 
 DuckLakeInitializer::DuckLakeInitializer(ClientContext &context, DuckLakeCatalog &catalog,
                                          const string &metadata_database, const string &metadata_path, string &schema,
-                                         string &data_path)
+                                         string &data_path_p)
     : context(context), catalog(catalog), metadata_database(metadata_database), metadata_path(metadata_path),
-      schema(schema), data_path(data_path) {
+      schema(schema), data_path(data_path_p) {
+	InitializeDataPath();
 }
 
 void DuckLakeInitializer::Initialize() {
@@ -51,6 +52,17 @@ void DuckLakeInitializer::Initialize() {
 	}
 }
 
+void DuckLakeInitializer::InitializeDataPath() {
+	if (data_path.empty()) {
+		return;
+	}
+	if (!StringUtil::EndsWith(data_path, "/") && !StringUtil::EndsWith(data_path, "\\")) {
+		// data path does not end in a path separator - add it
+		auto &fs = FileSystem::GetFileSystem(context);
+		data_path += fs.PathSeparator(data_path);
+	}
+}
+
 void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction, bool has_explicit_schema) {
 	if (data_path.empty()) {
 		throw InvalidInputException("Attempting to create a new ducklake instance but data_path is not set - set the "
@@ -77,6 +89,7 @@ void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction)
 		if (tag.key == "data_path") {
 			if (data_path.empty()) {
 				data_path = tag.value;
+				InitializeDataPath();
 			}
 		}
 		if (tag.key == "encrypted") {

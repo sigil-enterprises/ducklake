@@ -1,6 +1,7 @@
 #include "common/ducklake_util.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/parser/keyword_helper.hpp"
+#include "duckdb/common/file_system.hpp"
 
 namespace duckdb {
 
@@ -145,6 +146,15 @@ string DuckLakeUtil::ValueToSQL(const Value &val) {
 	}
 	default:
 		return val.ToSQLString();
+	}
+}
+
+string DuckLakeUtil::JoinPath(FileSystem &fs, const string &a, const string &b) {
+	auto sep = fs.PathSeparator(a);
+	if (StringUtil::EndsWith(a, sep)) {
+		return a + b;
+	} else {
+		return a + sep + b;
 	}
 }
 

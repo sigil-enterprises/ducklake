@@ -21,6 +21,7 @@
 #include "duckdb/parallel/thread_context.hpp"
 #include "duckdb/execution/operator/scan/physical_table_scan.hpp"
 #include "storage/ducklake_multi_file_reader.hpp"
+#include "common/ducklake_util.hpp"
 
 namespace duckdb {
 
@@ -212,7 +213,7 @@ void DuckLakeDelete::FlushDelete(DuckLakeTransaction &transaction, ClientContext
 
 	auto &fs = FileSystem::GetFileSystem(context);
 	auto delete_file_uuid = "ducklake-" + transaction.GenerateUUID() + "-delete.parquet";
-	string delete_file_path = fs.JoinPath(table.DataPath(), delete_file_uuid);
+	string delete_file_path = DuckLakeUtil::JoinPath(fs, table.DataPath(), delete_file_uuid);
 
 	auto info = make_uniq<CopyInfo>();
 	info->file_path = delete_file_path;

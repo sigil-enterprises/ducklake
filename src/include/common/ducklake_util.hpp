@@ -13,6 +13,7 @@
 #include "duckdb/common/types/value.hpp"
 
 namespace duckdb {
+class FileSystem;
 
 struct ParsedCatalogEntry {
 	string schema;
@@ -30,6 +31,7 @@ public:
 	static string ValueToSQL(const Value &val);
 
 	static ParsedCatalogEntry ParseCatalogEntry(const string &input);
+	static string JoinPath(FileSystem &fs, const string &a, const string &b);
 };
 
 } // namespace duckdb
