@@ -105,10 +105,15 @@ protected:
 	string GetColumnType(const DuckLakeColumnInfo &col);
 	shared_ptr<DuckLakeInlinedData> TransformInlinedData(QueryResult &result);
 
+	DuckLakePath GetRelativePath(const string &path);
+	string FromRelativePath(const DuckLakePath &path);
+
 private:
 	template <class T>
 	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,
 	               const set<T> &dropped_entries);
+	template <class T>
+	DuckLakeFileData ReadDataFile(T &row, idx_t &col_idx, bool is_encrypted);
 
 	bool IsEncrypted() const;
 	string GetFileSelectList(const string &prefix);

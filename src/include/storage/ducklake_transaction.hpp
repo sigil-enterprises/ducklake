@@ -32,6 +32,7 @@ struct TransactionChangeInformation;
 struct NewDataInfo;
 struct NewTableInfo;
 struct CompactionInformation;
+struct DuckLakePath;
 
 class DuckLakeTransaction : public Transaction, public enable_shared_from_this<DuckLakeTransaction> {
 public:

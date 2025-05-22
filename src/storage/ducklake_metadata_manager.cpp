@@ -36,16 +36,16 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_table(table_id BIGINT, table_uuid UUID,
 CREATE TABLE {METADATA_CATALOG}.ducklake_view(view_id BIGINT, view_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, view_name VARCHAR, dialect VARCHAR, sql VARCHAR, column_aliases VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_tag(object_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, key VARCHAR, value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_column_tag(table_id BIGINT, column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, key VARCHAR, value VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_data_file(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, file_order BIGINT, path VARCHAR, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, row_id_start BIGINT, partition_id BIGINT, encryption_key VARCHAR, partial_file_info VARCHAR);
+CREATE TABLE {METADATA_CATALOG}.ducklake_data_file(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, file_order BIGINT, path VARCHAR, path_is_relative BOOLEAN, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, row_id_start BIGINT, partition_id BIGINT, encryption_key VARCHAR, partial_file_info VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_file_column_statistics(data_file_id BIGINT, table_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, value_count BIGINT, null_count BIGINT, nan_count BIGINT, min_value VARCHAR, max_value VARCHAR, contains_nan BOOLEAN);
-CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file(delete_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, data_file_id BIGINT, path VARCHAR, format VARCHAR, delete_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, encryption_key VARCHAR);
+CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file(delete_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, data_file_id BIGINT, path VARCHAR, path_is_relative BOOLEAN, format VARCHAR, delete_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, encryption_key VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_column(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, column_order BIGINT, column_name VARCHAR, column_type VARCHAR, initial_default VARCHAR, default_value VARCHAR, nulls_allowed BOOLEAN, parent_column BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_table_stats(table_id BIGINT, record_count BIGINT, next_row_id BIGINT, file_size_bytes BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_table_column_stats(table_id BIGINT, column_id BIGINT, contains_null BOOLEAN, contains_nan BOOLEAN, min_value VARCHAR, max_value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_partition_info(partition_id BIGINT, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_partition_column(partition_id BIGINT, table_id BIGINT, partition_key_index BIGINT, column_id BIGINT, transform VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_file_partition_value(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, partition_key_index BIGINT, partition_value VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion(data_file_id BIGINT, path VARCHAR, schedule_start TIMESTAMPTZ);
+CREATE TABLE {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion(data_file_id BIGINT, path VARCHAR, path_is_relative BOOLEAN, schedule_start TIMESTAMPTZ);
 CREATE TABLE {METADATA_CATALOG}.ducklake_inlined_data_tables(table_id BIGINT, table_name VARCHAR, schema_snapshot BIGINT);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
 INSERT INTO {METADATA_CATALOG}.ducklake_metadata VALUES ('version', '1'), ('created_by', 'DuckDB %s'), ('data_path', {DATA_PATH}), ('encryption', '%s');
@@ -350,8 +350,8 @@ ORDER BY table_id;
 }
 
 string DuckLakeMetadataManager::GetFileSelectList(const string &prefix) {
-	auto result =
-	    StringUtil::Replace("{PREFIX}.path, {PREFIX}.file_size_bytes, {PREFIX}.footer_size", "{PREFIX}", prefix);
+	auto result = StringUtil::Replace(
+	    "{PREFIX}.path, {PREFIX}.path_is_relative, {PREFIX}.file_size_bytes, {PREFIX}.footer_size", "{PREFIX}", prefix);
 	if (IsEncrypted()) {
 		result += ", " + prefix + ".encryption_key";
 	}
@@ -359,17 +359,21 @@ string DuckLakeMetadataManager::GetFileSelectList(const string &prefix) {
 }
 
 template <class T>
-DuckLakeFileData ReadDataFile(T &row, idx_t &col_idx, bool is_encrypted) {
+DuckLakeFileData DuckLakeMetadataManager::ReadDataFile(T &row, idx_t &col_idx, bool is_encrypted) {
 	DuckLakeFileData data;
 	if (row.IsNull(col_idx)) {
 		// file is not there
-		col_idx += 3;
+		col_idx += 4;
 		if (is_encrypted) {
 			col_idx++;
 		}
 		return data;
 	}
-	data.path = row.template GetValue<string>(col_idx++);
+	DuckLakePath path;
+	path.path = row.template GetValue<string>(col_idx++);
+	path.path_is_relative = row.template GetValue<bool>(col_idx++);
+
+	data.path = FromRelativePath(path);
 	data.file_size_bytes = row.template GetValue<idx_t>(col_idx++);
 	data.footer_size = row.template GetValue<idx_t>(col_idx++);
 	if (is_encrypted) {
@@ -471,7 +475,7 @@ vector<DuckLakeFileListEntry> DuckLakeMetadataManager::GetTableInsertions(DuckLa
 	auto query = StringUtil::Format(R"(
 SELECT %s
 FROM {METADATA_CATALOG}.ducklake_data_file data, (
-	SELECT NULL path, NULL file_size_bytes, NULL footer_size, NULL encryption_key
+	SELECT NULL path, NULL path_is_relative, NULL file_size_bytes, NULL footer_size, NULL encryption_key
 ) del
 WHERE data.table_id=%d AND data.begin_snapshot >= %d AND data.begin_snapshot <= {SNAPSHOT_ID};
 		)",
@@ -514,12 +518,12 @@ vector<DuckLakeDeleteScanEntry> DuckLakeMetadataManager::GetTableDeletions(DuckL
 	auto query =
 	    StringUtil::Format(R"(
 SELECT %s, current_delete.begin_snapshot FROM (
-	SELECT data_file_id, begin_snapshot, path, file_size_bytes, footer_size, encryption_key
+	SELECT data_file_id, begin_snapshot, path, path_is_relative, file_size_bytes, footer_size, encryption_key
 	FROM {METADATA_CATALOG}.ducklake_delete_file
 	WHERE table_id = %d AND begin_snapshot >= %d AND begin_snapshot <= {SNAPSHOT_ID}
 ) AS current_delete
 LEFT JOIN (
-	SELECT data_file_id, MAX_BY(COLUMNS(['path', 'file_size_bytes', 'footer_size', 'encryption_key']), begin_snapshot) AS '\0'
+	SELECT data_file_id, MAX_BY(COLUMNS(['path', 'path_is_relative', 'file_size_bytes', 'footer_size', 'encryption_key']), begin_snapshot) AS '\0'
 	FROM {METADATA_CATALOG}.ducklake_delete_file
 	WHERE table_id = %d AND begin_snapshot < current_delete.begin_snapshot
 	GROUP BY data_file_id
@@ -538,13 +542,13 @@ SELECT %s, data.end_snapshot FROM (
 	WHERE table_id = %d AND end_snapshot >= %d AND end_snapshot <= {SNAPSHOT_ID}
 ) AS data
 LEFT JOIN (
-	SELECT data_file_id, MAX_BY(COLUMNS(['path', 'file_size_bytes', 'footer_size', 'encryption_key']), begin_snapshot) AS '\0'
+	SELECT data_file_id, MAX_BY(COLUMNS(['path', 'path_is_relative', 'file_size_bytes', 'footer_size', 'encryption_key']), begin_snapshot) AS '\0'
 	FROM {METADATA_CATALOG}.ducklake_delete_file
 	WHERE table_id = %d AND begin_snapshot < data.end_snapshot
 	GROUP BY data_file_id
 ) AS previous_delete
 USING (data_file_id), (
-	SELECT NULL path, NULL file_size_bytes, NULL footer_size, NULL encryption_key
+	SELECT NULL path, NULL path_is_relative, NULL file_size_bytes, NULL footer_size, NULL encryption_key
 ) current_delete;
 		)",
 	                       select_list, table_id.index, start_snapshot.snapshot_id, table_id.index, table_id.index,
@@ -1100,6 +1104,27 @@ WHERE inlined_data.end_snapshot >= %d AND inlined_data.end_snapshot <= {SNAPSHOT
 	return TransformInlinedData(*result);
 }
 
+DuckLakePath DuckLakeMetadataManager::GetRelativePath(const string &path) {
+	auto &data_path = transaction.GetCatalog().DataPath();
+	DuckLakePath result;
+	if (StringUtil::StartsWith(path, data_path)) {
+		result.path = path.substr(data_path.size());
+		result.path_is_relative = true;
+	} else {
+		result.path = path;
+		result.path_is_relative = false;
+	}
+	return result;
+}
+
+string DuckLakeMetadataManager::FromRelativePath(const DuckLakePath &path) {
+	if (!path.path_is_relative) {
+		return path.path;
+	}
+	auto &data_path = transaction.GetCatalog().DataPath();
+	return data_path + path.path;
+}
+
 void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot,
                                                 const vector<DuckLakeFileInfo> &new_files) {
 	if (new_files.empty()) {
@@ -1125,10 +1150,11 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
 		if (!file.partial_file_info.empty()) {
 			partial_file_info = "'" + PartialFileInfoToString(file.partial_file_info) + "'";
 		}
+		auto path = GetRelativePath(file.file_name);
 		data_file_insert_query += StringUtil::Format(
-		    "(%d, %d, %s, NULL, NULL, %s, 'parquet', %d, %d, %d, %s, %s, %s, %s)", data_file_index, table_id,
-		    begin_snapshot, SQLString(file.file_name), file.row_count, file.file_size_bytes, file.footer_size, row_id,
-		    partition_id, encryption_key, partial_file_info);
+		    "(%d, %d, %s, NULL, NULL, %s, %s, 'parquet', %d, %d, %d, %s, %s, %s, %s)", data_file_index, table_id,
+		    begin_snapshot, SQLString(path.path), path.path_is_relative ? "true" : "false", file.row_count,
+		    file.file_size_bytes, file.footer_size, row_id, partition_id, encryption_key, partial_file_info);
 		for (auto &column_stats : file.column_stats) {
 			if (!column_stats_insert_query.empty()) {
 				column_stats_insert_query += ",";
@@ -1200,10 +1226,11 @@ void DuckLakeMetadataManager::WriteNewDeleteFiles(DuckLakeSnapshot commit_snapsh
 		auto data_file_index = file.data_file_id.index;
 		auto encryption_key =
 		    file.encryption_key.empty() ? "NULL" : "'" + Blob::ToBase64(string_t(file.encryption_key)) + "'";
-		delete_file_insert_query +=
-		    StringUtil::Format("(%d, %d, {SNAPSHOT_ID}, NULL, %d, %s, 'parquet', %d, %d, %d, %s)", delete_file_index,
-		                       table_id, data_file_index, SQLString(file.path), file.delete_count, file.file_size_bytes,
-		                       file.footer_size, encryption_key);
+		auto path = GetRelativePath(file.path);
+		delete_file_insert_query += StringUtil::Format(
+		    "(%d, %d, {SNAPSHOT_ID}, NULL, %d, %s, %s, 'parquet', %d, %d, %d, %s)", delete_file_index, table_id,
+		    data_file_index, SQLString(path.path), path.path_is_relative ? "true" : "false", file.delete_count,
+		    file.file_size_bytes, file.footer_size, encryption_key);
 	}
 
 	// insert the data files
@@ -1562,7 +1589,7 @@ ORDER BY snapshot_id
 
 vector<DuckLakeFileScheduledForCleanup> DuckLakeMetadataManager::GetFilesScheduledForCleanup(const string &filter) {
 	auto res = transaction.Query(R"(
-SELECT data_file_id, path, schedule_start
+SELECT data_file_id, path, path_is_relative, schedule_start
 FROM {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion
 )" + filter);
 	if (res->HasError()) {
@@ -1572,8 +1599,11 @@ FROM {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion
 	for (auto &row : *res) {
 		DuckLakeFileScheduledForCleanup info;
 		info.id = DataFileIndex(row.GetValue<idx_t>(0));
-		info.path = row.GetValue<string>(1);
-		info.time = row.GetValue<timestamp_tz_t>(2);
+		DuckLakePath path;
+		path.path = row.GetValue<string>(1);
+		path.path_is_relative = row.GetValue<bool>(2);
+		info.path = FromRelativePath(path);
+		info.time = row.GetValue<timestamp_tz_t>(3);
 
 		result.push_back(std::move(info));
 	}
@@ -1633,8 +1663,9 @@ void DuckLakeMetadataManager::WriteCompactions(vector<DuckLakeCompactedFileInfo>
 		if (!scheduled_deletions.empty()) {
 			scheduled_deletions += ", ";
 		}
-		scheduled_deletions +=
-		    StringUtil::Format("(%d, %s, NOW())", compaction.source_id.index, SQLString(compaction.path));
+		auto path = GetRelativePath(compaction.path);
+		scheduled_deletions += StringUtil::Format("(%d, %s, %s, NOW())", compaction.source_id.index,
+		                                          SQLString(path.path), path.path_is_relative ? "true" : "false");
 	}
 	// for each file that has been compacted - delete it from the list of data files entirely
 	// including all other info (stats, delete files, partition values, etc)
@@ -1708,7 +1739,7 @@ WHERE end_snapshot IS NOT NULL AND NOT EXISTS(
 	}
 
 	result = transaction.Query(StringUtil::Format(R"(
-SELECT data_file_id, path
+SELECT data_file_id, path, path_is_relative
 FROM {METADATA_CATALOG}.ducklake_data_file
 WHERE %s (end_snapshot IS NOT NULL AND NOT EXISTS(
     SELECT snapshot_id
@@ -1720,7 +1751,10 @@ WHERE %s (end_snapshot IS NOT NULL AND NOT EXISTS(
 	for (auto &row : *result) {
 		DuckLakeFileScheduledForCleanup info;
 		info.id = DataFileIndex(row.GetValue<idx_t>(0));
-		info.path = row.GetValue<string>(1);
+		DuckLakePath path;
+		path.path = row.GetValue<string>(1);
+		path.path_is_relative = row.GetValue<bool>(2);
+		info.path = FromRelativePath(path);
 
 		cleanup_files.push_back(std::move(info));
 	}
@@ -1736,7 +1770,9 @@ WHERE %s (end_snapshot IS NOT NULL AND NOT EXISTS(
 			if (!files_scheduled_for_cleanup.empty()) {
 				files_scheduled_for_cleanup += ", ";
 			}
-			files_scheduled_for_cleanup += StringUtil::Format("(%d, %s, NOW())", file.id.index, SQLString(file.path));
+			auto path = GetRelativePath(file.path);
+			files_scheduled_for_cleanup += StringUtil::Format(
+			    "(%d, %s, %s, NOW())", file.id.index, SQLString(path.path), path.path_is_relative ? "true" : "false");
 		}
 
 		// delete the data files
@@ -1769,7 +1805,7 @@ VALUES %s;
 	}
 
 	result = transaction.Query(StringUtil::Format(R"(
-SELECT delete_file_id, path
+SELECT delete_file_id, path, path_is_relative
 FROM {METADATA_CATALOG}.ducklake_delete_file
 WHERE %s %s (end_snapshot IS NOT NULL AND NOT EXISTS(
     SELECT snapshot_id
@@ -1781,7 +1817,10 @@ WHERE %s %s (end_snapshot IS NOT NULL AND NOT EXISTS(
 	for (auto &row : *result) {
 		DuckLakeFileScheduledForCleanup info;
 		info.id = DataFileIndex(row.GetValue<idx_t>(0));
-		info.path = row.GetValue<string>(1);
+		DuckLakePath path;
+		path.path = row.GetValue<string>(1);
+		path.path_is_relative = row.GetValue<bool>(2);
+		info.path = FromRelativePath(path);
 
 		cleanup_deletes.push_back(std::move(info));
 	}
@@ -1797,7 +1836,9 @@ WHERE %s %s (end_snapshot IS NOT NULL AND NOT EXISTS(
 			if (!files_scheduled_for_cleanup.empty()) {
 				files_scheduled_for_cleanup += ", ";
 			}
-			files_scheduled_for_cleanup += StringUtil::Format("(%d, %s, NOW())", file.id.index, SQLString(file.path));
+			auto path = GetRelativePath(file.path);
+			files_scheduled_for_cleanup += StringUtil::Format(
+			    "(%d, %s, %s, NOW())", file.id.index, SQLString(path.path), path.path_is_relative ? "true" : "false");
 		}
 		// delete the delete files
 		result = transaction.Query(StringUtil::Format(R"(

@@ -307,4 +307,9 @@ struct DuckLakeTableSizeInfo {
 	idx_t delete_file_count = 0;
 };
 
+struct DuckLakePath {
+	string path;
+	bool path_is_relative;
+};
+
 } // namespace duckdb
