@@ -1303,8 +1303,8 @@ FROM {METADATA_CATALOG}.ducklake_snapshot
 WHERE snapshot_id = (
 	SELECT MAX_BY(snapshot_id, snapshot_time)
 	FROM {METADATA_CATALOG}.ducklake_snapshot
-	WHERE snapshot_time < %s);)",
-		                                              val.DefaultCastAs(LogicalType::TIMESTAMP).ToSQLString()));
+	WHERE snapshot_time <= %s);)",
+		                                              val.DefaultCastAs(LogicalType::TIMESTAMP_TZ).ToSQLString()));
 	} else {
 		throw InvalidInputException("Unsupported AT clause unit - %s", unit);
 	}
