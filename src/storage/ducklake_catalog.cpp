@@ -431,6 +431,10 @@ string DuckLakeCatalog::GetDBPath() {
 	return options.metadata_path;
 }
 
+optional_ptr<BoundAtClause> DuckLakeCatalog::CatalogSnapshot() const {
+	return options.at_clause.get();
+}
+
 void DuckLakeCatalog::OnDetach(ClientContext &context) {
 	// detach the metadata database
 	auto &transaction = DuckLakeTransaction::Get(context, *this);

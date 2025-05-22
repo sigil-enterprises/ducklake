@@ -76,6 +76,10 @@ void DuckLakeInitializer::Initialize() {
 	} else {
 		LoadExistingDuckLake(transaction);
 	}
+	if (options.at_clause) {
+		// if the user specified a snapshot try to load it to trigger an error if it does not exist
+		transaction.GetSnapshot();
+	}
 }
 
 void DuckLakeInitializer::InitializeDataPath() {

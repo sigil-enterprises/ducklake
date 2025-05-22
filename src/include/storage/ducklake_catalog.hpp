@@ -48,6 +48,7 @@ public:
 	idx_t DataInliningRowLimit() const {
 		return options.data_inlining_row_limit;
 	}
+	optional_ptr<BoundAtClause> CatalogSnapshot() const;
 
 	optional_ptr<CatalogEntry> CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) override;
 

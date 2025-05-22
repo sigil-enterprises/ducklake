@@ -1270,6 +1270,11 @@ string DuckLakeTransaction::GetDefaultSchemaName() {
 }
 
 DuckLakeSnapshot DuckLakeTransaction::GetSnapshot() {
+	auto catalog_snapshot = ducklake_catalog.CatalogSnapshot();
+	if (catalog_snapshot) {
+		// the catalog was opened at a specific snapshot - load that snapshot
+		return GetSnapshot(catalog_snapshot);
+	}
 	if (!snapshot) {
 		// no snapshot loaded yet for this transaction - load it
 		snapshot = metadata_manager->GetSnapshot();
