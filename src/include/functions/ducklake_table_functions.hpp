@@ -37,6 +37,11 @@ public:
 	static vector<Value> GetSnapshotValues(const DuckLakeSnapshotInfo &snapshot);
 };
 
+class DuckLakeTableInfoFunction : public BaseMetadataFunction {
+public:
+	DuckLakeTableInfoFunction();
+};
+
 class DuckLakeTableInsertionsFunction : public TableFunction {
 public:
 	DuckLakeTableInsertionsFunction();

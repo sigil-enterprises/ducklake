@@ -17,6 +17,9 @@ static void LoadInternal(DatabaseInstance &instance) {
 	DuckLakeSnapshotsFunction snapshots;
 	ExtensionUtil::RegisterFunction(instance, snapshots);
 
+	DuckLakeTableInfoFunction table_info;
+	ExtensionUtil::RegisterFunction(instance, table_info);
+
 	DuckLakeTableInsertionsFunction table_insertions;
 	ExtensionUtil::RegisterFunction(instance, table_insertions);
 

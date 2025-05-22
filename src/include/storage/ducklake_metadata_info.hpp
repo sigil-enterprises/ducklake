@@ -298,8 +298,10 @@ struct DuckLakeCompactedFileInfo {
 };
 
 struct DuckLakeTableSizeInfo {
+	SchemaIndex schema_id;
 	TableIndex table_id;
 	string table_name;
+	string table_uuid;
 	idx_t file_size_bytes = 0;
 	idx_t delete_file_size_bytes = 0;
 	idx_t file_count = 0;

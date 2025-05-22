@@ -1854,7 +1854,7 @@ WHERE end_snapshot IS NOT NULL AND NOT EXISTS(
 vector<DuckLakeTableSizeInfo> DuckLakeMetadataManager::GetTableSizes(DuckLakeSnapshot snapshot) {
 	vector<DuckLakeTableSizeInfo> table_sizes;
 	auto result = transaction.Query(snapshot, R"(
-SELECT table_id, table_name, data_file_info.file_count, data_file_info.total_file_size, delete_file_info.file_count, delete_file_info.total_file_size
+SELECT schema_id, table_id, table_name, table_uuid, data_file_info.file_count, data_file_info.total_file_size, delete_file_info.file_count, delete_file_info.total_file_size
 FROM {METADATA_CATALOG}.ducklake_table tbl, LATERAL (
 	SELECT COUNT(*) file_count, SUM(file_size_bytes) total_file_size
 	FROM {METADATA_CATALOG}.ducklake_data_file df
@@ -1868,19 +1868,21 @@ WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_s
 )");
 	for (auto &row : *result) {
 		DuckLakeTableSizeInfo table_size;
-		table_size.table_id = TableIndex(row.GetValue<idx_t>(0));
-		table_size.table_name = row.GetValue<string>(1);
-		if (!row.IsNull(2)) {
-			table_size.file_count = row.GetValue<idx_t>(2);
-		}
-		if (!row.IsNull(3)) {
-			table_size.file_size_bytes = row.GetValue<idx_t>(3);
-		}
+		table_size.schema_id = SchemaIndex(row.GetValue<idx_t>(0));
+		table_size.table_id = TableIndex(row.GetValue<idx_t>(1));
+		table_size.table_name = row.GetValue<string>(2);
+		table_size.table_uuid = row.GetValue<string>(3);
 		if (!row.IsNull(4)) {
-			table_size.delete_file_count = row.GetValue<idx_t>(4);
+			table_size.file_count = row.GetValue<idx_t>(4);
 		}
 		if (!row.IsNull(5)) {
-			table_size.delete_file_size_bytes = row.GetValue<idx_t>(5);
+			table_size.file_size_bytes = row.GetValue<idx_t>(5);
+		}
+		if (!row.IsNull(6)) {
+			table_size.delete_file_count = row.GetValue<idx_t>(6);
+		}
+		if (!row.IsNull(7)) {
+			table_size.delete_file_size_bytes = row.GetValue<idx_t>(7);
 		}
 		table_sizes.push_back(std::move(table_size));
 	}

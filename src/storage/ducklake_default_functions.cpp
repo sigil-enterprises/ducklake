@@ -7,6 +7,7 @@ namespace duckdb {
 // clang-format off
 static const DefaultTableMacro ducklake_table_macros[] = {
 	{DEFAULT_SCHEMA, "snapshots", {nullptr}, {{nullptr, nullptr}},  "FROM ducklake_snapshots({CATALOG})"},
+	{DEFAULT_SCHEMA, "table_info", {nullptr}, {{nullptr, nullptr}},  "FROM ducklake_table_info({CATALOG})"},
 	{nullptr, nullptr, {nullptr}, {{nullptr, nullptr}}, nullptr}
 };
 // clang-format on
