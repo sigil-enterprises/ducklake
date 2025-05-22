@@ -8,14 +8,16 @@ namespace duckdb {
 static const DefaultTableMacro ducklake_table_macros[] = {
 	{DEFAULT_SCHEMA, "snapshots", {nullptr}, {{nullptr, nullptr}},  "FROM ducklake_snapshots({CATALOG})"},
 	{DEFAULT_SCHEMA, "table_info", {nullptr}, {{nullptr, nullptr}},  "FROM ducklake_table_info({CATALOG})"},
+	{DEFAULT_SCHEMA, "table_changes", {"table_name", "start_snapshot", "end_snapshot", nullptr}, {{nullptr, nullptr}},  "FROM ducklake_table_changes({CATALOG}, {SCHEMA}, table_name, start_snapshot, end_snapshot)"},
 	{nullptr, nullptr, {nullptr}, {{nullptr, nullptr}}, nullptr}
 };
 // clang-format on
 
 optional_ptr<CatalogEntry> DuckLakeSchemaEntry::LoadBuiltInFunction(DefaultTableMacro macro) {
-	string macro_definition =
-	    StringUtil::Replace(macro.macro, "{CATALOG}", KeywordHelper::WriteQuoted(catalog.GetName(), '\''));
-	macro.macro = macro_definition.c_str();
+	string macro_def = macro.macro;
+	macro_def = StringUtil::Replace(macro_def, "{CATALOG}", KeywordHelper::WriteQuoted(catalog.GetName(), '\''));
+	macro_def = StringUtil::Replace(macro_def, "{SCHEMA}", KeywordHelper::WriteQuoted(name, '\''));
+	macro.macro = macro_def.c_str();
 	auto info = DefaultTableFunctionGenerator::CreateTableMacroInfo(macro);
 	auto table_macro =
 	    make_uniq_base<CatalogEntry, TableMacroCatalogEntry>(catalog, *this, info->Cast<CreateMacroInfo>());

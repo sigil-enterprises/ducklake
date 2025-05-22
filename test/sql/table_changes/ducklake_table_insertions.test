@@ -34,31 +34,31 @@ statement ok
 INSERT INTO ducklake.test FROM range(10, 12);
 
 query II
-SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'test', 0, 2);
+SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'main', 'test', 0, 2);
 ----
 0	1
 
 query II
-SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'test', 0, 3);
+SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'main', 'test', 0, 3);
 ----
 0	1
 1	2
 
 query II
-SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'test', 0, 4);
+SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'main', 'test', 0, 4);
 ----
 0	1
 1	2
 2	3
 
 query II
-SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'test', 4, 5);
+SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'main', 'test', 4, 5);
 ----
 2	3
 3	NULL
 
 query II
-SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'test', 5, 5);
+SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'main', 'test', 5, 5);
 ----
 3	NULL
 
@@ -67,7 +67,7 @@ statement ok
 UPDATE ducklake.test SET i=i+100 WHERE i < 11;
 
 query II
-SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'test', 7, 7) ORDER BY rowid
+SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'main', 'test', 7, 7) ORDER BY rowid
 ----
 0	101
 1	102
@@ -76,7 +76,7 @@ SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'test', 7, 7) ORDER B
 
 # the change feed has both the original rows and the updated rows
 query II
-SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'test', 0, 7) ORDER BY ALL
+SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'main', 'test', 0, 7) ORDER BY ALL
 ----
 0	1
 0	101

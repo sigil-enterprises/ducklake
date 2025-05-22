@@ -57,25 +57,25 @@ NULL
 
 # snapshot 7 deleted i=2
 query III
-SELECT rowid, snapshot_id, * FROM ducklake_table_deletions('ducklake', 'test', 7, 7);
+SELECT rowid, snapshot_id, * FROM ducklake_table_deletions('ducklake', 'main', 'test', 7, 7);
 ----
 1	7	2
 
 # snapshot 8 deleted i=11
 query III
-SELECT rowid, snapshot_id, * FROM ducklake_table_deletions('ducklake', 'test', 8, 8);
+SELECT rowid, snapshot_id, * FROM ducklake_table_deletions('ducklake', 'main', 'test', 8, 8);
 ----
 5	8	11
 
 # snapshot 9 deleted i=12
 query III
-SELECT rowid, snapshot_id, * FROM ducklake_table_deletions('ducklake', 'test', 9, 9);
+SELECT rowid, snapshot_id, * FROM ducklake_table_deletions('ducklake', 'main', 'test', 9, 9);
 ----
 6	9	12
 
 # we can get all of these at once
 query III
-SELECT rowid, snapshot_id, * FROM ducklake_table_deletions('ducklake', 'test', 7, 9) ORDER BY rowid
+SELECT rowid, snapshot_id, * FROM ducklake_table_deletions('ducklake', 'main', 'test', 7, 9) ORDER BY rowid
 ----
 1	7	2
 5	8	11
@@ -83,7 +83,7 @@ SELECT rowid, snapshot_id, * FROM ducklake_table_deletions('ducklake', 'test', 7
 
 # this shows all deletions performed
 query II
-SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'test', 0, 9) ORDER BY rowid
+SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'main', 'test', 0, 9) ORDER BY rowid
 ----
 1	2
 5	11
@@ -95,7 +95,7 @@ UPDATE ducklake.test SET i=i+100 WHERE i < 13
 
 # updates are deletions + insertions
 query II
-SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'test', 10, 10) ORDER BY rowid
+SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'main', 'test', 10, 10) ORDER BY rowid
 ----
 0	1
 2	3
@@ -103,7 +103,7 @@ SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'test', 10, 10) ORDER 
 
 # these are all the deleted tuples
 query II
-SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'test', 7, 10) ORDER BY rowid
+SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'main', 'test', 7, 10) ORDER BY rowid
 ----
 0	1
 1	2
@@ -116,7 +116,7 @@ statement ok
 DELETE FROM ducklake.test
 
 query II
-SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'test', 11, 11) ORDER BY rowid
+SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'main', 'test', 11, 11) ORDER BY rowid
 ----
 0	101
 2	103
@@ -128,7 +128,7 @@ SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'test', 11, 11) ORDER 
 
 # if we update and then delete - the same row can be there multiple times
 query II
-SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'test', 0, 11) ORDER BY ALL
+SELECT rowid, * FROM ducklake_table_deletions('ducklake', 'main', 'test', 0, 11) ORDER BY ALL
 ----
 0	1
 0	101

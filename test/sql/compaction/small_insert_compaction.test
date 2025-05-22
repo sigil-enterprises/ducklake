@@ -124,24 +124,24 @@ SELECT snapshot_id, rowid, * FROM ducklake.test ORDER BY ALL
 
 # table insertions function
 query II
-SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'test', 0, 3) ORDER BY ALL
+SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'main', 'test', 0, 3) ORDER BY ALL
 ----
 0	1
 
 query II
-SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'test', 0, 4) ORDER BY ALL
+SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'main', 'test', 0, 4) ORDER BY ALL
 ----
 0	1
 
 query II
-SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'test', 0, 6) ORDER BY ALL
+SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'main', 'test', 0, 6) ORDER BY ALL
 ----
 0	1
 1	2
 2	3
 
 query II
-SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'test', 0, 9) ORDER BY ALL
+SELECT rowid, * FROM ducklake_table_insertions('ducklake', 'main', 'test', 0, 9) ORDER BY ALL
 ----
 0	1
 1	2

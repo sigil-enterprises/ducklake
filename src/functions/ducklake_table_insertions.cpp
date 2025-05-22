@@ -16,14 +16,11 @@ string GetTableName(const Value &input) {
 }
 
 TableCatalogEntry &GetTableEntry(ClientContext &context, Catalog &catalog, const EntryLookupInfo &lookup,
-                                 optional_ptr<Value> schema = nullptr) {
-	string schema_name;
-	if (schema) {
-		if (schema->IsNull()) {
-			throw BinderException("Schema cannot be NULL");
-		}
-		schema_name = schema->GetValue<string>();
+                                 const Value &schema) {
+	if (schema.IsNull()) {
+		throw BinderException("Schema cannot be NULL");
 	}
+	auto schema_name = schema.GetValue<string>();
 	auto entry = catalog.GetEntry(context, schema_name, lookup, OnEntryNotFound::THROW_EXCEPTION);
 	return entry->Cast<TableCatalogEntry>();
 }
@@ -45,13 +42,13 @@ BoundAtClause AtClauseFromValue(const Value &input) {
 static unique_ptr<FunctionData> DuckLakeTableChangesBind(ClientContext &context, TableFunctionBindInput &input,
                                                          vector<LogicalType> &return_types, vector<string> &names,
                                                          DuckLakeScanType scan_type) {
-	auto start_at_clause = AtClauseFromValue(input.inputs[2]);
-	auto end_at_clause = AtClauseFromValue(input.inputs[3]);
+	auto start_at_clause = AtClauseFromValue(input.inputs[3]);
+	auto end_at_clause = AtClauseFromValue(input.inputs[4]);
 
 	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
-	auto table_name = GetTableName(input.inputs[1]);
+	auto table_name = GetTableName(input.inputs[2]);
 	EntryLookupInfo lookup(CatalogType::TABLE_ENTRY, table_name, end_at_clause, QueryErrorContext());
-	auto &table = GetTableEntry(context, catalog, lookup);
+	auto &table = GetTableEntry(context, catalog, lookup, input.inputs[1]);
 	auto &transaction = DuckLakeTransaction::Get(context, catalog);
 
 	unique_ptr<FunctionData> bind_data;
@@ -84,14 +81,16 @@ static void DuckLakeChangesExecute(ClientContext &context, TableFunctionInput &d
 }
 
 DuckLakeTableInsertionsFunction::DuckLakeTableInsertionsFunction()
-    : TableFunction("ducklake_table_insertions",
-                    {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::BIGINT, LogicalType::BIGINT},
-                    DuckLakeChangesExecute, DuckLakeTableInsertionsBind, DuckLakeChangesInit) {
+    : TableFunction(
+          "ducklake_table_insertions",
+          {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::BIGINT, LogicalType::BIGINT},
+          DuckLakeChangesExecute, DuckLakeTableInsertionsBind, DuckLakeChangesInit) {
 }
 
 DuckLakeTableDeletionsFunction::DuckLakeTableDeletionsFunction()
-    : TableFunction("ducklake_table_deletions",
-                    {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::BIGINT, LogicalType::BIGINT},
-                    DuckLakeChangesExecute, DuckLakeTableDeletionsBind, DuckLakeChangesInit) {
+    : TableFunction(
+          "ducklake_table_deletions",
+          {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::BIGINT, LogicalType::BIGINT},
+          DuckLakeChangesExecute, DuckLakeTableDeletionsBind, DuckLakeChangesInit) {
 }
 } // namespace duckdb
