@@ -17,10 +17,39 @@ DuckLakeInitializer::DuckLakeInitializer(ClientContext &context, DuckLakeCatalog
 	InitializeDataPath();
 }
 
+string DuckLakeInitializer::GetAttachOptions() {
+	vector<string> attach_options;
+	if (options.access_mode != AccessMode::AUTOMATIC) {
+		switch (options.access_mode) {
+		case AccessMode::READ_ONLY:
+			attach_options.push_back("READ_ONLY");
+			break;
+		case AccessMode::READ_WRITE:
+			attach_options.push_back("READ_WRITE");
+			break;
+		default:
+			throw InternalException("Unsupported access mode in DuckLake attach");
+		}
+	}
+
+	if (attach_options.empty()) {
+		return string();
+	}
+	string result;
+	for (auto &option : attach_options) {
+		if (!result.empty()) {
+			result += ", ";
+		}
+		result += option;
+	}
+	return " (" + result + ")";
+}
+
 void DuckLakeInitializer::Initialize() {
 	auto &transaction = DuckLakeTransaction::Get(context, catalog);
 	// attach the metadata database
-	auto result = transaction.Query("ATTACH {METADATA_PATH} AS {METADATA_CATALOG_NAME_IDENTIFIER}");
+	auto result =
+	    transaction.Query("ATTACH {METADATA_PATH} AS {METADATA_CATALOG_NAME_IDENTIFIER}" + GetAttachOptions());
 	if (result->HasError()) {
 		auto &error_obj = result->GetErrorObject();
 		error_obj.Throw("Failed to attach DuckLake MetaData \"" + catalog.MetadataDatabaseName() + "\" at path + \"" +
