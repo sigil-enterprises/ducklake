@@ -336,6 +336,7 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, cons
                                                     optional_ptr<DuckLakeFieldData> field_data,
                                                     optional_ptr<PhysicalOperator> plan, const string &data_path,
                                                     string encryption_key, InsertVirtualColumns virtual_columns) {
+	bool is_encrypted = !encryption_key.empty();
 	auto copy_options = GetCopyOptions(context, columns, partition_data, field_data, data_path,
 	                                   std::move(encryption_key), virtual_columns);
 
@@ -362,7 +363,7 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, cons
 	physical_copy.names = std::move(copy_options.names);
 	physical_copy.expected_types = std::move(copy_options.expected_types);
 	physical_copy.parallel = true;
-	physical_copy.hive_file_pattern = encryption_key.empty() ? true : false;
+	physical_copy.hive_file_pattern = !is_encrypted ? true : false;
 	if (plan) {
 		physical_copy.children.push_back(*plan);
 	}
