@@ -10,6 +10,7 @@
 
 #include "duckdb/common/common.hpp"
 #include "duckdb/common/unordered_set.hpp"
+#include "duckdb/common/types/value.hpp"
 
 namespace duckdb {
 
@@ -26,6 +27,7 @@ public:
 	static string SQLIdentifierToString(const string &text);
 	static string SQLLiteralToString(const string &text);
 	static string StatsToString(const string &text);
+	static string ValueToSQL(const Value &val);
 
 	static ParsedCatalogEntry ParseCatalogEntry(const string &input);
 };

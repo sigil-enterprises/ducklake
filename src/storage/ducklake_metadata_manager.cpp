@@ -4,6 +4,7 @@
 #include "duckdb/planner/tableref/bound_at_clause.hpp"
 #include "duckdb/common/types/blob.hpp"
 #include "storage/ducklake_catalog.hpp"
+#include "common/ducklake_types.hpp"
 #include "duckdb.hpp"
 
 namespace duckdb {
@@ -748,17 +749,23 @@ void ColumnToSQLRecursive(const DuckLakeColumnInfo &column, TableIndex table_id,
 
 string DuckLakeMetadataManager::GetColumnType(const DuckLakeColumnInfo &col) {
 	if (col.children.empty()) {
-		return col.type;
+		return DuckLakeTypes::FromString(col.type).ToString();
 	}
 	if (col.type == "struct") {
 		string result;
 		for (auto &child : col.children) {
+			if (!result.empty()) {
+				result += ", ";
+			}
 			result += StringUtil::Format("%s %s", SQLIdentifier(child.name), GetColumnType(child));
 		}
 		return "STRUCT(" + result + ")";
 	}
 	if (col.type == "list") {
 		return GetColumnType(col.children[0]) + "[]";
+	}
+	if (col.type == "map") {
+		return StringUtil::Format("MAP(%s, %s)", GetColumnType(col.children[0]), GetColumnType(col.children[1]));
 	}
 	throw InternalException("Unsupported nested type %s in DuckLakeMetadataManager::GetColumnType", col.type);
 }
@@ -961,7 +968,7 @@ WHERE table_id = %d AND schema_snapshot=(
 				values += ", {SNAPSHOT_ID}, NULL";
 				for (idx_t c = 0; c < chunk.ColumnCount(); c++) {
 					values += ", ";
-					values += chunk.GetValue(c, r).ToSQLString();
+					values += DuckLakeUtil::ValueToSQL(chunk.GetValue(c, r));
 				}
 				values += ")";
 				row_id++;

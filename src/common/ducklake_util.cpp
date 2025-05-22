@@ -88,4 +88,64 @@ string DuckLakeUtil::StatsToString(const string &text) {
 	return DuckLakeUtil::SQLLiteralToString(text);
 }
 
+string DuckLakeUtil::ValueToSQL(const Value &val) {
+	// FIXME: this should be upstreamed
+	if (val.IsNull()) {
+		return val.ToSQLString();
+	}
+	switch(val.type().id()) {
+	case LogicalTypeId::VARCHAR: {
+		auto &str_val = StringValue::Get(val);
+		string ret;
+		bool concat = false;
+		for(auto c : str_val) {
+			switch(c) {
+			case '\0':
+				// need to concat to place a null byte
+				concat = true;
+				ret += "', chr(0), '";
+				break;
+			case '\'':
+				ret += "''";
+				break;
+			default:
+				ret += c;
+				break;
+			}
+		}
+		if (concat) {
+			return "CONCAT('" + ret + "')";
+		} else {
+			return "'" + ret + "'";
+		}
+	}
+	case LogicalTypeId::MAP: {
+		string ret = "MAP(";
+		auto &map_values = MapValue::GetChildren(val);
+		// keys
+		ret += "[";
+		for (idx_t i = 0; i < map_values.size(); i++) {
+			if (i > 0) {
+				ret += ", ";
+			}
+			auto &map_children = StructValue::GetChildren(map_values[i]);
+			ret += map_children[0].ToSQLString();
+		}
+		ret += "], [";
+		// values
+		for (idx_t i = 0; i < map_values.size(); i++) {
+			if (i > 0) {
+				ret += ", ";
+			}
+			auto &map_children = StructValue::GetChildren(map_values[i]);
+			ret += map_children[1].ToSQLString();
+		}
+		ret += "])";
+		return ret;
+	}
+	default:
+		return val.ToSQLString();
+	}
+}
+
 } // namespace duckdb
