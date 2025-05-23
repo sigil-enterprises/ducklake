@@ -11,6 +11,8 @@
 namespace duckdb {
 
 static void LoadInternal(DatabaseInstance &instance) {
+	ExtensionUtil::RegisterExtension(instance, "ducklake", {"Adds support for DuckLake, SQL as a Lakehouse Format"});
+
 	auto &config = DBConfig::GetConfig(instance);
 	config.storage_extensions["ducklake"] = make_uniq<DuckLakeStorageExtension>();
 
