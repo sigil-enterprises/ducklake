@@ -254,7 +254,8 @@ void DuckLakeDelete::FlushDelete(DuckLakeTransaction &transaction, ClientContext
 	copy_to_file.use_tmp_file = false;
 	copy_to_file.file_path = delete_file_path;
 	copy_to_file.partition_output = false;
-	copy_to_file.write_empty_file = false;
+	// FIXME: disabled because of issue, should be re-enabled for DuckDB v1.3.1
+	// copy_to_file.write_empty_file = false;
 	copy_to_file.file_extension = "parquet";
 	copy_to_file.overwrite_mode = CopyOverwriteMode::COPY_OVERWRITE_OR_IGNORE;
 	copy_to_file.per_thread_output = false;

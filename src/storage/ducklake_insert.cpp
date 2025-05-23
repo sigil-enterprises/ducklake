@@ -316,7 +316,8 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, const
 		string file_name = "ducklake-" + current_write_uuid + ".parquet";
 		result.file_path = DuckLakeUtil::JoinPath(fs, data_path, file_name);
 		result.partition_output = false;
-		result.write_empty_file = false;
+		// FIXME: disabled because of issue, should be re-enabled for DuckDB v1.3.1
+		// result.write_empty_file = false;
 	}
 
 	result.file_extension = "parquet";
