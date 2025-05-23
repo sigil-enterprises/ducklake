@@ -286,8 +286,8 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 
 	copy->partition_output = copy_options.partition_output;
 	copy->write_partition_columns = copy_options.write_partition_columns;
-	// FIXME: disabled because of issue, should be re-enabled for DuckDB v1.3.1
-	copy->write_empty_file = false;
+	// FIXME: disabled because of issue, should be re-disabled for DuckDB v1.3.1
+	copy->write_empty_file = true;
 	copy->partition_columns = std::move(copy_options.partition_columns);
 	copy->names = std::move(copy_options.names);
 	copy->expected_types = std::move(copy_options.expected_types);
