@@ -193,9 +193,10 @@ InsertionOrderPreservingMap<string> DuckLakeInsert::ParamsToString() const {
 //===--------------------------------------------------------------------===//
 // Plan
 //===--------------------------------------------------------------------===//
-CopyFunctionCatalogEntry &DuckLakeFunctions::GetCopyFunction(DatabaseInstance &db, const string &name) {
+CopyFunctionCatalogEntry &DuckLakeFunctions::GetCopyFunction(ClientContext &context, const string &name) {
 	// Logic is partially duplicated from Catalog::AutoLoadExtensionByCatalogEntry(db, CatalogType::COPY_FUNCTION_ENTRY,
 	// name), but that do not offer enough control
+	auto &db = *context.db;
 	string extension_name = ExtensionHelper::FindExtensionInEntries(name, EXTENSION_COPY_FUNCTIONS);
 	if (!extension_name.empty() && db.config.options.autoload_known_extensions &&
 	    ExtensionHelper::CanAutoloadExtension(extension_name)) {
@@ -204,15 +205,14 @@ CopyFunctionCatalogEntry &DuckLakeFunctions::GetCopyFunction(DatabaseInstance &d
 	}
 	D_ASSERT(!name.empty());
 	auto &system_catalog = Catalog::GetSystemCatalog(db);
-	auto data = CatalogTransaction::GetSystemTransaction(db);
-	auto &schema = system_catalog.GetSchema(data, DEFAULT_SCHEMA);
-	auto entry = schema.GetEntry(data, CatalogType::COPY_FUNCTION_ENTRY, name);
+
+	auto entry =
+	    system_catalog.GetEntry<CopyFunctionCatalogEntry>(context, DEFAULT_SCHEMA, name, OnEntryNotFound::RETURN_NULL);
 	if (!entry) {
-		throw MissingExtensionException("We could not load, due to configuration or else, an extension that offers the "
-		                                "copy functon for \"%s\", try to explicitly load the relevant extension",
-		                                name);
+		throw MissingExtensionException(
+		    "Could not load the copy function for \"%s\". Try explicitly loading the \"%s\" extension", name, name);
 	}
-	return entry->Cast<CopyFunctionCatalogEntry>();
+	return *entry;
 }
 
 Value GetFieldIdValue(const DuckLakeFieldId &field_id) {
@@ -287,7 +287,7 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, const
 	}
 
 	// Get Parquet Copy function
-	auto &copy_fun = DuckLakeFunctions::GetCopyFunction(*context.db, "parquet");
+	auto &copy_fun = DuckLakeFunctions::GetCopyFunction(context, "parquet");
 
 	auto &fs = FileSystem::GetFileSystem(context);
 	if (!fs.IsRemoteFile(data_path)) {

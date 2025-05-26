@@ -15,7 +15,7 @@ SELECT snapshot_id, schema_version, changes FROM ducklake_snapshots('ducklake')
 statement error
 CREATE TABLE ducklake.tbl AS FROM range(1000) t(i);
 ----
-Missing Extension Error: We could not load, due to configuration or else, an extension that offers the copy functon for "parquet", try to explicitly load the relevant extension
+Missing Extension Error: Could not load the copy function for "parquet". Try explicitly loading the "parquet" extension
 
 require parquet
 
