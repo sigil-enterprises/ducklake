@@ -1,6 +1,6 @@
 # name: test/sql/general/data_path_tag.test
 # description: test ducklakes database have a tag['data_path'] via duckdb_databases()
-# group: [metadata]
+# group: [general]
 
 require ducklake
 
