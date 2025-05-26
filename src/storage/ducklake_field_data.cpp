@@ -273,6 +273,18 @@ shared_ptr<DuckLakeFieldData> DuckLakeFieldData::AddColumn(const DuckLakeFieldDa
 	return result;
 }
 
+shared_ptr<DuckLakeFieldData> DuckLakeFieldData::DropColumn(const DuckLakeFieldData &field_data,
+                                                            FieldIndex drop_index) {
+	auto result = make_shared_ptr<DuckLakeFieldData>();
+	for (auto &existing_id : field_data.field_ids) {
+		if (existing_id->GetFieldIndex() == drop_index) {
+			continue;
+		}
+		result->Add(existing_id->Copy());
+	}
+	return result;
+}
+
 shared_ptr<DuckLakeFieldData> DuckLakeFieldData::SetDefault(const DuckLakeFieldData &field_data, FieldIndex field_index,
                                                             const ColumnDefinition &new_col) {
 	auto result = make_shared_ptr<DuckLakeFieldData>();
