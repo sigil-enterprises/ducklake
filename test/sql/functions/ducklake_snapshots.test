@@ -13,7 +13,7 @@ ATTACH 'ducklake:__TEST_DIR__/ducklake_snapshots.db' AS ducklake (DATA_PATH '__T
 query III
 SELECT snapshot_id, schema_version, changes FROM ducklake.snapshots()
 ----
-0	0	{}
+0	0	{schemas_created=[main]}
 
 # perform some operations in separate snapshots
 statement ok
@@ -34,7 +34,7 @@ DROP SCHEMA ducklake.s1
 query III
 SELECT snapshot_id, schema_version, changes FROM ducklake.snapshots()
 ----
-0	0	{}
+0	0	{schemas_created=[main]}
 1	1	{schemas_created=[s1]}
 2	2	{tables_created=[s1.tbl]}
 3	2	{tables_inserted_into=[2]}
