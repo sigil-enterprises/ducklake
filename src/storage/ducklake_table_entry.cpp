@@ -78,6 +78,9 @@ DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableIn
 	} else if (local_change.type == LocalChangeType::SET_DEFAULT) {
 		auto changed_id = local_change.field_index;
 		field_data = DuckLakeFieldData::SetDefault(*field_data, changed_id, GetColumnByFieldId(changed_id));
+	} else if (local_change.type == LocalChangeType::REMOVE_COLUMN) {
+		auto changed_id = local_change.field_index;
+		field_data = DuckLakeFieldData::DropColumn(*field_data, changed_id);
 	}
 }
 
@@ -501,8 +504,8 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	auto change_info = make_uniq<ColumnChangeInfo>();
 	change_info->DropField(field_id);
 
-	auto new_entry =
-	    make_uniq<DuckLakeTableEntry>(*this, table_info, LocalChangeType::REMOVE_COLUMN, std::move(change_info));
+	auto new_entry = make_uniq<DuckLakeTableEntry>(
+	    *this, table_info, LocalChange::RemoveColumn(field_id.GetFieldIndex()), std::move(change_info));
 	return std::move(new_entry);
 }
 
