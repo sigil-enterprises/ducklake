@@ -48,7 +48,7 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_file_partition_value(data_file_id BIGIN
 CREATE TABLE {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion(data_file_id BIGINT, path VARCHAR, path_is_relative BOOLEAN, schedule_start TIMESTAMPTZ);
 CREATE TABLE {METADATA_CATALOG}.ducklake_inlined_data_tables(table_id BIGINT, table_name VARCHAR, schema_snapshot BIGINT);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
-INSERT INTO {METADATA_CATALOG}.ducklake_metadata VALUES ('version', '1'), ('created_by', 'DuckDB %s'), ('data_path', {DATA_PATH}), ('encryption', '%s');
+INSERT INTO {METADATA_CATALOG}.ducklake_metadata VALUES ('version', '0.1'), ('created_by', 'DuckDB %s'), ('data_path', {DATA_PATH}), ('encrypted', '%s');
 INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main');
 	)",
 	                                       DuckDB::SourceID(), encryption_str);

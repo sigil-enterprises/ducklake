@@ -122,8 +122,8 @@ void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction)
 	auto metadata = metadata_manager.LoadDuckLake();
 	for (auto &tag : metadata.tags) {
 		if (tag.key == "version") {
-			if (tag.value != "1") {
-				throw NotImplementedException("Only DuckLake version 1 is supported");
+			if (tag.value != "0.1") {
+				throw NotImplementedException("Only DuckLake version 0.1 is supported");
 			}
 		}
 		if (tag.key == "data_path") {
