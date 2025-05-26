@@ -34,6 +34,7 @@ void DuckLakeCatalog::Initialize(optional_ptr<ClientContext> context, bool load_
 	// initialize the metadata database
 	DuckLakeInitializer initializer(*context, *this, options);
 	initializer.Initialize();
+	db.tags["data_path"] = DataPath();
 }
 
 optional_ptr<CatalogEntry> DuckLakeCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {
