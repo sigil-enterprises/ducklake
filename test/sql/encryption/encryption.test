@@ -61,3 +61,15 @@ statement error
 SELECT * FROM '__TEST_DIR__/ducklake_encryption_files/*-del*.parquet'
 ----
 encrypted
+
+# restart an encrypted database works
+statement ok
+DETACH ducklake
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_encryption.db' AS ducklake
+
+query II
+SELECT COUNT(*), SUM(id) FROM ducklake.test
+----
+500	250000

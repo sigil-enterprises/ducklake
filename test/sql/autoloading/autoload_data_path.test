@@ -1,6 +1,6 @@
-# name: test/extension/autoloading_filesystems.test
+# name: test/sql/autoloading/autoload_data_path.test
 # description: Tests for autoloading with filesystems
-# group: [extension]
+# group: [autoloading]
 
 require-env LOCAL_EXTENSION_REPO
 
