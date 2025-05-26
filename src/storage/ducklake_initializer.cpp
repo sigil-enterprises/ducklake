@@ -90,16 +90,17 @@ void DuckLakeInitializer::InitializeDataPath() {
 	if (data_path.empty()) {
 		return;
 	}
-	if (!StringUtil::EndsWith(data_path, "/") && !StringUtil::EndsWith(data_path, "\\")) {
-		// data path does not end in a path separator - add it
-		auto &fs = FileSystem::GetFileSystem(context);
-		data_path += fs.PathSeparator(data_path);
-	}
 
 	// This functions will:
 	//	1. Check if a known extension pattern matches the start of the data_path
 	//	2. If so, either load the required extension or throw a relevant error message
 	CheckAndAutoloadedRequiredExtension(data_path);
+
+	if (!StringUtil::EndsWith(data_path, "/") && !StringUtil::EndsWith(data_path, "\\")) {
+		// data path does not end in a path separator - add it
+		auto &fs = FileSystem::GetFileSystem(context);
+		data_path += fs.PathSeparator(data_path);
+	}
 }
 
 void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction, bool has_explicit_schema) {
