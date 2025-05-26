@@ -95,6 +95,11 @@ void DuckLakeInitializer::InitializeDataPath() {
 		auto &fs = FileSystem::GetFileSystem(context);
 		data_path += fs.PathSeparator(data_path);
 	}
+
+	// This functions will:
+	//	1. Check if a known extension pattern matches the start of the data_path
+	//	2. If so, either load the required extension or throw a relevant error message
+	CheckAndAutoloadedRequiredExtension(data_path);
 }
 
 void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction, bool has_explicit_schema) {
