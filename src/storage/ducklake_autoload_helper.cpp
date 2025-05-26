@@ -21,7 +21,6 @@ void DuckLakeInitializer::CheckAndAutoloadedRequiredExtension(const string &patt
 	//	1. Check if a known extension pattern matches the start of the data_path
 	//	2. If so, either load the required extension or throw a relevant error message
 
-
 	// FIXME: This function is currently a copy of the logic at FileSystem::GlobFiles in duckdb/duckdb (version 1.3.0)
 	// repository Proper solution would be offer this functionality as part of DuckDB C++ API, so this file can be
 	// simplified reducing the risk of misalignment between the two codebases
@@ -30,7 +29,8 @@ void DuckLakeInitializer::CheckAndAutoloadedRequiredExtension(const string &patt
 	if (!required_extension.empty() && !context.db->ExtensionIsLoaded(required_extension)) {
 		auto &dbconfig = DBConfig::GetConfig(context);
 		if (!ExtensionHelper::CanAutoloadExtension(required_extension) || !dbconfig.options.autoload_known_extensions) {
-			auto error_message = "Data path " + pattern + " requires the extension " + required_extension + " to be loaded";
+			auto error_message =
+			    "Data path " + pattern + " requires the extension " + required_extension + " to be loaded";
 			error_message =
 			    ExtensionHelper::AddExtensionInstallHintToErrorMsg(context, error_message, required_extension);
 			throw MissingExtensionException(error_message);
