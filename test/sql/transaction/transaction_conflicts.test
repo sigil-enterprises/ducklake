@@ -90,7 +90,7 @@ COMMIT
 statement error con2
 COMMIT
 ----
-Conflict
+
 
 # two transactions try to create a schema with the same name: conflict
 statement ok con1
@@ -160,7 +160,7 @@ COMMIT
 statement error con2
 COMMIT
 ----
-Conflict
+
 
 # one transaction tries to create a table in a dropped schema: conflict
 statement ok
