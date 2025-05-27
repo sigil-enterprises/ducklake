@@ -81,8 +81,12 @@ SHOW TABLES
 test
 test2
 
-# data path is required
-statement error
-ATTACH 'ducklake:__TEST_DIR__/ducklake_error.db' AS ducklake_error
-----
-DATA_PATH
+# data path is not required for DuckDB databases
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_no_data_path.db' AS ducklake_no_data_path
+
+statement ok
+CREATE TABLE ducklake_no_data_path.tbl(i INT);
+
+statement ok
+INSERT INTO ducklake_no_data_path.tbl VALUES (42);
