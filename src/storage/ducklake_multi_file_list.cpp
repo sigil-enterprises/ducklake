@@ -62,7 +62,7 @@ string CastValueToTarget(const Value &val, const LogicalType &type) {
 string CastStatsToTarget(const string &stats, const LogicalType &type) {
 	// we only need to cast numerics
 	if (type.IsNumeric()) {
-		return stats + "::" + type.ToString();
+		return "TRY_CAST(" + stats + " AS " + type.ToString() + ")";
 	}
 	return stats;
 }
