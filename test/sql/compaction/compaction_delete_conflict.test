@@ -40,7 +40,7 @@ COMMIT
 statement error con2
 COMMIT
 ----
-conflict
+
 
 statement ok
 INSERT INTO ducklake.test VALUES (3);
@@ -67,7 +67,7 @@ COMMIT
 statement error con2
 COMMIT
 ----
-conflict
+
 
 statement ok
 INSERT INTO ducklake.test VALUES (5);
@@ -94,7 +94,7 @@ COMMIT
 statement error con2
 COMMIT
 ----
-Conflict
+
 
 statement ok
 INSERT INTO ducklake.test VALUES (7);

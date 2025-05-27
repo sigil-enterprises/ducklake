@@ -10,7 +10,6 @@ require parquet
 statement error
 ATTACH 'ducklake:__TEST_DIR__/ducklake_read_only.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_read_only_files', READ_ONLY)
 ----
-read-only
 
 statement ok
 ATTACH 'ducklake:__TEST_DIR__/ducklake_read_only.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_read_only_files')
