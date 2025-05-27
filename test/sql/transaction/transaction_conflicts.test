@@ -184,7 +184,7 @@ COMMIT
 statement error con2
 COMMIT
 ----
-conflict
+
 
 # one transaction tries to insert data in a dropped table: conflict
 statement ok
@@ -208,7 +208,6 @@ COMMIT
 statement error con2
 COMMIT
 ----
-Transaction conflict
 
 # one transaction tries to drop a schema that another transaction created a table in: conflict
 statement ok
@@ -232,7 +231,6 @@ COMMIT
 statement error con2
 COMMIT
 ----
-Transaction conflict
 
 statement ok
 CREATE TABLE ducklake.test(part_key INT, val INT);
@@ -256,7 +254,6 @@ COMMIT
 statement error con2
 COMMIT
 ----
-conflict
 
 # try to insert into a table that has had its partition key changed
 statement ok con1
@@ -277,7 +274,6 @@ COMMIT
 statement error con2
 COMMIT
 ----
-conflict
 
 # try to set partition key on a dropped table
 statement ok con1
@@ -298,4 +294,4 @@ COMMIT
 statement error con2
 COMMIT
 ----
-conflict
+

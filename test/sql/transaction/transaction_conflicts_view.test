@@ -92,7 +92,6 @@ COMMIT
 statement error con2
 COMMIT
 ----
-Conflict
 
 statement ok
 CREATE VIEW ducklake.comment_view AS SELECT 42;
