@@ -34,7 +34,9 @@ FROM my_ducklake.my_table;
 │     1 │ Hello   │
 │     2 │ World   │
 └───────┴─────────┘
--- updates
+```
+##### Updates
+```sql
 UPDATE my_ducklake.my_table SET val='DuckLake' WHERE id=2;
 FROM my_ducklake.my_table;
 ┌───────┬──────────┐
@@ -44,7 +46,9 @@ FROM my_ducklake.my_table;
 │     1 │ Hello    │
 │     2 │ DuckLake │
 └───────┴──────────┘
--- time travel
+```
+##### Time Travel
+```sql
 FROM my_ducklake.my_table AT (VERSION => 2);
 ┌───────┬─────────┐
 │  id   │   val   │
@@ -53,7 +57,9 @@ FROM my_ducklake.my_table AT (VERSION => 2);
 │     1 │ Hello   │
 │     2 │ World   │
 └───────┴─────────┘
--- schema evolution
+```
+##### Schema Evolution
+```sql
 ALTER TABLE my_ducklake.my_table ADD COLUMN new_column VARCHAR;
 FROM my_ducklake.my_table;
 ┌───────┬──────────┬────────────┐
@@ -63,7 +69,9 @@ FROM my_ducklake.my_table;
 │     1 │ Hello    │ NULL       │
 │     2 │ DuckLake │ NULL       │
 └───────┴──────────┴────────────┘
--- change data feed
+```
+##### Change Data Feed
+```sql
 FROM my_ducklake.table_changes('my_table', 2, 2);
 ┌─────────────┬───────┬─────────────┬───────┬─────────┐
 │ snapshot_id │ rowid │ change_type │  id   │   val   │
