@@ -1,5 +1,6 @@
-#define DUCKDB_EXTENSION_MAIN
-
+#ifndef DUCKDB_BUILD_LOADABLE_EXTENSION
+#define DUCKDB_BUILD_LOADABLE_EXTENSION
+#endif
 #include "ducklake_extension.hpp"
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
