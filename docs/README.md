@@ -1,3 +1,12 @@
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="logo/DuckLake_Logo-horizontal.svg">
+    <source media="(prefers-color-scheme: dark)" srcset="logo/DuckLake_Logo-horizontal.svg">
+    <img alt="DuckLake logo" src="logo/DuckLake_Logo-horizontal.svg" height="100">
+  </picture>
+</div>
+<br>
+
 # DuckDB DuckLake Extension
 
 DuckLake is an open Lakehouse format that is built on SQL and Parquet. DuckLake stores metadata in a [catalog database](https://ducklake.select/docs/stable/duckdb/usage/choosing_a_catalog_database), and stores data in Parquet files. The DuckLake extension allows DuckDB to directly read and write data from DuckLake.
