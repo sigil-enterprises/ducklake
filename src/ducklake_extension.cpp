@@ -1,5 +1,6 @@
-#define DUCKDB_EXTENSION_MAIN
-
+#ifndef DUCKDB_BUILD_LOADABLE_EXTENSION
+#define DUCKDB_BUILD_LOADABLE_EXTENSION
+#endif
 #include "ducklake_extension.hpp"
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
@@ -69,7 +70,3 @@ DUCKDB_EXTENSION_API const char *ducklake_version() {
 	return duckdb::DuckDB::LibraryVersion();
 }
 }
-
-#ifndef DUCKDB_EXTENSION_MAIN
-#error DUCKDB_EXTENSION_MAIN not defined
-#endif
