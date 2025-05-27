@@ -173,18 +173,18 @@ shared_ptr<BaseFileReader> DuckLakeMultiFileReader::TryCreateInlinedDataReader(c
 		auto columns = DuckLakeMultiFileReader::ColumnsFromFieldData(read_info.table.GetFieldData(), true);
 		return make_shared_ptr<DuckLakeInlinedDataReader>(read_info, file, transaction_local_data, std::move(columns));
 	}
-	optional_idx schema_snapshot;
-	auto version_entry = file.extended_info->options.find("schema_snapshot");
+	optional_idx schema_version;
+	auto version_entry = file.extended_info->options.find("schema_version");
 	if (version_entry != file.extended_info->options.end()) {
-		schema_snapshot = version_entry->second.GetValue<idx_t>();
+		schema_version = version_entry->second.GetValue<idx_t>();
 	}
 	reference<DuckLakeTableEntry> schema_table = read_info.table;
-	if (schema_snapshot.IsValid()) {
+	if (schema_version.IsValid()) {
 		// read the table at the specified version
 		auto transaction = read_info.GetTransaction();
 		auto &catalog = transaction->GetCatalog();
 
-		DuckLakeSnapshot snapshot(0, schema_snapshot.GetIndex(), 0, 0);
+		DuckLakeSnapshot snapshot(0, schema_version.GetIndex(), 0, 0);
 		auto entry = catalog.GetEntryById(*transaction, snapshot, read_info.table.GetTableId());
 		schema_table = entry->Cast<DuckLakeTableEntry>();
 	}

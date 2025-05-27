@@ -46,7 +46,7 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_partition_info(partition_id BIGINT, tab
 CREATE TABLE {METADATA_CATALOG}.ducklake_partition_column(partition_id BIGINT, table_id BIGINT, partition_key_index BIGINT, column_id BIGINT, transform VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_file_partition_value(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, partition_key_index BIGINT, partition_value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion(data_file_id BIGINT, path VARCHAR, path_is_relative BOOLEAN, schedule_start TIMESTAMPTZ);
-CREATE TABLE {METADATA_CATALOG}.ducklake_inlined_data_tables(table_id BIGINT, table_name VARCHAR, schema_snapshot BIGINT);
+CREATE TABLE {METADATA_CATALOG}.ducklake_inlined_data_tables(table_id BIGINT, table_name VARCHAR, schema_version BIGINT);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot_changes VALUES (0, 'created_schema:"main"');
 INSERT INTO {METADATA_CATALOG}.ducklake_metadata VALUES ('version', '0.1'), ('created_by', 'DuckDB %s'), ('data_path', {DATA_PATH}), ('encrypted', '%s');
@@ -113,7 +113,7 @@ vector<DuckLakeInlinedTableInfo> LoadInlinedDataTables(const Value &list) {
 		auto &struct_children = StructValue::GetChildren(val);
 		DuckLakeInlinedTableInfo inlined_data_table;
 		inlined_data_table.table_name = StringValue::Get(struct_children[0]);
-		inlined_data_table.schema_snapshot = struct_children[1].GetValue<idx_t>();
+		inlined_data_table.schema_version = struct_children[1].GetValue<idx_t>();
 		result.push_back(std::move(inlined_data_table));
 	}
 	return result;
@@ -148,7 +148,7 @@ SELECT schema_id, tbl.table_id, table_uuid::VARCHAR, table_name,
 		      {SNAPSHOT_ID} >= tag.begin_snapshot AND ({SNAPSHOT_ID} < tag.end_snapshot OR tag.end_snapshot IS NULL)
 	) AS tag,
 	(
-		SELECT LIST({'name': table_name, 'schema_snapshot': schema_snapshot})
+		SELECT LIST({'name': table_name, 'schema_version': schema_version})
 		FROM {METADATA_CATALOG}.ducklake_inlined_data_tables inlined_data_tables
 		WHERE inlined_data_tables.table_id = tbl.table_id
 	) AS inlined_data_tables,
@@ -956,8 +956,8 @@ void DuckLakeMetadataManager::WriteNewInlinedData(DuckLakeSnapshot commit_snapsh
 		auto query = StringUtil::Format(R"(
 SELECT table_name
 FROM {METADATA_CATALOG}.ducklake_inlined_data_tables
-WHERE table_id = %d AND schema_snapshot=(
-    SELECT MAX(schema_snapshot)
+WHERE table_id = %d AND schema_version=(
+    SELECT MAX(schema_version)
     FROM {METADATA_CATALOG}.ducklake_inlined_data_tables
     WHERE table_id=%d
 );)",
