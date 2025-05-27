@@ -238,7 +238,7 @@ void DuckLakeDelete::FlushDelete(DuckLakeTransaction &transaction, ClientContext
 	}
 
 	// get the actual copy function and bind it
-	auto &copy_fun = DuckLakeFunctions::GetCopyFunction(*context.db, "parquet");
+	auto &copy_fun = DuckLakeFunctions::GetCopyFunction(context, "parquet");
 
 	CopyFunctionBindInput bind_input(*info);
 
