@@ -4,6 +4,7 @@
 #include "duckdb/common/types/column/column_data_collection.hpp"
 #include "duckdb/common/types/uuid.hpp"
 #include "duckdb/main/connection.hpp"
+#include "duckdb/storage/storage_manager.hpp"
 
 #include "storage/ducklake_initializer.hpp"
 #include "storage/ducklake_catalog.hpp"
@@ -111,8 +112,15 @@ void DuckLakeInitializer::InitializeDataPath() {
 
 void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction, bool has_explicit_schema) {
 	if (options.data_path.empty()) {
-		throw InvalidInputException("Attempting to create a new ducklake instance but data_path is not set - set the "
-		                            "DATA_PATH parameter to the desired location of the data files");
+		auto &metadata_catalog = Catalog::GetCatalog(*transaction.GetConnection().context, options.metadata_database);
+		if (!metadata_catalog.IsDuckCatalog()) {
+			throw InvalidInputException(
+			    "Attempting to create a new ducklake instance but data_path is not set - set the "
+			    "DATA_PATH parameter to the desired location of the data files");
+		}
+		// for DuckDB instances - use a default data path
+		auto path = metadata_catalog.GetAttached().GetStorageManager().GetDBPath();
+		options.data_path = path + ".files";
 	}
 	auto &metadata_manager = transaction.GetMetadataManager();
 	metadata_manager.InitializeDuckLake(has_explicit_schema, catalog.Encryption());
