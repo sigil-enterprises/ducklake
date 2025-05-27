@@ -322,7 +322,7 @@ OpenFileInfo DuckLakeMultiFileList::GetFile(idx_t i) {
 		auto &inlined_data_table = inlined_data_tables[inlined_data_index];
 		extended_info->options["table_name"] = inlined_data_table.table_name;
 		extended_info->options["inlined_data"] = Value::BOOLEAN(true);
-		extended_info->options["schema_snapshot"] = Value::BIGINT(inlined_data_table.schema_snapshot);
+		extended_info->options["schema_version"] = Value::BIGINT(inlined_data_table.schema_version);
 	} else {
 		extended_info->options["file_size"] = Value::UBIGINT(file.file_size_bytes);
 		extended_info->options["footer_size"] = Value::UBIGINT(file.footer_size);
