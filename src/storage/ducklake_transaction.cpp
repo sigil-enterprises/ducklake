@@ -1217,7 +1217,8 @@ void DuckLakeTransaction::FlushChanges() {
 				CleanupFiles();
 				throw;
 			}
-			bool is_primary_key_error = StringUtil::Contains(error.Message(), "primary key constraint");
+			bool is_primary_key_error =
+			    StringUtil::Contains(error.Message(), "primary key") || StringUtil::Contains(error.Message(), "unique");
 			bool finished_retrying = i + 1 >= max_retry_count;
 			if (!is_primary_key_error || finished_retrying) {
 				// we abort after the max retry count
