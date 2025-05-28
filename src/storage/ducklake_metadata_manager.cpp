@@ -722,6 +722,7 @@ void DuckLakeMetadataManager::DropSchemas(DuckLakeSnapshot commit_snapshot, set<
 
 void DuckLakeMetadataManager::DropTables(DuckLakeSnapshot commit_snapshot, set<TableIndex> ids) {
 	FlushDrop(commit_snapshot, "ducklake_table", "table_id", ids);
+	FlushDrop(commit_snapshot, "ducklake_partition_info", "table_id", ids);
 }
 
 void DuckLakeMetadataManager::DropViews(DuckLakeSnapshot commit_snapshot, set<TableIndex> ids) {
