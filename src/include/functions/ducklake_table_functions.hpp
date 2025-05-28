@@ -70,4 +70,9 @@ public:
 	DuckLakeExpireSnapshotsFunction();
 };
 
+class DuckLakeSetOptionFunction : public TableFunction {
+public:
+	DuckLakeSetOptionFunction();
+};
+
 } // namespace duckdb

@@ -38,6 +38,9 @@ static void LoadInternal(DatabaseInstance &instance) {
 	DuckLakeExpireSnapshotsFunction expire_snapshots;
 	ExtensionUtil::RegisterFunction(instance, expire_snapshots);
 
+	DuckLakeSetOptionFunction set_options;
+	ExtensionUtil::RegisterFunction(instance, set_options);
+
 	auto table_changes = DuckLakeTableInsertionsFunction::GetDuckLakeTableChanges();
 	ExtensionUtil::RegisterFunction(instance, *table_changes);
 }

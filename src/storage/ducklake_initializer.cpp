@@ -155,6 +155,7 @@ void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction)
 				throw NotImplementedException("Encrypted should be either true or false");
 			}
 		}
+		options.config_options.emplace(tag.key, tag.value);
 	}
 }
 

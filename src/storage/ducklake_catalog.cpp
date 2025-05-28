@@ -447,4 +447,19 @@ optional_idx DuckLakeCatalog::GetCatalogVersion(ClientContext &context) {
 	return transaction.GetSnapshot().schema_version;
 }
 
+void DuckLakeCatalog::SetConfigOption(string option, string value) {
+	lock_guard<mutex> guard(config_lock);
+	options.config_options.emplace(std::move(option), std::move(value));
+}
+
+bool DuckLakeCatalog::TryGetConfigOption(const string &option, string &result) const {
+	lock_guard<mutex> guard(config_lock);
+	auto entry = options.config_options.find(option);
+	if (entry == options.config_options.end()) {
+		return false;
+	}
+	result = entry->second;
+	return true;
+}
+
 } // namespace duckdb

@@ -48,6 +48,9 @@ public:
 	idx_t DataInliningRowLimit() const {
 		return options.data_inlining_row_limit;
 	}
+	void SetConfigOption(string option, string value);
+	bool TryGetConfigOption(const string &option, string &result) const;
+
 	optional_ptr<BoundAtClause> CatalogSnapshot() const;
 
 	optional_ptr<CatalogEntry> CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) override;
@@ -110,6 +113,8 @@ private:
 	unordered_map<idx_t, unique_ptr<DuckLakeCatalogSet>> schemas;
 	//! Map of data file index -> table stats
 	unordered_map<idx_t, unique_ptr<DuckLakeStats>> stats;
+	//! The configuration lock
+	mutable mutex config_lock;
 	//! The DuckLake options
 	DuckLakeOptions options;
 };

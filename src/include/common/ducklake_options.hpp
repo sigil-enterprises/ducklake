@@ -13,6 +13,7 @@
 #include "duckdb/common/enums/access_mode.hpp"
 #include "common/ducklake_encryption.hpp"
 #include "duckdb/planner/tableref/bound_at_clause.hpp"
+#include "duckdb/common/optional_idx.hpp"
 
 namespace duckdb {
 
@@ -26,6 +27,7 @@ struct DuckLakeOptions {
 	idx_t data_inlining_row_limit = 0;
 	unique_ptr<BoundAtClause> at_clause;
 	unordered_map<string, Value> metadata_parameters;
+	unordered_map<string, string> config_options;
 };
 
 } // namespace duckdb
