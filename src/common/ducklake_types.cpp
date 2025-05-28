@@ -12,7 +12,7 @@ struct DefaultType {
 	LogicalTypeId id;
 };
 
-using ducklake_type_array = std::array<DefaultType, 28>;
+using ducklake_type_array = std::array<DefaultType, 27>;
 
 static constexpr const ducklake_type_array DUCKLAKE_TYPES {{{"boolean", LogicalTypeId::BOOLEAN},
                                                             {"int8", LogicalTypeId::TINYINT},
@@ -42,11 +42,14 @@ static constexpr const ducklake_type_array DUCKLAKE_TYPES {{{"boolean", LogicalT
                                                             {"blob", LogicalTypeId::BLOB},
                                                             {"uuid", LogicalTypeId::UUID}}};
 
-LogicalTypeId ParseBaseType(const string &str) {
+LogicalType ParseBaseType(const string &str) {
 	for (auto &ducklake_type : DUCKLAKE_TYPES) {
 		if (StringUtil::CIEquals(str, ducklake_type.name)) {
 			return ducklake_type.id;
 		}
+	}
+	if (StringUtil::CIEquals(str, "json")) {
+		return LogicalType::JSON();
 	}
 	throw InvalidInputException("Failed to parse DuckLake type - unsupported type '%s'", str);
 }
@@ -77,6 +80,9 @@ LogicalType DuckLakeTypes::FromString(const string &type) {
 
 string DuckLakeTypes::ToString(const LogicalType &type) {
 	if (type.HasAlias()) {
+		if (type.IsJSONType()) {
+			return "json";
+		}
 		throw InvalidInputException("Unsupported user-defined type");
 	}
 	switch (type.id()) {

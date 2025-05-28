@@ -7,6 +7,7 @@ duckdb_extension_load(ducklake
 )
 
 duckdb_extension_load(icu)
+duckdb_extension_load(json)
 duckdb_extension_load(tpch)
 # Any extra extensions that should be built
 # e.g.: duckdb_extension_load(json)
