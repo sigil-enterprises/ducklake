@@ -1189,6 +1189,10 @@ bool RetryOnError(const string &original_message) {
 	if (StringUtil::Contains(message, "conflict")) {
 		return true;
 	}
+	// retry on concurrent access
+	if (StringUtil::Contains(message, "concurrent")) {
+		return true;
+	}
 	return false;
 }
 
