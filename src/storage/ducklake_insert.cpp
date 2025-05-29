@@ -291,8 +291,12 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, const
 
 	auto &fs = FileSystem::GetFileSystem(context);
 	if (!fs.IsRemoteFile(data_path)) {
-		if (!fs.DirectoryExists(data_path)) {
-			fs.CreateDirectory(data_path);
+		// create data path if it does not yet exist
+		try {
+			if (!fs.DirectoryExists(data_path)) {
+				fs.CreateDirectory(data_path);
+			}
+		} catch (...) {
 		}
 	}
 
