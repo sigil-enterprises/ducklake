@@ -1,16 +1,17 @@
 #include "storage/ducklake_transaction.hpp"
+
+#include "common/ducklake_types.hpp"
+#include "common/ducklake_util.hpp"
+#include "duckdb/common/types/uuid.hpp"
+#include "duckdb/main/attached_database.hpp"
+#include "duckdb/main/database_manager.hpp"
+#include "duckdb/planner/tableref/bound_at_clause.hpp"
 #include "storage/ducklake_catalog.hpp"
 #include "storage/ducklake_schema_entry.hpp"
 #include "storage/ducklake_table_entry.hpp"
-#include "storage/ducklake_view_entry.hpp"
-#include "common/ducklake_types.hpp"
-#include "common/ducklake_util.hpp"
-
-#include "duckdb/common/types/uuid.hpp"
-#include "duckdb/main/database_manager.hpp"
-#include "duckdb/main/attached_database.hpp"
-#include "duckdb/planner/tableref/bound_at_clause.hpp"
 #include "storage/ducklake_transaction_changes.hpp"
+#include "storage/ducklake_transaction_manager.hpp"
+#include "storage/ducklake_view_entry.hpp"
 
 namespace duckdb {
 
@@ -1231,6 +1232,7 @@ void DuckLakeTransaction::FlushChanges() {
 
 			WriteSnapshotChanges(commit_snapshot, transaction_changes);
 			connection->Commit();
+			catalog_version = commit_snapshot.schema_version;
 			// finished writing
 			break;
 		} catch (std::exception &ex) {
@@ -1585,6 +1587,7 @@ DuckLakeTransaction &DuckLakeTransaction::Get(ClientContext &context, Catalog &c
 }
 
 void DuckLakeTransaction::CreateEntry(unique_ptr<CatalogEntry> entry) {
+	catalog_version = ++static_cast<DuckLakeTransactionManager &>(manager).last_uncommitted_catalog_version;
 	auto &set = GetOrCreateTransactionLocalEntries(*entry);
 	set.CreateEntry(std::move(entry));
 }
@@ -1607,6 +1610,7 @@ void DuckLakeTransaction::DropSchema(DuckLakeSchemaEntry &schema) {
 }
 
 void DuckLakeTransaction::DropTable(DuckLakeTableEntry &table) {
+	catalog_version = ++static_cast<DuckLakeTransactionManager &>(manager).last_uncommitted_catalog_version;
 	if (table.IsTransactionLocal()) {
 		// table is transaction-local - drop it from the transaction local changes
 		auto schema_entry = new_tables.find(table.ParentSchema().name);
@@ -1660,6 +1664,7 @@ bool DuckLakeTransaction::FileIsDropped(const string &path) const {
 }
 
 void DuckLakeTransaction::DropEntry(CatalogEntry &entry) {
+	catalog_version = ++static_cast<DuckLakeTransactionManager &>(manager).last_uncommitted_catalog_version;
 	switch (entry.type) {
 	case CatalogType::TABLE_ENTRY:
 		DropTable(entry.Cast<DuckLakeTableEntry>());
@@ -1695,6 +1700,8 @@ bool DuckLakeTransaction::IsDeleted(CatalogEntry &entry) {
 }
 
 void DuckLakeTransaction::AlterEntry(CatalogEntry &entry, unique_ptr<CatalogEntry> new_entry) {
+	catalog_version = ++static_cast<DuckLakeTransactionManager &>(manager).last_uncommitted_catalog_version;
+
 	if (!new_entry) {
 		return;
 	}

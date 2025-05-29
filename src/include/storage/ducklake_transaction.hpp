@@ -113,6 +113,8 @@ public:
 	string GenerateUUID() const;
 	static string GenerateUUIDv7();
 
+	atomic<idx_t> catalog_version = 0;
+
 private:
 	void CleanupFiles();
 	void FlushChanges();
