@@ -15,6 +15,20 @@ DuckLake is an open Lakehouse format that is built on SQL and Parquet. DuckLake 
 
 See the [DuckLake website](https://ducklake.select) for more information.
 
+## Installation
+
+DuckLake can be installed using the `INSTALL` command:
+
+```sql
+INSTALL ducklake;
+```
+
+The latest development version can be installed from `core_nightly`:
+
+```sql
+FORCE INSTALL ducklake FROM core_nightly;
+```
+
 ## Usage
 
 DuckLake databases can be attached using the  [`ATTACH`](https://duckdb.org/docs/stable/sql/statements/attach.html) syntax, after which tables can be created, modified and queried using standard SQL.

@@ -158,3 +158,11 @@ query I
 SELECT COUNT(*) FROM partition_tbl2 WHERE part_key=0
 ----
 5000
+
+statement ok
+DROP TABLE partitioned_tbl
+
+query I
+SELECT COUNT(*) FROM partition_tbl2 WHERE part_key=0
+----
+5000

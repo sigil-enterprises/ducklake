@@ -44,7 +44,7 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_table_stats(table_id BIGINT, record_cou
 CREATE TABLE {METADATA_CATALOG}.ducklake_table_column_stats(table_id BIGINT, column_id BIGINT, contains_null BOOLEAN, contains_nan BOOLEAN, min_value VARCHAR, max_value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_partition_info(partition_id BIGINT, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_partition_column(partition_id BIGINT, table_id BIGINT, partition_key_index BIGINT, column_id BIGINT, transform VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_file_partition_value(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, partition_key_index BIGINT, partition_value VARCHAR);
+CREATE TABLE {METADATA_CATALOG}.ducklake_file_partition_value(data_file_id BIGINT, table_id BIGINT, partition_key_index BIGINT, partition_value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion(data_file_id BIGINT, path VARCHAR, path_is_relative BOOLEAN, schedule_start TIMESTAMPTZ);
 CREATE TABLE {METADATA_CATALOG}.ducklake_inlined_data_tables(table_id BIGINT, table_name VARCHAR, schema_version BIGINT);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
@@ -722,6 +722,7 @@ void DuckLakeMetadataManager::DropSchemas(DuckLakeSnapshot commit_snapshot, set<
 
 void DuckLakeMetadataManager::DropTables(DuckLakeSnapshot commit_snapshot, set<TableIndex> ids) {
 	FlushDrop(commit_snapshot, "ducklake_table", "table_id", ids);
+	FlushDrop(commit_snapshot, "ducklake_partition_info", "table_id", ids);
 }
 
 void DuckLakeMetadataManager::DropViews(DuckLakeSnapshot commit_snapshot, set<TableIndex> ids) {
@@ -1332,7 +1333,7 @@ WHERE snapshot_id = (
 	SELECT MAX_BY(snapshot_id, snapshot_time)
 	FROM {METADATA_CATALOG}.ducklake_snapshot
 	WHERE snapshot_time <= %s);)",
-		                                              val.DefaultCastAs(LogicalType::TIMESTAMP_TZ).ToSQLString()));
+		                                              val.DefaultCastAs(LogicalType::VARCHAR).ToSQLString()));
 	} else {
 		throw InvalidInputException("Unsupported AT clause unit - %s", unit);
 	}
@@ -1563,6 +1564,12 @@ WHERE table_id=tid AND column_id=cid
 	}
 }
 
+template <class T>
+timestamp_tz_t GetTimestampTZFromRow(ClientContext &context, const T &row, idx_t col_idx) {
+	auto val = row.iterator.chunk->GetValue(col_idx, row.row);
+	return val.CastAs(context, LogicalType::TIMESTAMP_TZ).template GetValue<timestamp_tz_t>();
+}
+
 vector<DuckLakeSnapshotInfo> DuckLakeMetadataManager::GetAllSnapshots(const string &filter) {
 	auto res = transaction.Query(StringUtil::Format(R"(
 SELECT snapshot_id, snapshot_time, schema_version, changes_made
@@ -1575,11 +1582,12 @@ ORDER BY snapshot_id
 	if (res->HasError()) {
 		res->GetErrorObject().Throw("Failed to get snapshot information from DuckLake: ");
 	}
+	auto context = transaction.context.lock();
 	vector<DuckLakeSnapshotInfo> snapshots;
 	for (auto &row : *res) {
 		DuckLakeSnapshotInfo snapshot_info;
 		snapshot_info.id = row.GetValue<idx_t>(0);
-		snapshot_info.time = row.GetValue<timestamp_tz_t>(1);
+		snapshot_info.time = GetTimestampTZFromRow(*context, row, 1);
 		snapshot_info.schema_version = row.GetValue<idx_t>(2);
 		snapshot_info.change_info.changes_made = row.IsNull(3) ? string() : row.GetValue<string>(3);
 
@@ -1596,6 +1604,7 @@ FROM {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion
 	if (res->HasError()) {
 		res->GetErrorObject().Throw("Failed to get files scheduled for deletion from DuckLake: ");
 	}
+	auto context = transaction.context.lock();
 	vector<DuckLakeFileScheduledForCleanup> result;
 	for (auto &row : *res) {
 		DuckLakeFileScheduledForCleanup info;
@@ -1604,7 +1613,7 @@ FROM {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion
 		path.path = row.GetValue<string>(1);
 		path.path_is_relative = row.GetValue<bool>(2);
 		info.path = FromRelativePath(path);
-		info.time = row.GetValue<timestamp_tz_t>(3);
+		info.time = GetTimestampTZFromRow(*context, row, 3);
 
 		result.push_back(std::move(info));
 	}

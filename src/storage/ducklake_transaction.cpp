@@ -1231,7 +1231,6 @@ void DuckLakeTransaction::FlushChanges() {
 			break;
 		} catch (std::exception &ex) {
 			ErrorData error(ex);
-
 			// rollback if there is an active transaction
 			auto has_active_transaction = connection->context->transaction.HasActiveTransaction();
 			if (has_active_transaction) {
