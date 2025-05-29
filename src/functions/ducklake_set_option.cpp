@@ -52,6 +52,8 @@ static unique_ptr<FunctionData> DuckLakeSetOptionBind(ClientContext &context, Ta
 			throw NotImplementedException("Row group size cannot be 0");
 		}
 		value = to_string(row_group_size);
+	} else {
+		throw NotImplementedException("Unsupported option %s", option);
 	}
 	return_types.push_back(LogicalType::BOOLEAN);
 	names.push_back("Success");
