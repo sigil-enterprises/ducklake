@@ -1,7 +1,7 @@
 <div align="center">
   <picture>
     <source media="(prefers-color-scheme: light)" srcset="../logo/DuckLake_Logo-horizontal.svg">
-    <source media="(prefers-color-scheme: dark)" srcset="../logo/DuckLake_Logo-horizontal.svg">
+    <source media="(prefers-color-scheme: dark)" srcset="../logo/DuckLake_Logo-horizontal-dark.svg">
     <img alt="DuckLake logo" src="../logo/DuckLake_Logo-horizontal.svg" height="100">
   </picture>
 </div>
