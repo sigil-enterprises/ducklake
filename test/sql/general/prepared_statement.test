@@ -9,6 +9,9 @@ require parquet
 statement ok
 SET parquet_metadata_cache=true;
 
+# FIXME: succeeds on v1.3 branch but fails on v1.3.0 release
+mode skip
+
 statement ok
 ATTACH 'ducklake:__TEST_DIR__/ducklake_prepared.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_prepared_files')
 

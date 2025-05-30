@@ -327,7 +327,15 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 	// check if we are dropping the same table as another transaction
 	for (auto &dropped_idx : changes.dropped_tables) {
 		if (other_changes.dropped_tables.find(dropped_idx) != other_changes.dropped_tables.end()) {
-			throw TransactionException("Transaction conflict - attempting to drop table with table index \"%s\""
+			throw TransactionException("Transaction conflict - attempting to drop table with table index \"%d\""
+			                           "- but this has been dropped by another transaction already",
+			                           dropped_idx.index);
+		}
+	}
+	// check if we are dropping the same view as another transaction
+	for (auto &dropped_idx : changes.dropped_views) {
+		if (other_changes.dropped_views.find(dropped_idx) != other_changes.dropped_views.end()) {
+			throw TransactionException("Transaction conflict - attempting to drop view with view index \"%d\""
 			                           "- but this has been dropped by another transaction already",
 			                           dropped_idx.index);
 		}
@@ -1171,6 +1179,23 @@ void DuckLakeTransaction::CommitCompaction(DuckLakeSnapshot &commit_snapshot,
 	}
 }
 
+bool RetryOnError(const string &original_message) {
+	auto message = StringUtil::Lower(original_message);
+	// retry on primary key errors
+	if (StringUtil::Contains(message, "primary key") || StringUtil::Contains(message, "unique")) {
+		return true;
+	}
+	// retry on conflicts
+	if (StringUtil::Contains(message, "conflict")) {
+		return true;
+	}
+	// retry on concurrent access
+	if (StringUtil::Contains(message, "concurrent")) {
+		return true;
+	}
+	return false;
+}
+
 void DuckLakeTransaction::FlushChanges() {
 	if (!ChangesMade() && !PerformedCompaction()) {
 		// read-only transactions don't need to do anything
@@ -1210,17 +1235,14 @@ void DuckLakeTransaction::FlushChanges() {
 			break;
 		} catch (std::exception &ex) {
 			ErrorData error(ex);
-			connection->Rollback();
-			if (error.Type() == ExceptionType::TRANSACTION) {
-				// immediately rethrow transaction conflicts - no need to retry
-				connection.reset();
-				CleanupFiles();
-				throw;
+			// rollback if there is an active transaction
+			auto has_active_transaction = connection->context->transaction.HasActiveTransaction();
+			if (has_active_transaction) {
+				connection->Rollback();
 			}
-			bool is_primary_key_error =
-			    StringUtil::Contains(error.Message(), "primary key") || StringUtil::Contains(error.Message(), "unique");
+			bool retry_on_error = RetryOnError(error.Message());
 			bool finished_retrying = i + 1 >= max_retry_count;
-			if (!is_primary_key_error || finished_retrying) {
+			if (!retry_on_error || finished_retrying) {
 				// we abort after the max retry count
 				CleanupFiles();
 				error.Throw("Failed to commit DuckLake transaction: ");
