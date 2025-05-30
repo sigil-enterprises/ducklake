@@ -1254,6 +1254,13 @@ void DuckLakeTransaction::FlushChanges() {
 	}
 }
 
+void DuckLakeTransaction::SetConfigOption(string option, string value) {
+	// write the config option to the metadata
+	metadata_manager->SetConfigOption(option, value);
+	// set the option in the catalog
+	ducklake_catalog.SetConfigOption(std::move(option), std::move(value));
+}
+
 void DuckLakeTransaction::DeleteSnapshots(const vector<DuckLakeSnapshotInfo> &snapshots) {
 	auto &metadata_manager = GetMetadataManager();
 	metadata_manager.DeleteSnapshots(snapshots);

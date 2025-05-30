@@ -1941,6 +1941,34 @@ WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_s
 	return table_sizes;
 }
 
+void DuckLakeMetadataManager::SetConfigOption(const string &option, const string &value) {
+	// check if the option already exists
+	auto result = transaction.Query(StringUtil::Format(R"(
+SELECT COUNT(*)
+FROM {METADATA_CATALOG}.ducklake_metadata
+WHERE key = %s
+)",
+	                                                   SQLString(option)));
+
+	auto count = result->Fetch()->GetValue(0, 0).GetValue<idx_t>();
+	if (count == 0) {
+		// option does not yet exist - insert the value
+		result = transaction.Query(StringUtil::Format(R"(
+INSERT INTO {METADATA_CATALOG}.ducklake_metadata VALUES (%s, %s)
+)",
+		                                              SQLString(option), SQLString(value)));
+	} else {
+		// option already exists - update it
+		result = transaction.Query(StringUtil::Format(R"(
+UPDATE {METADATA_CATALOG}.ducklake_metadata SET value=%s WHERE key=%s
+)",
+		                                              SQLString(value), SQLString(option)));
+	}
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to insert config option in DuckLake: ");
+	}
+}
+
 bool DuckLakeMetadataManager::IsEncrypted() const {
 	return transaction.GetCatalog().Encryption() == DuckLakeEncryption::ENCRYPTED;
 }

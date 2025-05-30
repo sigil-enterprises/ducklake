@@ -99,6 +99,7 @@ public:
 	static bool IsTransactionLocal(idx_t id) {
 		return id >= DuckLakeConstants::TRANSACTION_LOCAL_ID_START;
 	}
+	void SetConfigOption(string option, string value);
 
 	string GetDefaultSchemaName();
 
@@ -115,6 +116,7 @@ public:
 private:
 	void CleanupFiles();
 	void FlushChanges();
+	void FlushSettingChanges();
 	void CommitChanges(DuckLakeSnapshot &commit_snapshot, TransactionChangeInformation &transaction_changes);
 	void CommitCompaction(DuckLakeSnapshot &commit_snapshot, TransactionChangeInformation &transaction_changes);
 	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,

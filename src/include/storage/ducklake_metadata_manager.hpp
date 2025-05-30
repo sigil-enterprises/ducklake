@@ -99,6 +99,7 @@ public:
 	virtual vector<DuckLakeSnapshotInfo> GetAllSnapshots(const string &filter = string());
 	virtual void DeleteSnapshots(const vector<DuckLakeSnapshotInfo> &snapshots);
 	virtual vector<DuckLakeTableSizeInfo> GetTableSizes(DuckLakeSnapshot snapshot);
+	virtual void SetConfigOption(const string &option, const string &value);
 
 protected:
 	string GetInlinedTableQuery(const DuckLakeTableInfo &table, const string &table_name);

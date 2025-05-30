@@ -260,7 +260,8 @@ DuckLakeCopyOptions::DuckLakeCopyOptions(unique_ptr<CopyInfo> info_p, CopyFuncti
     : info(std::move(info_p)), copy_function(std::move(copy_function_p)) {
 }
 
-DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, const ColumnList &columns,
+DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(DuckLakeCatalog &catalog, ClientContext &context,
+                                                   const ColumnList &columns,
                                                    optional_ptr<DuckLakePartition> partition_data,
                                                    optional_ptr<DuckLakeFieldData> field_data, const string &data_path,
                                                    string encryption_key, InsertVirtualColumns virtual_columns) {
@@ -284,6 +285,22 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, const
 		vector<Value> encryption_input;
 		encryption_input.push_back(Value::STRUCT(std::move(values)));
 		info->options["encryption_config"] = std::move(encryption_input);
+	}
+	string parquet_compression;
+	if (catalog.TryGetConfigOption("parquet_compression", parquet_compression)) {
+		info->options["compression"].emplace_back(parquet_compression);
+	}
+	string parquet_version;
+	if (catalog.TryGetConfigOption("parquet_version", parquet_version)) {
+		info->options["parquet_version"].emplace_back(parquet_version);
+	}
+	string parquet_compression_level;
+	if (catalog.TryGetConfigOption("parquet_compression_level", parquet_compression_level)) {
+		info->options["compression_level"].emplace_back(parquet_compression_level);
+	}
+	string row_group_size;
+	if (catalog.TryGetConfigOption("row_group_size", row_group_size)) {
+		info->options["row_group_size"].emplace_back(row_group_size);
 	}
 
 	// Get Parquet Copy function
@@ -349,14 +366,14 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, const
 	return result;
 }
 
-PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, const ColumnList &columns,
-                                                    PhysicalPlanGenerator &planner,
+PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(DuckLakeCatalog &catalog, ClientContext &context,
+                                                    const ColumnList &columns, PhysicalPlanGenerator &planner,
                                                     optional_ptr<DuckLakePartition> partition_data,
                                                     optional_ptr<DuckLakeFieldData> field_data,
                                                     optional_ptr<PhysicalOperator> plan, const string &data_path,
                                                     string encryption_key, InsertVirtualColumns virtual_columns) {
 	bool is_encrypted = !encryption_key.empty();
-	auto copy_options = GetCopyOptions(context, columns, partition_data, field_data, data_path,
+	auto copy_options = GetCopyOptions(catalog, context, columns, partition_data, field_data, data_path,
 	                                   std::move(encryption_key), virtual_columns);
 
 	auto copy_return_types = GetCopyFunctionReturnLogicalTypes(CopyFunctionReturnType::WRITTEN_FILE_STATISTICS);
@@ -400,7 +417,8 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, Phys
 		partition_id = partition_data->partition_id;
 	}
 	auto &field_data = table.GetFieldData();
-	return PlanCopyForInsert(context, columns, planner, partition_data, field_data, plan, table.DataPath(),
+	auto &catalog = table.ParentCatalog().Cast<DuckLakeCatalog>();
+	return PlanCopyForInsert(catalog, context, columns, planner, partition_data, field_data, plan, table.DataPath(),
 	                         std::move(encryption_key), virtual_columns);
 }
 
@@ -473,8 +491,9 @@ PhysicalOperator &DuckLakeCatalog::PlanCreateTableAs(ClientContext &context, Phy
 	for (auto &col : op.info->Base().columns.Logical()) {
 		DuckLakeTypes::CheckSupportedType(col.Type());
 	}
-	auto &physical_copy = DuckLakeInsert::PlanCopyForInsert(context, columns, planner, nullptr, nullptr, root.get(),
-	                                                        DataPath(), encryption_key);
+	auto &catalog = op.schema.ParentCatalog().Cast<DuckLakeCatalog>();
+	auto &physical_copy = DuckLakeInsert::PlanCopyForInsert(catalog, context, columns, planner, nullptr, nullptr,
+	                                                        root.get(), DataPath(), encryption_key);
 	auto &insert = planner.Make<DuckLakeInsert>(op.types, op.schema, std::move(op.info), std::move(encryption_key));
 	if (inline_data) {
 		inline_data->insert = insert.Cast<DuckLakeInsert>();

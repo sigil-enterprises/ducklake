@@ -256,8 +256,9 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	// generate the LogicalGet
 	auto &columns = table.GetColumns();
 	string encryption_key = catalog.GenerateEncryptionKey(context);
+	auto &catalog = table.ParentCatalog().Cast<DuckLakeCatalog>();
 	auto copy_options =
-	    DuckLakeInsert::GetCopyOptions(context, columns, nullptr, table.GetFieldData(), table.DataPath(),
+	    DuckLakeInsert::GetCopyOptions(catalog, context, columns, nullptr, table.GetFieldData(), table.DataPath(),
 	                                   encryption_key, InsertVirtualColumns::WRITE_SNAPSHOT_ID);
 
 	auto virtual_columns = table.GetVirtualColumns();
