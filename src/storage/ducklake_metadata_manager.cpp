@@ -376,7 +376,10 @@ DuckLakeFileData DuckLakeMetadataManager::ReadDataFile(T &row, idx_t &col_idx, b
 
 	data.path = FromRelativePath(path);
 	data.file_size_bytes = row.template GetValue<idx_t>(col_idx++);
-	data.footer_size = row.template GetValue<idx_t>(col_idx++);
+	if (!row.IsNull(col_idx)) {
+		data.footer_size = row.template GetValue<idx_t>(col_idx);
+	}
+	col_idx++;
 	if (is_encrypted) {
 		if (row.IsNull(col_idx)) {
 			throw InvalidInputException("Database is encrypted, but file %s does not have an encryption key",
