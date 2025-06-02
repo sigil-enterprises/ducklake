@@ -310,9 +310,7 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(DuckLakeCatalog &catalog, Cli
 	if (!fs.IsRemoteFile(data_path)) {
 		// create data path if it does not yet exist
 		try {
-			if (!fs.DirectoryExists(data_path)) {
-				fs.CreateDirectory(data_path);
-			}
+			fs.CreateDirectoriesRecursive(data_path);
 		} catch (...) {
 		}
 	}

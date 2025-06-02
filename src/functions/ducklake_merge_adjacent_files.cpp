@@ -135,7 +135,7 @@ public:
 class DuckLakeCompactor {
 public:
 	DuckLakeCompactor(ClientContext &context, DuckLakeCatalog &catalog, DuckLakeTransaction &transaction,
-	                  Binder &binder, TableIndex table_id);
+	                  Binder &binder, DuckLakeTableEntry &table);
 
 	void GenerateCompactions(vector<unique_ptr<LogicalOperator>> &compactions);
 	unique_ptr<LogicalOperator> GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry> source_files);
@@ -145,17 +145,17 @@ private:
 	DuckLakeCatalog &catalog;
 	DuckLakeTransaction &transaction;
 	Binder &binder;
-	TableIndex table_id;
+	DuckLakeTableEntry &table;
 };
 
 DuckLakeCompactor::DuckLakeCompactor(ClientContext &context, DuckLakeCatalog &catalog, DuckLakeTransaction &transaction,
-                                     Binder &binder, TableIndex table_id)
-    : context(context), catalog(catalog), transaction(transaction), binder(binder), table_id(table_id) {
+                                     Binder &binder, DuckLakeTableEntry &table)
+    : context(context), catalog(catalog), transaction(transaction), binder(binder), table(table) {
 }
 
 void DuckLakeCompactor::GenerateCompactions(vector<unique_ptr<LogicalOperator>> &compactions) {
 	auto &metadata_manager = transaction.GetMetadataManager();
-	auto files = metadata_manager.GetFilesForCompaction(table_id);
+	auto files = metadata_manager.GetFilesForCompaction(table);
 
 	// target file size: 10MB
 	static constexpr const idx_t TARGET_FILE_SIZE = 10000000;
@@ -223,11 +223,6 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	// get the table entry at the specified snapshot
 	auto snapshot_id = source_files[0].file.begin_snapshot;
 	DuckLakeSnapshot snapshot(snapshot_id, source_files[0].schema_version, 0, 0);
-	auto entry = catalog.GetEntryById(transaction, snapshot, table_id);
-	if (!entry) {
-		throw InternalException("DuckLakeCompactor: failed to find table entry for given snapshot id");
-	}
-	auto &table = entry->Cast<DuckLakeTableEntry>();
 
 	auto table_idx = binder.GenerateTableIndex();
 	unique_ptr<FunctionData> bind_data;
@@ -325,7 +320,7 @@ unique_ptr<LogicalOperator> MergeAdjacentFilesBind(ClientContext &context, Table
 	for (auto &schema : schemas) {
 		schema.get().Scan(context, CatalogType::TABLE_ENTRY, [&](CatalogEntry &entry) {
 			auto &table = entry.Cast<DuckLakeTableEntry>();
-			DuckLakeCompactor compactor(context, ducklake_catalog, transaction, *input.binder, table.GetTableId());
+			DuckLakeCompactor compactor(context, ducklake_catalog, transaction, *input.binder, table);
 			compactor.GenerateCompactions(compactions);
 		});
 	}

@@ -29,11 +29,11 @@ void DuckLakeTableEntry::CheckSupportedTypes() {
 }
 
 DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info,
-                                       TableIndex table_id, string table_uuid_p,
+                                       TableIndex table_id, string table_uuid_p, string data_path_p,
                                        shared_ptr<DuckLakeFieldData> field_data_p, optional_idx next_column_id_p,
                                        vector<DuckLakeInlinedTableInfo> inlined_data_tables_p, LocalChange local_change)
     : TableCatalogEntry(catalog, schema, info), table_id(table_id), table_uuid(std::move(table_uuid_p)),
-      field_data(std::move(field_data_p)), next_column_id(next_column_id_p),
+      data_path(std::move(data_path_p)), field_data(std::move(field_data_p)), next_column_id(next_column_id_p),
       inlined_data_tables(std::move(inlined_data_tables_p)), local_change(local_change) {
 	CheckSupportedTypes();
 	for (auto &col : columns.Logical()) {
@@ -63,8 +63,8 @@ DuckLakeTableEntry::DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &sch
 // ALTER TABLE RENAME/SET COMMENT/ADD COLUMN/DROP COLUMN
 DuckLakeTableEntry::DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, LocalChange local_change)
     : DuckLakeTableEntry(parent.ParentCatalog(), parent.ParentSchema(), info, parent.GetTableId(),
-                         parent.GetTableUUID(), parent.field_data, parent.next_column_id, parent.inlined_data_tables,
-                         local_change) {
+                         parent.GetTableUUID(), parent.DataPath(), parent.field_data, parent.next_column_id,
+                         parent.inlined_data_tables, local_change) {
 	if (parent.partition_data) {
 		partition_data = make_uniq<DuckLakePartition>(*parent.partition_data);
 	}
@@ -270,7 +270,7 @@ void DuckLakeTableEntry::SetPartitionData(unique_ptr<DuckLakePartition> partitio
 }
 
 const string &DuckLakeTableEntry::DataPath() const {
-	return catalog.Cast<DuckLakeCatalog>().DataPath();
+	return data_path;
 }
 
 optional_ptr<DuckLakeTableStats> DuckLakeTableEntry::GetTableStats(ClientContext &context) {

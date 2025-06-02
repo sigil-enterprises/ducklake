@@ -56,7 +56,10 @@ optional_ptr<CatalogEntry> DuckLakeCatalog::CreateSchema(CatalogTransaction tran
 	//! get a local table-id
 	auto schema_id = SchemaIndex(duck_transaction.GetLocalCatalogId());
 	auto schema_uuid = duck_transaction.GenerateUUID();
-	auto schema_entry = make_uniq<DuckLakeSchemaEntry>(*this, info, schema_id, std::move(schema_uuid));
+	// FIXME: normalize schema name? or fallback to UUID if not all ascii?
+	auto schema_data_path = DataPath() + info.schema + "/";
+	auto schema_entry =
+	    make_uniq<DuckLakeSchemaEntry>(*this, info, schema_id, std::move(schema_uuid), std::move(schema_data_path));
 	auto result = schema_entry.get();
 	duck_transaction.CreateEntry(std::move(schema_entry));
 	return result;
@@ -90,6 +93,12 @@ void DuckLakeCatalog::ScanSchemas(ClientContext &context, std::function<void(Sch
 		}
 		callback(schema_entry);
 	}
+}
+
+optional_ptr<CatalogEntry> DuckLakeCatalog::GetEntryById(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
+                                                         SchemaIndex schema_id) {
+	auto &schema = GetSchemaForSnapshot(transaction, snapshot);
+	return schema.GetEntryById(schema_id);
 }
 
 optional_ptr<CatalogEntry> DuckLakeCatalog::GetEntryById(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
@@ -166,16 +175,16 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 	auto &metadata_manager = transaction.GetMetadataManager();
 	auto catalog = metadata_manager.GetCatalogForSnapshot(snapshot);
 	ducklake_entries_map_t schema_map;
-	map<SchemaIndex, reference<DuckLakeSchemaEntry>> schema_id_map;
 	for (auto &schema : catalog.schemas) {
 		CreateSchemaInfo schema_info;
 		schema_info.schema = schema.name;
-		auto schema_entry = make_uniq<DuckLakeSchemaEntry>(*this, schema_info, schema.id, std::move(schema.uuid));
-		schema_id_map.insert(make_pair(schema.id, reference<DuckLakeSchemaEntry>(*schema_entry)));
+		auto schema_entry = make_uniq<DuckLakeSchemaEntry>(*this, schema_info, schema.id, std::move(schema.uuid),
+		                                                   std::move(schema.path));
 		schema_map.insert(make_pair(std::move(schema.name), std::move(schema_entry)));
 	}
 
 	auto schema_set = make_uniq<DuckLakeCatalogSet>(std::move(schema_map));
+	auto &schema_id_map = schema_set->GetSchemaIdMap();
 	// load the table entries
 	for (auto &table : catalog.tables) {
 		// find the schema for the table
@@ -223,9 +232,9 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 			create_table_info->constraints.push_back(make_uniq<NotNullConstraint>(col.Logical()));
 		}
 		// create the table and add it to the schema set
-		auto table_entry = make_uniq<DuckLakeTableEntry>(*this, schema_entry, *create_table_info, table.id,
-		                                                 std::move(table.uuid), std::move(field_data), optional_idx(),
-		                                                 std::move(table.inlined_data_tables), LocalChangeType::NONE);
+		auto table_entry = make_uniq<DuckLakeTableEntry>(
+		    *this, schema_entry, *create_table_info, table.id, std::move(table.uuid), std::move(table.path),
+		    std::move(field_data), optional_idx(), std::move(table.inlined_data_tables), LocalChangeType::NONE);
 		schema_set->AddEntry(schema_entry, table.id, std::move(table_entry));
 	}
 

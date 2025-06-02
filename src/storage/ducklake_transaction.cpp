@@ -501,6 +501,7 @@ vector<DuckLakeSchemaInfo> DuckLakeTransaction::GetNewSchemas(DuckLakeSnapshot &
 		schema_info.id = SchemaIndex(commit_snapshot.next_catalog_id++);
 		schema_info.uuid = schema_entry.GetSchemaUUID();
 		schema_info.name = schema_entry.name;
+		schema_info.path = schema_entry.DataPath();
 
 		// set the schema id of this schema entry so subsequent tables are written correctly
 		schema_entry.SetSchemaId(schema_info.id);
@@ -582,6 +583,7 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 	table_entry.uuid = table.GetTableUUID();
 	table_entry.schema_id = schema.GetSchemaId();
 	table_entry.name = table.name;
+	table_entry.path = table.DataPath();
 	if (is_new_table) {
 		// if this is a new table - write the columns
 		table_entry.columns = GetTableColumns(table);

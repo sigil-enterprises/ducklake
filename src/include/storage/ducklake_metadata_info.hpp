@@ -33,6 +33,7 @@ struct DuckLakeSchemaInfo {
 	SchemaIndex id;
 	string uuid;
 	string name;
+	string path;
 	vector<DuckLakeTag> tags;
 };
 
@@ -57,6 +58,7 @@ struct DuckLakeTableInfo {
 	SchemaIndex schema_id;
 	string uuid;
 	string name;
+	string path;
 	vector<DuckLakeColumnInfo> columns;
 	vector<DuckLakeTag> tags;
 	vector<DuckLakeInlinedTableInfo> inlined_data_tables;

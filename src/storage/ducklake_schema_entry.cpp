@@ -12,8 +12,9 @@
 namespace duckdb {
 
 DuckLakeSchemaEntry::DuckLakeSchemaEntry(Catalog &catalog, CreateSchemaInfo &info, SchemaIndex schema_id,
-                                         string schema_uuid)
-    : SchemaCatalogEntry(catalog, info), schema_id(schema_id), schema_uuid(std::move(schema_uuid)) {
+                                         string schema_uuid, string data_path_p)
+    : SchemaCatalogEntry(catalog, info), schema_id(schema_id), schema_uuid(std::move(schema_uuid)),
+      data_path(std::move(data_path_p)) {
 }
 
 bool DuckLakeSchemaEntry::HandleCreateConflict(CatalogTransaction transaction, CatalogType catalog_type,
@@ -63,9 +64,11 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction t
 	idx_t column_id = 1;
 	auto field_data = DuckLakeFieldData::FromColumns(base_info.columns, column_id);
 	vector<DuckLakeInlinedTableInfo> inlined_tables;
+	// FIXME: normalize table name? or fallback to UUID if not all ascii?
+	auto table_data_path = DataPath() + base_info.table + "/";
 	auto table_entry = make_uniq<DuckLakeTableEntry>(ParentCatalog(), *this, base_info, table_id, std::move(table_uuid),
-	                                                 std::move(field_data), column_id, std::move(inlined_tables),
-	                                                 LocalChangeType::CREATED);
+	                                                 std::move(table_data_path), std::move(field_data), column_id,
+	                                                 std::move(inlined_tables), LocalChangeType::CREATED);
 	auto result = table_entry.get();
 	duck_transaction.CreateEntry(std::move(table_entry));
 	return result;

@@ -393,7 +393,7 @@ vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() 
 	if (!read_info.table_id.IsTransactionLocal()) {
 		// not a transaction local table - read the file list from the metadata store
 		auto &metadata_manager = transaction.GetMetadataManager();
-		result = metadata_manager.GetExtendedFilesForTable(read_info.snapshot, read_info.table_id, filter);
+		result = metadata_manager.GetExtendedFilesForTable(read_info.table, read_info.snapshot, filter);
 	}
 	if (transaction.HasDroppedFiles()) {
 		for (idx_t file_idx = 0; file_idx < result.size(); file_idx++) {
@@ -463,7 +463,7 @@ void DuckLakeMultiFileList::GetFilesForTable() {
 	if (!read_info.table_id.IsTransactionLocal()) {
 		// not a transaction local table - read the file list from the metadata store
 		auto &metadata_manager = transaction.GetMetadataManager();
-		files = metadata_manager.GetFilesForTable(read_info.snapshot, read_info.table_id, filter);
+		files = metadata_manager.GetFilesForTable(read_info.table, read_info.snapshot, filter);
 	}
 	if (transaction.HasDroppedFiles()) {
 		for (idx_t file_idx = 0; file_idx < files.size(); file_idx++) {
@@ -513,7 +513,7 @@ void DuckLakeMultiFileList::GetTableInsertions() {
 	auto transaction_ref = read_info.GetTransaction();
 	auto &transaction = *transaction_ref;
 	auto &metadata_manager = transaction.GetMetadataManager();
-	files = metadata_manager.GetTableInsertions(*read_info.start_snapshot, read_info.snapshot, read_info.table_id);
+	files = metadata_manager.GetTableInsertions(read_info.table, *read_info.start_snapshot, read_info.snapshot);
 	// add inlined data tables as sources (if any)
 	auto &inlined_data_tables = read_info.table.GetInlinedDataTables();
 	for (auto &table : inlined_data_tables) {
@@ -532,8 +532,7 @@ void DuckLakeMultiFileList::GetTableDeletions() {
 	auto transaction_ref = read_info.GetTransaction();
 	auto &transaction = *transaction_ref;
 	auto &metadata_manager = transaction.GetMetadataManager();
-	delete_scans =
-	    metadata_manager.GetTableDeletions(*read_info.start_snapshot, read_info.snapshot, read_info.table_id);
+	delete_scans = metadata_manager.GetTableDeletions(read_info.table, *read_info.start_snapshot, read_info.snapshot);
 	for (auto &file : delete_scans) {
 		DuckLakeFileListEntry file_entry;
 		file_entry.file = file.file;

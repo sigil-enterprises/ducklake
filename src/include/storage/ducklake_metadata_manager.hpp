@@ -44,15 +44,15 @@ public:
 	//! Get the catalog information for a specific snapshot
 	virtual DuckLakeCatalogInfo GetCatalogForSnapshot(DuckLakeSnapshot snapshot);
 	virtual vector<DuckLakeGlobalStatsInfo> GetGlobalTableStats(DuckLakeSnapshot snapshot);
-	virtual vector<DuckLakeFileListEntry> GetFilesForTable(DuckLakeSnapshot snapshot, TableIndex table_id,
+	virtual vector<DuckLakeFileListEntry> GetFilesForTable(DuckLakeTableEntry &table, DuckLakeSnapshot snapshot,
 	                                                       const string &filter);
-	virtual vector<DuckLakeFileListEntry> GetTableInsertions(DuckLakeSnapshot start_snapshot, DuckLakeSnapshot snapshot,
-	                                                         TableIndex table_id);
-	virtual vector<DuckLakeDeleteScanEntry> GetTableDeletions(DuckLakeSnapshot start_snapshot,
-	                                                          DuckLakeSnapshot snapshot, TableIndex table_id);
-	virtual vector<DuckLakeFileListExtendedEntry> GetExtendedFilesForTable(DuckLakeSnapshot snapshot,
-	                                                                       TableIndex table_id, const string &filter);
-	virtual vector<DuckLakeCompactionFileEntry> GetFilesForCompaction(TableIndex table_id);
+	virtual vector<DuckLakeFileListEntry> GetTableInsertions(DuckLakeTableEntry &table, DuckLakeSnapshot start_snapshot,
+	                                                         DuckLakeSnapshot snapshot);
+	virtual vector<DuckLakeDeleteScanEntry>
+	GetTableDeletions(DuckLakeTableEntry &table, DuckLakeSnapshot start_snapshot, DuckLakeSnapshot snapshot);
+	virtual vector<DuckLakeFileListExtendedEntry>
+	GetExtendedFilesForTable(DuckLakeTableEntry &table, DuckLakeSnapshot snapshot, const string &filter);
+	virtual vector<DuckLakeCompactionFileEntry> GetFilesForCompaction(DuckLakeTableEntry &table);
 	virtual vector<DuckLakeFileScheduledForCleanup> GetFilesScheduledForCleanup(const string &filter);
 	virtual void RemoveFilesScheduledForCleanup(const vector<DuckLakeFileScheduledForCleanup> &cleaned_up_files);
 	virtual void DropSchemas(DuckLakeSnapshot commit_snapshot, set<SchemaIndex> ids);
@@ -106,7 +106,14 @@ protected:
 	string GetColumnType(const DuckLakeColumnInfo &col);
 	shared_ptr<DuckLakeInlinedData> TransformInlinedData(QueryResult &result);
 
+	//! Get path relative to catalog path
 	DuckLakePath GetRelativePath(const string &path);
+	//! Get path relative to schema path
+	DuckLakePath GetRelativePath(SchemaIndex schema_id, const string &path);
+	//! Get path relative to table path
+	DuckLakePath GetRelativePath(TableIndex table_id, const string &path);
+	DuckLakePath GetRelativePath(const string &path, const string &data_path);
+	string FromRelativePath(const DuckLakePath &path, const string &base_path);
 	string FromRelativePath(const DuckLakePath &path);
 
 private:
@@ -114,7 +121,7 @@ private:
 	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,
 	               const set<T> &dropped_entries);
 	template <class T>
-	DuckLakeFileData ReadDataFile(T &row, idx_t &col_idx, bool is_encrypted);
+	DuckLakeFileData ReadDataFile(DuckLakeTableEntry &table, T &row, idx_t &col_idx, bool is_encrypted);
 
 	bool IsEncrypted() const;
 	string GetFileSelectList(const string &prefix);

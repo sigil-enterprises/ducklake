@@ -8,6 +8,10 @@ DuckLakeCatalogSet::DuckLakeCatalogSet() {
 }
 DuckLakeCatalogSet::DuckLakeCatalogSet(ducklake_entries_map_t catalog_entries_p)
     : catalog_entries(std::move(catalog_entries_p)) {
+	for (auto &entry : catalog_entries) {
+		auto &schema_entry = entry.second->Cast<DuckLakeSchemaEntry>();
+		schema_entry_map.insert(make_pair(schema_entry.GetSchemaId(), reference<DuckLakeSchemaEntry>(schema_entry)));
+	}
 }
 
 void DuckLakeCatalogSet::CreateEntry(unique_ptr<CatalogEntry> catalog_entry) {
@@ -31,6 +35,15 @@ optional_ptr<CatalogEntry> DuckLakeCatalogSet::GetEntry(const string &name) {
 	if (entry == catalog_entries.end()) {
 		return nullptr;
 	}
+	return entry->second.get();
+}
+
+optional_ptr<CatalogEntry> DuckLakeCatalogSet::GetEntryById(SchemaIndex index) {
+	auto entry = schema_entry_map.find(index);
+	if (entry == schema_entry_map.end()) {
+		return nullptr;
+	}
+	D_ASSERT(entry->second.get().type == CatalogType::SCHEMA_ENTRY);
 	return entry->second.get();
 }
 
