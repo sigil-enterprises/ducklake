@@ -126,6 +126,7 @@ void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction
 		// for DuckDB instances - use a default data path
 		auto path = metadata_catalog.GetAttached().GetStorageManager().GetDBPath();
 		options.data_path = path + ".files/";
+		InitializeDataPath();
 	}
 	auto &metadata_manager = transaction.GetMetadataManager();
 	metadata_manager.InitializeDuckLake(has_explicit_schema, catalog.Encryption());
