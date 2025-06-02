@@ -102,6 +102,8 @@ See the [Usage](https://ducklake.select/docs/stable/duckdb/introduction) guide f
 
 To build, type
 ```
+git submodule init
+git submodule update
 # to build with multiple cores, use `make GEN=ninja release`
 make pull
 make
