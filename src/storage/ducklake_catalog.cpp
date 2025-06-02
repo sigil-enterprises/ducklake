@@ -37,9 +37,25 @@ void DuckLakeCatalog::Initialize(optional_ptr<ClientContext> context, bool load_
 	db.tags["data_path"] = DataPath();
 }
 
+bool CanGeneratePathFromName(const string &name) {
+	for (auto c : name) {
+		if (StringUtil::CharacterIsAlphaNumeric(c)) {
+			continue;
+		}
+		if (c == '_' || c == '-') {
+			continue;
+		}
+		return false;
+	}
+	return true;
+}
+
 string DuckLakeCatalog::GeneratePathFromName(const string &uuid, const string &name) {
-	// FIXME: normalize table name? or fallback to UUID if not all ascii?
-	return name + "/";
+	// if the name has special characters we fallback to uuid
+	if (CanGeneratePathFromName(name)) {
+		return name + "/";
+	}
+	return uuid + "/";
 }
 
 optional_ptr<CatalogEntry> DuckLakeCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {
