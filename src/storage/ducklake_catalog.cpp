@@ -101,6 +101,10 @@ void DuckLakeCatalog::ScanSchemas(ClientContext &context, std::function<void(Sch
 
 optional_ptr<CatalogEntry> DuckLakeCatalog::GetEntryById(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
                                                          SchemaIndex schema_id) {
+	auto local_entry = transaction.GetLocalEntryById(schema_id);
+	if (local_entry) {
+		return local_entry;
+	}
 	auto &schema = GetSchemaForSnapshot(transaction, snapshot);
 	return schema.GetEntryById(schema_id);
 }

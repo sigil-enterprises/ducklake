@@ -34,7 +34,8 @@ public:
 	optional_ptr<CatalogEntry> GetEntryById(SchemaIndex index);
 	optional_ptr<CatalogEntry> GetEntryById(TableIndex index);
 	void AddEntry(DuckLakeSchemaEntry &schema, TableIndex id, unique_ptr<CatalogEntry> entry);
-	void RemapEntry(TableIndex old_index, DuckLakeTableEntry &table);
+	void RemapEntry(SchemaIndex old_index, SchemaIndex new_index, DuckLakeSchemaEntry &schema);
+	void RemapEntry(TableIndex old_index, TableIndex new_index, DuckLakeTableEntry &table);
 
 	template <class T>
 	optional_ptr<T> GetEntry(const string &name) {

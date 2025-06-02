@@ -63,9 +63,14 @@ void DuckLakeCatalogSet::AddEntry(DuckLakeSchemaEntry &schema, TableIndex id, un
 	schema.AddEntry(catalog_type, std::move(entry));
 }
 
-void DuckLakeCatalogSet::RemapEntry(TableIndex old_index, DuckLakeTableEntry &table) {
+void DuckLakeCatalogSet::RemapEntry(SchemaIndex old_index, SchemaIndex new_index, DuckLakeSchemaEntry &schema) {
+	schema_entry_map.erase(old_index);
+	schema_entry_map.insert(make_pair(new_index, reference<DuckLakeSchemaEntry>(schema)));
+}
+
+void DuckLakeCatalogSet::RemapEntry(TableIndex old_index, TableIndex new_index, DuckLakeTableEntry &table) {
 	table_entry_map.erase(old_index);
-	table_entry_map.insert(make_pair(table.GetTableId(), reference<CatalogEntry>(table)));
+	table_entry_map.insert(make_pair(new_index, reference<CatalogEntry>(table)));
 }
 
 } // namespace duckdb

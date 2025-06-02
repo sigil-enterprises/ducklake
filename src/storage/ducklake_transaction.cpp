@@ -497,6 +497,7 @@ vector<DuckLakeSchemaInfo> DuckLakeTransaction::GetNewSchemas(DuckLakeSnapshot &
 	vector<DuckLakeSchemaInfo> schemas;
 	for (auto &entry : new_schemas->GetEntries()) {
 		auto &schema_entry = entry.second->Cast<DuckLakeSchemaEntry>();
+		auto old_id = schema_entry.GetSchemaId();
 		DuckLakeSchemaInfo schema_info;
 		schema_info.id = SchemaIndex(commit_snapshot.next_catalog_id++);
 		schema_info.uuid = schema_entry.GetSchemaUUID();
@@ -505,6 +506,8 @@ vector<DuckLakeSchemaInfo> DuckLakeTransaction::GetNewSchemas(DuckLakeSnapshot &
 
 		// set the schema id of this schema entry so subsequent tables are written correctly
 		schema_entry.SetSchemaId(schema_info.id);
+
+		new_schemas->RemapEntry(old_id, schema_info.id, schema_entry);
 
 		// add the schema to the list
 		schemas.push_back(std::move(schema_info));
@@ -731,7 +734,6 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, Duc
 			old_table_id = table.GetTableId();
 			auto new_table = GetNewTable(commit_snapshot, table);
 			new_table_id = new_table.id;
-			table.SetTableId(new_table_id);
 			result.new_tables.push_back(std::move(new_table));
 			break;
 		}
@@ -741,7 +743,7 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, Duc
 	}
 	if (new_table_id.IsValid()) {
 		// if we changed the table-id - remap it in the transaction-local storage
-		catalog_set.RemapEntry(old_table_id, tables.front().get());
+		catalog_set.RemapEntry(old_table_id, new_table_id, tables.front().get());
 	}
 	if (column_schema_change) {
 		// we changed the column definitions of a table - we need to create a new inlined data table (if data inlining
@@ -1832,6 +1834,13 @@ optional_ptr<DuckLakeCatalogSet> DuckLakeTransaction::GetTransactionLocalEntries
 	default:
 		return nullptr;
 	}
+}
+
+optional_ptr<CatalogEntry> DuckLakeTransaction::GetLocalEntryById(SchemaIndex schema_id) {
+	if (!new_schemas) {
+		return nullptr;
+	}
+	return new_schemas->GetEntryById(schema_id);
 }
 
 optional_ptr<CatalogEntry> DuckLakeTransaction::GetLocalEntryById(TableIndex table_id) {

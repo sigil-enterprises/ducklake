@@ -62,6 +62,7 @@ public:
 	void CreateEntry(unique_ptr<CatalogEntry> entry);
 	void DropEntry(CatalogEntry &entry);
 	bool IsDeleted(CatalogEntry &entry);
+	optional_ptr<CatalogEntry> GetLocalEntryById(SchemaIndex schema_id);
 	optional_ptr<CatalogEntry> GetLocalEntryById(TableIndex table_id);
 
 	void AlterEntry(CatalogEntry &old_entry, unique_ptr<CatalogEntry> new_entry);
