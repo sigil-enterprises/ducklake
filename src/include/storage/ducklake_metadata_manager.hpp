@@ -103,6 +103,8 @@ public:
 	virtual string GetPathForSchema(SchemaIndex schema_id);
 	virtual string GetPathForTable(TableIndex table_id);
 
+	virtual void MigrateV01();
+
 protected:
 	string GetInlinedTableQuery(const DuckLakeTableInfo &table, const string &table_name);
 	string GetColumnType(const DuckLakeColumnInfo &col);

@@ -51,7 +51,7 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion(data_file_
 CREATE TABLE {METADATA_CATALOG}.ducklake_inlined_data_tables(table_id BIGINT, table_name VARCHAR, schema_version BIGINT);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot_changes VALUES (0, 'created_schema:"main"');
-INSERT INTO {METADATA_CATALOG}.ducklake_metadata VALUES ('version', '0.1'), ('created_by', 'DuckDB %s'), ('data_path', {DATA_PATH}), ('encrypted', '%s');
+INSERT INTO {METADATA_CATALOG}.ducklake_metadata VALUES ('version', '0.2'), ('created_by', 'DuckDB %s'), ('data_path', {DATA_PATH}), ('encrypted', '%s');
 INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main', 'main/', true);
 	)",
 	                                       DuckDB::SourceID(), encryption_str);
@@ -62,6 +62,19 @@ INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main
 	auto result = transaction.Query(initialize_query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to initialize DuckLake:");
+	}
+}
+
+void DuckLakeMetadataManager::MigrateV01() {
+	string migrate_query = R"(
+ALTER TABLE {METADATA_CATALOG}.ducklake_schema ADD COLUMN path VARCHAR DEFAULT '';
+ALTER TABLE {METADATA_CATALOG}.ducklake_schema ADD COLUMN path_is_relative BOOLEAN DEFAULT TRUE;
+ALTER TABLE {METADATA_CATALOG}.ducklake_table ADD COLUMN path VARCHAR DEFAULT '';
+ALTER TABLE {METADATA_CATALOG}.ducklake_table ADD COLUMN path_is_relative BOOLEAN DEFAULT TRUE;
+	)";
+	auto result = transaction.Query(migrate_query);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to migrate DuckLake from v0.1 to v0.2:");
 	}
 }
 
