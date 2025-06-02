@@ -1,5 +1,6 @@
 #include "storage/ducklake_catalog_set.hpp"
 #include "storage/ducklake_schema_entry.hpp"
+#include "storage/ducklake_table_entry.hpp"
 #include "storage/ducklake_transaction.hpp"
 
 namespace duckdb {
@@ -60,6 +61,11 @@ void DuckLakeCatalogSet::AddEntry(DuckLakeSchemaEntry &schema, TableIndex id, un
 	auto catalog_type = entry->type;
 	table_entry_map.insert(make_pair(id, reference<CatalogEntry>(*entry)));
 	schema.AddEntry(catalog_type, std::move(entry));
+}
+
+void DuckLakeCatalogSet::RemapEntry(TableIndex old_index, DuckLakeTableEntry &table) {
+	table_entry_map.erase(old_index);
+	table_entry_map.insert(make_pair(table.GetTableId(), reference<CatalogEntry>(table)));
 }
 
 } // namespace duckdb

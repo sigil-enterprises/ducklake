@@ -37,6 +37,11 @@ void DuckLakeCatalog::Initialize(optional_ptr<ClientContext> context, bool load_
 	db.tags["data_path"] = DataPath();
 }
 
+string DuckLakeCatalog::GeneratePathFromName(const string &uuid, const string &name) {
+	// FIXME: normalize table name? or fallback to UUID if not all ascii?
+	return name + "/";
+}
+
 optional_ptr<CatalogEntry> DuckLakeCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {
 	auto schema = GetSchema(transaction, info.schema, OnEntryNotFound::RETURN_NULL);
 	if (schema) {
@@ -56,8 +61,7 @@ optional_ptr<CatalogEntry> DuckLakeCatalog::CreateSchema(CatalogTransaction tran
 	//! get a local table-id
 	auto schema_id = SchemaIndex(duck_transaction.GetLocalCatalogId());
 	auto schema_uuid = duck_transaction.GenerateUUID();
-	// FIXME: normalize schema name? or fallback to UUID if not all ascii?
-	auto schema_data_path = DataPath() + info.schema + "/";
+	auto schema_data_path = DataPath() + DuckLakeCatalog::GeneratePathFromName(schema_uuid, info.schema);
 	auto schema_entry =
 	    make_uniq<DuckLakeSchemaEntry>(*this, info, schema_id, std::move(schema_uuid), std::move(schema_data_path));
 	auto result = schema_entry.get();
@@ -103,6 +107,10 @@ optional_ptr<CatalogEntry> DuckLakeCatalog::GetEntryById(DuckLakeTransaction &tr
 
 optional_ptr<CatalogEntry> DuckLakeCatalog::GetEntryById(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
                                                          TableIndex table_id) {
+	auto local_entry = transaction.GetLocalEntryById(table_id);
+	if (local_entry) {
+		return local_entry;
+	}
 	auto &schema = GetSchemaForSnapshot(transaction, snapshot);
 	return schema.GetEntryById(table_id);
 }

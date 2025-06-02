@@ -80,6 +80,7 @@ public:
 	                                        SchemaIndex schema_id);
 	optional_ptr<CatalogEntry> GetEntryById(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
 	                                        TableIndex table_id);
+	static string GeneratePathFromName(const string &uuid, const string &name);
 
 	bool InMemory() override;
 	string GetDBPath() override;

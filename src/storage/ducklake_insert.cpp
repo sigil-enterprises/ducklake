@@ -1,4 +1,5 @@
 #include "storage/ducklake_catalog.hpp"
+#include "storage/ducklake_schema_entry.hpp"
 #include "storage/ducklake_field_data.hpp"
 #include "storage/ducklake_insert.hpp"
 #include "storage/ducklake_table_entry.hpp"
@@ -28,9 +29,11 @@ DuckLakeInsert::DuckLakeInsert(const vector<LogicalType> &types, DuckLakeTableEn
 }
 
 DuckLakeInsert::DuckLakeInsert(const vector<LogicalType> &types, SchemaCatalogEntry &schema,
-                               unique_ptr<BoundCreateTableInfo> info, string encryption_key_p)
+                               unique_ptr<BoundCreateTableInfo> info, string table_uuid_p, string table_data_path_p,
+                               string encryption_key_p)
     : PhysicalOperator(PhysicalOperatorType::EXTENSION, types, 1), table(nullptr), schema(&schema),
-      info(std::move(info)), encryption_key(std::move(encryption_key_p)) {
+      info(std::move(info)), table_uuid(std::move(table_uuid_p)), table_data_path(std::move(table_data_path_p)),
+      encryption_key(std::move(encryption_key_p)) {
 }
 
 //===--------------------------------------------------------------------===//
@@ -45,7 +48,9 @@ unique_ptr<GlobalSinkState> DuckLakeInsert::GetGlobalSinkState(ClientContext &co
 	if (info) {
 		// CREATE TABLE AS - create the table
 		auto &catalog = schema->catalog;
-		table_ptr = &catalog.CreateTable(catalog.GetCatalogTransaction(context), *schema.get_mutable(), *info)
+		auto &ducklake_schema = schema.get_mutable()->Cast<DuckLakeSchemaEntry>();
+		auto transaction = catalog.GetCatalogTransaction(context);
+		table_ptr = &ducklake_schema.CreateTableExtended(transaction, *info, table_uuid, table_data_path)
 		                 ->Cast<DuckLakeTableEntry>();
 	} else {
 		// INSERT INTO
@@ -489,10 +494,16 @@ PhysicalOperator &DuckLakeCatalog::PlanCreateTableAs(ClientContext &context, Phy
 	for (auto &col : op.info->Base().columns.Logical()) {
 		DuckLakeTypes::CheckSupportedType(col.Type());
 	}
+	auto &duck_transaction = DuckLakeTransaction::Get(context, *this);
+	auto &duck_schema = op.schema.Cast<DuckLakeSchemaEntry>();
+	auto table_uuid = duck_transaction.GenerateUUID();
+	auto table_data_path =
+	    duck_schema.DataPath() + DuckLakeCatalog::GeneratePathFromName(table_uuid, create_info.table);
 	auto &catalog = op.schema.ParentCatalog().Cast<DuckLakeCatalog>();
 	auto &physical_copy = DuckLakeInsert::PlanCopyForInsert(catalog, context, columns, planner, nullptr, nullptr,
-	                                                        root.get(), DataPath(), encryption_key);
-	auto &insert = planner.Make<DuckLakeInsert>(op.types, op.schema, std::move(op.info), std::move(encryption_key));
+	                                                        root.get(), table_data_path, encryption_key);
+	auto &insert = planner.Make<DuckLakeInsert>(op.types, op.schema, std::move(op.info), std::move(table_uuid),
+	                                            std::move(table_data_path), std::move(encryption_key));
 	if (inline_data) {
 		inline_data->insert = insert.Cast<DuckLakeInsert>();
 	}

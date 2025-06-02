@@ -630,8 +630,9 @@ void HandleChangedFields(TableIndex table_id, const ColumnChangeInfo &change_inf
 	}
 }
 
-void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> table_entry,
-                                          NewTableInfo &result, TransactionChangeInformation &transaction_changes) {
+void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, DuckLakeCatalogSet &catalog_set,
+                                          reference<CatalogEntry> table_entry, NewTableInfo &result,
+                                          TransactionChangeInformation &transaction_changes) {
 	// iterate over the table chain in reverse order when committing
 	// the latest entry is the root entry - but we need to commit starting from the first entry written
 	// gather all tables
@@ -645,6 +646,7 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 	}
 	// traverse in reverse order
 	bool column_schema_change = false;
+	TableIndex old_table_id;
 	TableIndex new_table_id;
 	for (idx_t table_idx = tables.size(); table_idx > 0; table_idx--) {
 		auto &table = tables[table_idx - 1].get();
@@ -726,14 +728,20 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 		case LocalChangeType::NONE:
 		case LocalChangeType::CREATED:
 		case LocalChangeType::RENAMED: {
+			old_table_id = table.GetTableId();
 			auto new_table = GetNewTable(commit_snapshot, table);
 			new_table_id = new_table.id;
+			table.SetTableId(new_table_id);
 			result.new_tables.push_back(std::move(new_table));
 			break;
 		}
 		default:
 			throw NotImplementedException("Unsupported transaction local change");
 		}
+	}
+	if (new_table_id.IsValid()) {
+		// if we changed the table-id - remap it in the transaction-local storage
+		catalog_set.RemapEntry(old_table_id, tables.front().get());
 	}
 	if (column_schema_change) {
 		// we changed the column definitions of a table - we need to create a new inlined data table (if data inlining
@@ -768,8 +776,9 @@ DuckLakeViewInfo DuckLakeTransaction::GetNewView(DuckLakeSnapshot &commit_snapsh
 	return view_entry;
 }
 
-void DuckLakeTransaction::GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> view_entry,
-                                         NewTableInfo &result, TransactionChangeInformation &transaction_changes) {
+void DuckLakeTransaction::GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, DuckLakeCatalogSet &catalog_set,
+                                         reference<CatalogEntry> view_entry, NewTableInfo &result,
+                                         TransactionChangeInformation &transaction_changes) {
 	// iterate over the view chain in reverse order when committing
 	// the latest entry is the root entry - but we need to commit starting from the first entry written
 	// gather all views
@@ -820,10 +829,10 @@ NewTableInfo DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &commit_snapshot
 		for (auto &entry : schema_entry.second->GetEntries()) {
 			switch (entry.second->type) {
 			case CatalogType::TABLE_ENTRY:
-				GetNewTableInfo(commit_snapshot, *entry.second, result, transaction_changes);
+				GetNewTableInfo(commit_snapshot, *schema_entry.second, *entry.second, result, transaction_changes);
 				break;
 			case CatalogType::VIEW_ENTRY:
-				GetNewViewInfo(commit_snapshot, *entry.second, result, transaction_changes);
+				GetNewViewInfo(commit_snapshot, *schema_entry.second, *entry.second, result, transaction_changes);
 				break;
 			default:
 				throw InternalException("Unknown type in new_tables");
@@ -1823,6 +1832,16 @@ optional_ptr<DuckLakeCatalogSet> DuckLakeTransaction::GetTransactionLocalEntries
 	default:
 		return nullptr;
 	}
+}
+
+optional_ptr<CatalogEntry> DuckLakeTransaction::GetLocalEntryById(TableIndex table_id) {
+	for (auto &schema_entry : new_tables) {
+		auto entry = schema_entry.second->GetEntryById(table_id);
+		if (entry) {
+			return entry;
+		}
+	}
+	return nullptr;
 }
 
 // FIXME: this is copied from mainline DuckDB because of a bug in UUID v7 generation

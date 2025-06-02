@@ -2,6 +2,7 @@
 #include "storage/ducklake_table_entry.hpp"
 #include "storage/ducklake_transaction.hpp"
 #include "storage/ducklake_view_entry.hpp"
+#include "storage/ducklake_catalog.hpp"
 
 #include "duckdb/planner/parsed_data/bound_create_table_info.hpp"
 #include "duckdb/parser/parsed_data/create_view_info.hpp"
@@ -49,29 +50,36 @@ bool DuckLakeSchemaEntry::HandleCreateConflict(CatalogTransaction transaction, C
 	return true;
 }
 
-optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction transaction,
-                                                            BoundCreateTableInfo &info) {
-	auto &base_info = info.Base();
+optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTableExtended(CatalogTransaction transaction,
+                                                                    BoundCreateTableInfo &info, string table_uuid,
+                                                                    string table_data_path) {
 	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
+	auto &base_info = info.Base();
 	// check if we have an existing entry with this name
 	if (!HandleCreateConflict(transaction, CatalogType::TABLE_ENTRY, base_info.table, base_info.on_conflict)) {
 		return nullptr;
 	}
 	//! get a local table-id
 	auto table_id = TableIndex(duck_transaction.GetLocalCatalogId());
-	auto table_uuid = duck_transaction.GenerateUUID();
 	// generate field ids based on the column ids
 	idx_t column_id = 1;
 	auto field_data = DuckLakeFieldData::FromColumns(base_info.columns, column_id);
 	vector<DuckLakeInlinedTableInfo> inlined_tables;
-	// FIXME: normalize table name? or fallback to UUID if not all ascii?
-	auto table_data_path = DataPath() + base_info.table + "/";
 	auto table_entry = make_uniq<DuckLakeTableEntry>(ParentCatalog(), *this, base_info, table_id, std::move(table_uuid),
 	                                                 std::move(table_data_path), std::move(field_data), column_id,
 	                                                 std::move(inlined_tables), LocalChangeType::CREATED);
 	auto result = table_entry.get();
 	duck_transaction.CreateEntry(std::move(table_entry));
 	return result;
+}
+
+optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction transaction,
+                                                            BoundCreateTableInfo &info) {
+	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
+	auto &base_info = info.Base();
+	auto table_uuid = duck_transaction.GenerateUUID();
+	auto table_data_path = DataPath() + DuckLakeCatalog::GeneratePathFromName(table_uuid, base_info.table);
+	return CreateTableExtended(transaction, info, std::move(table_uuid), std::move(table_data_path));
 }
 
 bool DuckLakeSchemaEntry::CatalogTypeIsSupported(CatalogType type) {

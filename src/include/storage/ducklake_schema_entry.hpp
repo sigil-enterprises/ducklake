@@ -35,6 +35,8 @@ public:
 	}
 
 public:
+	optional_ptr<CatalogEntry> CreateTableExtended(CatalogTransaction transaction, BoundCreateTableInfo &info,
+	                                               string table_uuid, string table_data_path);
 	optional_ptr<CatalogEntry> CreateTable(CatalogTransaction transaction, BoundCreateTableInfo &info) override;
 	optional_ptr<CatalogEntry> CreateFunction(CatalogTransaction transaction, CreateFunctionInfo &info) override;
 	optional_ptr<CatalogEntry> CreateIndex(CatalogTransaction transaction, CreateIndexInfo &info,
@@ -59,6 +61,8 @@ public:
 	void TryDropSchema(DuckLakeTransaction &transaction, bool cascade);
 
 	static bool CatalogTypeIsSupported(CatalogType type);
+
+	static string GeneratePathFromName(const string &uuid, const string &name);
 
 private:
 	DuckLakeCatalogSet &GetCatalogSet(CatalogType type);

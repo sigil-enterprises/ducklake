@@ -41,7 +41,7 @@ public:
 	               string encryption_key);
 	//! CREATE TABLE AS
 	DuckLakeInsert(const vector<LogicalType> &types, SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info,
-	               string encryption_key);
+	               string table_uuid, string table_data_path, string encryption_key);
 
 	//! The table to insert into
 	optional_ptr<DuckLakeTableEntry> table;
@@ -49,6 +49,10 @@ public:
 	optional_ptr<SchemaCatalogEntry> schema;
 	//! Create table info, in case of CREATE TABLE AS
 	unique_ptr<BoundCreateTableInfo> info;
+	//! The table UUID, in case of CREATE TABLE AS
+	string table_uuid;
+	//! The table data path, in case of CREATE TABLE AS
+	string table_data_path;
 	//! The partition id we are writing into (if any)
 	optional_idx partition_id;
 	//! The encryption key used for writing the Parquet files
