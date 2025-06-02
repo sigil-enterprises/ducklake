@@ -1155,21 +1155,97 @@ WHERE inlined_data.end_snapshot >= %d AND inlined_data.end_snapshot <= {SNAPSHOT
 	return TransformInlinedData(*result);
 }
 
+string DuckLakeMetadataManager::GetPathForSchema(SchemaIndex schema_id) {
+	auto result = transaction.Query(StringUtil::Format(R"(
+SELECT path, path_is_relative
+FROM {METADATA_CATALOG}.ducklake_schema
+WHERE schema_id = %d;)",
+	                                                   schema_id.index));
+	for (auto &row : *result) {
+		DuckLakePath path;
+		path.path = row.GetValue<string>(0);
+		path.path_is_relative = row.GetValue<bool>(1);
+		return FromRelativePath(path);
+	}
+	throw InvalidInputException("Failed to get path for schema with id %d - schema not found in metadata catalog",
+	                            schema_id.index);
+}
+
+string DuckLakeMetadataManager::GetPathForTable(TableIndex table_id) {
+	auto result = transaction.Query(StringUtil::Format(R"(
+SELECT s.path, s.path_is_relative, t.path, t.path_is_relative
+FROM {METADATA_CATALOG}.ducklake_schema s
+JOIN {METADATA_CATALOG}.ducklake_table t
+USING (schema_id)
+WHERE table_id = %d;)",
+	                                                   table_id.index));
+	for (auto &row : *result) {
+		DuckLakePath schema_path;
+		schema_path.path = row.GetValue<string>(0);
+		schema_path.path_is_relative = row.GetValue<bool>(1);
+		auto resolved_schema_path = FromRelativePath(schema_path);
+
+		DuckLakePath table_path;
+		table_path.path = row.GetValue<string>(2);
+		table_path.path_is_relative = row.GetValue<bool>(3);
+		return FromRelativePath(table_path, resolved_schema_path);
+	}
+	throw InvalidInputException("Failed to get path for table with id %d - table not found in metadata catalog",
+	                            table_id.index);
+}
+
+string DuckLakeMetadataManager::GetPath(SchemaIndex schema_id) {
+	lock_guard<mutex> guard(paths_lock);
+	// get the path from the list of cached paths
+	auto entry = schema_paths.find(schema_id);
+	if (entry != schema_paths.end()) {
+		return entry->second;
+	}
+	// get the path from the current snapshot if possible
+	// otherwise fetch it from the metadata catalog
+	auto &catalog = transaction.GetCatalog();
+	auto schema = catalog.GetEntryById(transaction, transaction.GetSnapshot(), schema_id);
+	string path;
+	if (schema) {
+		path = schema->Cast<DuckLakeSchemaEntry>().DataPath();
+	} else {
+		path = GetPathForSchema(schema_id);
+	}
+	schema_paths.emplace(schema_id, path);
+	return path;
+}
+
+string DuckLakeMetadataManager::GetPath(TableIndex table_id) {
+	lock_guard<mutex> guard(paths_lock);
+	// get the path from the list of cached paths
+	auto entry = table_paths.find(table_id);
+	if (entry != table_paths.end()) {
+		return entry->second;
+	}
+	// get the path from the current snapshot if possible
+	auto &catalog = transaction.GetCatalog();
+	auto table = catalog.GetEntryById(transaction, transaction.GetSnapshot(), table_id);
+	string path;
+	if (table) {
+		path = table->Cast<DuckLakeTableEntry>().DataPath();
+	} else {
+		path = GetPathForTable(table_id);
+	}
+	table_paths.emplace(table_id, path);
+	return path;
+}
+
 DuckLakePath DuckLakeMetadataManager::GetRelativePath(const string &path) {
 	auto &data_path = transaction.GetCatalog().DataPath();
 	return GetRelativePath(path, data_path);
 }
 
 DuckLakePath DuckLakeMetadataManager::GetRelativePath(SchemaIndex schema_id, const string &path) {
-	auto &catalog = transaction.GetCatalog();
-	auto schema = catalog.GetEntryById(transaction, transaction.GetSnapshot(), schema_id);
-	return GetRelativePath(path, schema->Cast<DuckLakeSchemaEntry>().DataPath());
+	return GetRelativePath(path, GetPath(schema_id));
 }
 
 DuckLakePath DuckLakeMetadataManager::GetRelativePath(TableIndex table_id, const string &path) {
-	auto &catalog = transaction.GetCatalog();
-	auto table = catalog.GetEntryById(transaction, transaction.GetSnapshot(), table_id);
-	return GetRelativePath(path, table->Cast<DuckLakeTableEntry>().DataPath());
+	return GetRelativePath(path, GetPath(table_id));
 }
 
 DuckLakePath DuckLakeMetadataManager::GetRelativePath(const string &path, const string &data_path) {
@@ -1193,6 +1269,10 @@ string DuckLakeMetadataManager::FromRelativePath(const DuckLakePath &path, const
 
 string DuckLakeMetadataManager::FromRelativePath(const DuckLakePath &path) {
 	return FromRelativePath(path, transaction.GetCatalog().DataPath());
+}
+
+string DuckLakeMetadataManager::FromRelativePath(TableIndex table_id, const DuckLakePath &path) {
+	return FromRelativePath(path, GetPath(table_id));
 }
 
 void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot,
@@ -1817,7 +1897,7 @@ WHERE end_snapshot IS NOT NULL AND NOT EXISTS(
 	}
 
 	result = transaction.Query(StringUtil::Format(R"(
-SELECT data_file_id, path, path_is_relative
+SELECT data_file_id, table_id, path, path_is_relative
 FROM {METADATA_CATALOG}.ducklake_data_file
 WHERE %s (end_snapshot IS NOT NULL AND NOT EXISTS(
     SELECT snapshot_id
@@ -1829,10 +1909,11 @@ WHERE %s (end_snapshot IS NOT NULL AND NOT EXISTS(
 	for (auto &row : *result) {
 		DuckLakeFileScheduledForCleanup info;
 		info.id = DataFileIndex(row.GetValue<idx_t>(0));
+		TableIndex table_id(row.GetValue<idx_t>(1));
 		DuckLakePath path;
-		path.path = row.GetValue<string>(1);
-		path.path_is_relative = row.GetValue<bool>(2);
-		info.path = FromRelativePath(path);
+		path.path = row.GetValue<string>(2);
+		path.path_is_relative = row.GetValue<bool>(3);
+		info.path = FromRelativePath(table_id, path);
 
 		cleanup_files.push_back(std::move(info));
 	}
@@ -1883,7 +1964,7 @@ VALUES %s;
 	}
 
 	result = transaction.Query(StringUtil::Format(R"(
-SELECT delete_file_id, path, path_is_relative
+SELECT delete_file_id, table_id, path, path_is_relative
 FROM {METADATA_CATALOG}.ducklake_delete_file
 WHERE %s %s (end_snapshot IS NOT NULL AND NOT EXISTS(
     SELECT snapshot_id
@@ -1895,10 +1976,12 @@ WHERE %s %s (end_snapshot IS NOT NULL AND NOT EXISTS(
 	for (auto &row : *result) {
 		DuckLakeFileScheduledForCleanup info;
 		info.id = DataFileIndex(row.GetValue<idx_t>(0));
+		TableIndex table_id(row.GetValue<idx_t>(1));
+
 		DuckLakePath path;
-		path.path = row.GetValue<string>(1);
-		path.path_is_relative = row.GetValue<bool>(2);
-		info.path = FromRelativePath(path);
+		path.path = row.GetValue<string>(2);
+		path.path_is_relative = row.GetValue<bool>(3);
+		info.path = FromRelativePath(table_id, path);
 
 		cleanup_deletes.push_back(std::move(info));
 	}

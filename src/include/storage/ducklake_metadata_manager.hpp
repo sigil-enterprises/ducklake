@@ -100,6 +100,8 @@ public:
 	virtual void DeleteSnapshots(const vector<DuckLakeSnapshotInfo> &snapshots);
 	virtual vector<DuckLakeTableSizeInfo> GetTableSizes(DuckLakeSnapshot snapshot);
 	virtual void SetConfigOption(const string &option, const string &value);
+	virtual string GetPathForSchema(SchemaIndex schema_id);
+	virtual string GetPathForTable(TableIndex table_id);
 
 protected:
 	string GetInlinedTableQuery(const DuckLakeTableInfo &table, const string &table_name);
@@ -115,6 +117,9 @@ protected:
 	DuckLakePath GetRelativePath(const string &path, const string &data_path);
 	string FromRelativePath(const DuckLakePath &path, const string &base_path);
 	string FromRelativePath(const DuckLakePath &path);
+	string FromRelativePath(TableIndex table_id, const DuckLakePath &path);
+	string GetPath(SchemaIndex schema_id);
+	string GetPath(TableIndex table_id);
 
 private:
 	template <class T>
@@ -128,6 +133,9 @@ private:
 
 protected:
 	DuckLakeTransaction &transaction;
+	mutex paths_lock;
+	map<SchemaIndex, string> schema_paths;
+	map<TableIndex, string> table_paths;
 };
 
 } // namespace duckdb
