@@ -103,10 +103,15 @@ void DuckLakeInitializer::InitializeDataPath() {
 	//	2. If so, either load the required extension or throw a relevant error message
 	CheckAndAutoloadedRequiredExtension(data_path);
 
-	if (!StringUtil::EndsWith(data_path, "/") && !StringUtil::EndsWith(data_path, "\\")) {
-		// data path does not end in a path separator - add it
-		auto &fs = FileSystem::GetFileSystem(context);
-		data_path += fs.PathSeparator(data_path);
+	// ensure the paths we store always use forward slashes
+	auto &fs = FileSystem::GetFileSystem(context);
+	auto separator = fs.PathSeparator(data_path);
+	if (separator != "/") {
+		data_path = StringUtil::Replace(data_path, separator, "/");
+	}
+	// ensure the paths we store always end in a path separator
+	if (!StringUtil::EndsWith(data_path, "/")) {
+		data_path += "/";
 	}
 }
 

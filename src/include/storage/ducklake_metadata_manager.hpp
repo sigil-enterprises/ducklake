@@ -29,6 +29,7 @@ class DuckLakeTableEntry;
 class DuckLakeTransaction;
 class BoundAtClause;
 class QueryResult;
+class FileSystem;
 
 // The DuckLake metadata manger is the communication layer between the system and the metadata catalog
 class DuckLakeMetadataManager {
@@ -122,6 +123,8 @@ protected:
 	string FromRelativePath(TableIndex table_id, const DuckLakePath &path);
 	string GetPath(SchemaIndex schema_id);
 	string GetPath(TableIndex table_id);
+	FileSystem &GetFileSystem();
+	string ConvertPathSeparators(string path);
 
 private:
 	template <class T>

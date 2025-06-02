@@ -21,6 +21,10 @@ DuckLakeMetadataManager &DuckLakeMetadataManager::Get(DuckLakeTransaction &trans
 	return transaction.GetMetadataManager();
 }
 
+FileSystem &DuckLakeMetadataManager::GetFileSystem() {
+	return FileSystem::GetFileSystem(transaction.GetCatalog().GetDatabase());
+}
+
 void DuckLakeMetadataManager::InitializeDuckLake(bool has_explicit_schema, DuckLakeEncryption encryption) {
 	string initialize_query;
 	if (has_explicit_schema) {
@@ -1273,11 +1277,20 @@ DuckLakePath DuckLakeMetadataManager::GetRelativePath(const string &path, const 
 	return result;
 }
 
+string DuckLakeMetadataManager::ConvertPathSeparators(string path) {
+	auto &fs = GetFileSystem();
+	auto separator = fs.PathSeparator(path);
+	if (separator == "/") {
+		return path;
+	}
+	return StringUtil::Replace(path, "/", separator);
+}
+
 string DuckLakeMetadataManager::FromRelativePath(const DuckLakePath &path, const string &base_path) {
 	if (!path.path_is_relative) {
-		return path.path;
+		return ConvertPathSeparators(path.path);
 	}
-	return base_path + path.path;
+	return ConvertPathSeparators(base_path + path.path);
 }
 
 string DuckLakeMetadataManager::FromRelativePath(const DuckLakePath &path) {
