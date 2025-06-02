@@ -1701,7 +1701,6 @@ bool DuckLakeTransaction::IsDeleted(CatalogEntry &entry) {
 
 void DuckLakeTransaction::AlterEntry(CatalogEntry &entry, unique_ptr<CatalogEntry> new_entry) {
 	catalog_version = ++static_cast<DuckLakeTransactionManager &>(manager).last_uncommitted_catalog_version;
-
 	if (!new_entry) {
 		return;
 	}

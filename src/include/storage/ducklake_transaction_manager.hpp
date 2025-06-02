@@ -25,7 +25,9 @@ public:
 
 	void Checkpoint(ClientContext &context, bool force = false) override;
 
-	//! Returns the current version of the catalog (incremented whenever anything changes, not stored between restarts)
+	//! Returns the current version of the catalog:
+	//! If there are no uncommitted changes, this is the schema version of the snapshot.
+	//! Otherwise, an id that is incremented whenever the schema changes (not stored between restarts)
 	idx_t GetCatalogVersion(Transaction &transaction);
 
 private:
