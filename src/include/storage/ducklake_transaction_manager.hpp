@@ -8,10 +8,9 @@
 
 #pragma once
 
-#include "duckdb/transaction/duck_transaction_manager.hpp"
 #include "duckdb/transaction/transaction_manager.hpp"
-#include "storage/ducklake_catalog.hpp"
 #include "storage/ducklake_transaction.hpp"
+#include "storage/ducklake_catalog.hpp"
 
 namespace duckdb {
 
@@ -24,11 +23,6 @@ public:
 	void RollbackTransaction(Transaction &transaction) override;
 
 	void Checkpoint(ClientContext &context, bool force = false) override;
-
-	//! Returns the current version of the catalog:
-	//! If there are no uncommitted changes, this is the schema version of the snapshot.
-	//! Otherwise, an id that is incremented whenever the schema changes (not stored between restarts)
-	idx_t GetCatalogVersion(Transaction &transaction);
 
 private:
 	DuckLakeCatalog &ducklake_catalog;
