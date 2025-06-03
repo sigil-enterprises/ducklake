@@ -1,6 +1,6 @@
 # name: test/sql/list_files/ducklake_list_files.test
 # description: test duckdb_tables with ducklake
-# group: [metadata]
+# group: [list_files]
 
 require ducklake
 

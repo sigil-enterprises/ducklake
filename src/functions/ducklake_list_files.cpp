@@ -91,7 +91,7 @@ static unique_ptr<FunctionData> DuckLakeListFilesBind(ClientContext &context, Ta
 	auto files = metadata_manager.GetFilesForTable(ducklake_table, snapshot, filter);
 	// generate the result
 	auto result = make_uniq<MetadataBindData>();
-	for(auto &file : files) {
+	for (auto &file : files) {
 		vector<Value> row_values;
 		// data file
 		auto &data_file = file.file;
@@ -103,16 +103,15 @@ static unique_ptr<FunctionData> DuckLakeListFilesBind(ClientContext &context, Ta
 	}
 	return std::move(result);
 
-
 	return std::move(result);
 }
 
 DuckLakeListFilesFunction::DuckLakeListFilesFunction()
     : BaseMetadataFunction("ducklake_list_files", DuckLakeListFilesBind) {
-    arguments.push_back(LogicalType::VARCHAR);
-    named_parameters["schema"] = LogicalType::VARCHAR;
-    named_parameters["snapshot_version"] = LogicalType::BIGINT;
-    named_parameters["snapshot_time"] = LogicalType::TIMESTAMP_TZ;
+	arguments.push_back(LogicalType::VARCHAR);
+	named_parameters["schema"] = LogicalType::VARCHAR;
+	named_parameters["snapshot_version"] = LogicalType::BIGINT;
+	named_parameters["snapshot_time"] = LogicalType::TIMESTAMP_TZ;
 }
 
 } // namespace duckdb
