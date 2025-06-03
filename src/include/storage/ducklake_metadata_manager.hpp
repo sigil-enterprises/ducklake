@@ -100,7 +100,7 @@ public:
 	virtual vector<DuckLakeSnapshotInfo> GetAllSnapshots(const string &filter = string());
 	virtual void DeleteSnapshots(const vector<DuckLakeSnapshotInfo> &snapshots);
 	virtual vector<DuckLakeTableSizeInfo> GetTableSizes(DuckLakeSnapshot snapshot);
-	virtual void SetConfigOption(const string &option, const string &value);
+	virtual void SetConfigOption(const DuckLakeConfigOption &option);
 	virtual string GetPathForSchema(SchemaIndex schema_id);
 	virtual string GetPathForTable(TableIndex table_id);
 

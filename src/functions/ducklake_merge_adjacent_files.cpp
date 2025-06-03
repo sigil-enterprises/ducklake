@@ -257,11 +257,11 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 
 	// generate the LogicalGet
 	auto &columns = table.GetColumns();
-	string encryption_key = catalog.GenerateEncryptionKey(context);
-	auto &catalog = table.ParentCatalog().Cast<DuckLakeCatalog>();
-	auto copy_options =
-	    DuckLakeInsert::GetCopyOptions(catalog, context, columns, nullptr, table.GetFieldData(), table.DataPath(),
-	                                   encryption_key, InsertVirtualColumns::WRITE_SNAPSHOT_ID);
+
+	DuckLakeCopyInput copy_input(context, table);
+	copy_input.virtual_columns = InsertVirtualColumns::WRITE_SNAPSHOT_ID;
+
+	auto copy_options = DuckLakeInsert::GetCopyOptions(context, copy_input);
 
 	auto virtual_columns = table.GetVirtualColumns();
 	auto ducklake_scan =
@@ -299,9 +299,9 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	copy->children.push_back(std::move(ducklake_scan));
 
 	// followed by the compaction operator (that writes the results back to the
-	auto compaction =
-	    make_uniq<DuckLakeLogicalCompaction>(binder.GenerateTableIndex(), table, std::move(source_files),
-	                                         std::move(encryption_key), partition_id, std::move(partition_values));
+	auto compaction = make_uniq<DuckLakeLogicalCompaction>(binder.GenerateTableIndex(), table, std::move(source_files),
+	                                                       std::move(copy_input.encryption_key), partition_id,
+	                                                       std::move(partition_values));
 	compaction->children.push_back(std::move(copy));
 	return std::move(compaction);
 }
@@ -311,11 +311,6 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 //===--------------------------------------------------------------------===//
 unique_ptr<LogicalOperator> MergeAdjacentFilesBind(ClientContext &context, TableFunctionBindInput &input,
                                                    idx_t bind_index, vector<string> &return_names) {
-	// bind operator ->
-	// LogicalSetOperation (LogicalGet -> LogicalCopyToFile)
-	// COPY (....) TO ... UNION ALL COPY (...) TO ... ....
-	// FIXME: we cannot merge files if they do not all have the same schema?
-	// FIXME get list of catalogs - if they do not have the same schema version
 	// gather a list of files to compact
 	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
 	auto &ducklake_catalog = catalog.Cast<DuckLakeCatalog>();

@@ -14,8 +14,11 @@
 #include "common/ducklake_encryption.hpp"
 #include "duckdb/planner/tableref/bound_at_clause.hpp"
 #include "duckdb/common/optional_idx.hpp"
+#include "common/index.hpp"
 
 namespace duckdb {
+
+using option_map_t = unordered_map<string, string>;
 
 struct DuckLakeOptions {
 	string metadata_database;
@@ -27,7 +30,9 @@ struct DuckLakeOptions {
 	idx_t data_inlining_row_limit = 0;
 	unique_ptr<BoundAtClause> at_clause;
 	unordered_map<string, Value> metadata_parameters;
-	unordered_map<string, string> config_options;
+	option_map_t config_options;
+	map<SchemaIndex, option_map_t> schema_options;
+	map<TableIndex, option_map_t> table_options;
 };
 
 } // namespace duckdb

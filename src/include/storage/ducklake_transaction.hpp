@@ -101,7 +101,7 @@ public:
 	static bool IsTransactionLocal(idx_t id) {
 		return id >= DuckLakeConstants::TRANSACTION_LOCAL_ID_START;
 	}
-	void SetConfigOption(string option, string value);
+	void SetConfigOption(const DuckLakeConfigOption &option);
 
 	string GetDefaultSchemaName();
 

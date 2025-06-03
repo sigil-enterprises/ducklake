@@ -484,13 +484,52 @@ optional_idx DuckLakeCatalog::GetCatalogVersion(ClientContext &context) {
 	return transaction.GetSnapshot().schema_version;
 }
 
-void DuckLakeCatalog::SetConfigOption(string option, string value) {
+void DuckLakeCatalog::SetConfigOption(const DuckLakeConfigOption &option) {
 	lock_guard<mutex> guard(config_lock);
-	options.config_options.emplace(std::move(option), std::move(value));
+	auto &key = option.option.key;
+	auto &value = option.option.value;
+	if (option.table_id.IsValid()) {
+		// scoped to a table
+		options.table_options[option.table_id].emplace(key, value);
+		return;
+	}
+	if (option.schema_id.IsValid()) {
+		// scoped to a schema
+		options.schema_options[option.schema_id].emplace(key, value);
+		return;
+	}
+	// scoped globally
+	options.config_options.emplace(key, value);
 }
 
-bool DuckLakeCatalog::TryGetConfigOption(const string &option, string &result) const {
+bool DuckLakeCatalog::TryGetConfigOption(const string &option, string &result, SchemaIndex schema_id,
+                                         TableIndex table_id) const {
 	lock_guard<mutex> guard(config_lock);
+	// search options in-order
+	// table scope
+	if (table_id.IsValid()) {
+		auto table_entry = options.table_options.find(table_id);
+		if (table_entry != options.table_options.end()) {
+			auto table_options_entry = table_entry->second.find(option);
+			if (table_options_entry != table_entry->second.end()) {
+				result = table_options_entry->second;
+				return true;
+			}
+		}
+	}
+	// schema scope
+	if (schema_id.IsValid()) {
+		auto schema_entry = options.schema_options.find(schema_id);
+		if (schema_entry != options.schema_options.end()) {
+			auto schema_options_entry = schema_entry->second.find(option);
+			if (schema_options_entry != schema_entry->second.end()) {
+				result = schema_options_entry->second;
+				return true;
+			}
+		}
+	}
+
+	// global scope
 	auto entry = options.config_options.find(option);
 	if (entry == options.config_options.end()) {
 		return false;
