@@ -45,7 +45,7 @@ statement ok
 INSERT INTO ducklake.test VALUES (5);
 
 query I
-SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_compaction_files/*')
+SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_compaction_files/**/*')
 ----
 6
 
@@ -67,7 +67,7 @@ CALL ducklake_merge_adjacent_files('ducklake');
 # files are not immediately deleted - but are added to the deletion queue
 # we actually gain a file here
 query I
-SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_compaction_files/*')
+SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_compaction_files/**/*')
 ----
 7
 
@@ -89,7 +89,7 @@ SELECT COUNT(*) FROM ducklake_cleanup_old_files('ducklake', cleanup_all => true,
 
 # now the files are gone
 query I
-SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_compaction_files/*')
+SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_compaction_files/**/*')
 ----
 2
 

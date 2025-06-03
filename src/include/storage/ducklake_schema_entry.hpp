@@ -17,7 +17,8 @@ struct DefaultTableMacro;
 
 class DuckLakeSchemaEntry : public SchemaCatalogEntry {
 public:
-	DuckLakeSchemaEntry(Catalog &catalog, CreateSchemaInfo &info, SchemaIndex schema_id, string schema_uuid);
+	DuckLakeSchemaEntry(Catalog &catalog, CreateSchemaInfo &info, SchemaIndex schema_id, string schema_uuid,
+	                    string data_path);
 
 public:
 	SchemaIndex GetSchemaId() const {
@@ -29,8 +30,13 @@ public:
 	void SetSchemaId(SchemaIndex new_schema_id) {
 		schema_id = new_schema_id;
 	}
+	const string &DataPath() const {
+		return data_path;
+	}
 
 public:
+	optional_ptr<CatalogEntry> CreateTableExtended(CatalogTransaction transaction, BoundCreateTableInfo &info,
+	                                               string table_uuid, string table_data_path);
 	optional_ptr<CatalogEntry> CreateTable(CatalogTransaction transaction, BoundCreateTableInfo &info) override;
 	optional_ptr<CatalogEntry> CreateFunction(CatalogTransaction transaction, CreateFunctionInfo &info) override;
 	optional_ptr<CatalogEntry> CreateIndex(CatalogTransaction transaction, CreateIndexInfo &info,
@@ -56,6 +62,8 @@ public:
 
 	static bool CatalogTypeIsSupported(CatalogType type);
 
+	static string GeneratePathFromName(const string &uuid, const string &name);
+
 private:
 	DuckLakeCatalogSet &GetCatalogSet(CatalogType type);
 	bool HandleCreateConflict(CatalogTransaction transaction, CatalogType type, const string &name,
@@ -67,6 +75,7 @@ private:
 private:
 	SchemaIndex schema_id;
 	string schema_uuid;
+	string data_path;
 	DuckLakeCatalogSet tables;
 	mutex default_function_lock;
 	case_insensitive_map_t<unique_ptr<CatalogEntry>> default_function_map;
