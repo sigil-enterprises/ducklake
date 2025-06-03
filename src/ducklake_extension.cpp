@@ -43,6 +43,9 @@ static void LoadInternal(DatabaseInstance &instance) {
 
 	auto table_changes = DuckLakeTableInsertionsFunction::GetDuckLakeTableChanges();
 	ExtensionUtil::RegisterFunction(instance, *table_changes);
+
+	DuckLakeListFilesFunction list_files;
+	ExtensionUtil::RegisterFunction(instance, list_files);
 }
 
 void DucklakeExtension::Load(DuckDB &db) {
