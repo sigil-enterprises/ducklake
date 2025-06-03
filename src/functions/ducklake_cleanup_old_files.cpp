@@ -75,7 +75,7 @@ void DuckLakeCleanupExecute(ClientContext &context, TableFunctionInput &data_p, 
 		// delete the files
 		auto &fs = FileSystem::GetFileSystem(context);
 		for (auto &file : data.files) {
-			fs.RemoveFile(file.path);
+			fs.TryRemoveFile(file.path);
 		}
 		// remove the files that are scheduled for cleanup
 		auto &transaction = DuckLakeTransaction::Get(context, data.catalog);
