@@ -480,8 +480,6 @@ void DuckLakeCatalog::OnDetach(ClientContext &context) {
 }
 
 optional_idx DuckLakeCatalog::GetCatalogVersion(ClientContext &context) {
-	DuckLakeTransactionManager &transaction_manager =
-	    static_cast<DuckLakeTransactionManager &>(DuckLakeTransactionManager::Get(db));
 	return DuckLakeTransaction::Get(context, *this).GetCatalogVersion();
 }
 
