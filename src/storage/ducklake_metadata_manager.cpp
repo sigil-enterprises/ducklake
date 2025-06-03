@@ -37,7 +37,7 @@ void DuckLakeMetadataManager::InitializeDuckLake(bool has_explicit_schema, DuckL
 	string data_path = StorePath(base_data_path);
 	string encryption_str = encryption == DuckLakeEncryption::ENCRYPTED ? "true" : "false";
 	initialize_query += StringUtil::Format(R"(
-CREATE TABLE {METADATA_CATALOG}.ducklake_metadata(key VARCHAR NOT NULL, value VARCHAR NOT NULL);
+CREATE TABLE {METADATA_CATALOG}.ducklake_metadata(key VARCHAR NOT NULL, value VARCHAR NOT NULL, scope VARCHAR, scope_id BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot(snapshot_id BIGINT PRIMARY KEY, snapshot_time TIMESTAMPTZ, schema_version BIGINT, next_catalog_id BIGINT, next_file_id BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot_changes(snapshot_id BIGINT PRIMARY KEY, changes_made VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_schema(schema_id BIGINT PRIMARY KEY, schema_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_name VARCHAR, path VARCHAR, path_is_relative BOOLEAN);
@@ -56,9 +56,11 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_partition_column(partition_id BIGINT, t
 CREATE TABLE {METADATA_CATALOG}.ducklake_file_partition_value(data_file_id BIGINT, table_id BIGINT, partition_key_index BIGINT, partition_value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion(data_file_id BIGINT, path VARCHAR, path_is_relative BOOLEAN, schedule_start TIMESTAMPTZ);
 CREATE TABLE {METADATA_CATALOG}.ducklake_inlined_data_tables(table_id BIGINT, table_name VARCHAR, schema_version BIGINT);
+CREATE TABLE {METADATA_CATALOG}.ducklake_schema_settings(schema_id BIGINT, key VARCHAR NOT NULL, value VARCHAR NOT NULL);
+CREATE TABLE {METADATA_CATALOG}.ducklake_table_settings(table_id BIGINT, key VARCHAR NOT NULL, value VARCHAR NOT NULL);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot_changes VALUES (0, 'created_schema:"main"');
-INSERT INTO {METADATA_CATALOG}.ducklake_metadata VALUES ('version', '0.2'), ('created_by', 'DuckDB %s'), ('data_path', %s), ('encrypted', '%s');
+INSERT INTO {METADATA_CATALOG}.ducklake_metadata (key, value) VALUES ('version', '0.2'), ('created_by', 'DuckDB %s'), ('data_path', %s), ('encrypted', '%s');
 INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main', 'main/', true);
 	)",
 	                                       DuckDB::SourceID(), SQLString(data_path), encryption_str);
@@ -78,6 +80,8 @@ ALTER TABLE {METADATA_CATALOG}.ducklake_schema ADD COLUMN path VARCHAR DEFAULT '
 ALTER TABLE {METADATA_CATALOG}.ducklake_schema ADD COLUMN path_is_relative BOOLEAN DEFAULT TRUE;
 ALTER TABLE {METADATA_CATALOG}.ducklake_table ADD COLUMN path VARCHAR DEFAULT '';
 ALTER TABLE {METADATA_CATALOG}.ducklake_table ADD COLUMN path_is_relative BOOLEAN DEFAULT TRUE;
+ALTER TABLE {METADATA_CATALOG}.ducklake_metadata ADD COLUMN scope VARCHAR;
+ALTER TABLE {METADATA_CATALOG}.ducklake_metadata ADD COLUMN scope_id BIGINT;
 	)";
 	auto result = transaction.Query(migrate_query);
 	if (result->HasError()) {
@@ -86,17 +90,48 @@ ALTER TABLE {METADATA_CATALOG}.ducklake_table ADD COLUMN path_is_relative BOOLEA
 }
 
 DuckLakeMetadata DuckLakeMetadataManager::LoadDuckLake() {
-	auto result = transaction.Query("SELECT key, value FROM {METADATA_CATALOG}.ducklake_metadata");
+	auto result = transaction.Query(R"(
+SELECT key, value, scope, scope_id FROM {METADATA_CATALOG}.ducklake_metadata
+)");
 	if (result->HasError()) {
-		auto &error_obj = result->GetErrorObject();
-		error_obj.Throw("Failed to load existing DuckLake");
+		// we might be loading from a v0.1 database - if so we don't have scope yet
+		result = transaction.Query(R"(
+SELECT key, value FROM {METADATA_CATALOG}.ducklake_metadata
+)");
+		if (result->HasError()) {
+			auto &error_obj = result->GetErrorObject();
+			error_obj.Throw("Failed to load existing DuckLake: ");
+		}
 	}
 	DuckLakeMetadata metadata;
 	for (auto &row : *result) {
 		DuckLakeTag tag;
 		tag.key = row.GetValue<string>(0);
 		tag.value = row.GetValue<string>(1);
-		metadata.tags.push_back(std::move(tag));
+		if (result->ColumnCount() == 2 || row.IsNull(2)) {
+			// scope is NULL: global tag
+			// global tag
+			metadata.tags.push_back(std::move(tag));
+			continue;
+		}
+		auto scope = row.GetValue<string>(2);
+		if (scope == "schema") {
+			// schema-level setting
+			DuckLakeSchemaSetting schema_setting;
+			schema_setting.schema_id = SchemaIndex(row.GetValue<idx_t>(3));
+			schema_setting.tag = std::move(tag);
+			metadata.schema_settings.push_back(std::move(schema_setting));
+			continue;
+		}
+		if (scope == "table") {
+			// table-level setting
+			DuckLakeTableSetting table_setting;
+			table_setting.table_id = TableIndex(row.GetValue<idx_t>(3));
+			table_setting.tag = std::move(tag);
+			metadata.table_settings.push_back(std::move(table_setting));
+			continue;
+		}
+		throw InvalidInputException("Unsupported setting scope %s - only schema/table are supported", scope);
 	}
 	return metadata;
 }
@@ -2132,28 +2167,46 @@ WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_s
 	return table_sizes;
 }
 
-void DuckLakeMetadataManager::SetConfigOption(const string &option, const string &value) {
+void DuckLakeMetadataManager::SetConfigOption(const DuckLakeConfigOption &option) {
 	// check if the option already exists
+	auto &option_key = option.option.key;
+	auto &option_value = option.option.value;
+	string scope;
+	string scope_id;
+	string scope_filter;
+	if (option.table_id.IsValid()) {
+		scope = "'table'";
+		scope_id = to_string(option.table_id.index);
+		scope_filter = StringUtil::Format("scope = 'table' AND scope_id = %d", option.table_id.index);
+	} else if (option.schema_id.IsValid()) {
+		scope = "'schema'";
+		scope_id = to_string(option.schema_id.index);
+		scope_filter = StringUtil::Format("scope = 'schema' AND scope_id = %d", option.schema_id.index);
+	} else {
+		scope = "NULL";
+		scope_id = "NULL";
+		scope_filter = "scope IS NULL";
+	}
 	auto result = transaction.Query(StringUtil::Format(R"(
 SELECT COUNT(*)
 FROM {METADATA_CATALOG}.ducklake_metadata
-WHERE key = %s
+WHERE key = %s AND %s
 )",
-	                                                   SQLString(option)));
+	                                                   SQLString(option_key), scope_filter));
 
 	auto count = result->Fetch()->GetValue(0, 0).GetValue<idx_t>();
 	if (count == 0) {
 		// option does not yet exist - insert the value
 		result = transaction.Query(StringUtil::Format(R"(
-INSERT INTO {METADATA_CATALOG}.ducklake_metadata VALUES (%s, %s)
+INSERT INTO {METADATA_CATALOG}.ducklake_metadata VALUES (%s, %s, %s, %s)
 )",
-		                                              SQLString(option), SQLString(value)));
+		                                              SQLString(option_key), SQLString(option_value), scope, scope_id));
 	} else {
 		// option already exists - update it
 		result = transaction.Query(StringUtil::Format(R"(
-UPDATE {METADATA_CATALOG}.ducklake_metadata SET value=%s WHERE key=%s
+UPDATE {METADATA_CATALOG}.ducklake_metadata SET value=%s WHERE key=%s AND %s
 )",
-		                                              SQLString(value), SQLString(option)));
+		                                              SQLString(option_value), SQLString(option_key), scope_filter));
 	}
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to insert config option in DuckLake: ");

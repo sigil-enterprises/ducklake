@@ -19,6 +19,7 @@ namespace duckdb {
 class ColumnList;
 class DuckLakeFieldData;
 struct DuckLakeFileListEntry;
+struct DuckLakeConfigOption;
 struct DeleteFileMap;
 class LogicalGet;
 
@@ -51,8 +52,8 @@ public:
 	string &Separator() {
 		return separator;
 	}
-	void SetConfigOption(string option, string value);
-	bool TryGetConfigOption(const string &option, string &result) const;
+	void SetConfigOption(const DuckLakeConfigOption &option);
+	bool TryGetConfigOption(const string &option, string &result, SchemaIndex schema_id, TableIndex table_id) const;
 
 	optional_ptr<BoundAtClause> CatalogSnapshot() const;
 

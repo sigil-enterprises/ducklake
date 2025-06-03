@@ -25,8 +25,20 @@ struct DuckLakeTag {
 	string value;
 };
 
+struct DuckLakeSchemaSetting {
+	SchemaIndex schema_id;
+	DuckLakeTag tag;
+};
+
+struct DuckLakeTableSetting {
+	TableIndex table_id;
+	DuckLakeTag tag;
+};
+
 struct DuckLakeMetadata {
 	vector<DuckLakeTag> tags;
+	vector<DuckLakeSchemaSetting> schema_settings;
+	vector<DuckLakeTableSetting> table_settings;
 };
 
 struct DuckLakeSchemaInfo {
@@ -312,6 +324,14 @@ struct DuckLakeTableSizeInfo {
 struct DuckLakePath {
 	string path;
 	bool path_is_relative;
+};
+
+struct DuckLakeConfigOption {
+	DuckLakeTag option;
+	//! schema_id, if scoped to a schema
+	SchemaIndex schema_id;
+	//! table_id, if scoped to a table
+	TableIndex table_id;
 };
 
 } // namespace duckdb

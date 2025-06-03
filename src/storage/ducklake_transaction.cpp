@@ -1267,11 +1267,11 @@ void DuckLakeTransaction::FlushChanges() {
 	}
 }
 
-void DuckLakeTransaction::SetConfigOption(string option, string value) {
+void DuckLakeTransaction::SetConfigOption(const DuckLakeConfigOption &option) {
 	// write the config option to the metadata
-	metadata_manager->SetConfigOption(option, value);
+	metadata_manager->SetConfigOption(option);
 	// set the option in the catalog
-	ducklake_catalog.SetConfigOption(std::move(option), std::move(value));
+	ducklake_catalog.SetConfigOption(option);
 }
 
 void DuckLakeTransaction::DeleteSnapshots(const vector<DuckLakeSnapshotInfo> &snapshots) {
