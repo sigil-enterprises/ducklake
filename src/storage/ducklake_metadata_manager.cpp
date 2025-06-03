@@ -34,7 +34,7 @@ void DuckLakeMetadataManager::InitializeDuckLake(bool has_explicit_schema, DuckL
 	// we default to false unless explicitly specified otherwise
 	auto &ducklake_catalog = transaction.GetCatalog();
 	auto &base_data_path = ducklake_catalog.DataPath();
-    string data_path = StorePath(base_data_path);
+	string data_path = StorePath(base_data_path);
 	string encryption_str = encryption == DuckLakeEncryption::ENCRYPTED ? "true" : "false";
 	initialize_query += StringUtil::Format(R"(
 CREATE TABLE {METADATA_CATALOG}.ducklake_metadata(key VARCHAR NOT NULL, value VARCHAR NOT NULL);
@@ -165,11 +165,11 @@ WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_s
 			schema.path = base_data_path;
 		} else {
 			// path is provided - load it
-            DuckLakePath path;
-            path.path = row.template GetValue<string>(3);
-            path.path_is_relative = row.template GetValue<bool>(4);
+			DuckLakePath path;
+			path.path = row.template GetValue<string>(3);
+			path.path_is_relative = row.template GetValue<bool>(4);
 
-            schema.path = FromRelativePath(path);
+			schema.path = FromRelativePath(path);
 		}
 		schema_map[schema.id] = catalog.schemas.size();
 		catalog.schemas.push_back(std::move(schema));
@@ -240,11 +240,11 @@ ORDER BY table_id, parent_column NULLS FIRST, column_order
 				table_info.path = schema.path;
 			} else {
 				// path is provided - load it
-                DuckLakePath path;
-                path.path = row.template GetValue<string>(6);
-                path.path_is_relative = row.template GetValue<bool>(7);
+				DuckLakePath path;
+				path.path = row.template GetValue<string>(6);
+				path.path_is_relative = row.template GetValue<bool>(7);
 
-                table_info.path = FromRelativePath(path, schema.path);
+				table_info.path = FromRelativePath(path, schema.path);
 			}
 			tables.push_back(std::move(table_info));
 		}
@@ -1275,7 +1275,7 @@ DuckLakePath DuckLakeMetadataManager::GetRelativePath(const string &path, const 
 		result.path = path;
 		result.path_is_relative = false;
 	}
-    result.path = StorePath(std::move(result.path));
+	result.path = StorePath(std::move(result.path));
 	return result;
 }
 

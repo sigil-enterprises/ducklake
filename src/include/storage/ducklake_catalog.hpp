@@ -48,9 +48,9 @@ public:
 	idx_t DataInliningRowLimit() const {
 		return options.data_inlining_row_limit;
 	}
-    string &Separator() {
-        return separator;
-    }
+	string &Separator() {
+		return separator;
+	}
 	void SetConfigOption(string option, string value);
 	bool TryGetConfigOption(const string &option, string &result) const;
 
@@ -123,8 +123,8 @@ private:
 	mutable mutex config_lock;
 	//! The DuckLake options
 	DuckLakeOptions options;
-    // The path separator
-    string separator = "/";
+	// The path separator
+	string separator = "/";
 };
 
 } // namespace duckdb

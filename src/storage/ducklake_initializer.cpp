@@ -109,7 +109,7 @@ void DuckLakeInitializer::InitializeDataPath() {
 	if (!StringUtil::EndsWith(data_path, separator)) {
 		data_path += separator;
 	}
-    catalog.Separator() = separator;
+	catalog.Separator() = separator;
 }
 
 void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction, bool has_explicit_schema) {
