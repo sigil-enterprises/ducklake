@@ -7,6 +7,7 @@ add_library(
   ducklake_snapshots.cpp
   ducklake_merge_adjacent_files.cpp
   ducklake_set_option.cpp
+  ducklake_get_option.cpp
   ducklake_table_changes.cpp
   ducklake_table_info.cpp
   ducklake_table_insertions.cpp)

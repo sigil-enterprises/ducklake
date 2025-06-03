@@ -106,3 +106,93 @@ statement ok
 ATTACH 'ducklake:__TEST_DIR__/ducklake_per_table_settings.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_per_table_settings_files');
 
 endloop
+
+# global option retrieval
+query IIII
+SELECT name, value, type, description FROM ducklake.get_option() WHERE name = 'parquet_compression'
+----
+parquet_compression	uncompressed	user	Compression algorithm for Parquet files (uncompressed, snappy, gzip, zstd, brotli, lz4)
+
+# schema-scoped option retrieval (s1 should return lz4)
+query IIII
+SELECT name, value, type, description FROM ducklake.get_option(schema => 's1') WHERE name = 'parquet_compression'
+----
+parquet_compression	lz4	user	Compression algorithm for Parquet files (uncompressed, snappy, gzip, zstd, brotli, lz4)
+
+# table-scoped option retrieval (t1 should return zstd - table-specific setting)
+query IIII
+SELECT name, value, type, description FROM ducklake.get_option(table_name => 't1') WHERE name = 'parquet_compression'
+----
+parquet_compression	zstd	user	Compression algorithm for Parquet files (uncompressed, snappy, gzip, zstd, brotli, lz4)
+
+# table-scoped option retrieval (t2 should return uncompressed - global setting)
+query IIII
+SELECT name, value, type, description FROM ducklake.get_option(table_name => 't2') WHERE name = 'parquet_compression'
+----
+parquet_compression	uncompressed	user	Compression algorithm for Parquet files (uncompressed, snappy, gzip, zstd, brotli, lz4)
+
+# schema + Table scoped option retrieval (s1.t1 should return gzip - table-specific setting)
+query IIII
+SELECT name, value, type, description FROM ducklake.get_option(schema => 's1', table_name => 't1') WHERE name = 'parquet_compression'
+----
+parquet_compression	gzip	user	Compression algorithm for Parquet files (uncompressed, snappy, gzip, zstd, brotli, lz4)
+
+# schema + Table scoped option retrieval (s1.t2 should return lz4 - schema-specific setting)
+query IIII
+SELECT name, value, type, description FROM ducklake.get_option(schema => 's1', table_name => 't2') WHERE name = 'parquet_compression'
+----
+parquet_compression	lz4	user	Compression algorithm for Parquet files (uncompressed, snappy, gzip, zstd, brotli, lz4)
+
+# using get_option_by_name for specific option filtering
+query IIII
+SELECT name, value, type, description FROM ducklake.get_option_by_name('parquet_compression')
+----
+parquet_compression	uncompressed	user	Compression algorithm for Parquet files (uncompressed, snappy, gzip, zstd, brotli, lz4)
+
+# using get_option_by_name with schema scope
+query IIII
+SELECT name, value, type, description FROM ducklake.get_option_by_name('parquet_compression', schema => 's1')
+----
+parquet_compression	lz4	user	Compression algorithm for Parquet files (uncompressed, snappy, gzip, zstd, brotli, lz4)
+
+# using get_option_by_name with table scope
+query IIII
+SELECT name, value, type, description FROM ducklake.get_option_by_name('parquet_compression', table_name => 't1')
+----
+parquet_compression	zstd	user	Compression algorithm for Parquet files (uncompressed, snappy, gzip, zstd, brotli, lz4)
+
+# using get_option_by_name with schema + table scope
+query IIII
+SELECT name, value, type, description FROM ducklake.get_option_by_name('parquet_compression', schema => 's1', table_name => 't1')
+----
+parquet_compression	gzip	user	Compression algorithm for Parquet files (uncompressed, snappy, gzip, zstd, brotli, lz4)
+
+# error handling - non-existent table
+statement error
+SELECT * FROM ducklake.get_option(table_name => 'nonexistent_table')
+----
+nonexistent_table
+
+# error handling - non-existent schema
+statement error
+SELECT * FROM ducklake.get_option(schema => 'nonexistent_schema')
+----
+nonexistent_schema
+
+# for s1.t1, we should get gzip (table-specific) not lz4 (schema-specific)
+query I
+SELECT value FROM ducklake.get_option(schema => 's1', table_name => 't1') WHERE name = 'parquet_compression'
+----
+gzip
+
+# for s1.t2, we should get lz4 (schema-specific) not uncompressed (global)
+query I
+SELECT value FROM ducklake.get_option(schema => 's1', table_name => 't2') WHERE name = 'parquet_compression'
+----
+lz4
+
+# verify that get_option_by_name returns empty result for non-existent option
+query I
+SELECT COUNT(*) FROM ducklake.get_option_by_name('non_existent_option')
+----
+0
