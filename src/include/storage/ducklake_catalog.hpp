@@ -48,6 +48,9 @@ public:
 	idx_t DataInliningRowLimit() const {
 		return options.data_inlining_row_limit;
 	}
+	string &Separator() {
+		return separator;
+	}
 	void SetConfigOption(string option, string value);
 	bool TryGetConfigOption(const string &option, string &result) const;
 
@@ -77,7 +80,10 @@ public:
 	                                               TableIndex table_id);
 
 	optional_ptr<CatalogEntry> GetEntryById(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
+	                                        SchemaIndex schema_id);
+	optional_ptr<CatalogEntry> GetEntryById(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
 	                                        TableIndex table_id);
+	string GeneratePathFromName(const string &uuid, const string &name);
 
 	bool InMemory() override;
 	string GetDBPath() override;
@@ -117,6 +123,8 @@ private:
 	mutable mutex config_lock;
 	//! The DuckLake options
 	DuckLakeOptions options;
+	// The path separator
+	string separator = "/";
 };
 
 } // namespace duckdb

@@ -497,13 +497,17 @@ vector<DuckLakeSchemaInfo> DuckLakeTransaction::GetNewSchemas(DuckLakeSnapshot &
 	vector<DuckLakeSchemaInfo> schemas;
 	for (auto &entry : new_schemas->GetEntries()) {
 		auto &schema_entry = entry.second->Cast<DuckLakeSchemaEntry>();
+		auto old_id = schema_entry.GetSchemaId();
 		DuckLakeSchemaInfo schema_info;
 		schema_info.id = SchemaIndex(commit_snapshot.next_catalog_id++);
 		schema_info.uuid = schema_entry.GetSchemaUUID();
 		schema_info.name = schema_entry.name;
+		schema_info.path = schema_entry.DataPath();
 
 		// set the schema id of this schema entry so subsequent tables are written correctly
 		schema_entry.SetSchemaId(schema_info.id);
+
+		new_schemas->RemapEntry(old_id, schema_info.id, schema_entry);
 
 		// add the schema to the list
 		schemas.push_back(std::move(schema_info));
@@ -582,6 +586,7 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 	table_entry.uuid = table.GetTableUUID();
 	table_entry.schema_id = schema.GetSchemaId();
 	table_entry.name = table.name;
+	table_entry.path = table.DataPath();
 	if (is_new_table) {
 		// if this is a new table - write the columns
 		table_entry.columns = GetTableColumns(table);
@@ -628,8 +633,9 @@ void HandleChangedFields(TableIndex table_id, const ColumnChangeInfo &change_inf
 	}
 }
 
-void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> table_entry,
-                                          NewTableInfo &result, TransactionChangeInformation &transaction_changes) {
+void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, DuckLakeCatalogSet &catalog_set,
+                                          reference<CatalogEntry> table_entry, NewTableInfo &result,
+                                          TransactionChangeInformation &transaction_changes) {
 	// iterate over the table chain in reverse order when committing
 	// the latest entry is the root entry - but we need to commit starting from the first entry written
 	// gather all tables
@@ -643,6 +649,7 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 	}
 	// traverse in reverse order
 	bool column_schema_change = false;
+	TableIndex old_table_id;
 	TableIndex new_table_id;
 	for (idx_t table_idx = tables.size(); table_idx > 0; table_idx--) {
 		auto &table = tables[table_idx - 1].get();
@@ -724,6 +731,7 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 		case LocalChangeType::NONE:
 		case LocalChangeType::CREATED:
 		case LocalChangeType::RENAMED: {
+			old_table_id = table.GetTableId();
 			auto new_table = GetNewTable(commit_snapshot, table);
 			new_table_id = new_table.id;
 			result.new_tables.push_back(std::move(new_table));
@@ -732,6 +740,10 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 		default:
 			throw NotImplementedException("Unsupported transaction local change");
 		}
+	}
+	if (new_table_id.IsValid()) {
+		// if we changed the table-id - remap it in the transaction-local storage
+		catalog_set.RemapEntry(old_table_id, new_table_id, tables.front().get());
 	}
 	if (column_schema_change) {
 		// we changed the column definitions of a table - we need to create a new inlined data table (if data inlining
@@ -766,8 +778,9 @@ DuckLakeViewInfo DuckLakeTransaction::GetNewView(DuckLakeSnapshot &commit_snapsh
 	return view_entry;
 }
 
-void DuckLakeTransaction::GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> view_entry,
-                                         NewTableInfo &result, TransactionChangeInformation &transaction_changes) {
+void DuckLakeTransaction::GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, DuckLakeCatalogSet &catalog_set,
+                                         reference<CatalogEntry> view_entry, NewTableInfo &result,
+                                         TransactionChangeInformation &transaction_changes) {
 	// iterate over the view chain in reverse order when committing
 	// the latest entry is the root entry - but we need to commit starting from the first entry written
 	// gather all views
@@ -818,10 +831,10 @@ NewTableInfo DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &commit_snapshot
 		for (auto &entry : schema_entry.second->GetEntries()) {
 			switch (entry.second->type) {
 			case CatalogType::TABLE_ENTRY:
-				GetNewTableInfo(commit_snapshot, *entry.second, result, transaction_changes);
+				GetNewTableInfo(commit_snapshot, *schema_entry.second, *entry.second, result, transaction_changes);
 				break;
 			case CatalogType::VIEW_ENTRY:
-				GetNewViewInfo(commit_snapshot, *entry.second, result, transaction_changes);
+				GetNewViewInfo(commit_snapshot, *schema_entry.second, *entry.second, result, transaction_changes);
 				break;
 			default:
 				throw InternalException("Unknown type in new_tables");
@@ -1821,6 +1834,23 @@ optional_ptr<DuckLakeCatalogSet> DuckLakeTransaction::GetTransactionLocalEntries
 	default:
 		return nullptr;
 	}
+}
+
+optional_ptr<CatalogEntry> DuckLakeTransaction::GetLocalEntryById(SchemaIndex schema_id) {
+	if (!new_schemas) {
+		return nullptr;
+	}
+	return new_schemas->GetEntryById(schema_id);
+}
+
+optional_ptr<CatalogEntry> DuckLakeTransaction::GetLocalEntryById(TableIndex table_id) {
+	for (auto &schema_entry : new_tables) {
+		auto entry = schema_entry.second->GetEntryById(table_id);
+		if (entry) {
+			return entry;
+		}
+	}
+	return nullptr;
 }
 
 // FIXME: this is copied from mainline DuckDB because of a bug in UUID v7 generation

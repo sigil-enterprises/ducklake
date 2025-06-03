@@ -103,11 +103,13 @@ void DuckLakeInitializer::InitializeDataPath() {
 	//	2. If so, either load the required extension or throw a relevant error message
 	CheckAndAutoloadedRequiredExtension(data_path);
 
-	if (!StringUtil::EndsWith(data_path, "/") && !StringUtil::EndsWith(data_path, "\\")) {
-		// data path does not end in a path separator - add it
-		auto &fs = FileSystem::GetFileSystem(context);
-		data_path += fs.PathSeparator(data_path);
+	auto &fs = FileSystem::GetFileSystem(context);
+	auto separator = fs.PathSeparator(data_path);
+	// ensure the paths we store always end in a path separator
+	if (!StringUtil::EndsWith(data_path, separator)) {
+		data_path += separator;
 	}
+	catalog.Separator() = separator;
 }
 
 void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction, bool has_explicit_schema) {
@@ -121,6 +123,7 @@ void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction
 		// for DuckDB instances - use a default data path
 		auto path = metadata_catalog.GetAttached().GetStorageManager().GetDBPath();
 		options.data_path = path + ".files";
+		InitializeDataPath();
 	}
 	auto &metadata_manager = transaction.GetMetadataManager();
 	metadata_manager.InitializeDuckLake(has_explicit_schema, catalog.Encryption());
@@ -136,13 +139,18 @@ void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction)
 	auto metadata = metadata_manager.LoadDuckLake();
 	for (auto &tag : metadata.tags) {
 		if (tag.key == "version") {
-			if (tag.value != "0.1") {
-				throw NotImplementedException("Only DuckLake version 0.1 is supported");
+			string version = tag.value;
+			if (version == "0.1") {
+				metadata_manager.MigrateV01();
+				version = "0.2";
+			}
+			if (version != "0.2") {
+				throw NotImplementedException("Only DuckLake versions 0.1 and 0.2 are supported");
 			}
 		}
 		if (tag.key == "data_path") {
 			if (options.data_path.empty()) {
-				options.data_path = tag.value;
+				options.data_path = metadata_manager.LoadPath(tag.value);
 				InitializeDataPath();
 			}
 		}
