@@ -34,12 +34,4 @@ void DuckLakeTransactionManager::RollbackTransaction(Transaction &transaction) {
 	transactions.erase(transaction);
 }
 
-idx_t DuckLakeTransactionManager::GetCatalogVersion(Transaction &transaction_p) {
-	auto &transaction = transaction_p.Cast<DuckLakeTransaction>();
-	if (transaction.catalog_version > 0) {
-		return transaction.catalog_version;
-	}
-	return transaction.GetSnapshot().schema_version;
-}
-
 } // namespace duckdb

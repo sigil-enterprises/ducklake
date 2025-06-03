@@ -1600,7 +1600,7 @@ DuckLakeTransaction &DuckLakeTransaction::Get(ClientContext &context, Catalog &c
 }
 
 void DuckLakeTransaction::CreateEntry(unique_ptr<CatalogEntry> entry) {
-	catalog_version = entry->ParentCatalog().Cast<DuckLakeCatalog>().GetNewUncommittedCatalogVersion();
+	catalog_version = ducklake_catalog.GetNewUncommittedCatalogVersion();
 	auto &set = GetOrCreateTransactionLocalEntries(*entry);
 	set.CreateEntry(std::move(entry));
 }
@@ -1623,7 +1623,7 @@ void DuckLakeTransaction::DropSchema(DuckLakeSchemaEntry &schema) {
 }
 
 void DuckLakeTransaction::DropTable(DuckLakeTableEntry &table) {
-	catalog_version = table.ParentCatalog().Cast<DuckLakeCatalog>().GetNewUncommittedCatalogVersion();
+	catalog_version = ducklake_catalog.GetNewUncommittedCatalogVersion();
 	if (table.IsTransactionLocal()) {
 		// table is transaction-local - drop it from the transaction local changes
 		auto schema_entry = new_tables.find(table.ParentSchema().name);
@@ -1677,7 +1677,7 @@ bool DuckLakeTransaction::FileIsDropped(const string &path) const {
 }
 
 void DuckLakeTransaction::DropEntry(CatalogEntry &entry) {
-	catalog_version = entry.ParentCatalog().Cast<DuckLakeCatalog>().GetNewUncommittedCatalogVersion();
+	catalog_version = ducklake_catalog.GetNewUncommittedCatalogVersion();
 	switch (entry.type) {
 	case CatalogType::TABLE_ENTRY:
 		DropTable(entry.Cast<DuckLakeTableEntry>());
@@ -1713,7 +1713,7 @@ bool DuckLakeTransaction::IsDeleted(CatalogEntry &entry) {
 }
 
 void DuckLakeTransaction::AlterEntry(CatalogEntry &entry, unique_ptr<CatalogEntry> new_entry) {
-	catalog_version = entry.ParentCatalog().Cast<DuckLakeCatalog>().GetNewUncommittedCatalogVersion();
+	catalog_version = ducklake_catalog.GetNewUncommittedCatalogVersion();
 	if (!new_entry) {
 		return;
 	}
@@ -1938,6 +1938,13 @@ string DuckLakeTransaction::GenerateUUIDv7() {
 
 string DuckLakeTransaction::GenerateUUID() const {
 	return GenerateUUIDv7();
+}
+
+idx_t DuckLakeTransaction::GetCatalogVersion() {
+	if (catalog_version > 0) {
+		return catalog_version;
+	}
+	return GetSnapshot().schema_version;
 }
 
 } // namespace duckdb

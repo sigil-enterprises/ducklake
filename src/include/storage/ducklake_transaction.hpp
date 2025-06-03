@@ -8,15 +8,15 @@
 
 #pragma once
 
-#include "duckdb/transaction/transaction.hpp"
-#include "duckdb/common/case_insensitive_map.hpp"
-#include "duckdb/main/connection.hpp"
-#include "storage/ducklake_catalog_set.hpp"
-#include "storage/ducklake_metadata_manager.hpp"
-#include "common/ducklake_snapshot.hpp"
 #include "common/ducklake_data_file.hpp"
+#include "common/ducklake_snapshot.hpp"
+#include "duckdb/common/case_insensitive_map.hpp"
 #include "duckdb/common/types/value_map.hpp"
+#include "duckdb/main/connection.hpp"
+#include "duckdb/transaction/transaction.hpp"
+#include "storage/ducklake_catalog_set.hpp"
 #include "storage/ducklake_inlined_data.hpp"
+#include "storage/ducklake_metadata_manager.hpp"
 
 namespace duckdb {
 class DuckLakeCatalog;
@@ -115,7 +115,7 @@ public:
 	string GenerateUUID() const;
 	static string GenerateUUIDv7();
 
-	atomic<idx_t> catalog_version = 0;
+	idx_t GetCatalogVersion();
 
 private:
 	void CleanupFiles();
@@ -185,6 +185,8 @@ private:
 	map<TableIndex, vector<DuckLakeCompactionEntry>> compactions;
 	//! Snapshot cache for the AT (...) conditions that are referenced in the transaction
 	value_map_t<DuckLakeSnapshot> snapshot_cache;
+
+	atomic<idx_t> catalog_version = 0;
 };
 
 } // namespace duckdb
