@@ -103,16 +103,13 @@ void DuckLakeInitializer::InitializeDataPath() {
 	//	2. If so, either load the required extension or throw a relevant error message
 	CheckAndAutoloadedRequiredExtension(data_path);
 
-	// ensure the paths we store always use forward slashes
 	auto &fs = FileSystem::GetFileSystem(context);
 	auto separator = fs.PathSeparator(data_path);
-	if (separator != "/") {
-		data_path = StringUtil::Replace(data_path, separator, "/");
-	}
 	// ensure the paths we store always end in a path separator
-	if (!StringUtil::EndsWith(data_path, "/")) {
-		data_path += "/";
+	if (!StringUtil::EndsWith(data_path, separator)) {
+		data_path += separator;
 	}
+    catalog.Separator() = separator;
 }
 
 void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction, bool has_explicit_schema) {
@@ -125,7 +122,7 @@ void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction
 		}
 		// for DuckDB instances - use a default data path
 		auto path = metadata_catalog.GetAttached().GetStorageManager().GetDBPath();
-		options.data_path = path + ".files/";
+		options.data_path = path + ".files";
 		InitializeDataPath();
 	}
 	auto &metadata_manager = transaction.GetMetadataManager();
@@ -153,7 +150,7 @@ void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction)
 		}
 		if (tag.key == "data_path") {
 			if (options.data_path.empty()) {
-				options.data_path = tag.value;
+				options.data_path = metadata_manager.LoadPath(tag.value);
 				InitializeDataPath();
 			}
 		}

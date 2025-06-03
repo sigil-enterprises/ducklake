@@ -106,6 +106,9 @@ public:
 
 	virtual void MigrateV01();
 
+	string LoadPath(string path);
+	string StorePath(string path);
+
 protected:
 	string GetInlinedTableQuery(const DuckLakeTableInfo &table, const string &table_name);
 	string GetColumnType(const DuckLakeColumnInfo &col);
@@ -124,7 +127,6 @@ protected:
 	string GetPath(SchemaIndex schema_id);
 	string GetPath(TableIndex table_id);
 	FileSystem &GetFileSystem();
-	string ConvertPathSeparators(string path);
 
 private:
 	template <class T>

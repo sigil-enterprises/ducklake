@@ -32,6 +32,9 @@ void DuckLakeMetadataManager::InitializeDuckLake(bool has_explicit_schema, DuckL
 		initialize_query += "CREATE SCHEMA IF NOT EXISTS {METADATA_CATALOG};\n";
 	}
 	// we default to false unless explicitly specified otherwise
+	auto &ducklake_catalog = transaction.GetCatalog();
+	auto &base_data_path = ducklake_catalog.DataPath();
+    string data_path = StorePath(base_data_path);
 	string encryption_str = encryption == DuckLakeEncryption::ENCRYPTED ? "true" : "false";
 	initialize_query += StringUtil::Format(R"(
 CREATE TABLE {METADATA_CATALOG}.ducklake_metadata(key VARCHAR NOT NULL, value VARCHAR NOT NULL);
@@ -55,10 +58,10 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion(data_file_
 CREATE TABLE {METADATA_CATALOG}.ducklake_inlined_data_tables(table_id BIGINT, table_name VARCHAR, schema_version BIGINT);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot_changes VALUES (0, 'created_schema:"main"');
-INSERT INTO {METADATA_CATALOG}.ducklake_metadata VALUES ('version', '0.2'), ('created_by', 'DuckDB %s'), ('data_path', {DATA_PATH}), ('encrypted', '%s');
+INSERT INTO {METADATA_CATALOG}.ducklake_metadata VALUES ('version', '0.2'), ('created_by', 'DuckDB %s'), ('data_path', %s), ('encrypted', '%s');
 INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main', 'main/', true);
 	)",
-	                                       DuckDB::SourceID(), encryption_str);
+	                                       DuckDB::SourceID(), SQLString(data_path), encryption_str);
 	// TODO: add
 	//	ducklake_sorting_info
 	//	ducklake_sorting_column_info
@@ -162,12 +165,11 @@ WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_s
 			schema.path = base_data_path;
 		} else {
 			// path is provided - load it
-			schema.path = row.GetValue<string>(3);
-			auto path_is_relative = row.GetValue<bool>(4);
-			if (path_is_relative) {
-				// relative path - prepend catalog path
-				schema.path = base_data_path + schema.path;
-			}
+            DuckLakePath path;
+            path.path = row.template GetValue<string>(3);
+            path.path_is_relative = row.template GetValue<bool>(4);
+
+            schema.path = FromRelativePath(path);
 		}
 		schema_map[schema.id] = catalog.schemas.size();
 		catalog.schemas.push_back(std::move(schema));
@@ -238,12 +240,11 @@ ORDER BY table_id, parent_column NULLS FIRST, column_order
 				table_info.path = schema.path;
 			} else {
 				// path is provided - load it
-				table_info.path = row.GetValue<string>(6);
-				auto path_is_relative = row.GetValue<bool>(7);
-				if (path_is_relative) {
-					// relative path - prepend schema path
-					table_info.path = schema.path + table_info.path;
-				}
+                DuckLakePath path;
+                path.path = row.template GetValue<string>(6);
+                path.path_is_relative = row.template GetValue<bool>(7);
+
+                table_info.path = FromRelativePath(path, schema.path);
 			}
 			tables.push_back(std::move(table_info));
 		}
@@ -1274,10 +1275,20 @@ DuckLakePath DuckLakeMetadataManager::GetRelativePath(const string &path, const 
 		result.path = path;
 		result.path_is_relative = false;
 	}
+    result.path = StorePath(std::move(result.path));
 	return result;
 }
 
-string DuckLakeMetadataManager::ConvertPathSeparators(string path) {
+string DuckLakeMetadataManager::StorePath(string path) {
+	auto &fs = GetFileSystem();
+	auto separator = fs.PathSeparator(path);
+	if (separator == "/") {
+		return path;
+	}
+	return StringUtil::Replace(path, separator, "/");
+}
+
+string DuckLakeMetadataManager::LoadPath(string path) {
 	auto &fs = GetFileSystem();
 	auto separator = fs.PathSeparator(path);
 	if (separator == "/") {
@@ -1288,9 +1299,9 @@ string DuckLakeMetadataManager::ConvertPathSeparators(string path) {
 
 string DuckLakeMetadataManager::FromRelativePath(const DuckLakePath &path, const string &base_path) {
 	if (!path.path_is_relative) {
-		return ConvertPathSeparators(path.path);
+		return LoadPath(path.path);
 	}
-	return ConvertPathSeparators(base_path + path.path);
+	return LoadPath(base_path + path.path);
 }
 
 string DuckLakeMetadataManager::FromRelativePath(const DuckLakePath &path) {

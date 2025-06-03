@@ -53,9 +53,9 @@ bool CanGeneratePathFromName(const string &name) {
 string DuckLakeCatalog::GeneratePathFromName(const string &uuid, const string &name) {
 	// if the name has special characters we fallback to uuid
 	if (CanGeneratePathFromName(name)) {
-		return name + "/";
+		return name + separator;
 	}
-	return uuid + "/";
+	return uuid + separator;
 }
 
 optional_ptr<CatalogEntry> DuckLakeCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {
