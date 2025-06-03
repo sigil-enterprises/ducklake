@@ -34,10 +34,6 @@ private:
 	DuckLakeCatalog &ducklake_catalog;
 	mutex transaction_lock;
 	reference_map_t<Transaction, shared_ptr<DuckLakeTransaction>> transactions;
-
-	atomic<idx_t> last_uncommitted_catalog_version = {TRANSACTION_ID_START};
-
-	friend DuckLakeTransaction;
 };
 
 } // namespace duckdb

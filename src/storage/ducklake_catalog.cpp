@@ -14,10 +14,8 @@
 #include "storage/ducklake_schema_entry.hpp"
 #include "storage/ducklake_table_entry.hpp"
 #include "storage/ducklake_transaction.hpp"
+#include "storage/ducklake_transaction_manager.hpp"
 #include "storage/ducklake_view_entry.hpp"
-
-#include <duckdb/transaction/duck_transaction_manager.hpp>
-#include <storage/ducklake_transaction_manager.hpp>
 
 namespace duckdb {
 

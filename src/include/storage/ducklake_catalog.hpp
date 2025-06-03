@@ -8,12 +8,12 @@
 
 #pragma once
 
-#include "duckdb/catalog/catalog.hpp"
-#include "storage/ducklake_catalog_set.hpp"
-#include "storage/ducklake_stats.hpp"
-#include "storage/ducklake_partition_data.hpp"
 #include "common/ducklake_encryption.hpp"
 #include "common/ducklake_options.hpp"
+#include "duckdb/catalog/catalog.hpp"
+#include "storage/ducklake_catalog_set.hpp"
+#include "storage/ducklake_partition_data.hpp"
+#include "storage/ducklake_stats.hpp"
 
 namespace duckdb {
 class ColumnList;
@@ -97,6 +97,10 @@ public:
 
 	optional_idx GetCatalogVersion(ClientContext &context) override;
 
+	idx_t GetNewUncommittedCatalogVersion() {
+		return ++last_uncommitted_catalog_version;
+	}
+
 private:
 	void DropSchema(ClientContext &context, DropInfo &info) override;
 
@@ -117,6 +121,8 @@ private:
 	mutable mutex config_lock;
 	//! The DuckLake options
 	DuckLakeOptions options;
+	//! A unique tracker for catalog changes in uncommitted transactions.
+	atomic<idx_t> last_uncommitted_catalog_version = {TRANSACTION_ID_START};
 };
 
 } // namespace duckdb

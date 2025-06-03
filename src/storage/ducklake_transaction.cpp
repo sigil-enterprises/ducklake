@@ -1587,7 +1587,7 @@ DuckLakeTransaction &DuckLakeTransaction::Get(ClientContext &context, Catalog &c
 }
 
 void DuckLakeTransaction::CreateEntry(unique_ptr<CatalogEntry> entry) {
-	catalog_version = ++static_cast<DuckLakeTransactionManager &>(manager).last_uncommitted_catalog_version;
+	catalog_version = entry->ParentCatalog().Cast<DuckLakeCatalog>().GetNewUncommittedCatalogVersion();
 	auto &set = GetOrCreateTransactionLocalEntries(*entry);
 	set.CreateEntry(std::move(entry));
 }
@@ -1610,7 +1610,7 @@ void DuckLakeTransaction::DropSchema(DuckLakeSchemaEntry &schema) {
 }
 
 void DuckLakeTransaction::DropTable(DuckLakeTableEntry &table) {
-	catalog_version = ++static_cast<DuckLakeTransactionManager &>(manager).last_uncommitted_catalog_version;
+	catalog_version = table.ParentCatalog().Cast<DuckLakeCatalog>().GetNewUncommittedCatalogVersion();
 	if (table.IsTransactionLocal()) {
 		// table is transaction-local - drop it from the transaction local changes
 		auto schema_entry = new_tables.find(table.ParentSchema().name);
@@ -1664,7 +1664,7 @@ bool DuckLakeTransaction::FileIsDropped(const string &path) const {
 }
 
 void DuckLakeTransaction::DropEntry(CatalogEntry &entry) {
-	catalog_version = ++static_cast<DuckLakeTransactionManager &>(manager).last_uncommitted_catalog_version;
+	catalog_version = entry.ParentCatalog().Cast<DuckLakeCatalog>().GetNewUncommittedCatalogVersion();
 	switch (entry.type) {
 	case CatalogType::TABLE_ENTRY:
 		DropTable(entry.Cast<DuckLakeTableEntry>());
@@ -1700,7 +1700,7 @@ bool DuckLakeTransaction::IsDeleted(CatalogEntry &entry) {
 }
 
 void DuckLakeTransaction::AlterEntry(CatalogEntry &entry, unique_ptr<CatalogEntry> new_entry) {
-	catalog_version = ++static_cast<DuckLakeTransactionManager &>(manager).last_uncommitted_catalog_version;
+	catalog_version = entry.ParentCatalog().Cast<DuckLakeCatalog>().GetNewUncommittedCatalogVersion();
 	if (!new_entry) {
 		return;
 	}
