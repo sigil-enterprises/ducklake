@@ -94,15 +94,21 @@ DuckLakeMetadata DuckLakeMetadataManager::LoadDuckLake() {
 SELECT key, value, scope, scope_id FROM {METADATA_CATALOG}.ducklake_metadata
 )");
 	if (result->HasError()) {
-		auto &error_obj = result->GetErrorObject();
-		error_obj.Throw("Failed to load existing DuckLake: ");
+		// we might be loading from a v0.1 database - if so we don't have scope yet
+		result = transaction.Query(R"(
+SELECT key, value FROM {METADATA_CATALOG}.ducklake_metadata
+)");
+		if (result->HasError()) {
+			auto &error_obj = result->GetErrorObject();
+			error_obj.Throw("Failed to load existing DuckLake: ");
+		}
 	}
 	DuckLakeMetadata metadata;
 	for (auto &row : *result) {
 		DuckLakeTag tag;
 		tag.key = row.GetValue<string>(0);
 		tag.value = row.GetValue<string>(1);
-		if (row.IsNull(2)) {
+		if (result->ColumnCount() == 2 || row.IsNull(2)) {
 			// scope is NULL: global tag
 			// global tag
 			metadata.tags.push_back(std::move(tag));

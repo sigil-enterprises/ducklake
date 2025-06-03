@@ -259,6 +259,8 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	auto &columns = table.GetColumns();
 
 	DuckLakeCopyInput copy_input(context, table);
+	// merge_adjacent_files does not use partitioning information - instead we always merge within partitions
+	copy_input.partition_data = nullptr;
 	copy_input.virtual_columns = InsertVirtualColumns::WRITE_SNAPSHOT_ID;
 
 	auto copy_options = DuckLakeInsert::GetCopyOptions(context, copy_input);
