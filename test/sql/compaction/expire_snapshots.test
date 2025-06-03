@@ -27,6 +27,13 @@ statement ok
 DROP TABLE ducklake.test
 
 # explicitly expire snapshot 2
+# dry run
+query I
+SELECT snapshot_id FROM ducklake_expire_snapshots('ducklake', dry_run => true, versions => [2])
+----
+2
+
+# actually expire
 statement ok
 CALL ducklake_expire_snapshots('ducklake', versions => [2])
 

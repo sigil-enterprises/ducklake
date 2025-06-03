@@ -101,6 +101,7 @@ DuckLakeExpireSnapshotsFunction::DuckLakeExpireSnapshotsFunction()
                     DuckLakeExpireSnapshotsBind, DuckLakeExpireSnapshotsInit) {
 	named_parameters["older_than"] = LogicalType::TIMESTAMP_TZ;
 	named_parameters["versions"] = LogicalType::LIST(LogicalType::UBIGINT);
+	named_parameters["dry_run"] = LogicalType::BOOLEAN;
 }
 
 } // namespace duckdb
