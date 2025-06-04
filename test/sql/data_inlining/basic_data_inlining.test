@@ -30,6 +30,11 @@ SELECT * FROM ducklake.test
 1	2
 NULL	3
 
+query I
+SELECT COUNT(*) FROM ducklake.test
+----
+2
+
 query II
 SELECT j, i FROM ducklake.test
 ----
