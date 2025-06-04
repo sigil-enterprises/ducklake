@@ -80,6 +80,10 @@ bool DuckLakeInlinedDataReader::TryInitializeScan(ClientContext &context, Global
 			}
 			columns_to_read.push_back("row_id");
 		}
+		if (columns_to_read.empty()) {
+			// COUNT(*) - read row-id column
+			columns_to_read.push_back("row_id");
+		}
 		switch (read_info.scan_type) {
 		case DuckLakeScanType::SCAN_TABLE:
 			data = metadata_manager.ReadInlinedData(read_info.snapshot, table_name, columns_to_read);
