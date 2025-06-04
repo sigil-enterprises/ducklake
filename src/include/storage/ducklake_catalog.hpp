@@ -130,7 +130,7 @@ private:
 	// The path separator
 	string separator = "/";
 	//! A unique tracker for catalog changes in uncommitted transactions.
-	atomic<idx_t> last_uncommitted_catalog_version = {TRANSACTION_ID_START};
+	atomic<idx_t> last_uncommitted_catalog_version;
 };
 
 } // namespace duckdb

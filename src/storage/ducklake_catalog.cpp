@@ -20,7 +20,7 @@
 namespace duckdb {
 
 DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options_p)
-    : Catalog(db_p), options(std::move(options_p)) {
+    : Catalog(db_p), options(std::move(options_p)), last_uncommitted_catalog_version(TRANSACTION_ID_START) {
 }
 
 DuckLakeCatalog::~DuckLakeCatalog() {
