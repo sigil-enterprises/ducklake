@@ -1,26 +1,26 @@
 #include "storage/ducklake_catalog.hpp"
-#include "storage/ducklake_initializer.hpp"
-#include "storage/ducklake_schema_entry.hpp"
-#include "storage/ducklake_table_entry.hpp"
-#include "storage/ducklake_view_entry.hpp"
-#include "storage/ducklake_transaction.hpp"
-#include "common/ducklake_types.hpp"
 
-#include "duckdb/storage/database_size.hpp"
-#include "duckdb/main/attached_database.hpp"
+#include "common/ducklake_types.hpp"
 #include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
+#include "duckdb/main/attached_database.hpp"
+#include "duckdb/parser/constraints/not_null_constraint.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 #include "duckdb/parser/parsed_data/create_view_info.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
-#include "duckdb/parser/constraints/not_null_constraint.hpp"
-#include "duckdb/common/types/uuid.hpp"
+#include "duckdb/storage/database_size.hpp"
+#include "storage/ducklake_initializer.hpp"
+#include "storage/ducklake_schema_entry.hpp"
+#include "storage/ducklake_table_entry.hpp"
+#include "storage/ducklake_transaction.hpp"
+#include "storage/ducklake_transaction_manager.hpp"
+#include "storage/ducklake_view_entry.hpp"
 
 namespace duckdb {
 
 DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options_p)
-    : Catalog(db_p), options(std::move(options_p)) {
+    : Catalog(db_p), options(std::move(options_p)), last_uncommitted_catalog_version(TRANSACTION_ID_START) {
 }
 
 DuckLakeCatalog::~DuckLakeCatalog() {
@@ -480,8 +480,7 @@ void DuckLakeCatalog::OnDetach(ClientContext &context) {
 }
 
 optional_idx DuckLakeCatalog::GetCatalogVersion(ClientContext &context) {
-	auto &transaction = DuckLakeTransaction::Get(context, *this);
-	return transaction.GetSnapshot().schema_version;
+	return DuckLakeTransaction::Get(context, *this).GetCatalogVersion();
 }
 
 void DuckLakeCatalog::SetConfigOption(const DuckLakeConfigOption &option) {

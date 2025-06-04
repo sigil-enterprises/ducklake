@@ -1,23 +1,24 @@
 #include "storage/ducklake_transaction.hpp"
+
+#include "common/ducklake_types.hpp"
+#include "common/ducklake_util.hpp"
+#include "duckdb/common/types/uuid.hpp"
+#include "duckdb/main/attached_database.hpp"
+#include "duckdb/main/database_manager.hpp"
+#include "duckdb/planner/tableref/bound_at_clause.hpp"
 #include "storage/ducklake_catalog.hpp"
 #include "storage/ducklake_schema_entry.hpp"
 #include "storage/ducklake_table_entry.hpp"
-#include "storage/ducklake_view_entry.hpp"
-#include "common/ducklake_types.hpp"
-#include "common/ducklake_util.hpp"
-
-#include "duckdb/common/types/uuid.hpp"
-#include "duckdb/main/database_manager.hpp"
-#include "duckdb/main/attached_database.hpp"
-#include "duckdb/planner/tableref/bound_at_clause.hpp"
 #include "storage/ducklake_transaction_changes.hpp"
+#include "storage/ducklake_transaction_manager.hpp"
+#include "storage/ducklake_view_entry.hpp"
 
 namespace duckdb {
 
 DuckLakeTransaction::DuckLakeTransaction(DuckLakeCatalog &ducklake_catalog, TransactionManager &manager,
                                          ClientContext &context)
     : Transaction(manager, context), ducklake_catalog(ducklake_catalog), db(*context.db),
-      local_catalog_id(DuckLakeConstants::TRANSACTION_LOCAL_ID_START) {
+      local_catalog_id(DuckLakeConstants::TRANSACTION_LOCAL_ID_START), catalog_version(0) {
 	metadata_manager = make_uniq<DuckLakeMetadataManager>(*this);
 }
 
@@ -1244,6 +1245,7 @@ void DuckLakeTransaction::FlushChanges() {
 
 			WriteSnapshotChanges(commit_snapshot, transaction_changes);
 			connection->Commit();
+			catalog_version = commit_snapshot.schema_version;
 			// finished writing
 			break;
 		} catch (std::exception &ex) {
@@ -1598,6 +1600,7 @@ DuckLakeTransaction &DuckLakeTransaction::Get(ClientContext &context, Catalog &c
 }
 
 void DuckLakeTransaction::CreateEntry(unique_ptr<CatalogEntry> entry) {
+	catalog_version = ducklake_catalog.GetNewUncommittedCatalogVersion();
 	auto &set = GetOrCreateTransactionLocalEntries(*entry);
 	set.CreateEntry(std::move(entry));
 }
@@ -1620,6 +1623,7 @@ void DuckLakeTransaction::DropSchema(DuckLakeSchemaEntry &schema) {
 }
 
 void DuckLakeTransaction::DropTable(DuckLakeTableEntry &table) {
+	catalog_version = ducklake_catalog.GetNewUncommittedCatalogVersion();
 	if (table.IsTransactionLocal()) {
 		// table is transaction-local - drop it from the transaction local changes
 		auto schema_entry = new_tables.find(table.ParentSchema().name);
@@ -1673,6 +1677,7 @@ bool DuckLakeTransaction::FileIsDropped(const string &path) const {
 }
 
 void DuckLakeTransaction::DropEntry(CatalogEntry &entry) {
+	catalog_version = ducklake_catalog.GetNewUncommittedCatalogVersion();
 	switch (entry.type) {
 	case CatalogType::TABLE_ENTRY:
 		DropTable(entry.Cast<DuckLakeTableEntry>());
@@ -1708,6 +1713,7 @@ bool DuckLakeTransaction::IsDeleted(CatalogEntry &entry) {
 }
 
 void DuckLakeTransaction::AlterEntry(CatalogEntry &entry, unique_ptr<CatalogEntry> new_entry) {
+	catalog_version = ducklake_catalog.GetNewUncommittedCatalogVersion();
 	if (!new_entry) {
 		return;
 	}
@@ -1932,6 +1938,13 @@ string DuckLakeTransaction::GenerateUUIDv7() {
 
 string DuckLakeTransaction::GenerateUUID() const {
 	return GenerateUUIDv7();
+}
+
+idx_t DuckLakeTransaction::GetCatalogVersion() {
+	if (catalog_version > 0) {
+		return catalog_version;
+	}
+	return GetSnapshot().schema_version;
 }
 
 } // namespace duckdb
