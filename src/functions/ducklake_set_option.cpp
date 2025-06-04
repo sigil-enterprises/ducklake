@@ -57,6 +57,9 @@ static unique_ptr<FunctionData> DuckLakeSetOptionBind(ClientContext &context, Ta
 			throw NotImplementedException("Row group size cannot be 0");
 		}
 		value = to_string(row_group_size);
+	} else if (option == "target_file_size") {
+		auto target_file_size_bytes = DBConfig::ParseMemoryLimit(val.ToString());
+		value = to_string(target_file_size_bytes);
 	} else {
 		throw NotImplementedException("Unsupported option %s", option);
 	}
