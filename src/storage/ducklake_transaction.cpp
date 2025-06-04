@@ -18,7 +18,7 @@ namespace duckdb {
 DuckLakeTransaction::DuckLakeTransaction(DuckLakeCatalog &ducklake_catalog, TransactionManager &manager,
                                          ClientContext &context)
     : Transaction(manager, context), ducklake_catalog(ducklake_catalog), db(*context.db),
-      local_catalog_id(DuckLakeConstants::TRANSACTION_LOCAL_ID_START) {
+      local_catalog_id(DuckLakeConstants::TRANSACTION_LOCAL_ID_START), catalog_version(0) {
 	metadata_manager = make_uniq<DuckLakeMetadataManager>(*this);
 }
 

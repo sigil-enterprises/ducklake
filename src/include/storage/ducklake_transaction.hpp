@@ -189,7 +189,7 @@ private:
 	//! Snapshot cache for the AT (...) conditions that are referenced in the transaction
 	value_map_t<DuckLakeSnapshot> snapshot_cache;
 
-	atomic<idx_t> catalog_version = 0;
+	atomic<idx_t> catalog_version;
 };
 
 } // namespace duckdb
