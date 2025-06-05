@@ -3,6 +3,7 @@
 #include "storage/ducklake_catalog.hpp"
 #include "storage/ducklake_metadata_manager.hpp"
 #include "duckdb/common/array.hpp"
+#include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 
 namespace duckdb {
 
@@ -80,6 +81,7 @@ static string GetOptionDescription(const string &option_name) {
 unique_ptr<GlobalTableFunctionState> DuckLakeOptionsInit(ClientContext &context, TableFunctionInitInput &input) {
 	auto &bind_data = input.bind_data->Cast<DuckLakeOptionsData>();
 	auto &transaction = DuckLakeTransaction::Get(context, bind_data.catalog);
+	auto &ducklake_catalog = bind_data.catalog.Cast<DuckLakeCatalog>();
 	auto &metadata_manager = transaction.GetMetadataManager();
 
 	auto result = make_uniq<DuckLakeOptionsState>();
@@ -95,6 +97,8 @@ unique_ptr<GlobalTableFunctionState> DuckLakeOptionsInit(ClientContext &context,
 		result->options.push_back(std::move(option_info));
 	}
 
+	auto snapshot = transaction.GetSnapshot();
+
 	// Schema options
 	for (auto &schema_setting : metadata.schema_settings) {
 		DuckLakeOptionInfo option_info;
@@ -102,7 +106,10 @@ unique_ptr<GlobalTableFunctionState> DuckLakeOptionsInit(ClientContext &context,
 		option_info.value = schema_setting.tag.value;
 		option_info.description = GetOptionDescription(schema_setting.tag.key);
 		option_info.scope = "SCHEMA";
-		option_info.scope_entry = metadata_manager.GetPathForSchema(schema_setting.schema_id);
+		auto schema_entry = ducklake_catalog.GetEntryById(transaction, snapshot, schema_setting.schema_id);
+		if (schema_entry) {
+			option_info.scope_entry = schema_entry->name;
+		}
 		result->options.push_back(std::move(option_info));
 	}
 
@@ -113,7 +120,11 @@ unique_ptr<GlobalTableFunctionState> DuckLakeOptionsInit(ClientContext &context,
 		option_info.value = table_setting.tag.value;
 		option_info.description = GetOptionDescription(table_setting.tag.key);
 		option_info.scope = "TABLE";
-		option_info.scope_entry = metadata_manager.GetPathForTable(table_setting.table_id);
+		auto table_entry = ducklake_catalog.GetEntryById(transaction, snapshot, table_setting.table_id);
+		if (table_entry) {
+			auto &table_catalog_entry = table_entry->Cast<TableCatalogEntry>();
+			option_info.scope_entry = table_catalog_entry.ParentSchema().name + "." + table_entry->name;
+		}
 		result->options.push_back(std::move(option_info));
 	}
 

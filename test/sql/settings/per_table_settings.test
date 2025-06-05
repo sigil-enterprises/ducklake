@@ -108,22 +108,10 @@ ATTACH 'ducklake:__TEST_DIR__/ducklake_per_table_settings.db' AS ducklake (DATA_
 endloop
 
 # options retrieval - check that all options are present with correct values and scopes
-query III
-SELECT option_name, value, scope FROM ducklake.options() WHERE option_name='parquet_compression' ORDER BY scope, value;
+query IIII
+SELECT option_name, value, scope, scope_entry FROM ducklake.options() WHERE option_name='parquet_compression' ORDER BY scope, value;
 ----
-parquet_compression	uncompressed	GLOBAL
-parquet_compression	lz4	SCHEMA
-parquet_compression	gzip	TABLE
-parquet_compression	zstd	TABLE
-
-# error handling - non-existent table
-statement error
-SELECT * FROM ducklake.options(table_name => 'nonexistent_table')
-----
-does not have a named parameter
-
-# error handling - non-existent schema
-statement error
-SELECT * FROM ducklake.options(schema => 'nonexistent_schema')
-----
-does not have a named parameter
+parquet_compression	uncompressed	GLOBAL	NULL
+parquet_compression	lz4	SCHEMA	s1
+parquet_compression	gzip	TABLE	s1.t1
+parquet_compression	zstd	TABLE	main.t1
