@@ -46,6 +46,9 @@ static void LoadInternal(DatabaseInstance &instance) {
 
 	DuckLakeListFilesFunction list_files;
 	ExtensionUtil::RegisterFunction(instance, list_files);
+
+	DuckLakeAddDataFilesFunction add_files;
+	ExtensionUtil::RegisterFunction(instance, add_files);
 }
 
 void DucklakeExtension::Load(DuckDB &db) {

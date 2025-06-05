@@ -1,6 +1,7 @@
 add_library(
   ducklake_functions OBJECT
   base_metadata_function.cpp
+  ducklake_add_data_files.cpp
   ducklake_cleanup_old_files.cpp
   ducklake_expire_snapshots.cpp
   ducklake_list_files.cpp
