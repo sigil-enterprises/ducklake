@@ -603,6 +603,13 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 			new_inlined_data[table_entry.id] = std::move(inlined_data_entry->second);
 			new_inlined_data.erase(original_id);
 		}
+		// same for column mappings that apply to this table
+		for (auto &entry : new_name_maps.name_maps) {
+			auto &name_map = *entry.second;
+			if (name_map.table_id == original_id) {
+				name_map.table_id = table_entry.id;
+			}
+		}
 	}
 	return table_entry;
 }
@@ -1090,7 +1097,6 @@ NewNameMapInfo DuckLakeTransaction::GetNewNameMaps(DuckLakeSnapshot &commit_snap
 		auto &mapping = *entry.second;
 		MappingIndex new_map_id(commit_snapshot.next_file_id++);
 
-		// FIXME: when changing table id - we need to rewrite the table id here
 		if (mapping.table_id.IsTransactionLocal()) {
 			throw InternalException("table_id should be rewritten to non-transaction local before");
 		}
