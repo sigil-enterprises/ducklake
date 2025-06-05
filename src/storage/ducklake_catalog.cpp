@@ -345,6 +345,22 @@ DuckLakeNameMap ConvertNameMap(DuckLakeColumnMappingInfo column_mapping) {
 	return result;
 }
 
+void DuckLakeCatalog::LoadNameMaps(DuckLakeTransaction &transaction) {
+	auto snapshot = transaction.GetSnapshot();
+	if (loaded_name_map_index.IsValid() && snapshot.next_file_id <= loaded_name_map_index.GetIndex()) {
+		// we have already loaded all name maps that could be relevant for this snapshot
+		return;
+	}
+	// name map entry not found - try to load any new ones
+	auto &metadata_manager = transaction.GetMetadataManager();
+	auto new_name_maps = metadata_manager.GetColumnMappings(loaded_name_map_index);
+	for (auto &column_mapping : new_name_maps) {
+		auto name_map = ConvertNameMap(std::move(column_mapping));
+		name_maps.Add(std::move(name_map));
+	}
+	loaded_name_map_index = snapshot.next_file_id;
+}
+
 optional_ptr<const DuckLakeNameMap> DuckLakeCatalog::TryGetMappingById(DuckLakeTransaction &transaction,
                                                                        MappingIndex mapping_id) {
 	lock_guard<mutex> guard(schemas_lock);
@@ -352,17 +368,7 @@ optional_ptr<const DuckLakeNameMap> DuckLakeCatalog::TryGetMappingById(DuckLakeT
 	if (entry != name_maps.name_maps.end()) {
 		return entry->second.get();
 	}
-	optional_idx start_from;
-	if (!name_maps.name_maps.empty()) {
-		start_from = name_maps.name_maps.rbegin()->first.index;
-	}
-	// name map entry not found - try to load any new ones
-	auto &metadata_manager = transaction.GetMetadataManager();
-	auto new_name_maps = metadata_manager.GetColumnMappings(start_from);
-	for (auto &column_mapping : new_name_maps) {
-		auto name_map = ConvertNameMap(std::move(column_mapping));
-		name_maps.Add(std::move(name_map));
-	}
+	LoadNameMaps(transaction);
 	// try to fetch the name map again
 	entry = name_maps.name_maps.find(mapping_id);
 	if (entry != name_maps.name_maps.end()) {
@@ -370,6 +376,13 @@ optional_ptr<const DuckLakeNameMap> DuckLakeCatalog::TryGetMappingById(DuckLakeT
 	}
 	// still no success - return nullptr
 	return nullptr;
+}
+
+MappingIndex DuckLakeCatalog::TryGetCompatibleNameMap(DuckLakeTransaction &transaction,
+                                                      const DuckLakeNameMap &name_map) {
+	lock_guard<mutex> guard(schemas_lock);
+	LoadNameMaps(transaction);
+	return name_maps.TryGetCompatibleNameMap(name_map);
 }
 
 unique_ptr<DuckLakeStats> DuckLakeCatalog::LoadStatsForSnapshot(DuckLakeTransaction &transaction,

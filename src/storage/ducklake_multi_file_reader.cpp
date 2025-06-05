@@ -233,7 +233,9 @@ void MapColumn(const vector<DuckLakeNameMapEntry> &column_maps, MultiFileColumnD
 			return;
 		}
 	}
-	throw InvalidInputException("Could not generate mapping - field id not found in global columns");
+	// field-id not found - this means the column is not present in the file
+	// replace the identifier with a stub name to ensure it is omitted
+	column.identifier = Value("__ducklake_unknown_identifier");
 }
 
 vector<MultiFileColumnDefinition> CreateNewMapping(const vector<MultiFileColumnDefinition> &global_map,

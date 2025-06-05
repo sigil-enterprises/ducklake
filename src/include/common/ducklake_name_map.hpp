@@ -27,6 +27,7 @@ struct DuckLakeNameMapEntry {
 
 	hash_t GetHash() const;
 	bool IsCompatibleWith(const DuckLakeNameMapEntry &other) const;
+	static bool ListIsCompatible(const vector<DuckLakeNameMapEntry> &left, const vector<DuckLakeNameMapEntry> &right);
 };
 
 struct DuckLakeNameMap {

@@ -110,6 +110,7 @@ public:
 	}
 
 	optional_ptr<const DuckLakeNameMap> TryGetMappingById(DuckLakeTransaction &transaction, MappingIndex mapping_id);
+	MappingIndex TryGetCompatibleNameMap(DuckLakeTransaction &transaction, const DuckLakeNameMap &name_map);
 
 private:
 	void DropSchema(ClientContext &context, DropInfo &info) override;
@@ -120,6 +121,7 @@ private:
 	DuckLakeStats &GetStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
 	unique_ptr<DuckLakeStats> LoadStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
 	                                               DuckLakeCatalogSet &schema);
+	void LoadNameMaps(DuckLakeTransaction &transaction);
 
 private:
 	mutex schemas_lock;
@@ -129,6 +131,8 @@ private:
 	unordered_map<idx_t, unique_ptr<DuckLakeStats>> stats;
 	//! Map of mapping index -> name map
 	DuckLakeNameMapSet name_maps;
+	//! The maximum name map index we have loaded so far
+	optional_idx loaded_name_map_index;
 	//! The configuration lock
 	mutable mutex config_lock;
 	//! The DuckLake options

@@ -1930,9 +1930,12 @@ optional_ptr<CatalogEntry> DuckLakeTransaction::GetLocalEntryById(TableIndex tab
 }
 
 MappingIndex DuckLakeTransaction::AddNameMap(DuckLakeNameMap name_map) {
-	// add a name map
-	// FIXME: check if we can re-use a previously added name map
-	auto map_index = new_name_maps.TryGetCompatibleNameMap(name_map);
+	// check if we can re-use a previously added name map
+	auto map_index = ducklake_catalog.TryGetCompatibleNameMap(*this, name_map);
+	if (map_index.IsValid()) {
+		return map_index;
+	}
+	map_index = new_name_maps.TryGetCompatibleNameMap(name_map);
 	if (map_index.IsValid()) {
 		// found a compatible map already - return it
 		return map_index;

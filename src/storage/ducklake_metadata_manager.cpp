@@ -1481,7 +1481,7 @@ void DuckLakeMetadataManager::WriteNewDeleteFiles(DuckLakeSnapshot commit_snapsh
 vector<DuckLakeColumnMappingInfo> DuckLakeMetadataManager::GetColumnMappings(optional_idx start_from) {
 	string filter;
 	if (start_from.IsValid()) {
-		filter = "WHERE mapping_id > " + to_string(start_from.GetIndex());
+		filter = "WHERE mapping_id >= " + to_string(start_from.GetIndex());
 	}
 	auto result = transaction.Query(StringUtil::Format(R"(
 SELECT mapping_id, table_id, type, column_id, source_name, target_field_id, parent_column
