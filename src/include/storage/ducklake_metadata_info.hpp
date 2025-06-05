@@ -16,6 +16,7 @@
 #include "duckdb/common/types/value.hpp"
 #include "common/index.hpp"
 #include "common/ducklake_data_file.hpp"
+#include "common/ducklake_name_map.hpp"
 #include "storage/ducklake_inlined_data.hpp"
 
 namespace duckdb {
@@ -102,11 +103,12 @@ struct DuckLakeFileInfo {
 	string file_name;
 	idx_t row_count;
 	idx_t file_size_bytes;
-	idx_t footer_size;
+	optional_idx footer_size;
 	optional_idx row_id_start;
 	optional_idx partition_id;
 	optional_idx begin_snapshot;
 	string encryption_key;
+	MappingIndex mapping_index;
 	vector<DuckLakeColumnStatsInfo> column_stats;
 	vector<DuckLakeFilePartitionInfo> partition_values;
 	vector<DuckLakePartialFileInfo> partial_file_info;
@@ -244,6 +246,7 @@ struct DuckLakeFileListEntry {
 	idx_t row_id_start;
 	optional_idx snapshot_id;
 	optional_idx max_row_count;
+	MappingIndex mapping_id;
 	DuckLakeDataType data_type = DuckLakeDataType::DATA_FILE;
 };
 

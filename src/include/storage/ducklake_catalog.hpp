@@ -10,6 +10,7 @@
 
 #include "common/ducklake_encryption.hpp"
 #include "common/ducklake_options.hpp"
+#include "common/ducklake_name_map.hpp"
 #include "duckdb/catalog/catalog.hpp"
 #include "storage/ducklake_catalog_set.hpp"
 #include "storage/ducklake_partition_data.hpp"
@@ -124,6 +125,8 @@ private:
 	unordered_map<idx_t, unique_ptr<DuckLakeCatalogSet>> schemas;
 	//! Map of data file index -> table stats
 	unordered_map<idx_t, unique_ptr<DuckLakeStats>> stats;
+	//! Map of mapping index -> name map
+	DuckLakeNameMapSet name_maps;
 	//! The configuration lock
 	mutable mutex config_lock;
 	//! The DuckLake options

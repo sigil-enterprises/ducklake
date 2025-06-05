@@ -38,12 +38,13 @@ struct DuckLakeDataFile {
 	string file_name;
 	idx_t row_count;
 	idx_t file_size_bytes;
-	idx_t footer_size;
+	optional_idx footer_size;
 	optional_idx partition_id;
 	unique_ptr<DuckLakeDeleteFile> delete_file;
 	map<FieldIndex, DuckLakeColumnStats> column_stats;
 	vector<DuckLakeFilePartition> partition_values;
 	string encryption_key;
+	MappingIndex mapping_id;
 };
 
 } // namespace duckdb

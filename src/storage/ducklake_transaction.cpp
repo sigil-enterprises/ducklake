@@ -57,7 +57,7 @@ Connection &DuckLakeTransaction::GetConnection() {
 
 bool DuckLakeTransaction::SchemaChangesMade() {
 	return !new_tables.empty() || !dropped_tables.empty() || new_schemas || !dropped_schemas.empty() ||
-	       !dropped_views.empty();
+	       !dropped_views.empty() || !new_name_maps.name_maps.empty();
 }
 
 bool DuckLakeTransaction::ChangesMade() {
@@ -1111,6 +1111,11 @@ void DuckLakeTransaction::CommitChanges(DuckLakeSnapshot &commit_snapshot,
 		metadata_manager->WriteNewInlinedTables(commit_snapshot, result.new_inlined_data_tables);
 	}
 
+	// write new name maps
+	if (!new_name_maps.name_maps.empty()) {
+		throw InternalException("eek new name maps");
+	}
+
 	// write new data / data files
 	if (!new_data_files.empty() || !new_inlined_data.empty()) {
 		auto result = GetNewDataFiles(commit_snapshot);
@@ -1857,6 +1862,30 @@ optional_ptr<CatalogEntry> DuckLakeTransaction::GetLocalEntryById(TableIndex tab
 		}
 	}
 	return nullptr;
+}
+
+MappingIndex DuckLakeTransaction::AddNameMap(DuckLakeNameMap name_map) {
+//	GetLocalCatalogId()
+	// add a name map
+	// FIXME: check if we can re-use a previously added name map
+	auto map_index = new_name_maps.TryGetCompatibleNameMap(name_map);
+	if (map_index.IsValid()) {
+		// found a compatible map already - return it
+		return map_index;
+	}
+	// no compatible map found - generate a new index
+	MappingIndex new_index(GetLocalCatalogId());
+	name_map.id = new_index;
+	new_name_maps.Add(std::move(name_map));
+	return new_index;
+}
+
+const DuckLakeNameMap &DuckLakeTransaction::GetMappingById(MappingIndex mapping_id) {
+	auto entry = new_name_maps.name_maps.find(mapping_id);
+	if (entry != new_name_maps.name_maps.end()) {
+		return *entry->second;
+	}
+	throw InvalidInputException("Unknown name map id %d when trying to map file", mapping_id.index);
 }
 
 // FIXME: this is copied from mainline DuckDB because of a bug in UUID v7 generation
