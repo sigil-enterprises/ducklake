@@ -8,8 +8,7 @@
 namespace duckdb {
 
 struct DuckLakeAddDataFilesData : public TableFunctionData {
-	DuckLakeAddDataFilesData(Catalog &catalog, DuckLakeTableEntry &table)
-		: catalog(catalog), table(table) {
+	DuckLakeAddDataFilesData(Catalog &catalog, DuckLakeTableEntry &table) : catalog(catalog), table(table) {
 	}
 
 	Catalog &catalog;
@@ -18,7 +17,7 @@ struct DuckLakeAddDataFilesData : public TableFunctionData {
 };
 
 static unique_ptr<FunctionData> DuckLakeAddDataFilesBind(ClientContext &context, TableFunctionBindInput &input,
-                                                      vector<LogicalType> &return_types, vector<string> &names) {
+                                                         vector<LogicalType> &return_types, vector<string> &names) {
 	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
 
 	string schema_name;
@@ -26,7 +25,8 @@ static unique_ptr<FunctionData> DuckLakeAddDataFilesBind(ClientContext &context,
 		throw InvalidInputException("Table name cannot be NULL");
 	}
 	auto table_name = StringValue::Get(input.inputs[1]);
-	auto entry = catalog.GetEntry<TableCatalogEntry>(context, schema_name, table_name, OnEntryNotFound::THROW_EXCEPTION);
+	auto entry =
+	    catalog.GetEntry<TableCatalogEntry>(context, schema_name, table_name, OnEntryNotFound::THROW_EXCEPTION);
 	auto &table = entry->Cast<DuckLakeTableEntry>();
 
 	auto result = make_uniq<DuckLakeAddDataFilesData>(catalog, table);
@@ -79,8 +79,9 @@ struct ParquetFileMetadata {
 
 struct DuckLakeFileProcessor {
 public:
-	DuckLakeFileProcessor(DuckLakeTransaction &transaction, DuckLakeTableEntry &table) :
-		transaction(transaction), table(table) {}
+	DuckLakeFileProcessor(DuckLakeTransaction &transaction, DuckLakeTableEntry &table)
+	    : transaction(transaction), table(table) {
+	}
 
 	vector<DuckLakeDataFile> AddFiles(const vector<string> &globs);
 
@@ -92,6 +93,7 @@ private:
 	DuckLakeNameMapEntry MapColumn(ParquetColumn &column, const DuckLakeFieldId &field_id, DuckLakeDataFile &file);
 
 	Value GetStatsValue(string name, Value val);
+
 private:
 	DuckLakeTransaction &transaction;
 	DuckLakeTableEntry &table;
@@ -102,13 +104,14 @@ void DuckLakeFileProcessor::ReadParquetSchema(const string &glob) {
 	auto result = transaction.Query(StringUtil::Format(R"(
 SELECT file_name, name, type, num_children, converted_type, scale, precision, field_id, logical_type
 FROM parquet_schema(%s)
-)", SQLString(glob)));
+)",
+	                                                   SQLString(glob)));
 
 	unique_ptr<ParquetFileMetadata> file;
 	vector<reference<ParquetColumn>> current_column;
 	vector<idx_t> child_counts;
 	idx_t column_id = 0;
-	for(auto &row : *result) {
+	for (auto &row : *result) {
 		auto filename = row.GetValue<string>(0);
 		auto child_count = row.IsNull(3) ? 0 : row.GetValue<idx_t>(3);
 		if (!file || file->filename != filename) {
@@ -169,7 +172,8 @@ FROM parquet_schema(%s)
 			child_counts.pop_back();
 		}
 		if (child_count > 0) {
-			// nested column: push back the child count and the current column and start reading children for this column
+			// nested column: push back the child count and the current column and start reading children for this
+			// column
 			current_column.push_back(column_ref);
 			child_counts.push_back(child_count);
 		}
@@ -191,12 +195,14 @@ void DuckLakeFileProcessor::ReadParquetStats(const string &glob) {
 	auto result = transaction.Query(StringUtil::Format(R"(
 SELECT file_name, column_id, num_values, coalesce(stats_min, stats_min_value), coalesce(stats_max, stats_max_value), stats_null_count, total_compressed_size
 FROM parquet_metadata(%s)
-)", SQLString(glob)));
-	for(auto &row : *result) {
+)",
+	                                                   SQLString(glob)));
+	for (auto &row : *result) {
 		auto filename = row.GetValue<string>(0);
 		auto entry = parquet_files.find(filename);
 		if (entry == parquet_files.end()) {
-			throw InvalidInputException("Parquet file was returned by parquet_metadata, but not returned by parquet_schema - did a Parquet file get added to a glob while processing?");
+			throw InvalidInputException("Parquet file was returned by parquet_metadata, but not returned by "
+			                            "parquet_schema - did a Parquet file get added to a glob while processing?");
 		}
 		auto &parquet_file = entry->second;
 		auto column_id = row.GetValue<idx_t>(1);
@@ -233,12 +239,14 @@ void DuckLakeFileProcessor::ReadParquetFileMetadata(const string &glob) {
 	auto result = transaction.Query(StringUtil::Format(R"(
 SELECT filename, size
 FROM read_blob(%s)
-)", SQLString(glob)));
-	for(auto &row : *result) {
+)",
+	                                                   SQLString(glob)));
+	for (auto &row : *result) {
 		auto filename = row.GetValue<string>(0);
 		auto entry = parquet_files.find(filename);
 		if (entry == parquet_files.end()) {
-			throw InvalidInputException("Parquet file was returned by parquet_metadata, but not returned by parquet_schema - did a Parquet file get added to a glob while processing?");
+			throw InvalidInputException("Parquet file was returned by parquet_metadata, but not returned by "
+			                            "parquet_schema - did a Parquet file get added to a glob while processing?");
 		}
 		entry->second->file_size = row.GetValue<idx_t>(1);
 	}
@@ -246,18 +254,21 @@ FROM read_blob(%s)
 	result = transaction.Query(StringUtil::Format(R"(
 SELECT file_name, num_rows
 FROM parquet_file_metadata(%s)
-)", SQLString(glob)));
-	for(auto &row : *result) {
+)",
+	                                              SQLString(glob)));
+	for (auto &row : *result) {
 		auto filename = row.GetValue<string>(0);
 		auto entry = parquet_files.find(filename);
 		if (entry == parquet_files.end()) {
-			throw InvalidInputException("Parquet file was returned by parquet_metadata, but not returned by parquet_schema - did a Parquet file get added to a glob while processing?");
+			throw InvalidInputException("Parquet file was returned by parquet_metadata, but not returned by "
+			                            "parquet_schema - did a Parquet file get added to a glob while processing?");
 		}
 		entry->second->row_count = row.GetValue<idx_t>(1);
 	}
 }
 
-DuckLakeNameMapEntry DuckLakeFileProcessor::MapColumn(ParquetColumn &column, const DuckLakeFieldId &field_id, DuckLakeDataFile &file) {
+DuckLakeNameMapEntry DuckLakeFileProcessor::MapColumn(ParquetColumn &column, const DuckLakeFieldId &field_id,
+                                                      DuckLakeDataFile &file) {
 	// FIXME: check if types of the columns are compatible
 	if (column.field_id.IsValid()) {
 		throw InvalidInputException("File has field ids defined - only mapping by name is supported currently");
@@ -271,12 +282,12 @@ DuckLakeNameMapEntry DuckLakeFileProcessor::MapColumn(ParquetColumn &column, con
 	}
 	// parse the per row-group stats
 	vector<DuckLakeColumnStats> row_group_stats_list;
-	for(auto &stats : column.column_stats) {
+	for (auto &stats : column.column_stats) {
 		auto row_group_stats = DuckLakeInsert::ParseColumnStats(field_id.Type(), stats.column_stats);
 		row_group_stats_list.push_back(std::move(row_group_stats));
 	}
 	// merge all stats into the first one
-	for(idx_t i = 1; i < row_group_stats_list.size(); i++) {
+	for (idx_t i = 1; i < row_group_stats_list.size(); i++) {
 		row_group_stats_list[0].MergeStats(row_group_stats_list[i]);
 	}
 	// add the final stats of this column to the file
@@ -296,23 +307,25 @@ DuckLakeDataFile DuckLakeFileProcessor::AddFileToTable(ParquetFileMetadata &file
 
 	// create a top-level map of columns
 	case_insensitive_map_t<const_reference<DuckLakeFieldId>> field_id_map;
-	for(auto &field_id : field_ids) {
+	for (auto &field_id : field_ids) {
 		field_id_map.emplace(field_id->Name(), *field_id);
 	}
 
 	DuckLakeNameMap name_map;
 	name_map.table_id = table.GetTableId();
-	for(auto &col : file.columns) {
+	for (auto &col : file.columns) {
 		// find the top-level column to map to
 		auto entry = field_id_map.find(col->name);
 		if (entry == field_id_map.end()) {
-			throw InvalidInputException("Column \"%s\" exists in file %s but was not found in the table", col->name, file.filename);
+			throw InvalidInputException("Column \"%s\" exists in file %s but was not found in the table", col->name,
+			                            file.filename);
 		}
 		name_map.column_maps.push_back(MapColumn(*col, entry->second.get(), result));
 		field_id_map.erase(entry);
 	}
-	for(auto &entry : field_id_map) {
-		throw InvalidInputException("Column \"%s\" exists in table %s but was not found in file %s", entry.second.get().Name(), file.filename);
+	for (auto &entry : field_id_map) {
+		throw InvalidInputException("Column \"%s\" exists in table %s but was not found in file %s",
+		                            entry.second.get().Name(), file.filename);
 	}
 	// we successfully mapped this file - register the name map and refer to it in the file
 	result.mapping_id = transaction.AddNameMap(std::move(name_map));
@@ -321,7 +334,7 @@ DuckLakeDataFile DuckLakeFileProcessor::AddFileToTable(ParquetFileMetadata &file
 
 vector<DuckLakeDataFile> DuckLakeFileProcessor::AddFiles(const vector<string> &globs) {
 	// fetch the metadata, stats and columns from the various files
-	for(auto &glob : globs) {
+	for (auto &glob : globs) {
 		// query the parquet_schema to figure out the schema for each of the columns
 		ReadParquetSchema(glob);
 		// query the parquet_metadata to get the stats for each of the columns
@@ -333,7 +346,7 @@ vector<DuckLakeDataFile> DuckLakeFileProcessor::AddFiles(const vector<string> &g
 	// now we have obtained a list of files to add together with the relevant information (statistics, file size, ...)
 	// we need to create a mapping from the columns in the file to the columns in the table
 	vector<DuckLakeDataFile> written_files;
-	for(auto &entry : parquet_files) {
+	for (auto &entry : parquet_files) {
 		written_files.push_back(AddFileToTable(*entry.second));
 	}
 	return written_files;
@@ -355,7 +368,8 @@ void DuckLakeAddDataFilesExecute(ClientContext &context, TableFunctionInput &dat
 }
 
 DuckLakeAddDataFilesFunction::DuckLakeAddDataFilesFunction()
-    : TableFunction("ducklake_add_data_files", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}, DuckLakeAddDataFilesExecute, DuckLakeAddDataFilesBind, DuckLakeAddDataFilesInit) {
+    : TableFunction("ducklake_add_data_files", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
+                    DuckLakeAddDataFilesExecute, DuckLakeAddDataFilesBind, DuckLakeAddDataFilesInit) {
 }
 
 } // namespace duckdb

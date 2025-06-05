@@ -2,10 +2,9 @@
 
 namespace duckdb {
 
-
 hash_t DuckLakeNameMapEntry::GetHash() const {
 	hash_t result = Hash(source_name.c_str(), source_name.size());
-	for(auto &entry : child_entries) {
+	for (auto &entry : child_entries) {
 		result ^= entry.GetHash();
 	}
 	return result;
@@ -23,7 +22,7 @@ bool DuckLakeNameMapEntry::IsCompatibleWith(const DuckLakeNameMapEntry &other) c
 
 hash_t DuckLakeNameMap::GetHash() const {
 	hash_t result = Hash(table_id.index);
-	for(auto &entry : column_maps) {
+	for (auto &entry : column_maps) {
 		result ^= entry.GetHash();
 	}
 	return result;
@@ -48,4 +47,4 @@ void DuckLakeNameMapSet::Add(DuckLakeNameMap name_map) {
 	name_maps.emplace(mapping_id, std::move(mapping));
 }
 
-}
+} // namespace duckdb

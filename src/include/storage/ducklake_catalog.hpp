@@ -109,6 +109,8 @@ public:
 		return ++last_uncommitted_catalog_version;
 	}
 
+	optional_ptr<const DuckLakeNameMap> TryGetMappingById(DuckLakeTransaction &transaction, MappingIndex mapping_id);
+
 private:
 	void DropSchema(ClientContext &context, DropInfo &info) override;
 

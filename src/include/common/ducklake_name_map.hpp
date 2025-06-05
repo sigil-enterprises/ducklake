@@ -50,7 +50,8 @@ struct NameMapIsCompatible {
 	}
 };
 
-using ducklake_name_map_compatibility_set = unordered_set<const_reference<DuckLakeNameMap>, NameMapHashFunction, NameMapIsCompatible>;
+using ducklake_name_map_compatibility_set =
+    unordered_set<const_reference<DuckLakeNameMap>, NameMapHashFunction, NameMapIsCompatible>;
 
 struct DuckLakeNameMapSet {
 	map<MappingIndex, unique_ptr<DuckLakeNameMap>> name_maps;

@@ -108,7 +108,7 @@ struct DuckLakeFileInfo {
 	optional_idx partition_id;
 	optional_idx begin_snapshot;
 	string encryption_key;
-	MappingIndex mapping_index;
+	MappingIndex mapping_id;
 	vector<DuckLakeColumnStatsInfo> column_stats;
 	vector<DuckLakeFilePartitionInfo> partition_values;
 	vector<DuckLakePartialFileInfo> partial_file_info;
@@ -335,6 +335,20 @@ struct DuckLakeConfigOption {
 	SchemaIndex schema_id;
 	//! table_id, if scoped to a table
 	TableIndex table_id;
+};
+
+struct DuckLakeNameMapColumnInfo {
+	idx_t column_id;
+	string source_name;
+	FieldIndex target_field_id;
+	optional_idx parent_column;
+};
+
+struct DuckLakeColumnMappingInfo {
+	TableIndex table_id;
+	MappingIndex mapping_id;
+	string map_type;
+	vector<DuckLakeNameMapColumnInfo> map_columns;
 };
 
 } // namespace duckdb

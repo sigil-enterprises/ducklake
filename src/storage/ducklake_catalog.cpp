@@ -326,6 +326,52 @@ DuckLakeStats &DuckLakeCatalog::GetStatsForSnapshot(DuckLakeTransaction &transac
 	return result;
 }
 
+DuckLakeNameMap ConvertNameMap(DuckLakeColumnMappingInfo column_mapping) {
+	if (column_mapping.map_type != "map_by_name") {
+		throw InvalidInputException("Unsupported column mapping type \"%s\"", column_mapping.map_type);
+	}
+	DuckLakeNameMap result;
+	result.id = column_mapping.mapping_id;
+	result.table_id = column_mapping.table_id;
+	for (auto &col : column_mapping.map_columns) {
+		if (col.parent_column.IsValid()) {
+			throw InternalException("FIXME: support nested columns");
+		}
+		DuckLakeNameMapEntry map_entry;
+		map_entry.source_name = std::move(col.source_name);
+		map_entry.target_field_id = col.target_field_id;
+		result.column_maps.push_back(std::move(map_entry));
+	}
+	return result;
+}
+
+optional_ptr<const DuckLakeNameMap> DuckLakeCatalog::TryGetMappingById(DuckLakeTransaction &transaction,
+                                                                       MappingIndex mapping_id) {
+	lock_guard<mutex> guard(schemas_lock);
+	auto entry = name_maps.name_maps.find(mapping_id);
+	if (entry != name_maps.name_maps.end()) {
+		return entry->second.get();
+	}
+	optional_idx start_from;
+	if (!name_maps.name_maps.empty()) {
+		start_from = name_maps.name_maps.rbegin()->first.index;
+	}
+	// name map entry not found - try to load any new ones
+	auto &metadata_manager = transaction.GetMetadataManager();
+	auto new_name_maps = metadata_manager.GetColumnMappings(start_from);
+	for (auto &column_mapping : new_name_maps) {
+		auto name_map = ConvertNameMap(std::move(column_mapping));
+		name_maps.Add(std::move(name_map));
+	}
+	// try to fetch the name map again
+	entry = name_maps.name_maps.find(mapping_id);
+	if (entry != name_maps.name_maps.end()) {
+		return entry->second.get();
+	}
+	// still no success - return nullptr
+	return nullptr;
+}
+
 unique_ptr<DuckLakeStats> DuckLakeCatalog::LoadStatsForSnapshot(DuckLakeTransaction &transaction,
                                                                 DuckLakeSnapshot snapshot, DuckLakeCatalogSet &schema) {
 	auto &metadata_manager = transaction.GetMetadataManager();

@@ -31,6 +31,7 @@ struct SnapshotChangeInformation;
 struct TransactionChangeInformation;
 struct NewDataInfo;
 struct NewTableInfo;
+struct NewNameMapInfo;
 struct CompactionInformation;
 struct DuckLakePath;
 
@@ -83,6 +84,7 @@ public:
 
 	MappingIndex AddNameMap(DuckLakeNameMap name_map);
 	const DuckLakeNameMap &GetMappingById(MappingIndex mapping_id);
+	NewNameMapInfo GetNewNameMaps(DuckLakeSnapshot &commit_snapshot);
 
 	void AppendInlinedData(TableIndex table_id, unique_ptr<DuckLakeInlinedData> collection);
 	void AddNewInlinedDeletes(TableIndex table_id, const string &table_name, set<idx_t> new_deletes);
