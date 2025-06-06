@@ -75,6 +75,11 @@ public:
 	DuckLakeSetOptionFunction();
 };
 
+class DuckLakeOptionsFunction : public BaseMetadataFunction {
+public:
+	DuckLakeOptionsFunction();
+};
+
 class DuckLakeListFilesFunction : public BaseMetadataFunction {
 public:
 	DuckLakeListFilesFunction();
