@@ -220,32 +220,43 @@ shared_ptr<BaseFileReader> DuckLakeMultiFileReader::CreateReader(ClientContext &
 	return MultiFileReader::CreateReader(context, file, options, file_options, interface);
 }
 
-void MapColumn(const vector<DuckLakeNameMapEntry> &column_maps, MultiFileColumnDefinition &column) {
-	// find the field id
-	auto field_id = column.identifier.GetValue<idx_t>();
-	for (auto &column_map : column_maps) {
-		if (column_map.target_field_id.index == field_id) {
-			// found the mapping
-			column.identifier = Value(column_map.source_name);
-			if (!column_map.child_entries.empty()) {
-				throw InternalException("FIXME: remap nested");
-			}
-			return;
-		}
+vector<MultiFileColumnDefinition> MapColumns(const vector<MultiFileColumnDefinition> &global_map,
+                                             const vector<unique_ptr<DuckLakeNameMapEntry>> &column_maps) {
+	vector<MultiFileColumnDefinition> result;
+
+	// create a map of field id -> column map index for the mapping at this level
+	unordered_map<idx_t, idx_t> field_id_map;
+	for (idx_t column_map_idx = 0; column_map_idx < column_maps.size(); column_map_idx++) {
+		auto &column_map = *column_maps[column_map_idx];
+		field_id_map.emplace(column_map.target_field_id.index, column_map_idx);
 	}
-	// field-id not found - this means the column is not present in the file
-	// replace the identifier with a stub name to ensure it is omitted
-	column.identifier = Value("__ducklake_unknown_identifier");
+	// iterate over the global columns
+	// note: we make a copy of the column here on purpose - we override it to generate the new column map
+	for (auto global_column : global_map) {
+		auto field_id = global_column.identifier.GetValue<idx_t>();
+		// look up the field id
+		auto entry = field_id_map.find(field_id);
+		if (entry == field_id_map.end()) {
+			// field-id not found - this means the column is not present in the file
+			// replace the identifier with a stub name to ensure it is omitted
+			global_column.identifier = Value("__ducklake_unknown_identifier");
+		} else {
+			// field-id found - add the name-based mapping at this level
+			auto &column_map = column_maps[entry->second];
+			global_column.identifier = Value(column_map->source_name);
+			// recursively process any child nodes
+			if (!column_map->child_entries.empty()) {
+				global_column.children = MapColumns(global_column.children, column_map->child_entries);
+			}
+		}
+		result.push_back(std::move(global_column));
+	}
+	return result;
 }
 
 vector<MultiFileColumnDefinition> CreateNewMapping(const vector<MultiFileColumnDefinition> &global_map,
                                                    const DuckLakeNameMap &name_map) {
-	vector<MultiFileColumnDefinition> result;
-	for (auto global_column : global_map) {
-		MapColumn(name_map.column_maps, global_column);
-		result.push_back(std::move(global_column));
-	}
-	return result;
+	return MapColumns(global_map, name_map.column_maps);
 }
 
 ReaderInitializeType DuckLakeMultiFileReader::CreateMapping(

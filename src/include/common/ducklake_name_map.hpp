@@ -23,17 +23,18 @@ namespace duckdb {
 struct DuckLakeNameMapEntry {
 	string source_name;
 	FieldIndex target_field_id;
-	vector<DuckLakeNameMapEntry> child_entries;
+	vector<unique_ptr<DuckLakeNameMapEntry>> child_entries;
 
 	hash_t GetHash() const;
 	bool IsCompatibleWith(const DuckLakeNameMapEntry &other) const;
-	static bool ListIsCompatible(const vector<DuckLakeNameMapEntry> &left, const vector<DuckLakeNameMapEntry> &right);
+	static bool ListIsCompatible(const vector<unique_ptr<DuckLakeNameMapEntry>> &left,
+	                             const vector<unique_ptr<DuckLakeNameMapEntry>> &right);
 };
 
 struct DuckLakeNameMap {
 	MappingIndex id;
 	TableIndex table_id;
-	vector<DuckLakeNameMapEntry> column_maps;
+	vector<unique_ptr<DuckLakeNameMapEntry>> column_maps;
 
 	hash_t GetHash() const;
 	bool IsCompatibleWith(const DuckLakeNameMap &other) const;
@@ -60,7 +61,7 @@ struct DuckLakeNameMapSet {
 
 	//! Try to find a compatible name map that already exists in the set
 	MappingIndex TryGetCompatibleNameMap(const DuckLakeNameMap &name_map);
-	void Add(DuckLakeNameMap name_map);
+	void Add(unique_ptr<DuckLakeNameMap> name_map);
 };
 
 } // namespace duckdb

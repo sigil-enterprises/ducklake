@@ -1071,7 +1071,7 @@ struct NewNameMapInfo {
 	vector<DuckLakeColumnMappingInfo> new_column_mappings;
 };
 
-void ConvertNameMapColumn(DuckLakeNameMapEntry &name_map_entry, MappingIndex map_id, idx_t &column_idx,
+void ConvertNameMapColumn(const DuckLakeNameMapEntry &name_map_entry, MappingIndex map_id, idx_t &column_idx,
                           DuckLakeColumnMappingInfo &result, optional_idx parent_idx = optional_idx()) {
 	auto column_id = column_idx++;
 
@@ -1084,7 +1084,7 @@ void ConvertNameMapColumn(DuckLakeNameMapEntry &name_map_entry, MappingIndex map
 
 	// recurse into children
 	for (auto &child_column : name_map_entry.child_entries) {
-		ConvertNameMapColumn(child_column, map_id, column_idx, result, column_id);
+		ConvertNameMapColumn(*child_column, map_id, column_idx, result, column_id);
 	}
 }
 
@@ -1108,7 +1108,7 @@ NewNameMapInfo DuckLakeTransaction::GetNewNameMaps(DuckLakeSnapshot &commit_snap
 		// iterate over the columns to generate the new name map columns
 		idx_t column_idx = 0;
 		for (auto &name_map_column : mapping.column_maps) {
-			ConvertNameMapColumn(name_map_column, new_map_id, column_idx, map_info);
+			ConvertNameMapColumn(*name_map_column, new_map_id, column_idx, map_info);
 		}
 		result.new_column_mappings.push_back(std::move(map_info));
 
@@ -1935,20 +1935,20 @@ optional_ptr<CatalogEntry> DuckLakeTransaction::GetLocalEntryById(TableIndex tab
 	return nullptr;
 }
 
-MappingIndex DuckLakeTransaction::AddNameMap(DuckLakeNameMap name_map) {
+MappingIndex DuckLakeTransaction::AddNameMap(unique_ptr<DuckLakeNameMap> name_map) {
 	// check if we can re-use a previously added name map
-	auto map_index = ducklake_catalog.TryGetCompatibleNameMap(*this, name_map);
+	auto map_index = ducklake_catalog.TryGetCompatibleNameMap(*this, *name_map);
 	if (map_index.IsValid()) {
 		return map_index;
 	}
-	map_index = new_name_maps.TryGetCompatibleNameMap(name_map);
+	map_index = new_name_maps.TryGetCompatibleNameMap(*name_map);
 	if (map_index.IsValid()) {
 		// found a compatible map already - return it
 		return map_index;
 	}
 	// no compatible map found - generate a new index
 	MappingIndex new_index(GetLocalCatalogId());
-	name_map.id = new_index;
+	name_map->id = new_index;
 	new_name_maps.Add(std::move(name_map));
 	return new_index;
 }

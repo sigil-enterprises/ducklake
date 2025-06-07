@@ -82,7 +82,7 @@ public:
 	void AddDeletes(TableIndex table_id, vector<DuckLakeDeleteFile> files);
 	void AddCompaction(TableIndex table_id, DuckLakeCompactionEntry entry);
 
-	MappingIndex AddNameMap(DuckLakeNameMap name_map);
+	MappingIndex AddNameMap(unique_ptr<DuckLakeNameMap> name_map);
 	const DuckLakeNameMap &GetMappingById(MappingIndex mapping_id);
 	NewNameMapInfo GetNewNameMaps(DuckLakeSnapshot &commit_snapshot);
 

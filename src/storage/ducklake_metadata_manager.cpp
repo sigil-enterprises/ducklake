@@ -1488,7 +1488,7 @@ SELECT mapping_id, table_id, type, column_id, source_name, target_field_id, pare
 FROM {METADATA_CATALOG}.ducklake_column_mapping
 JOIN {METADATA_CATALOG}.ducklake_name_mapping USING (mapping_id)
 %s
-ORDER BY mapping_id
+ORDER BY mapping_id, parent_column NULLS FIRST
 )",
 	                                                   filter));
 	vector<DuckLakeColumnMappingInfo> column_maps;

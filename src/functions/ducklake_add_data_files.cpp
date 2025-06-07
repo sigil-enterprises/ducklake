@@ -90,7 +90,12 @@ private:
 	void ReadParquetStats(const string &glob);
 	void ReadParquetFileMetadata(const string &glob);
 	DuckLakeDataFile AddFileToTable(ParquetFileMetadata &file);
-	DuckLakeNameMapEntry MapColumn(ParquetColumn &column, const DuckLakeFieldId &field_id, DuckLakeDataFile &file);
+	unique_ptr<DuckLakeNameMapEntry> MapColumn(ParquetFileMetadata &file_metadata, ParquetColumn &column,
+	                                           const DuckLakeFieldId &field_id, DuckLakeDataFile &file);
+	vector<unique_ptr<DuckLakeNameMapEntry>> MapColumns(ParquetFileMetadata &file,
+	                                                    vector<unique_ptr<ParquetColumn>> &parquet_columns,
+	                                                    const vector<unique_ptr<DuckLakeFieldId>> &field_ids,
+	                                                    DuckLakeDataFile &result);
 
 	Value GetStatsValue(string name, Value val);
 
@@ -106,7 +111,9 @@ SELECT file_name, name, type, num_children, converted_type, scale, precision, fi
 FROM parquet_schema(%s)
 )",
 	                                                   SQLString(glob)));
-
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to add data files to DuckLake: ");
+	}
 	unique_ptr<ParquetFileMetadata> file;
 	vector<reference<ParquetColumn>> current_column;
 	vector<idx_t> child_counts;
@@ -197,6 +204,9 @@ SELECT file_name, column_id, num_values, coalesce(stats_min, stats_min_value), c
 FROM parquet_metadata(%s)
 )",
 	                                                   SQLString(glob)));
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to add data files to DuckLake: ");
+	}
 	for (auto &row : *result) {
 		auto filename = row.GetValue<string>(0);
 		auto entry = parquet_files.find(filename);
@@ -241,6 +251,9 @@ SELECT filename, size
 FROM read_blob(%s)
 )",
 	                                                   SQLString(glob)));
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to add data files to DuckLake: ");
+	}
 	for (auto &row : *result) {
 		auto filename = row.GetValue<string>(0);
 		auto entry = parquet_files.find(filename);
@@ -256,6 +269,9 @@ SELECT file_name, num_rows
 FROM parquet_file_metadata(%s)
 )",
 	                                              SQLString(glob)));
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to add data files to DuckLake: ");
+	}
 	for (auto &row : *result) {
 		auto filename = row.GetValue<string>(0);
 		auto entry = parquet_files.find(filename);
@@ -267,18 +283,21 @@ FROM parquet_file_metadata(%s)
 	}
 }
 
-DuckLakeNameMapEntry DuckLakeFileProcessor::MapColumn(ParquetColumn &column, const DuckLakeFieldId &field_id,
-                                                      DuckLakeDataFile &file) {
+unique_ptr<DuckLakeNameMapEntry> DuckLakeFileProcessor::MapColumn(ParquetFileMetadata &file_metadata,
+                                                                  ParquetColumn &column,
+                                                                  const DuckLakeFieldId &field_id,
+                                                                  DuckLakeDataFile &file) {
 	// FIXME: check if types of the columns are compatible
 	if (column.field_id.IsValid()) {
 		throw InvalidInputException("File has field ids defined - only mapping by name is supported currently");
 	}
 
-	DuckLakeNameMapEntry map_entry;
-	map_entry.source_name = column.name;
-	map_entry.target_field_id = field_id.GetFieldIndex();
+	auto map_entry = make_uniq<DuckLakeNameMapEntry>();
+	map_entry->source_name = column.name;
+	map_entry->target_field_id = field_id.GetFieldIndex();
+	// recursively remap children (if any)
 	if (field_id.HasChildren()) {
-		throw InternalException("FIXME: remap child field ids");
+		map_entry->child_entries = MapColumns(file_metadata, column.child_columns, field_id.Children(), file);
 	}
 	// parse the per row-group stats
 	vector<DuckLakeColumnStats> row_group_stats_list;
@@ -291,8 +310,37 @@ DuckLakeNameMapEntry DuckLakeFileProcessor::MapColumn(ParquetColumn &column, con
 		row_group_stats_list[0].MergeStats(row_group_stats_list[i]);
 	}
 	// add the final stats of this column to the file
-	file.column_stats.emplace(field_id.GetFieldIndex(), std::move(row_group_stats_list[0]));
+	if (!row_group_stats_list.empty()) {
+		file.column_stats.emplace(field_id.GetFieldIndex(), std::move(row_group_stats_list[0]));
+	}
 	return map_entry;
+}
+
+vector<unique_ptr<DuckLakeNameMapEntry>>
+DuckLakeFileProcessor::MapColumns(ParquetFileMetadata &file_metadata,
+                                  vector<unique_ptr<ParquetColumn>> &parquet_columns,
+                                  const vector<unique_ptr<DuckLakeFieldId>> &field_ids, DuckLakeDataFile &result) {
+	// create a top-level map of columns
+	case_insensitive_map_t<const_reference<DuckLakeFieldId>> field_id_map;
+	for (auto &field_id : field_ids) {
+		field_id_map.emplace(field_id->Name(), *field_id);
+	}
+	vector<unique_ptr<DuckLakeNameMapEntry>> column_maps;
+	for (auto &col : parquet_columns) {
+		// find the top-level column to map to
+		auto entry = field_id_map.find(col->name);
+		if (entry == field_id_map.end()) {
+			throw InvalidInputException("Column \"%s\" exists in file %s but was not found in the table", col->name,
+			                            file_metadata.filename);
+		}
+		column_maps.push_back(MapColumn(file_metadata, *col, entry->second.get(), result));
+		field_id_map.erase(entry);
+	}
+	for (auto &entry : field_id_map) {
+		throw InvalidInputException("Column \"%s\" exists in table %s but was not found in file %s",
+		                            entry.second.get().Name(), file_metadata.filename);
+	}
+	return column_maps;
 }
 
 DuckLakeDataFile DuckLakeFileProcessor::AddFileToTable(ParquetFileMetadata &file) {
@@ -305,28 +353,10 @@ DuckLakeDataFile DuckLakeFileProcessor::AddFileToTable(ParquetFileMetadata &file
 	auto &field_data = table.GetFieldData();
 	auto &field_ids = field_data.GetFieldIds();
 
-	// create a top-level map of columns
-	case_insensitive_map_t<const_reference<DuckLakeFieldId>> field_id_map;
-	for (auto &field_id : field_ids) {
-		field_id_map.emplace(field_id->Name(), *field_id);
-	}
+	auto name_map = make_uniq<DuckLakeNameMap>();
+	name_map->table_id = table.GetTableId();
+	name_map->column_maps = MapColumns(file, file.columns, field_ids, result);
 
-	DuckLakeNameMap name_map;
-	name_map.table_id = table.GetTableId();
-	for (auto &col : file.columns) {
-		// find the top-level column to map to
-		auto entry = field_id_map.find(col->name);
-		if (entry == field_id_map.end()) {
-			throw InvalidInputException("Column \"%s\" exists in file %s but was not found in the table", col->name,
-			                            file.filename);
-		}
-		name_map.column_maps.push_back(MapColumn(*col, entry->second.get(), result));
-		field_id_map.erase(entry);
-	}
-	for (auto &entry : field_id_map) {
-		throw InvalidInputException("Column \"%s\" exists in table %s but was not found in file %s",
-		                            entry.second.get().Name(), file.filename);
-	}
 	// we successfully mapped this file - register the name map and refer to it in the file
 	result.mapping_id = transaction.AddNameMap(std::move(name_map));
 	return result;

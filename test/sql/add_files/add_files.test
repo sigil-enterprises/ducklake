@@ -172,5 +172,11 @@ FROM ducklake.test AT (VERSION => 6)
 300	abcd	NULL
 400	efgh	50
 
+# file does not exist
+statement error
+CALL ducklake_add_data_files('ducklake', 'test', '__TEST_DIR__/abcd.parquet')
+----
+Failed to add data files
+
 # verify types are compatible
 # verify column names are compatible
