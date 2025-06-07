@@ -111,6 +111,7 @@ private:
 	                                                    DuckLakeDataFile &result, string prefix = string());
 
 	Value GetStatsValue(string name, Value val);
+	void CheckMatchingType(const LogicalType &type, ParquetColumn &column);
 
 private:
 	DuckLakeTransaction &transaction;
@@ -298,11 +299,134 @@ FROM parquet_file_metadata(%s)
 	}
 }
 
+class DuckLakeParquetTypeChecker {
+public:
+	DuckLakeParquetTypeChecker(DuckLakeTableEntry &table, ParquetFileMetadata &file_metadata, const LogicalType &type,
+	                           ParquetColumn &column)
+	    : table(table), file_metadata(file_metadata), type(type), column(column) {
+	}
+
+	DuckLakeTableEntry &table;
+	ParquetFileMetadata &file_metadata;
+	const LogicalType &type;
+	ParquetColumn &column;
+
+public:
+	void CheckMatchingType();
+
+private:
+	void CheckUnsignedInteger();
+
+	//! Called when a check fails
+	void Fail();
+
+private:
+	//! Verify type is equivalent to the following type
+	bool CheckType(const string &type);
+	//! Verify type is equivalent to one of the accepted types
+	bool CheckTypes(const vector<string> &type);
+	//! Verify converted type is equivalent to one of the accepted types
+	bool CheckConvertedTypes(const vector<string> &types);
+
+private:
+	vector<string> failures;
+};
+
+bool DuckLakeParquetTypeChecker::CheckType(const string &type) {
+	vector<string> types;
+	types.push_back(type);
+	return CheckTypes(types);
+}
+
+bool DuckLakeParquetTypeChecker::CheckTypes(const vector<string> &types) {
+	for (auto &type : types) {
+		if (column.type == type) {
+			return true;
+		}
+	}
+	failures.push_back(StringUtil::Format("Type \"%s\" is not accepted, expected one of %s", column.type,
+	                                      StringUtil::Join(types, ",")));
+	return false;
+}
+
+bool DuckLakeParquetTypeChecker::CheckConvertedTypes(const vector<string> &types) {
+	for (auto &type : types) {
+		if (column.converted_type == type) {
+			return true;
+		}
+	}
+	failures.push_back(StringUtil::Format("Converted Type \"%s\" is not accepted, expected one of %s",
+	                                      column.converted_type.empty() ? "NULL" : column.converted_type,
+	                                      StringUtil::Join(types, ",")));
+	return false;
+}
+
+void DuckLakeParquetTypeChecker::Fail() {
+	string error_message =
+	    StringUtil::Format("Failed to map column \"%s\" from file \"%s\" to the column in table \"%s\"", column.name,
+	                       file_metadata.filename, table.name);
+	for (auto &failure : failures) {
+		error_message += "\n* " + failure;
+	}
+	throw InvalidInputException(error_message);
+}
+
+void DuckLakeParquetTypeChecker::CheckUnsignedInteger() {
+	vector<string> accepted_types;
+	vector<string> accepted_converted_types;
+
+	accepted_types.push_back("INT32");
+	accepted_converted_types.push_back("UINT_8");
+
+	switch (type.id()) {
+	case LogicalTypeId::UTINYINT:
+		break;
+	case LogicalTypeId::USMALLINT:
+		accepted_converted_types.push_back("UINT_16");
+		break;
+	case LogicalTypeId::UINTEGER:
+		accepted_converted_types.push_back("UINT_32");
+		break;
+	case LogicalTypeId::UBIGINT:
+		accepted_types.push_back("INT64");
+		accepted_converted_types.push_back("UINT_64");
+		break;
+	default:
+		throw InternalException("Unknown unsigned type");
+	}
+	bool success = true;
+	if (!CheckTypes(accepted_types)) {
+		success = false;
+	}
+	if (!CheckConvertedTypes(accepted_converted_types)) {
+		success = false;
+	}
+	if (!success) {
+		Fail();
+	}
+}
+
+void DuckLakeParquetTypeChecker::CheckMatchingType() {
+	switch (type.id()) {
+	case LogicalTypeId::UTINYINT:
+	case LogicalTypeId::USMALLINT:
+	case LogicalTypeId::UINTEGER:
+	case LogicalTypeId::UBIGINT:
+		CheckUnsignedInteger();
+		break;
+	default:
+		throw InternalException("Unsupported type %s for CheckMatchingType", type.ToString());
+	}
+}
+
 unique_ptr<DuckLakeNameMapEntry> DuckLakeFileProcessor::MapColumn(ParquetFileMetadata &file_metadata,
                                                                   ParquetColumn &column,
                                                                   const DuckLakeFieldId &field_id,
                                                                   DuckLakeDataFile &file, string prefix) {
-	// FIXME: check if types of the columns are compatible
+	// check if types of the columns are compatible
+	DuckLakeParquetTypeChecker type_checker(table, file_metadata, field_id.Type(), column);
+	type_checker.CheckMatchingType();
+
 	if (column.field_id.IsValid()) {
 		throw InvalidInputException("File has field ids defined - only mapping by name is supported currently");
 	}
