@@ -319,6 +319,7 @@ public:
 private:
 	void CheckSignedInteger();
 	void CheckUnsignedInteger();
+	void CheckFloatingPoints();
 
 	//! Called when a check fails
 	void Fail();
@@ -488,6 +489,23 @@ void DuckLakeParquetTypeChecker::CheckUnsignedInteger() {
 	}
 }
 
+void DuckLakeParquetTypeChecker::CheckFloatingPoints() {
+	vector<LogicalType> accepted_types;
+
+	switch (type.id()) {
+	case LogicalTypeId::DOUBLE:
+		accepted_types.push_back(LogicalType::DOUBLE);
+		DUCKDB_EXPLICIT_FALLTHROUGH;
+	case LogicalTypeId::FLOAT:
+		accepted_types.push_back(LogicalType::FLOAT);
+		break;
+	default:
+		throw InternalException("Unknown unsigned type");
+	}
+	if (!CheckTypes(accepted_types)) {
+		Fail();
+	}
+}
 void DuckLakeParquetTypeChecker::CheckMatchingType() {
 	switch (type.id()) {
 	case LogicalTypeId::BOOLEAN:
@@ -506,6 +524,20 @@ void DuckLakeParquetTypeChecker::CheckMatchingType() {
 	case LogicalTypeId::UINTEGER:
 	case LogicalTypeId::UBIGINT:
 		CheckUnsignedInteger();
+		break;
+	case LogicalTypeId::FLOAT:
+	case LogicalTypeId::DOUBLE:
+		CheckFloatingPoints();
+		break;
+	case LogicalTypeId::VARCHAR:
+		if (!CheckType(LogicalType::VARCHAR)) {
+			Fail();
+		}
+		break;
+	case LogicalTypeId::BLOB:
+		if (!CheckType(LogicalType::BLOB)) {
+			Fail();
+		}
 		break;
 	default:
 		throw InternalException("Unsupported type %s for CheckMatchingType", type.ToString());
