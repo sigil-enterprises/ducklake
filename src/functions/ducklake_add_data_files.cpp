@@ -14,6 +14,7 @@ struct DuckLakeAddDataFilesData : public TableFunctionData {
 	Catalog &catalog;
 	DuckLakeTableEntry &table;
 	vector<string> globs;
+	bool allow_missing = false;
 };
 
 static unique_ptr<FunctionData> DuckLakeAddDataFilesBind(ClientContext &context, TableFunctionBindInput &input,
@@ -34,6 +35,14 @@ static unique_ptr<FunctionData> DuckLakeAddDataFilesBind(ClientContext &context,
 		throw InvalidInputException("File list cannot be NULL");
 	}
 	result->globs.push_back(StringValue::Get(input.inputs[2]));
+	for (auto &entry : input.named_parameters) {
+		auto lower = StringUtil::Lower(entry.first);
+		if (lower == "allow_missing") {
+			result->allow_missing = BooleanValue::Get(entry.second);
+		} else {
+			throw InternalException("Unknown named parameter %s for add_files", entry.first);
+		}
+	}
 
 	names.emplace_back("filename");
 	return_types.emplace_back(LogicalType::VARCHAR);
@@ -79,8 +88,8 @@ struct ParquetFileMetadata {
 
 struct DuckLakeFileProcessor {
 public:
-	DuckLakeFileProcessor(DuckLakeTransaction &transaction, DuckLakeTableEntry &table)
-	    : transaction(transaction), table(table) {
+	DuckLakeFileProcessor(DuckLakeTransaction &transaction, const DuckLakeAddDataFilesData &bind_data)
+	    : transaction(transaction), table(bind_data.table), allow_missing(bind_data.allow_missing) {
 	}
 
 	vector<DuckLakeDataFile> AddFiles(const vector<string> &globs);
@@ -91,17 +100,18 @@ private:
 	void ReadParquetFileMetadata(const string &glob);
 	DuckLakeDataFile AddFileToTable(ParquetFileMetadata &file);
 	unique_ptr<DuckLakeNameMapEntry> MapColumn(ParquetFileMetadata &file_metadata, ParquetColumn &column,
-	                                           const DuckLakeFieldId &field_id, DuckLakeDataFile &file);
+	                                           const DuckLakeFieldId &field_id, DuckLakeDataFile &file, string prefix);
 	vector<unique_ptr<DuckLakeNameMapEntry>> MapColumns(ParquetFileMetadata &file,
 	                                                    vector<unique_ptr<ParquetColumn>> &parquet_columns,
 	                                                    const vector<unique_ptr<DuckLakeFieldId>> &field_ids,
-	                                                    DuckLakeDataFile &result);
+	                                                    DuckLakeDataFile &result, string prefix = string());
 
 	Value GetStatsValue(string name, Value val);
 
 private:
 	DuckLakeTransaction &transaction;
 	DuckLakeTableEntry &table;
+	bool allow_missing;
 	unordered_map<string, unique_ptr<ParquetFileMetadata>> parquet_files;
 };
 
@@ -286,18 +296,22 @@ FROM parquet_file_metadata(%s)
 unique_ptr<DuckLakeNameMapEntry> DuckLakeFileProcessor::MapColumn(ParquetFileMetadata &file_metadata,
                                                                   ParquetColumn &column,
                                                                   const DuckLakeFieldId &field_id,
-                                                                  DuckLakeDataFile &file) {
+                                                                  DuckLakeDataFile &file, string prefix) {
 	// FIXME: check if types of the columns are compatible
 	if (column.field_id.IsValid()) {
 		throw InvalidInputException("File has field ids defined - only mapping by name is supported currently");
 	}
+	if (!prefix.empty()) {
+		prefix += ".";
+	}
+	prefix += column.name;
 
 	auto map_entry = make_uniq<DuckLakeNameMapEntry>();
 	map_entry->source_name = column.name;
 	map_entry->target_field_id = field_id.GetFieldIndex();
 	// recursively remap children (if any)
 	if (field_id.HasChildren()) {
-		map_entry->child_entries = MapColumns(file_metadata, column.child_columns, field_id.Children(), file);
+		map_entry->child_entries = MapColumns(file_metadata, column.child_columns, field_id.Children(), file, prefix);
 	}
 	// parse the per row-group stats
 	vector<DuckLakeColumnStats> row_group_stats_list;
@@ -316,10 +330,9 @@ unique_ptr<DuckLakeNameMapEntry> DuckLakeFileProcessor::MapColumn(ParquetFileMet
 	return map_entry;
 }
 
-vector<unique_ptr<DuckLakeNameMapEntry>>
-DuckLakeFileProcessor::MapColumns(ParquetFileMetadata &file_metadata,
-                                  vector<unique_ptr<ParquetColumn>> &parquet_columns,
-                                  const vector<unique_ptr<DuckLakeFieldId>> &field_ids, DuckLakeDataFile &result) {
+vector<unique_ptr<DuckLakeNameMapEntry>> DuckLakeFileProcessor::MapColumns(
+    ParquetFileMetadata &file_metadata, vector<unique_ptr<ParquetColumn>> &parquet_columns,
+    const vector<unique_ptr<DuckLakeFieldId>> &field_ids, DuckLakeDataFile &result, string prefix) {
 	// create a top-level map of columns
 	case_insensitive_map_t<const_reference<DuckLakeFieldId>> field_id_map;
 	for (auto &field_id : field_ids) {
@@ -333,12 +346,15 @@ DuckLakeFileProcessor::MapColumns(ParquetFileMetadata &file_metadata,
 			throw InvalidInputException("Column \"%s\" exists in file %s but was not found in the table", col->name,
 			                            file_metadata.filename);
 		}
-		column_maps.push_back(MapColumn(file_metadata, *col, entry->second.get(), result));
+		column_maps.push_back(MapColumn(file_metadata, *col, entry->second.get(), result, prefix));
 		field_id_map.erase(entry);
 	}
-	for (auto &entry : field_id_map) {
-		throw InvalidInputException("Column \"%s\" exists in table %s but was not found in file %s",
-		                            entry.second.get().Name(), file_metadata.filename);
+	if (!allow_missing) {
+		for (auto &entry : field_id_map) {
+			throw InvalidInputException("Column \"%s%s\" exists in table %s but was not found in file \"%s\"\n* Set "
+			                            "allow_missing => true to allow missing fields and columns",
+			                            prefix, entry.second.get().Name(), table.name, file_metadata.filename);
+		}
 	}
 	return column_maps;
 }
@@ -390,7 +406,7 @@ void DuckLakeAddDataFilesExecute(ClientContext &context, TableFunctionInput &dat
 	if (state.finished) {
 		return;
 	}
-	DuckLakeFileProcessor processor(transaction, bind_data.table);
+	DuckLakeFileProcessor processor(transaction, bind_data);
 	auto files_to_add = processor.AddFiles(bind_data.globs);
 	// add the files
 	transaction.AppendFiles(bind_data.table.GetTableId(), std::move(files_to_add));
@@ -400,6 +416,7 @@ void DuckLakeAddDataFilesExecute(ClientContext &context, TableFunctionInput &dat
 DuckLakeAddDataFilesFunction::DuckLakeAddDataFilesFunction()
     : TableFunction("ducklake_add_data_files", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
                     DuckLakeAddDataFilesExecute, DuckLakeAddDataFilesBind, DuckLakeAddDataFilesInit) {
+	named_parameters["allow_missing"] = LogicalType::BOOLEAN;
 }
 
 } // namespace duckdb
