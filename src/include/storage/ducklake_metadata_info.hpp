@@ -256,6 +256,7 @@ struct DuckLakeDeleteScanEntry {
 	DuckLakeFileData previous_delete_file;
 	idx_t row_count;
 	idx_t row_id_start;
+	MappingIndex mapping_id;
 	optional_idx snapshot_id;
 };
 

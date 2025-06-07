@@ -615,7 +615,7 @@ vector<DuckLakeDeleteScanEntry> DuckLakeMetadataManager::GetTableDeletions(DuckL
                                                                            DuckLakeSnapshot start_snapshot,
                                                                            DuckLakeSnapshot end_snapshot) {
 	auto table_id = table.GetTableId();
-	string select_list = GetFileSelectList("data") + ", data.row_id_start, data.record_count, " +
+	string select_list = GetFileSelectList("data") + ", data.row_id_start, data.record_count, data.mapping_id, " +
 	                     GetFileSelectList("current_delete") + ", " + GetFileSelectList("previous_delete");
 	// deletes come in two flavors:
 	// * deletes stored in the ducklake_delete_file table (partial deletes)
@@ -673,6 +673,10 @@ USING (data_file_id), (
 		entry.file = ReadDataFile(table, row, col_idx, IsEncrypted());
 		entry.row_id_start = row.GetValue<idx_t>(col_idx++);
 		entry.row_count = row.GetValue<idx_t>(col_idx++);
+		if (!row.IsNull(col_idx)) {
+			entry.mapping_id = MappingIndex(row.GetValue<idx_t>(col_idx));
+		}
+		col_idx++;
 		entry.delete_file = ReadDataFile(table, row, col_idx, IsEncrypted());
 		entry.previous_delete_file = ReadDataFile(table, row, col_idx, IsEncrypted());
 		entry.snapshot_id = row.GetValue<idx_t>(col_idx++);

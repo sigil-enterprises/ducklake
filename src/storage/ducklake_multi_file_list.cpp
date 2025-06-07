@@ -547,6 +547,7 @@ void DuckLakeMultiFileList::GetTableDeletions() {
 		file_entry.file = file.file;
 		file_entry.row_id_start = file.row_id_start;
 		file_entry.snapshot_id = file.snapshot_id;
+		file_entry.mapping_id = file.mapping_id;
 		files.emplace_back(std::move(file_entry));
 	}
 	// add inlined data tables as sources (if any)
