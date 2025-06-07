@@ -302,9 +302,9 @@ FROM parquet_file_metadata(%s)
 class DuckLakeParquetTypeChecker {
 public:
 	DuckLakeParquetTypeChecker(DuckLakeTableEntry &table, ParquetFileMetadata &file_metadata, const LogicalType &type,
-	                           ParquetColumn &column_p)
+	                           ParquetColumn &column_p, const string &prefix_p)
 	    : table(table), file_metadata(file_metadata), source_type(DeriveLogicalType(column_p)), type(type),
-	      column(column_p) {
+	      column(column_p), prefix(prefix_p) {
 	}
 
 	DuckLakeTableEntry &table;
@@ -312,6 +312,7 @@ public:
 	LogicalType source_type;
 	const LogicalType &type;
 	ParquetColumn &column;
+	const string &prefix;
 
 public:
 	void CheckMatchingType();
@@ -338,6 +339,15 @@ private:
 LogicalType DuckLakeParquetTypeChecker::DeriveLogicalType(const ParquetColumn &s_ele) {
 	// FIXME: this is more or less copied from DeriveLogicalType in DuckDB's Parquet reader
 	//  we should just emit DuckDB's type in parquet_schema and remove this method
+	if (!s_ele.child_columns.empty()) {
+		// nested types
+		if (s_ele.converted_type == "LIST") {
+			return LogicalTypeId::LIST;
+		} else if (s_ele.converted_type == "MAP") {
+			return LogicalTypeId::MAP;
+		}
+		return LogicalTypeId::STRUCT;
+	}
 	if (!s_ele.converted_type.empty()) {
 		// Legacy NULL type, does no longer exist, but files are still around of course
 		if (s_ele.converted_type == "INT_8") {
@@ -408,7 +418,7 @@ string FormatExpectedError(const vector<LogicalType> &expected) {
 		}
 		error += type.ToString();
 	}
-	return expected.size() > 1 ? " one of " + error : error;
+	return expected.size() > 1 ? "one of " + error : error;
 }
 
 bool DuckLakeParquetTypeChecker::CheckType(const LogicalType &type) {
@@ -423,15 +433,14 @@ bool DuckLakeParquetTypeChecker::CheckTypes(const vector<LogicalType> &types) {
 			return true;
 		}
 	}
-	failures.push_back(
-	    StringUtil::Format("Type \"%s\" is not accepted, expected %s", column.type, FormatExpectedError(types)));
+	failures.push_back(StringUtil::Format("Expected %s, found type %s", FormatExpectedError(types), column.type));
 	return false;
 }
 
 void DuckLakeParquetTypeChecker::Fail() {
 	string error_message =
-	    StringUtil::Format("Failed to map column \"%s\" from file \"%s\" to the column in table \"%s\"", column.name,
-	                       file_metadata.filename, table.name);
+	    StringUtil::Format("Failed to map column \"%s%s\" from file \"%s\" to the column in table \"%s\"",
+	                       prefix.empty() ? prefix : prefix + ".", column.name, file_metadata.filename, table.name);
 	for (auto &failure : failures) {
 		error_message += "\n* " + failure;
 	}
@@ -539,6 +548,15 @@ void DuckLakeParquetTypeChecker::CheckMatchingType() {
 			Fail();
 		}
 		break;
+	case LogicalTypeId::STRUCT:
+	case LogicalTypeId::LIST:
+	case LogicalTypeId::MAP:
+		if (source_type.id() != type.id()) {
+			failures.push_back(StringUtil::Format("Expected type \"%s\" but found type \"%s\"", type.ToString(),
+			                                      source_type.ToString()));
+			Fail();
+		}
+		break;
 	default:
 		throw InternalException("Unsupported type %s for CheckMatchingType", type.ToString());
 	}
@@ -549,7 +567,7 @@ unique_ptr<DuckLakeNameMapEntry> DuckLakeFileProcessor::MapColumn(ParquetFileMet
                                                                   const DuckLakeFieldId &field_id,
                                                                   DuckLakeDataFile &file, string prefix) {
 	// check if types of the columns are compatible
-	DuckLakeParquetTypeChecker type_checker(table, file_metadata, field_id.Type(), column);
+	DuckLakeParquetTypeChecker type_checker(table, file_metadata, field_id.Type(), column, prefix);
 	type_checker.CheckMatchingType();
 
 	if (column.field_id.IsValid()) {
@@ -565,7 +583,18 @@ unique_ptr<DuckLakeNameMapEntry> DuckLakeFileProcessor::MapColumn(ParquetFileMet
 	map_entry->target_field_id = field_id.GetFieldIndex();
 	// recursively remap children (if any)
 	if (field_id.HasChildren()) {
-		map_entry->child_entries = MapColumns(file_metadata, column.child_columns, field_id.Children(), file, prefix);
+		auto &field_children = field_id.Children();
+		if (field_id.Type().id() == LogicalTypeId::LIST) {
+			// for lists we don't need to do any name mapping - the child element always maps to each other
+			// (1) Parquet has an extra element in between the list and its child ("REPEATED") - strip it
+			// (2) Parquet has a different convention on how to name list children - rename them to "list" here
+			column.child_columns[0]->child_columns[0]->name = "list";
+			map_entry->child_entries.push_back(
+			    MapColumn(file_metadata, *column.child_columns[0]->child_columns[0], *field_children[0], file, prefix));
+		} else {
+			map_entry->child_entries =
+			    MapColumns(file_metadata, column.child_columns, field_id.Children(), file, prefix);
+		}
 	}
 	// parse the per row-group stats
 	vector<DuckLakeColumnStats> row_group_stats_list;

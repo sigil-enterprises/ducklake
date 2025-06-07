@@ -1,0 +1,46 @@
+# name: test/sql/add_files/add_files_type_check_nested.test
+# description: test ducklake adding files with nested types
+# group: [add_files]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_add_files_type_nested.db' AS ducklake
+
+statement ok
+COPY (SELECT [true]::BOOL[] AS col1) TO '__TEST_DIR__/bool_list.parquet';
+
+statement ok
+COPY (SELECT [42]::INT[] AS col1) TO '__TEST_DIR__/int_list.parquet';
+
+statement ok
+COPY (SELECT {'list': true} AS col1) TO '__TEST_DIR__/bool_struct.parquet';
+
+statement ok
+COPY (SELECT {'list': 42::INTEGER} AS col1) TO '__TEST_DIR__/int_struct.parquet';
+
+############
+# int list #
+############
+statement ok
+CREATE OR REPLACE TABLE ducklake.test(col1 INT[]);
+
+statement error
+CALL ducklake_add_data_files('ducklake', 'test', '__TEST_DIR__/bool_list.parquet')
+----
+BOOLEAN
+
+statement error
+CALL ducklake_add_data_files('ducklake', 'test', '__TEST_DIR__/int_struct.parquet')
+----
+STRUCT
+
+statement ok
+CALL ducklake_add_data_files('ducklake', 'test', '__TEST_DIR__/int_list.parquet')
+
+query I
+FROM ducklake.test
+----
+[42]

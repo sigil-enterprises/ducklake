@@ -108,7 +108,7 @@ foreach UNACCEPTED_TYPE bool bigint uinteger ubigint
 statement error
 CALL ducklake_add_data_files('ducklake', 'test', '__TEST_DIR__/${UNACCEPTED_TYPE}.parquet')
 ----
-not accepted
+Expected
 
 endloop
 
@@ -139,7 +139,7 @@ foreach UNACCEPTED_TYPE bool ubigint
 statement error
 CALL ducklake_add_data_files('ducklake', 'test', '__TEST_DIR__/${UNACCEPTED_TYPE}.parquet')
 ----
-not accepted
+Expected
 
 endloop
 
