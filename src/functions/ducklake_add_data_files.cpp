@@ -351,9 +351,10 @@ vector<unique_ptr<DuckLakeNameMapEntry>> DuckLakeFileProcessor::MapColumns(
 	}
 	if (!allow_missing) {
 		for (auto &entry : field_id_map) {
-			throw InvalidInputException("Column \"%s%s\" exists in table %s but was not found in file \"%s\"\n* Set "
-			                            "allow_missing => true to allow missing fields and columns",
-			                            prefix, entry.second.get().Name(), table.name, file_metadata.filename);
+			throw InvalidInputException(
+			    "Column \"%s%s\" exists in table \"%s\" but was not found in file \"%s\"\n* Set "
+			    "allow_missing => true to allow missing fields and columns",
+			    prefix.empty() ? prefix : prefix + ".", entry.second.get().Name(), table.name, file_metadata.filename);
 		}
 	}
 	return column_maps;

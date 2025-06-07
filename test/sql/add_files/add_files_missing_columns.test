@@ -19,7 +19,7 @@ COPY (SELECT 42 j) TO '__TEST_DIR__/missing_column.parquet'
 statement error
 CALL ducklake_add_data_files('ducklake', 'test', '__TEST_DIR__/missing_column.parquet')
 ----
-Column "i" exists in table test but was not found in file
+Column "i" exists in table "test" but was not found in file
 
 statement ok
 BEGIN
