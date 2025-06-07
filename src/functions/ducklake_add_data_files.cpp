@@ -315,6 +315,7 @@ public:
 	void CheckMatchingType();
 
 private:
+	void CheckSignedInteger();
 	void CheckUnsignedInteger();
 
 	//! Called when a check fails
@@ -327,6 +328,10 @@ private:
 	bool CheckTypes(const vector<string> &type);
 	//! Verify converted type is equivalent to one of the accepted types
 	bool CheckConvertedTypes(const vector<string> &types);
+	//! Verify the converted type is empty
+	bool CheckEmptyConvertedType();
+	//! Verify the logical type is empty
+	bool CheckEmptyLogicalType();
 
 private:
 	vector<string> failures;
@@ -338,14 +343,30 @@ bool DuckLakeParquetTypeChecker::CheckType(const string &type) {
 	return CheckTypes(types);
 }
 
+string FormatExpectedError(vector<string> expected) {
+	string error;
+	std::sort(expected.begin(), expected.end());
+	for (auto &type : expected) {
+		if (!error.empty()) {
+			error += ", ";
+		}
+		if (type.empty()) {
+			error += "(empty)";
+		} else {
+			error += type;
+		}
+	}
+	return expected.size() > 1 ? " one of " + error : error;
+}
+
 bool DuckLakeParquetTypeChecker::CheckTypes(const vector<string> &types) {
 	for (auto &type : types) {
 		if (column.type == type) {
 			return true;
 		}
 	}
-	failures.push_back(StringUtil::Format("Type \"%s\" is not accepted, expected one of %s", column.type,
-	                                      StringUtil::Join(types, ",")));
+	failures.push_back(
+	    StringUtil::Format("Type \"%s\" is not accepted, expected %s", column.type, FormatExpectedError(types)));
 	return false;
 }
 
@@ -355,9 +376,27 @@ bool DuckLakeParquetTypeChecker::CheckConvertedTypes(const vector<string> &types
 			return true;
 		}
 	}
-	failures.push_back(StringUtil::Format("Converted Type \"%s\" is not accepted, expected one of %s",
+	failures.push_back(StringUtil::Format("Converted Type \"%s\" is not accepted, expected %s",
 	                                      column.converted_type.empty() ? "NULL" : column.converted_type,
-	                                      StringUtil::Join(types, ",")));
+	                                      FormatExpectedError(types)));
+	return false;
+}
+
+bool DuckLakeParquetTypeChecker::CheckEmptyConvertedType() {
+	if (column.converted_type.empty()) {
+		return true;
+	}
+	failures.push_back(StringUtil::Format("Converted Type \"%s\" is not accepted, required an empty converted type",
+	                                      column.converted_type));
+	return false;
+}
+
+bool DuckLakeParquetTypeChecker::CheckEmptyLogicalType() {
+	if (column.logical_type.empty()) {
+		return true;
+	}
+	failures.push_back(StringUtil::Format("Logical Type \"%s\" is not accepted, required an empty converted type",
+	                                      column.logical_type));
 	return false;
 }
 
@@ -371,25 +410,62 @@ void DuckLakeParquetTypeChecker::Fail() {
 	throw InvalidInputException(error_message);
 }
 
+void DuckLakeParquetTypeChecker::CheckSignedInteger() {
+	vector<string> accepted_types;
+	vector<string> accepted_converted_types;
+
+	switch (type.id()) {
+	case LogicalTypeId::BIGINT:
+		accepted_types.push_back("INT64");
+		accepted_converted_types.push_back("INT_64");
+		accepted_converted_types.push_back("UINT_32");
+		DUCKDB_EXPLICIT_FALLTHROUGH;
+	case LogicalTypeId::INTEGER:
+		accepted_converted_types.push_back("UINT_16");
+		accepted_converted_types.push_back("INT_32");
+		accepted_converted_types.emplace_back();
+		DUCKDB_EXPLICIT_FALLTHROUGH;
+	case LogicalTypeId::SMALLINT:
+		accepted_converted_types.push_back("UINT_8");
+		accepted_converted_types.push_back("INT_16");
+		DUCKDB_EXPLICIT_FALLTHROUGH;
+	case LogicalTypeId::TINYINT:
+		accepted_types.push_back("INT32");
+		accepted_converted_types.push_back("INT_8");
+		break;
+	default:
+		throw InternalException("Unknown signed type");
+	}
+	bool success = true;
+	if (!CheckTypes(accepted_types)) {
+		success = false;
+	}
+	if (!CheckConvertedTypes(accepted_converted_types)) {
+		success = false;
+	}
+	if (!success) {
+		Fail();
+	}
+}
+
 void DuckLakeParquetTypeChecker::CheckUnsignedInteger() {
 	vector<string> accepted_types;
 	vector<string> accepted_converted_types;
 
-	accepted_types.push_back("INT32");
-	accepted_converted_types.push_back("UINT_8");
-
 	switch (type.id()) {
-	case LogicalTypeId::UTINYINT:
-		break;
-	case LogicalTypeId::USMALLINT:
-		accepted_converted_types.push_back("UINT_16");
-		break;
-	case LogicalTypeId::UINTEGER:
-		accepted_converted_types.push_back("UINT_32");
-		break;
 	case LogicalTypeId::UBIGINT:
 		accepted_types.push_back("INT64");
 		accepted_converted_types.push_back("UINT_64");
+		DUCKDB_EXPLICIT_FALLTHROUGH;
+	case LogicalTypeId::UINTEGER:
+		accepted_converted_types.push_back("UINT_32");
+		DUCKDB_EXPLICIT_FALLTHROUGH;
+	case LogicalTypeId::USMALLINT:
+		accepted_converted_types.push_back("UINT_16");
+		DUCKDB_EXPLICIT_FALLTHROUGH;
+	case LogicalTypeId::UTINYINT:
+		accepted_types.push_back("INT32");
+		accepted_converted_types.push_back("UINT_8");
 		break;
 	default:
 		throw InternalException("Unknown unsigned type");
@@ -408,6 +484,17 @@ void DuckLakeParquetTypeChecker::CheckUnsignedInteger() {
 
 void DuckLakeParquetTypeChecker::CheckMatchingType() {
 	switch (type.id()) {
+	case LogicalTypeId::BOOLEAN:
+		if (!CheckType("BOOLEAN") || !CheckEmptyConvertedType() || !CheckEmptyLogicalType()) {
+			Fail();
+		}
+		break;
+	case LogicalTypeId::TINYINT:
+	case LogicalTypeId::SMALLINT:
+	case LogicalTypeId::INTEGER:
+	case LogicalTypeId::BIGINT:
+		CheckSignedInteger();
+		break;
 	case LogicalTypeId::UTINYINT:
 	case LogicalTypeId::USMALLINT:
 	case LogicalTypeId::UINTEGER:
