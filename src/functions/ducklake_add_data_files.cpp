@@ -15,6 +15,7 @@ struct DuckLakeAddDataFilesData : public TableFunctionData {
 	DuckLakeTableEntry &table;
 	vector<string> globs;
 	bool allow_missing = false;
+	bool ignore_extra_columns = false;
 };
 
 static unique_ptr<FunctionData> DuckLakeAddDataFilesBind(ClientContext &context, TableFunctionBindInput &input,
@@ -39,6 +40,8 @@ static unique_ptr<FunctionData> DuckLakeAddDataFilesBind(ClientContext &context,
 		auto lower = StringUtil::Lower(entry.first);
 		if (lower == "allow_missing") {
 			result->allow_missing = BooleanValue::Get(entry.second);
+		} else if (lower == "ignore_extra_columns") {
+			result->ignore_extra_columns = BooleanValue::Get(entry.second);
 		} else {
 			throw InternalException("Unknown named parameter %s for add_files", entry.first);
 		}
@@ -89,7 +92,8 @@ struct ParquetFileMetadata {
 struct DuckLakeFileProcessor {
 public:
 	DuckLakeFileProcessor(DuckLakeTransaction &transaction, const DuckLakeAddDataFilesData &bind_data)
-	    : transaction(transaction), table(bind_data.table), allow_missing(bind_data.allow_missing) {
+	    : transaction(transaction), table(bind_data.table), allow_missing(bind_data.allow_missing),
+	      ignore_extra_columns(bind_data.ignore_extra_columns) {
 	}
 
 	vector<DuckLakeDataFile> AddFiles(const vector<string> &globs);
@@ -112,6 +116,7 @@ private:
 	DuckLakeTransaction &transaction;
 	DuckLakeTableEntry &table;
 	bool allow_missing;
+	bool ignore_extra_columns;
 	unordered_map<string, unique_ptr<ParquetFileMetadata>> parquet_files;
 };
 
@@ -343,8 +348,13 @@ vector<unique_ptr<DuckLakeNameMapEntry>> DuckLakeFileProcessor::MapColumns(
 		// find the top-level column to map to
 		auto entry = field_id_map.find(col->name);
 		if (entry == field_id_map.end()) {
-			throw InvalidInputException("Column \"%s\" exists in file %s but was not found in the table", col->name,
-			                            file_metadata.filename);
+			if (ignore_extra_columns) {
+				continue;
+			}
+			throw InvalidInputException("Column \"%s%s\" exists in file \"%s\" but was not found in table \"%s\"\n* "
+			                            "Set ignore_extra_columns => true to add the file anyway",
+			                            prefix.empty() ? prefix : prefix + ".", col->name, file_metadata.filename,
+			                            table.name);
 		}
 		column_maps.push_back(MapColumn(file_metadata, *col, entry->second.get(), result, prefix));
 		field_id_map.erase(entry);
@@ -418,6 +428,7 @@ DuckLakeAddDataFilesFunction::DuckLakeAddDataFilesFunction()
     : TableFunction("ducklake_add_data_files", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
                     DuckLakeAddDataFilesExecute, DuckLakeAddDataFilesBind, DuckLakeAddDataFilesInit) {
 	named_parameters["allow_missing"] = LogicalType::BOOLEAN;
+	named_parameters["ignore_extra_columns"] = LogicalType::BOOLEAN;
 }
 
 } // namespace duckdb
