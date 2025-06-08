@@ -579,11 +579,6 @@ void DuckLakeParquetTypeChecker::CheckMatchingType() {
 		return;
 	}
 	switch (type.id()) {
-	case LogicalTypeId::BOOLEAN:
-		if (!CheckType(LogicalType::BOOLEAN)) {
-			Fail();
-		}
-		break;
 	case LogicalTypeId::TINYINT:
 	case LogicalTypeId::SMALLINT:
 	case LogicalTypeId::INTEGER:
@@ -600,37 +595,12 @@ void DuckLakeParquetTypeChecker::CheckMatchingType() {
 	case LogicalTypeId::DOUBLE:
 		CheckFloatingPoints();
 		break;
-	case LogicalTypeId::VARCHAR:
-		if (!CheckType(LogicalType::VARCHAR)) {
-			Fail();
-		}
-		break;
-	case LogicalTypeId::BLOB:
-		if (!CheckType(LogicalType::BLOB)) {
-			Fail();
-		}
-		break;
 	case LogicalTypeId::STRUCT:
 	case LogicalTypeId::LIST:
 	case LogicalTypeId::MAP:
 		if (source_type.id() != type.id()) {
 			failures.push_back(StringUtil::Format("Expected type \"%s\" but found type \"%s\"", type.ToString(),
 			                                      source_type.ToString()));
-			Fail();
-		}
-		break;
-	case LogicalTypeId::DATE:
-		if (!CheckType(LogicalType::DATE)) {
-			Fail();
-		}
-		break;
-	case LogicalTypeId::TIME:
-		if (!CheckType(LogicalType::TIME)) {
-			Fail();
-		}
-		break;
-	case LogicalTypeId::TIMESTAMP_TZ:
-		if (!CheckType(LogicalType::TIMESTAMP_TZ)) {
 			Fail();
 		}
 		break;
@@ -643,8 +613,18 @@ void DuckLakeParquetTypeChecker::CheckMatchingType() {
 	case LogicalTypeId::DECIMAL:
 		CheckDecimal();
 		break;
+	case LogicalTypeId::BOOLEAN:
+	case LogicalTypeId::VARCHAR:
+	case LogicalTypeId::BLOB:
+	case LogicalTypeId::DATE:
+	case LogicalTypeId::TIME:
+	case LogicalTypeId::TIMESTAMP_TZ:
 	default:
-		throw InternalException("Unsupported type %s for CheckMatchingType", type.ToString());
+		// by default just verify that the type matches exactly
+		if (!CheckType(type)) {
+			Fail();
+		}
+		break;
 	}
 }
 
