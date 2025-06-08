@@ -322,6 +322,7 @@ private:
 	void CheckUnsignedInteger();
 	void CheckFloatingPoints();
 	void CheckTimestamp();
+	void CheckDecimal();
 
 	//! Called when a check fails
 	void Fail();
@@ -391,7 +392,10 @@ LogicalType DuckLakeParquetTypeChecker::DeriveLogicalType(const ParquetColumn &s
 		} else if (s_ele.converted_type == "TIMESTAMP_MILLIS") {
 			return LogicalType::TIMESTAMP;
 		} else if (s_ele.converted_type == "DECIMAL") {
-			return LogicalTypeId::DECIMAL;
+			if (!s_ele.scale.IsValid() || !s_ele.precision.IsValid()) {
+				throw InvalidInputException("DECIMAL requires valid precision/scale");
+			}
+			return LogicalType::DECIMAL(s_ele.precision.GetIndex(), s_ele.scale.GetIndex());
 		} else if (s_ele.converted_type == "UTF8") {
 			return LogicalType::VARCHAR;
 		} else if (s_ele.converted_type == "ENUM") {
@@ -548,6 +552,24 @@ void DuckLakeParquetTypeChecker::CheckTimestamp() {
 	}
 }
 
+void DuckLakeParquetTypeChecker::CheckDecimal() {
+	if (source_type.id() != LogicalTypeId::DECIMAL) {
+		failures.push_back(StringUtil::Format("Expected type \"DECIMAL\" but found type \"%s\"", source_type));
+		Fail();
+	}
+	auto source_scale = DecimalType::GetScale(source_type);
+	auto source_precision = DecimalType::GetWidth(source_type);
+	auto target_scale = DecimalType::GetScale(type);
+	auto target_precision = DecimalType::GetWidth(type);
+
+	if (source_scale > target_scale || source_precision > target_precision) {
+		failures.push_back(StringUtil::Format("Incompatible decimal precision/scale - found precision %d, scale %d - "
+		                                      "but table is defined with precision %d, scale %d",
+		                                      source_precision, source_scale, target_precision, target_scale));
+		Fail();
+	}
+}
+
 void DuckLakeParquetTypeChecker::CheckMatchingType() {
 	if (type.IsJSONType()) {
 		if (!source_type.IsJSONType()) {
@@ -617,6 +639,9 @@ void DuckLakeParquetTypeChecker::CheckMatchingType() {
 	case LogicalTypeId::TIMESTAMP_MS:
 	case LogicalTypeId::TIMESTAMP_NS:
 		CheckTimestamp();
+		break;
+	case LogicalTypeId::DECIMAL:
+		CheckDecimal();
 		break;
 	default:
 		throw InternalException("Unsupported type %s for CheckMatchingType", type.ToString());
