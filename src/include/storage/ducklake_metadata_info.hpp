@@ -289,6 +289,7 @@ struct DuckLakeFileScheduledForCleanup {
 
 struct DuckLakeCompactionFileData : public DuckLakeCompactionBaseFileData {
 	idx_t row_id_start;
+	MappingIndex mapping_id;
 	optional_idx partition_id;
 	vector<string> partition_values;
 };

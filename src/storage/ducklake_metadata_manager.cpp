@@ -729,10 +729,10 @@ WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_I
 
 vector<DuckLakeCompactionFileEntry> DuckLakeMetadataManager::GetFilesForCompaction(DuckLakeTableEntry &table) {
 	auto table_id = table.GetTableId();
-	string data_select_list =
-	    "data.data_file_id, data.record_count, data.row_id_start, data.begin_snapshot, "
-	    "data.end_snapshot, snapshot.schema_version, data.partial_file_info, data.partition_id, partition_info.keys, " +
-	    GetFileSelectList("data");
+	string data_select_list = "data.data_file_id, data.record_count, data.row_id_start, data.begin_snapshot, "
+	                          "data.end_snapshot, data.mapping_id, snapshot.schema_version, data.partial_file_info, "
+	                          "data.partition_id, partition_info.keys, " +
+	                          GetFileSelectList("data");
 	string delete_select_list =
 	    "del.data_file_id, del.delete_count, del.begin_snapshot, del.end_snapshot, " + GetFileSelectList("del");
 	string select_list = data_select_list + ", " + delete_select_list;
@@ -768,6 +768,10 @@ ORDER BY data.row_id_start, data.data_file_id, del.begin_snapshot
 		new_entry.file.row_id_start = row.GetValue<idx_t>(col_idx++);
 		new_entry.file.begin_snapshot = row.GetValue<idx_t>(col_idx++);
 		new_entry.file.end_snapshot = row.IsNull(col_idx) ? optional_idx() : row.GetValue<idx_t>(col_idx);
+		col_idx++;
+		if (!row.IsNull(col_idx)) {
+			new_entry.file.mapping_id = MappingIndex(row.GetValue<idx_t>(col_idx));
+		}
 		col_idx++;
 		new_entry.schema_version = row.GetValue<idx_t>(col_idx++);
 		if (!row.IsNull(col_idx)) {
