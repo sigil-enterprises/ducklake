@@ -106,3 +106,12 @@ statement ok
 ATTACH 'ducklake:__TEST_DIR__/ducklake_per_table_settings.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_per_table_settings_files');
 
 endloop
+
+# options retrieval - check that all options are present with correct values and scopes
+query IIII
+SELECT option_name, value, scope, scope_entry FROM ducklake.options() WHERE option_name='parquet_compression' ORDER BY scope, value;
+----
+parquet_compression	uncompressed	GLOBAL	NULL
+parquet_compression	lz4	SCHEMA	s1
+parquet_compression	gzip	TABLE	s1.t1
+parquet_compression	zstd	TABLE	main.t1

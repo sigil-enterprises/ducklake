@@ -33,7 +33,7 @@ ZSTD	DELTA_LENGTH_BYTE_ARRAY
 
 # we have two row groups (of up to 64K rows)
 query I
-SELECT COUNT(*) FROM parquet_metadata('__TEST_DIR__/ducklake_parquet_compression/**') ORDER BY ALL
+SELECT COUNT(DISTINCT row_group_id) FROM parquet_metadata('__TEST_DIR__/ducklake_parquet_compression/**') ORDER BY ALL
 ----
 2
 

@@ -41,6 +41,9 @@ static void LoadInternal(DatabaseInstance &instance) {
 	DuckLakeSetOptionFunction set_options;
 	ExtensionUtil::RegisterFunction(instance, set_options);
 
+	DuckLakeOptionsFunction options;
+	ExtensionUtil::RegisterFunction(instance, options);
+
 	auto table_changes = DuckLakeTableInsertionsFunction::GetDuckLakeTableChanges();
 	ExtensionUtil::RegisterFunction(instance, *table_changes);
 

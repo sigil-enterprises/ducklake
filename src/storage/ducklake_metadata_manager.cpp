@@ -83,6 +83,7 @@ ALTER TABLE {METADATA_CATALOG}.ducklake_table ADD COLUMN path_is_relative BOOLEA
 ALTER TABLE {METADATA_CATALOG}.ducklake_metadata ADD COLUMN scope VARCHAR;
 ALTER TABLE {METADATA_CATALOG}.ducklake_metadata ADD COLUMN scope_id BIGINT;
 ALTER TABLE {METADATA_CATALOG}.ducklake_data_file ADD COLUMN mapping_id BIGINT;
+UPDATE {METADATA_CATALOG}.ducklake_metadata SET value = '0.2' WHERE key = 'version';
 	)";
 	auto result = transaction.Query(migrate_query);
 	if (result->HasError()) {

@@ -8,6 +8,8 @@ namespace duckdb {
 static const DefaultTableMacro ducklake_table_macros[] = {
 	{DEFAULT_SCHEMA, "merge_adjacent_files", {nullptr}, {{nullptr, nullptr}},  "FROM ducklake_merge_adjacent_files({CATALOG})"},
 	{DEFAULT_SCHEMA, "set_option", {"option", "value", nullptr}, {{"table_name", "NULL"}, {"schema", "NULL"}, {nullptr, nullptr}},  "FROM ducklake_set_option({CATALOG}, option, value, table_name => table_name, schema => schema)"},
+	{DEFAULT_SCHEMA, "options", {nullptr}, {{nullptr, nullptr}}, "FROM ducklake_options({CATALOG})"},
+
 	{DEFAULT_SCHEMA, "snapshots", {nullptr}, {{nullptr, nullptr}},  "FROM ducklake_snapshots({CATALOG})"},
 	{DEFAULT_SCHEMA, "table_info", {nullptr}, {{nullptr, nullptr}},  "FROM ducklake_table_info({CATALOG})"},
 	{DEFAULT_SCHEMA, "table_changes", {"table_name", "start_snapshot", "end_snapshot", nullptr}, {{nullptr, nullptr}},  "FROM ducklake_table_changes({CATALOG}, {SCHEMA}, table_name, start_snapshot, end_snapshot)"},
