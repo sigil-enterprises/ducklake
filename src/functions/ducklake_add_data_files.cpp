@@ -433,7 +433,7 @@ bool DuckLakeParquetTypeChecker::CheckTypes(const vector<LogicalType> &types) {
 			return true;
 		}
 	}
-	failures.push_back(StringUtil::Format("Expected %s, found type %s", FormatExpectedError(types), column.type));
+	failures.push_back(StringUtil::Format("Expected %s, found type %s", FormatExpectedError(types), source_type));
 	return false;
 }
 
@@ -516,6 +516,13 @@ void DuckLakeParquetTypeChecker::CheckFloatingPoints() {
 	}
 }
 void DuckLakeParquetTypeChecker::CheckMatchingType() {
+	if (type.IsJSONType()) {
+		if (!source_type.IsJSONType()) {
+			failures.push_back(StringUtil::Format("Expected type \"JSON\" but found type \"%s\"", source_type));
+			Fail();
+		}
+		return;
+	}
 	switch (type.id()) {
 	case LogicalTypeId::BOOLEAN:
 		if (!CheckType(LogicalType::BOOLEAN)) {
@@ -584,24 +591,24 @@ unique_ptr<DuckLakeNameMapEntry> DuckLakeFileProcessor::MapColumn(ParquetFileMet
 	// recursively remap children (if any)
 	if (field_id.HasChildren()) {
 		auto &field_children = field_id.Children();
-		switch(field_id.Type().id()) {
+		switch (field_id.Type().id()) {
 		case LogicalTypeId::STRUCT:
 			map_entry->child_entries =
-				MapColumns(file_metadata, column.child_columns, field_id.Children(), file, prefix);
-		break;
+			    MapColumns(file_metadata, column.child_columns, field_id.Children(), file, prefix);
+			break;
 		case LogicalTypeId::LIST:
 			// for lists we don't need to do any name mapping - the child element always maps to each other
 			// (1) Parquet has an extra element in between the list and its child ("REPEATED") - strip it
 			// (2) Parquet has a different convention on how to name list children - rename them to "list" here
 			column.child_columns[0]->child_columns[0]->name = "list";
 			map_entry->child_entries.push_back(
-				MapColumn(file_metadata, *column.child_columns[0]->child_columns[0], *field_children[0], file, prefix));
+			    MapColumn(file_metadata, *column.child_columns[0]->child_columns[0], *field_children[0], file, prefix));
 			break;
 		case LogicalTypeId::MAP:
 			// for maps we don't need to do any name mapping - the child elements are always key/value
 			// (1) Parquet has an extra element in between the list and its child ("REPEATED") - strip it
 			map_entry->child_entries =
-				MapColumns(file_metadata, column.child_columns[0]->child_columns, field_id.Children(), file, prefix);
+			    MapColumns(file_metadata, column.child_columns[0]->child_columns, field_id.Children(), file, prefix);
 			break;
 		default:
 			throw InvalidInputException("Unsupported nested type %s for add files", field_id.Type());
