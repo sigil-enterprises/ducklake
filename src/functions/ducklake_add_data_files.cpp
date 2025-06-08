@@ -321,6 +321,7 @@ private:
 	void CheckSignedInteger();
 	void CheckUnsignedInteger();
 	void CheckFloatingPoints();
+	void CheckTimestamp();
 
 	//! Called when a check fails
 	void Fail();
@@ -347,6 +348,23 @@ LogicalType DuckLakeParquetTypeChecker::DeriveLogicalType(const ParquetColumn &s
 			return LogicalTypeId::MAP;
 		}
 		return LogicalTypeId::STRUCT;
+	}
+	if (!s_ele.logical_type.empty()) {
+		if (s_ele.logical_type ==
+		    "TimeType(isAdjustedToUTC=0, unit=TimeUnit(MILLIS=<null>, MICROS=MicroSeconds(), NANOS=<null>))") {
+			return LogicalType::TIME;
+		} else if (s_ele.logical_type == "TimestampType(isAdjustedToUTC=0, unit=TimeUnit(MILLIS=<null>, "
+		                                 "MICROS=MicroSeconds(), NANOS=<null>))") {
+			return LogicalType::TIMESTAMP;
+		} else if (s_ele.logical_type == "TimestampType(isAdjustedToUTC=0, unit=TimeUnit(MILLIS=MilliSeconds(), "
+		                                 "MICROS=<null>, NANOS=<null>))") {
+			return LogicalType::TIMESTAMP_MS;
+		} else if (s_ele.logical_type == "TimestampType(isAdjustedToUTC=0, unit=TimeUnit(MILLIS=<null>, MICROS=<null>, "
+		                                 "NANOS=NanoSeconds()))") {
+			return LogicalType::TIMESTAMP_NS;
+		} else if (StringUtil::StartsWith(s_ele.logical_type, "TimestampType(isAdjustedToUTC=1")) {
+			return LogicalType::TIMESTAMP_TZ;
+		}
 	}
 	if (!s_ele.converted_type.empty()) {
 		// Legacy NULL type, does no longer exist, but files are still around of course
@@ -509,12 +527,27 @@ void DuckLakeParquetTypeChecker::CheckFloatingPoints() {
 		accepted_types.push_back(LogicalType::FLOAT);
 		break;
 	default:
-		throw InternalException("Unknown unsigned type");
+		throw InternalException("Unknown float type");
 	}
 	if (!CheckTypes(accepted_types)) {
 		Fail();
 	}
 }
+
+void DuckLakeParquetTypeChecker::CheckTimestamp() {
+	vector<LogicalType> accepted_types;
+
+	if (type.id() == LogicalTypeId::TIMESTAMP || type.id() == LogicalTypeId::TIMESTAMP_NS) {
+		accepted_types.push_back(LogicalTypeId::TIMESTAMP_NS);
+	}
+	accepted_types.push_back(LogicalTypeId::TIMESTAMP);
+	accepted_types.push_back(LogicalTypeId::TIMESTAMP_MS);
+	accepted_types.push_back(LogicalTypeId::TIMESTAMP_SEC);
+	if (!CheckTypes(accepted_types)) {
+		Fail();
+	}
+}
+
 void DuckLakeParquetTypeChecker::CheckMatchingType() {
 	if (type.IsJSONType()) {
 		if (!source_type.IsJSONType()) {
@@ -563,6 +596,27 @@ void DuckLakeParquetTypeChecker::CheckMatchingType() {
 			                                      source_type.ToString()));
 			Fail();
 		}
+		break;
+	case LogicalTypeId::DATE:
+		if (!CheckType(LogicalType::DATE)) {
+			Fail();
+		}
+		break;
+	case LogicalTypeId::TIME:
+		if (!CheckType(LogicalType::TIME)) {
+			Fail();
+		}
+		break;
+	case LogicalTypeId::TIMESTAMP_TZ:
+		if (!CheckType(LogicalType::TIMESTAMP_TZ)) {
+			Fail();
+		}
+		break;
+	case LogicalTypeId::TIMESTAMP:
+	case LogicalTypeId::TIMESTAMP_SEC:
+	case LogicalTypeId::TIMESTAMP_MS:
+	case LogicalTypeId::TIMESTAMP_NS:
+		CheckTimestamp();
 		break;
 	default:
 		throw InternalException("Unsupported type %s for CheckMatchingType", type.ToString());
