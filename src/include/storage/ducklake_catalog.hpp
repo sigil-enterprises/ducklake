@@ -26,6 +26,10 @@ class LogicalGet;
 
 class DuckLakeCatalog : public Catalog {
 public:
+	// default target file size: 512MB
+	static constexpr const idx_t DEFAULT_TARGET_FILE_SIZE = 1 << 29;
+
+public:
 	DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options);
 	~DuckLakeCatalog();
 
@@ -58,6 +62,7 @@ public:
 	}
 	void SetConfigOption(const DuckLakeConfigOption &option);
 	bool TryGetConfigOption(const string &option, string &result, SchemaIndex schema_id, TableIndex table_id) const;
+	bool TryGetConfigOption(const string &option, string &result, DuckLakeTableEntry &table) const;
 
 	optional_ptr<BoundAtClause> CatalogSnapshot() const;
 

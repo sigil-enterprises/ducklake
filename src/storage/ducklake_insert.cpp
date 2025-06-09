@@ -330,6 +330,11 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckL
 	if (catalog.TryGetConfigOption("parquet_row_group_size_bytes", row_group_size_bytes, schema_id, table_id)) {
 		info->options["row_group_size_bytes"].emplace_back(row_group_size_bytes + " bytes");
 	}
+	idx_t target_file_size = DuckLakeCatalog::DEFAULT_TARGET_FILE_SIZE;
+	string target_file_size_str;
+	if (catalog.TryGetConfigOption("target_file_size", target_file_size_str, schema_id, table_id)) {
+		target_file_size = Value(target_file_size_str).DefaultCastAs(LogicalType::UBIGINT).GetValue<idx_t>();
+	}
 
 	// Get Parquet Copy function
 	auto &copy_fun = DuckLakeFunctions::GetCopyFunction(context, "parquet");
@@ -373,18 +378,20 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckL
 		result.partition_output = true;
 		result.partition_columns = std::move(partition_columns);
 		result.write_empty_file = true;
+		result.rotate = false;
 	} else {
-		auto current_write_uuid = DuckLakeTransaction::GenerateUUIDv7();
-		string file_name = "ducklake-" + current_write_uuid + ".parquet";
-		result.file_path = DuckLakeUtil::JoinPath(fs, copy_input.data_path, file_name);
+		result.filename_pattern.SetFilenamePattern("ducklake-{uuidv7}");
+		result.file_path = copy_input.data_path;
 		result.partition_output = false;
 		result.write_empty_file = false;
+		// file_size_bytes is currently only supported for unpartitioned writes
+		result.file_size_bytes = target_file_size;
+		result.rotate = true;
 	}
 
 	result.file_extension = "parquet";
 	result.overwrite_mode = CopyOverwriteMode::COPY_OVERWRITE_OR_IGNORE;
 	result.per_thread_output = false;
-	result.rotate = false;
 	result.return_type = CopyFunctionReturnType::WRITTEN_FILE_STATISTICS;
 	result.write_partition_columns = true;
 	result.names = names_to_write;

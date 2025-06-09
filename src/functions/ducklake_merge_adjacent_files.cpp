@@ -158,15 +158,19 @@ void DuckLakeCompactor::GenerateCompactions(DuckLakeTableEntry &table,
 	auto &metadata_manager = transaction.GetMetadataManager();
 	auto files = metadata_manager.GetFilesForCompaction(table);
 
-	// target file size: 10MB
-	static constexpr const idx_t TARGET_FILE_SIZE = 10000000;
+	idx_t target_file_size = DuckLakeCatalog::DEFAULT_TARGET_FILE_SIZE;
+	string target_file_size_str;
+	if (catalog.TryGetConfigOption("target_file_size", target_file_size_str, table)) {
+		target_file_size = Value(target_file_size_str).DefaultCastAs(LogicalType::UBIGINT).GetValue<idx_t>();
+	}
+
 	// simple compaction: iterate over the files and find adjacent files that can be merged
 	for (idx_t file_idx = 0; file_idx < files.size(); file_idx++) {
 		// check if we can merge this file with subsequent files
 		idx_t current_file_size = 0;
 		idx_t compaction_idx;
 		for (compaction_idx = file_idx; compaction_idx < files.size(); compaction_idx++) {
-			if (current_file_size >= TARGET_FILE_SIZE) {
+			if (current_file_size >= target_file_size) {
 				// we hit the target size already - stop
 				break;
 			}
@@ -193,8 +197,8 @@ void DuckLakeCompactor::GenerateCompactions(DuckLakeTableEntry &table,
 			}
 			// FIXME: take deletions into account here once we support vacuuming deletions
 			idx_t file_size = candidate.file.data.file_size_bytes;
-			if (file_size >= TARGET_FILE_SIZE * 2) {
-				// don't consider merging if the file is larger than twice the target size
+			if (file_size >= target_file_size) {
+				// don't consider merging if the file is larger than the target size
 				break;
 			}
 			if (compaction_idx > file_idx) {
@@ -280,7 +284,8 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	auto copy = make_uniq<LogicalCopyToFile>(std::move(copy_options.copy_function), std::move(copy_options.bind_data),
 	                                         std::move(copy_options.info));
 
-	copy->file_path = std::move(copy_options.file_path);
+	auto &fs = FileSystem::GetFileSystem(context);
+	copy->file_path = copy_options.filename_pattern.CreateFilename(fs, copy_options.file_path, "parquet", 0);
 	copy->use_tmp_file = copy_options.use_tmp_file;
 	copy->filename_pattern = std::move(copy_options.filename_pattern);
 	copy->file_extension = std::move(copy_options.file_extension);
@@ -292,12 +297,13 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 
 	copy->partition_output = copy_options.partition_output;
 	copy->write_partition_columns = copy_options.write_partition_columns;
-	// FIXME: disabled because of issue, should be re-disabled for DuckDB v1.3.1
-	copy->write_empty_file = true;
+	copy->write_empty_file = false;
 	copy->partition_columns = std::move(copy_options.partition_columns);
 	copy->names = std::move(copy_options.names);
 	copy->expected_types = std::move(copy_options.expected_types);
 	copy->preserve_order = PreserveOrderType::PRESERVE_ORDER;
+	copy->file_size_bytes = optional_idx();
+	copy->rotate = false;
 
 	copy->children.push_back(std::move(ducklake_scan));
 

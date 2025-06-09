@@ -622,4 +622,11 @@ bool DuckLakeCatalog::TryGetConfigOption(const string &option, string &result, S
 	return true;
 }
 
+bool DuckLakeCatalog::TryGetConfigOption(const string &option, string &result, DuckLakeTableEntry &table) const {
+	auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
+	auto schema_id = schema.GetSchemaId();
+	auto table_id = table.GetTableId();
+	return TryGetConfigOption(option, result, schema_id, table_id);
+}
+
 } // namespace duckdb
