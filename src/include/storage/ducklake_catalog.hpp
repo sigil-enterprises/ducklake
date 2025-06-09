@@ -47,6 +47,9 @@ public:
 	const string &DataPath() const {
 		return options.data_path;
 	}
+	const string &MetadataType() const {
+		return metadata_type;
+	}
 	idx_t DataInliningRowLimit() const {
 		return options.data_inlining_row_limit;
 	}
@@ -141,6 +144,8 @@ private:
 	string separator = "/";
 	//! A unique tracker for catalog changes in uncommitted transactions.
 	atomic<idx_t> last_uncommitted_catalog_version;
+	//! The metadata server type
+	string metadata_type;
 };
 
 } // namespace duckdb

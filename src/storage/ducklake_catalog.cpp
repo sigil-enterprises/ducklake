@@ -16,11 +16,22 @@
 #include "storage/ducklake_transaction.hpp"
 #include "storage/ducklake_transaction_manager.hpp"
 #include "storage/ducklake_view_entry.hpp"
+#include "duckdb/main/database_path_and_type.hpp"
 
 namespace duckdb {
 
 DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options_p)
     : Catalog(db_p), options(std::move(options_p)), last_uncommitted_catalog_version(TRANSACTION_ID_START) {
+	// figure out the metadata server type
+	auto entry = options.metadata_parameters.find("type");
+	if (entry != options.metadata_parameters.end()) {
+		// metadata type is explicitly provided - fetch it
+		metadata_type = entry->second.ToString();
+	} else {
+		// extract from the connection string
+		string path = options.metadata_path;
+		DBPathAndType::ExtractExtensionPrefix(path, metadata_type);
+	}
 }
 
 DuckLakeCatalog::~DuckLakeCatalog() {
