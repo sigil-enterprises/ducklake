@@ -284,7 +284,8 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	auto copy = make_uniq<LogicalCopyToFile>(std::move(copy_options.copy_function), std::move(copy_options.bind_data),
 	                                         std::move(copy_options.info));
 
-	copy->file_path = std::move(copy_options.file_path);
+	auto &fs = FileSystem::GetFileSystem(context);
+	copy->file_path = copy_options.filename_pattern.CreateFilename(fs, copy_options.file_path, "parquet", 0);
 	copy->use_tmp_file = copy_options.use_tmp_file;
 	copy->filename_pattern = std::move(copy_options.filename_pattern);
 	copy->file_extension = std::move(copy_options.file_extension);
@@ -296,13 +297,13 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 
 	copy->partition_output = copy_options.partition_output;
 	copy->write_partition_columns = copy_options.write_partition_columns;
-	// FIXME: disabled because of issue, should be re-disabled for DuckDB v1.3.1
-	copy->write_empty_file = true;
+	copy->write_empty_file = false;
 	copy->partition_columns = std::move(copy_options.partition_columns);
 	copy->names = std::move(copy_options.names);
 	copy->expected_types = std::move(copy_options.expected_types);
 	copy->preserve_order = PreserveOrderType::PRESERVE_ORDER;
 	copy->file_size_bytes = optional_idx();
+	copy->rotate = false;
 
 	copy->children.push_back(std::move(ducklake_scan));
 

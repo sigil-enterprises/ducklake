@@ -380,7 +380,7 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckL
 		result.write_empty_file = true;
 		result.rotate = false;
 	} else {
-		result.filename_pattern.SetFilenamePattern("ducklake-{uuidv7}.parquet");
+		result.filename_pattern.SetFilenamePattern("ducklake-{uuidv7}");
 		result.file_path = copy_input.data_path;
 		result.partition_output = false;
 		result.write_empty_file = false;
