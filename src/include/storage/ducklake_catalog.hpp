@@ -10,6 +10,7 @@
 
 #include "common/ducklake_encryption.hpp"
 #include "common/ducklake_options.hpp"
+#include "common/ducklake_name_map.hpp"
 #include "duckdb/catalog/catalog.hpp"
 #include "storage/ducklake_catalog_set.hpp"
 #include "storage/ducklake_partition_data.hpp"
@@ -108,6 +109,9 @@ public:
 		return ++last_uncommitted_catalog_version;
 	}
 
+	optional_ptr<const DuckLakeNameMap> TryGetMappingById(DuckLakeTransaction &transaction, MappingIndex mapping_id);
+	MappingIndex TryGetCompatibleNameMap(DuckLakeTransaction &transaction, const DuckLakeNameMap &name_map);
+
 private:
 	void DropSchema(ClientContext &context, DropInfo &info) override;
 
@@ -117,6 +121,7 @@ private:
 	DuckLakeStats &GetStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
 	unique_ptr<DuckLakeStats> LoadStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
 	                                               DuckLakeCatalogSet &schema);
+	void LoadNameMaps(DuckLakeTransaction &transaction);
 
 private:
 	mutex schemas_lock;
@@ -124,6 +129,10 @@ private:
 	unordered_map<idx_t, unique_ptr<DuckLakeCatalogSet>> schemas;
 	//! Map of data file index -> table stats
 	unordered_map<idx_t, unique_ptr<DuckLakeStats>> stats;
+	//! Map of mapping index -> name map
+	DuckLakeNameMapSet name_maps;
+	//! The maximum name map index we have loaded so far
+	optional_idx loaded_name_map_index;
 	//! The configuration lock
 	mutable mutex config_lock;
 	//! The DuckLake options

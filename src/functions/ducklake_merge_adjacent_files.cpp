@@ -246,6 +246,7 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 		result.file = source.file.data;
 		result.row_id_start = source.file.row_id_start;
 		result.snapshot_id = source.file.begin_snapshot;
+		result.mapping_id = source.file.mapping_id;
 		if (!source.delete_files.empty()) {
 			throw InternalException("FIXME: compact deletions");
 		}

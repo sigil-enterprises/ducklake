@@ -314,8 +314,11 @@ OpenFileInfo DuckLakeMultiFileList::GetFile(idx_t i) {
 		// scanning transaction local data
 		extended_info->options["transaction_local_data"] = Value::BOOLEAN(true);
 		extended_info->options["inlined_data"] = Value::BOOLEAN(true);
-		extended_info->options["row_id_start"] = Value::BIGINT(files[i].row_id_start);
+		extended_info->options["row_id_start"] = Value::BIGINT(file_entry.row_id_start);
 		extended_info->options["snapshot_id"] = Value(LogicalType::BIGINT);
+		if (file_entry.mapping_id.IsValid()) {
+			extended_info->options["mapping_id"] = Value::UBIGINT(file_entry.mapping_id.index);
+		}
 	} else if (i >= inlined_data_file_start) {
 		// scanning inlined data
 		auto inlined_data_index = i - inlined_data_file_start;
@@ -346,6 +349,9 @@ OpenFileInfo DuckLakeMultiFileList::GetFile(idx_t i) {
 		extended_info->options["last_modified"] = Value::TIMESTAMP(timestamp_t(0));
 		if (!file_entry.delete_file.path.empty() || file_entry.max_row_count.IsValid()) {
 			extended_info->options["has_deletes"] = Value::BOOLEAN(true);
+		}
+		if (file_entry.mapping_id.IsValid()) {
+			extended_info->options["mapping_id"] = Value::UBIGINT(file_entry.mapping_id.index);
 		}
 	}
 	result.extended_info = std::move(extended_info);
@@ -487,6 +493,7 @@ void DuckLakeMultiFileList::GetFilesForTable() {
 		file_entry.file = GetFileData(file);
 		file_entry.row_id_start = transaction_row_start;
 		file_entry.delete_file = GetDeleteData(file);
+		file_entry.mapping_id = file.mapping_id;
 		transaction_row_start += file.row_count;
 		files.emplace_back(std::move(file_entry));
 	}
@@ -540,6 +547,7 @@ void DuckLakeMultiFileList::GetTableDeletions() {
 		file_entry.file = file.file;
 		file_entry.row_id_start = file.row_id_start;
 		file_entry.snapshot_id = file.snapshot_id;
+		file_entry.mapping_id = file.mapping_id;
 		files.emplace_back(std::move(file_entry));
 	}
 	// add inlined data tables as sources (if any)

@@ -85,4 +85,9 @@ public:
 	DuckLakeListFilesFunction();
 };
 
+class DuckLakeAddDataFilesFunction : public TableFunction {
+public:
+	DuckLakeAddDataFilesFunction();
+};
+
 } // namespace duckdb

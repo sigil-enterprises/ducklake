@@ -326,6 +326,80 @@ DuckLakeStats &DuckLakeCatalog::GetStatsForSnapshot(DuckLakeTransaction &transac
 	return result;
 }
 
+unique_ptr<DuckLakeNameMap> ConvertNameMap(DuckLakeColumnMappingInfo column_mapping) {
+	if (column_mapping.map_type != "map_by_name") {
+		throw InvalidInputException("Unsupported column mapping type \"%s\"", column_mapping.map_type);
+	}
+	auto result = make_uniq<DuckLakeNameMap>();
+	result->id = column_mapping.mapping_id;
+	result->table_id = column_mapping.table_id;
+
+	// generate the recursive structure from the SQL table that only has parent references
+	unordered_map<idx_t, reference<DuckLakeNameMapEntry>> column_id_map;
+	for (auto &col : column_mapping.map_columns) {
+		// create the entry
+		auto map_entry = make_uniq<DuckLakeNameMapEntry>();
+		map_entry->source_name = std::move(col.source_name);
+		map_entry->target_field_id = col.target_field_id;
+		// add the column id -> entry mapping
+		column_id_map.emplace(col.column_id, *map_entry);
+		if (!col.parent_column.IsValid()) {
+			// root-entry, add to parent map directly
+			result->column_maps.push_back(std::move(map_entry));
+		} else {
+			// non-root entry: find parent entry
+			auto parent_entry = column_id_map.find(col.parent_column.GetIndex());
+			if (parent_entry == column_id_map.end()) {
+				throw InvalidInputException("Parent column %d not found when converting name map with id %d",
+				                            col.parent_column.GetIndex(), column_mapping.mapping_id.index);
+			}
+			auto &parent = parent_entry->second.get();
+			parent.child_entries.push_back(std::move(map_entry));
+		}
+	}
+	return result;
+}
+
+void DuckLakeCatalog::LoadNameMaps(DuckLakeTransaction &transaction) {
+	auto snapshot = transaction.GetSnapshot();
+	if (loaded_name_map_index.IsValid() && snapshot.next_file_id <= loaded_name_map_index.GetIndex()) {
+		// we have already loaded all name maps that could be relevant for this snapshot
+		return;
+	}
+	// name map entry not found - try to load any new ones
+	auto &metadata_manager = transaction.GetMetadataManager();
+	auto new_name_maps = metadata_manager.GetColumnMappings(loaded_name_map_index);
+	for (auto &column_mapping : new_name_maps) {
+		auto name_map = ConvertNameMap(std::move(column_mapping));
+		name_maps.Add(std::move(name_map));
+	}
+	loaded_name_map_index = snapshot.next_file_id;
+}
+
+optional_ptr<const DuckLakeNameMap> DuckLakeCatalog::TryGetMappingById(DuckLakeTransaction &transaction,
+                                                                       MappingIndex mapping_id) {
+	lock_guard<mutex> guard(schemas_lock);
+	auto entry = name_maps.name_maps.find(mapping_id);
+	if (entry != name_maps.name_maps.end()) {
+		return entry->second.get();
+	}
+	LoadNameMaps(transaction);
+	// try to fetch the name map again
+	entry = name_maps.name_maps.find(mapping_id);
+	if (entry != name_maps.name_maps.end()) {
+		return entry->second.get();
+	}
+	// still no success - return nullptr
+	return nullptr;
+}
+
+MappingIndex DuckLakeCatalog::TryGetCompatibleNameMap(DuckLakeTransaction &transaction,
+                                                      const DuckLakeNameMap &name_map) {
+	lock_guard<mutex> guard(schemas_lock);
+	LoadNameMaps(transaction);
+	return name_maps.TryGetCompatibleNameMap(name_map);
+}
+
 unique_ptr<DuckLakeStats> DuckLakeCatalog::LoadStatsForSnapshot(DuckLakeTransaction &transaction,
                                                                 DuckLakeSnapshot snapshot, DuckLakeCatalogSet &schema) {
 	auto &metadata_manager = transaction.GetMetadataManager();

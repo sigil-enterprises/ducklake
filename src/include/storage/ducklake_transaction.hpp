@@ -31,6 +31,7 @@ struct SnapshotChangeInformation;
 struct TransactionChangeInformation;
 struct NewDataInfo;
 struct NewTableInfo;
+struct NewNameMapInfo;
 struct CompactionInformation;
 struct DuckLakePath;
 
@@ -80,6 +81,10 @@ public:
 	void AppendFiles(TableIndex table_id, vector<DuckLakeDataFile> files);
 	void AddDeletes(TableIndex table_id, vector<DuckLakeDeleteFile> files);
 	void AddCompaction(TableIndex table_id, DuckLakeCompactionEntry entry);
+
+	MappingIndex AddNameMap(unique_ptr<DuckLakeNameMap> name_map);
+	const DuckLakeNameMap &GetMappingById(MappingIndex mapping_id);
+	NewNameMapInfo GetNewNameMaps(DuckLakeSnapshot &commit_snapshot);
 
 	void AppendInlinedData(TableIndex table_id, unique_ptr<DuckLakeInlinedData> collection);
 	void AddNewInlinedDeletes(TableIndex table_id, const string &table_name, set<idx_t> new_deletes);
@@ -188,6 +193,8 @@ private:
 	map<TableIndex, vector<DuckLakeCompactionEntry>> compactions;
 	//! Snapshot cache for the AT (...) conditions that are referenced in the transaction
 	value_map_t<DuckLakeSnapshot> snapshot_cache;
+	//! New set of transaction-local name maps
+	DuckLakeNameMapSet new_name_maps;
 
 	atomic<idx_t> catalog_version;
 };

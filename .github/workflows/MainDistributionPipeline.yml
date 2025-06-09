@@ -20,22 +20,22 @@ jobs:
       ci_tools_version: main
       extension_name: ducklake
 
-  duckdb-stable-build:
-    name: Build extension binaries
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@main
-    with:
-      duckdb_version: v1.3.0
-      ci_tools_version: main
-      extension_name: ducklake
-
-  duckdb-stable-deploy:
-    name: Deploy extension binaries
-    needs: duckdb-stable-build
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_deploy.yml@main
-    secrets: inherit
-    with:
-      extension_name: ducklake
-      duckdb_version: v1.3.0
-      ci_tools_version: main
-      deploy_latest: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
-      deploy_versioned: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
+#  duckdb-stable-build:
+#    name: Build extension binaries
+#    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@main
+#    with:
+#      duckdb_version: v1.3.0
+#      ci_tools_version: main
+#      extension_name: ducklake
+#
+#  duckdb-stable-deploy:
+#    name: Deploy extension binaries
+#    needs: duckdb-stable-build
+#    uses: duckdb/extension-ci-tools/.github/workflows/_extension_deploy.yml@main
+#    secrets: inherit
+#    with:
+#      extension_name: ducklake
+#      duckdb_version: v1.3.0
+#      ci_tools_version: main
+#      deploy_latest: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
+#      deploy_versioned: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}

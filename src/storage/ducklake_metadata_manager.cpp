@@ -45,7 +45,7 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_table(table_id BIGINT, table_uuid UUID,
 CREATE TABLE {METADATA_CATALOG}.ducklake_view(view_id BIGINT, view_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, view_name VARCHAR, dialect VARCHAR, sql VARCHAR, column_aliases VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_tag(object_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, key VARCHAR, value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_column_tag(table_id BIGINT, column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, key VARCHAR, value VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_data_file(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, file_order BIGINT, path VARCHAR, path_is_relative BOOLEAN, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, row_id_start BIGINT, partition_id BIGINT, encryption_key VARCHAR, partial_file_info VARCHAR);
+CREATE TABLE {METADATA_CATALOG}.ducklake_data_file(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, file_order BIGINT, path VARCHAR, path_is_relative BOOLEAN, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, row_id_start BIGINT, partition_id BIGINT, encryption_key VARCHAR, partial_file_info VARCHAR, mapping_id BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_file_column_statistics(data_file_id BIGINT, table_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, value_count BIGINT, null_count BIGINT, min_value VARCHAR, max_value VARCHAR, contains_nan BOOLEAN);
 CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file(delete_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, data_file_id BIGINT, path VARCHAR, path_is_relative BOOLEAN, format VARCHAR, delete_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, encryption_key VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_column(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, column_order BIGINT, column_name VARCHAR, column_type VARCHAR, initial_default VARCHAR, default_value VARCHAR, nulls_allowed BOOLEAN, parent_column BIGINT);
@@ -56,8 +56,8 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_partition_column(partition_id BIGINT, t
 CREATE TABLE {METADATA_CATALOG}.ducklake_file_partition_value(data_file_id BIGINT, table_id BIGINT, partition_key_index BIGINT, partition_value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion(data_file_id BIGINT, path VARCHAR, path_is_relative BOOLEAN, schedule_start TIMESTAMPTZ);
 CREATE TABLE {METADATA_CATALOG}.ducklake_inlined_data_tables(table_id BIGINT, table_name VARCHAR, schema_version BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_schema_settings(schema_id BIGINT, key VARCHAR NOT NULL, value VARCHAR NOT NULL);
-CREATE TABLE {METADATA_CATALOG}.ducklake_table_settings(table_id BIGINT, key VARCHAR NOT NULL, value VARCHAR NOT NULL);
+CREATE TABLE {METADATA_CATALOG}.ducklake_column_mapping(mapping_id BIGINT, table_id BIGINT, type VARCHAR);
+CREATE TABLE {METADATA_CATALOG}.ducklake_name_mapping(mapping_id BIGINT, column_id BIGINT, source_name VARCHAR, target_field_id BIGINT, parent_column BIGINT);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot_changes VALUES (0, 'created_schema:"main"');
 INSERT INTO {METADATA_CATALOG}.ducklake_metadata (key, value) VALUES ('version', '0.2'), ('created_by', 'DuckDB %s'), ('data_path', %s), ('encrypted', '%s');
@@ -82,6 +82,9 @@ ALTER TABLE {METADATA_CATALOG}.ducklake_table ADD COLUMN path VARCHAR DEFAULT ''
 ALTER TABLE {METADATA_CATALOG}.ducklake_table ADD COLUMN path_is_relative BOOLEAN DEFAULT TRUE;
 ALTER TABLE {METADATA_CATALOG}.ducklake_metadata ADD COLUMN scope VARCHAR;
 ALTER TABLE {METADATA_CATALOG}.ducklake_metadata ADD COLUMN scope_id BIGINT;
+ALTER TABLE {METADATA_CATALOG}.ducklake_data_file ADD COLUMN mapping_id BIGINT;
+CREATE TABLE {METADATA_CATALOG}.ducklake_column_mapping(mapping_id BIGINT, table_id BIGINT, type VARCHAR);
+CREATE TABLE {METADATA_CATALOG}.ducklake_name_mapping(mapping_id BIGINT, column_id BIGINT, source_name VARCHAR, target_field_id BIGINT, parent_column BIGINT);
 UPDATE {METADATA_CATALOG}.ducklake_metadata SET value = '0.2' WHERE key = 'version';
 	)";
 	auto result = transaction.Query(migrate_query);
@@ -525,7 +528,7 @@ vector<DuckLakeFileListEntry>
 DuckLakeMetadataManager::GetFilesForTable(DuckLakeTableEntry &table, DuckLakeSnapshot snapshot, const string &filter) {
 	auto table_id = table.GetTableId();
 	string select_list = GetFileSelectList("data") +
-	                     ", data.row_id_start, data.begin_snapshot, data.partial_file_info, " +
+	                     ", data.row_id_start, data.begin_snapshot, data.partial_file_info, data.mapping_id, " +
 	                     GetFileSelectList("del");
 	auto query = StringUtil::Format(R"(
 SELECT %s
@@ -559,6 +562,10 @@ WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_I
 			file_entry.max_row_count = GetMaxRowCount(snapshot, partial_file_info);
 		}
 		col_idx++;
+		if (!row.IsNull(col_idx)) {
+			file_entry.mapping_id = MappingIndex(row.GetValue<idx_t>(col_idx));
+		}
+		col_idx++;
 		file_entry.delete_file = ReadDataFile(table, row, col_idx, IsEncrypted());
 		files.push_back(std::move(file_entry));
 	}
@@ -570,7 +577,7 @@ vector<DuckLakeFileListEntry> DuckLakeMetadataManager::GetTableInsertions(DuckLa
                                                                           DuckLakeSnapshot end_snapshot) {
 	auto table_id = table.GetTableId();
 	string select_list = GetFileSelectList("data") +
-	                     ", data.row_id_start, data.begin_snapshot, data.partial_file_info, " +
+	                     ", data.row_id_start, data.begin_snapshot, data.partial_file_info, data.mapping_id, " +
 	                     GetFileSelectList("del");
 	auto query = StringUtil::Format(R"(
 SELECT %s
@@ -597,6 +604,10 @@ WHERE data.table_id=%d AND data.begin_snapshot >= %d AND data.begin_snapshot <= 
 			file_entry.max_row_count = GetMaxRowCount(end_snapshot, partial_file_info);
 		}
 		col_idx++;
+		if (!row.IsNull(col_idx)) {
+			file_entry.mapping_id = MappingIndex(row.GetValue<idx_t>(col_idx));
+		}
+		col_idx++;
 		file_entry.delete_file = ReadDataFile(table, row, col_idx, IsEncrypted());
 		files.push_back(std::move(file_entry));
 	}
@@ -607,7 +618,7 @@ vector<DuckLakeDeleteScanEntry> DuckLakeMetadataManager::GetTableDeletions(DuckL
                                                                            DuckLakeSnapshot start_snapshot,
                                                                            DuckLakeSnapshot end_snapshot) {
 	auto table_id = table.GetTableId();
-	string select_list = GetFileSelectList("data") + ", data.row_id_start, data.record_count, " +
+	string select_list = GetFileSelectList("data") + ", data.row_id_start, data.record_count, data.mapping_id, " +
 	                     GetFileSelectList("current_delete") + ", " + GetFileSelectList("previous_delete");
 	// deletes come in two flavors:
 	// * deletes stored in the ducklake_delete_file table (partial deletes)
@@ -665,6 +676,10 @@ USING (data_file_id), (
 		entry.file = ReadDataFile(table, row, col_idx, IsEncrypted());
 		entry.row_id_start = row.GetValue<idx_t>(col_idx++);
 		entry.row_count = row.GetValue<idx_t>(col_idx++);
+		if (!row.IsNull(col_idx)) {
+			entry.mapping_id = MappingIndex(row.GetValue<idx_t>(col_idx));
+		}
+		col_idx++;
 		entry.delete_file = ReadDataFile(table, row, col_idx, IsEncrypted());
 		entry.previous_delete_file = ReadDataFile(table, row, col_idx, IsEncrypted());
 		entry.snapshot_id = row.GetValue<idx_t>(col_idx++);
@@ -717,10 +732,10 @@ WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_I
 
 vector<DuckLakeCompactionFileEntry> DuckLakeMetadataManager::GetFilesForCompaction(DuckLakeTableEntry &table) {
 	auto table_id = table.GetTableId();
-	string data_select_list =
-	    "data.data_file_id, data.record_count, data.row_id_start, data.begin_snapshot, "
-	    "data.end_snapshot, snapshot.schema_version, data.partial_file_info, data.partition_id, partition_info.keys, " +
-	    GetFileSelectList("data");
+	string data_select_list = "data.data_file_id, data.record_count, data.row_id_start, data.begin_snapshot, "
+	                          "data.end_snapshot, data.mapping_id, snapshot.schema_version, data.partial_file_info, "
+	                          "data.partition_id, partition_info.keys, " +
+	                          GetFileSelectList("data");
 	string delete_select_list =
 	    "del.data_file_id, del.delete_count, del.begin_snapshot, del.end_snapshot, " + GetFileSelectList("del");
 	string select_list = data_select_list + ", " + delete_select_list;
@@ -756,6 +771,10 @@ ORDER BY data.row_id_start, data.data_file_id, del.begin_snapshot
 		new_entry.file.row_id_start = row.GetValue<idx_t>(col_idx++);
 		new_entry.file.begin_snapshot = row.GetValue<idx_t>(col_idx++);
 		new_entry.file.end_snapshot = row.IsNull(col_idx) ? optional_idx() : row.GetValue<idx_t>(col_idx);
+		col_idx++;
+		if (!row.IsNull(col_idx)) {
+			new_entry.file.mapping_id = MappingIndex(row.GetValue<idx_t>(col_idx));
+		}
 		col_idx++;
 		new_entry.schema_version = row.GetValue<idx_t>(col_idx++);
 		if (!row.IsNull(col_idx)) {
@@ -1376,11 +1395,13 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
 		if (!file.partial_file_info.empty()) {
 			partial_file_info = "'" + PartialFileInfoToString(file.partial_file_info) + "'";
 		}
+		string footer_size = file.footer_size.IsValid() ? to_string(file.footer_size.GetIndex()) : "NULL";
+		string mapping = file.mapping_id.IsValid() ? to_string(file.mapping_id.index) : "NULL";
 		auto path = GetRelativePath(file.table_id, file.file_name);
 		data_file_insert_query += StringUtil::Format(
-		    "(%d, %d, %s, NULL, NULL, %s, %s, 'parquet', %d, %d, %d, %s, %s, %s, %s)", data_file_index, table_id,
+		    "(%d, %d, %s, NULL, NULL, %s, %s, 'parquet', %d, %d, %s, %s, %s, %s, %s, %s)", data_file_index, table_id,
 		    begin_snapshot, SQLString(path.path), path.path_is_relative ? "true" : "false", file.row_count,
-		    file.file_size_bytes, file.footer_size, row_id, partition_id, encryption_key, partial_file_info);
+		    file.file_size_bytes, footer_size, row_id, partition_id, encryption_key, partial_file_info, mapping);
 		for (auto &column_stats : file.column_stats) {
 			if (!column_stats_insert_query.empty()) {
 				column_stats_insert_query += ",";
@@ -1465,6 +1486,77 @@ void DuckLakeMetadataManager::WriteNewDeleteFiles(DuckLakeSnapshot commit_snapsh
 	auto result = transaction.Query(commit_snapshot, delete_file_insert_query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write delete file information to DuckLake: ");
+	}
+}
+
+vector<DuckLakeColumnMappingInfo> DuckLakeMetadataManager::GetColumnMappings(optional_idx start_from) {
+	string filter;
+	if (start_from.IsValid()) {
+		filter = "WHERE mapping_id >= " + to_string(start_from.GetIndex());
+	}
+	auto result = transaction.Query(StringUtil::Format(R"(
+SELECT mapping_id, table_id, type, column_id, source_name, target_field_id, parent_column
+FROM {METADATA_CATALOG}.ducklake_column_mapping
+JOIN {METADATA_CATALOG}.ducklake_name_mapping USING (mapping_id)
+%s
+ORDER BY mapping_id, parent_column NULLS FIRST
+)",
+	                                                   filter));
+	vector<DuckLakeColumnMappingInfo> column_maps;
+	for (auto &row : *result) {
+		MappingIndex mapping_id(row.GetValue<idx_t>(0));
+		if (column_maps.empty() || column_maps.back().mapping_id != mapping_id) {
+			DuckLakeColumnMappingInfo mapping_info;
+			mapping_info.mapping_id = mapping_id;
+			mapping_info.table_id = TableIndex(row.GetValue<idx_t>(1));
+			mapping_info.map_type = row.GetValue<string>(2);
+			column_maps.push_back(std::move(mapping_info));
+		}
+		auto &mapping_info = column_maps.back();
+		DuckLakeNameMapColumnInfo name_map_column;
+		name_map_column.column_id = row.GetValue<idx_t>(3);
+		name_map_column.source_name = row.GetValue<string>(4);
+		name_map_column.target_field_id = FieldIndex(row.GetValue<idx_t>(5));
+		if (!row.IsNull(6)) {
+			name_map_column.parent_column = row.GetValue<idx_t>(6);
+		}
+		mapping_info.map_columns.push_back(std::move(name_map_column));
+	}
+	return column_maps;
+}
+
+void DuckLakeMetadataManager::WriteNewColumnMappings(DuckLakeSnapshot commit_snapshot,
+                                                     const vector<DuckLakeColumnMappingInfo> &new_column_mappings) {
+	string column_mapping_insert_query;
+	string name_map_insert_query;
+	for (auto &column_mapping : new_column_mappings) {
+		if (!column_mapping_insert_query.empty()) {
+			column_mapping_insert_query += ", ";
+		}
+		column_mapping_insert_query +=
+		    StringUtil::Format("(%d, %d, %s)", column_mapping.mapping_id.index, column_mapping.table_id.index,
+		                       SQLString(column_mapping.map_type));
+		for (auto &name_map_column : column_mapping.map_columns) {
+			if (!name_map_insert_query.empty()) {
+				name_map_insert_query += ", ";
+			}
+			string parent_column =
+			    name_map_column.parent_column.IsValid() ? to_string(name_map_column.parent_column.GetIndex()) : "NULL";
+			name_map_insert_query += StringUtil::Format(
+			    "(%d, %d, %s, %d, %s)", column_mapping.mapping_id.index, name_map_column.column_id,
+			    SQLString(name_map_column.source_name), name_map_column.target_field_id.index, parent_column);
+		}
+	}
+	column_mapping_insert_query =
+	    "INSERT INTO {METADATA_CATALOG}.ducklake_column_mapping VALUES " + column_mapping_insert_query;
+	auto result = transaction.Query(commit_snapshot, column_mapping_insert_query);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to write new column mapping information to DuckLake: ");
+	}
+	name_map_insert_query = "INSERT INTO {METADATA_CATALOG}.ducklake_name_mapping VALUES " + name_map_insert_query;
+	result = transaction.Query(commit_snapshot, name_map_insert_query);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to write new column mapping information to DuckLake: ");
 	}
 }
 

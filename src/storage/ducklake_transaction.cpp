@@ -62,7 +62,7 @@ bool DuckLakeTransaction::SchemaChangesMade() {
 
 bool DuckLakeTransaction::ChangesMade() {
 	return SchemaChangesMade() || !new_data_files.empty() || !new_delete_files.empty() || !dropped_files.empty() ||
-	       !new_inlined_data.empty() || !new_inlined_data_deletes.empty();
+	       !new_inlined_data.empty() || !new_inlined_data_deletes.empty() || !new_name_maps.name_maps.empty();
 }
 
 struct TransactionChangeInformation {
@@ -603,6 +603,13 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 			new_inlined_data[table_entry.id] = std::move(inlined_data_entry->second);
 			new_inlined_data.erase(original_id);
 		}
+		// same for column mappings that apply to this table
+		for (auto &entry : new_name_maps.name_maps) {
+			auto &name_map = *entry.second;
+			if (name_map.table_id == original_id) {
+				name_map.table_id = table_entry.id;
+			}
+		}
 	}
 	return table_entry;
 }
@@ -897,6 +904,7 @@ DuckLakeFileInfo DuckLakeTransaction::GetNewDataFile(DuckLakeDataFile &file, Duc
 	data_file.partition_id = file.partition_id;
 	data_file.encryption_key = file.encryption_key;
 	data_file.row_id_start = row_id_start;
+	data_file.mapping_id = file.mapping_id;
 	// gather the column statistics for this file
 	for (auto &column_stats_entry : file.column_stats) {
 		DuckLakeColumnStatsInfo column_stats;
@@ -1059,6 +1067,68 @@ vector<DuckLakeDeleteFileInfo> DuckLakeTransaction::GetNewDeleteFiles(DuckLakeSn
 	return result;
 }
 
+struct NewNameMapInfo {
+	vector<DuckLakeColumnMappingInfo> new_column_mappings;
+};
+
+void ConvertNameMapColumn(const DuckLakeNameMapEntry &name_map_entry, MappingIndex map_id, idx_t &column_idx,
+                          DuckLakeColumnMappingInfo &result, optional_idx parent_idx = optional_idx()) {
+	auto column_id = column_idx++;
+
+	DuckLakeNameMapColumnInfo column_info;
+	column_info.column_id = column_id;
+	column_info.source_name = std::move(name_map_entry.source_name);
+	column_info.target_field_id = name_map_entry.target_field_id;
+	column_info.parent_column = parent_idx;
+	result.map_columns.push_back(std::move(column_info));
+
+	// recurse into children
+	for (auto &child_column : name_map_entry.child_entries) {
+		ConvertNameMapColumn(*child_column, map_id, column_idx, result, column_id);
+	}
+}
+
+NewNameMapInfo DuckLakeTransaction::GetNewNameMaps(DuckLakeSnapshot &commit_snapshot) {
+	NewNameMapInfo result;
+	map<MappingIndex, MappingIndex> remap_mapping_index;
+	for (auto &entry : new_name_maps.name_maps) {
+		// generate a new mapping id
+		auto local_map_id = entry.first;
+		auto &mapping = *entry.second;
+		MappingIndex new_map_id(commit_snapshot.next_file_id++);
+
+		if (mapping.table_id.IsTransactionLocal()) {
+			throw InternalException("table_id should be rewritten to non-transaction local before");
+		}
+		DuckLakeColumnMappingInfo map_info;
+		map_info.table_id = mapping.table_id;
+		map_info.mapping_id = new_map_id;
+		map_info.map_type = "map_by_name";
+
+		// iterate over the columns to generate the new name map columns
+		idx_t column_idx = 0;
+		for (auto &name_map_column : mapping.column_maps) {
+			ConvertNameMapColumn(*name_map_column, new_map_id, column_idx, map_info);
+		}
+		result.new_column_mappings.push_back(std::move(map_info));
+
+		remap_mapping_index[local_map_id] = new_map_id;
+	}
+	// iterate over the data files to point them towards any new mapping ids
+	for (auto &entry : new_data_files) {
+		for (auto &data_file : entry.second) {
+			if (!data_file.mapping_id.IsValid()) {
+				continue;
+			}
+			auto entry = remap_mapping_index.find(data_file.mapping_id);
+			if (entry != remap_mapping_index.end()) {
+				data_file.mapping_id = entry->second;
+			}
+		}
+	}
+	return result;
+}
+
 vector<DuckLakeDeletedInlinedDataInfo> DuckLakeTransaction::GetNewInlinedDeletes(DuckLakeSnapshot &commit_snapshot) {
 	vector<DuckLakeDeletedInlinedDataInfo> result;
 	for (auto &entry : new_inlined_data_deletes) {
@@ -1109,6 +1179,12 @@ void DuckLakeTransaction::CommitChanges(DuckLakeSnapshot &commit_snapshot,
 		metadata_manager->WriteDroppedColumns(commit_snapshot, result.dropped_columns);
 		metadata_manager->WriteNewColumns(commit_snapshot, result.new_columns);
 		metadata_manager->WriteNewInlinedTables(commit_snapshot, result.new_inlined_data_tables);
+	}
+
+	// write new name maps
+	if (!new_name_maps.name_maps.empty()) {
+		auto result = GetNewNameMaps(commit_snapshot);
+		metadata_manager->WriteNewColumnMappings(commit_snapshot, result.new_column_mappings);
 	}
 
 	// write new data / data files
@@ -1857,6 +1933,38 @@ optional_ptr<CatalogEntry> DuckLakeTransaction::GetLocalEntryById(TableIndex tab
 		}
 	}
 	return nullptr;
+}
+
+MappingIndex DuckLakeTransaction::AddNameMap(unique_ptr<DuckLakeNameMap> name_map) {
+	// check if we can re-use a previously added name map
+	auto map_index = ducklake_catalog.TryGetCompatibleNameMap(*this, *name_map);
+	if (map_index.IsValid()) {
+		return map_index;
+	}
+	map_index = new_name_maps.TryGetCompatibleNameMap(*name_map);
+	if (map_index.IsValid()) {
+		// found a compatible map already - return it
+		return map_index;
+	}
+	// no compatible map found - generate a new index
+	MappingIndex new_index(GetLocalCatalogId());
+	name_map->id = new_index;
+	new_name_maps.Add(std::move(name_map));
+	return new_index;
+}
+
+const DuckLakeNameMap &DuckLakeTransaction::GetMappingById(MappingIndex mapping_id) {
+	// search the transaction-local name maps
+	auto entry = new_name_maps.name_maps.find(mapping_id);
+	if (entry != new_name_maps.name_maps.end()) {
+		return *entry->second;
+	}
+	// search the catalog name maps
+	auto name_map = ducklake_catalog.TryGetMappingById(*this, mapping_id);
+	if (name_map) {
+		return *name_map;
+	}
+	throw InvalidInputException("Unknown name map id %d when trying to map file", mapping_id.index);
 }
 
 // FIXME: this is copied from mainline DuckDB because of a bug in UUID v7 generation
