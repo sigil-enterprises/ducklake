@@ -113,4 +113,26 @@ struct DataFileIndex {
 	}
 };
 
+struct MappingIndex {
+	MappingIndex() : index(DConstants::INVALID_INDEX) {
+	}
+	explicit MappingIndex(idx_t index) : index(index) {
+	}
+
+	idx_t index;
+
+	inline bool operator==(const MappingIndex &rhs) const {
+		return index == rhs.index;
+	};
+	inline bool operator!=(const MappingIndex &rhs) const {
+		return index != rhs.index;
+	};
+	inline bool operator<(const MappingIndex &rhs) const {
+		return index < rhs.index;
+	};
+	bool IsValid() const {
+		return index != DConstants::INVALID_INDEX;
+	}
+};
+
 } // namespace duckdb

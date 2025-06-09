@@ -10,8 +10,10 @@
 
 #include "duckdb/common/common.hpp"
 #include "duckdb/common/unordered_set.hpp"
+#include "duckdb/common/types/value.hpp"
 
 namespace duckdb {
+class FileSystem;
 
 struct ParsedCatalogEntry {
 	string schema;
@@ -26,8 +28,10 @@ public:
 	static string SQLIdentifierToString(const string &text);
 	static string SQLLiteralToString(const string &text);
 	static string StatsToString(const string &text);
+	static string ValueToSQL(const Value &val);
 
 	static ParsedCatalogEntry ParseCatalogEntry(const string &input);
+	static string JoinPath(FileSystem &fs, const string &a, const string &b);
 };
 
 } // namespace duckdb

@@ -137,7 +137,7 @@ public:
 	DuckLakeCompactor(ClientContext &context, DuckLakeCatalog &catalog, DuckLakeTransaction &transaction,
 	                  Binder &binder, TableIndex table_id);
 
-	void GenerateCompactions(vector<unique_ptr<LogicalOperator>> &compactions);
+	void GenerateCompactions(DuckLakeTableEntry &table, vector<unique_ptr<LogicalOperator>> &compactions);
 	unique_ptr<LogicalOperator> GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry> source_files);
 
 private:
@@ -153,9 +153,10 @@ DuckLakeCompactor::DuckLakeCompactor(ClientContext &context, DuckLakeCatalog &ca
     : context(context), catalog(catalog), transaction(transaction), binder(binder), table_id(table_id) {
 }
 
-void DuckLakeCompactor::GenerateCompactions(vector<unique_ptr<LogicalOperator>> &compactions) {
+void DuckLakeCompactor::GenerateCompactions(DuckLakeTableEntry &table,
+                                            vector<unique_ptr<LogicalOperator>> &compactions) {
 	auto &metadata_manager = transaction.GetMetadataManager();
-	auto files = metadata_manager.GetFilesForCompaction(table_id);
+	auto files = metadata_manager.GetFilesForCompaction(table);
 
 	// target file size: 10MB
 	static constexpr const idx_t TARGET_FILE_SIZE = 10000000;
@@ -223,6 +224,7 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	// get the table entry at the specified snapshot
 	auto snapshot_id = source_files[0].file.begin_snapshot;
 	DuckLakeSnapshot snapshot(snapshot_id, source_files[0].schema_version, 0, 0);
+
 	auto entry = catalog.GetEntryById(transaction, snapshot, table_id);
 	if (!entry) {
 		throw InternalException("DuckLakeCompactor: failed to find table entry for given snapshot id");
@@ -244,6 +246,7 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 		result.file = source.file.data;
 		result.row_id_start = source.file.row_id_start;
 		result.snapshot_id = source.file.begin_snapshot;
+		result.mapping_id = source.file.mapping_id;
 		if (!source.delete_files.empty()) {
 			throw InternalException("FIXME: compact deletions");
 		}
@@ -255,10 +258,13 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 
 	// generate the LogicalGet
 	auto &columns = table.GetColumns();
-	string encryption_key = catalog.GenerateEncryptionKey(context);
-	auto copy_options =
-	    DuckLakeInsert::GetCopyOptions(context, columns, nullptr, table.GetFieldData(), table.DataPath(),
-	                                   encryption_key, InsertVirtualColumns::WRITE_SNAPSHOT_ID);
+
+	DuckLakeCopyInput copy_input(context, table);
+	// merge_adjacent_files does not use partitioning information - instead we always merge within partitions
+	copy_input.partition_data = nullptr;
+	copy_input.virtual_columns = InsertVirtualColumns::WRITE_SNAPSHOT_ID;
+
+	auto copy_options = DuckLakeInsert::GetCopyOptions(context, copy_input);
 
 	auto virtual_columns = table.GetVirtualColumns();
 	auto ducklake_scan =
@@ -286,7 +292,8 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 
 	copy->partition_output = copy_options.partition_output;
 	copy->write_partition_columns = copy_options.write_partition_columns;
-	copy->write_empty_file = copy_options.write_empty_file;
+	// FIXME: disabled because of issue, should be re-disabled for DuckDB v1.3.1
+	copy->write_empty_file = true;
 	copy->partition_columns = std::move(copy_options.partition_columns);
 	copy->names = std::move(copy_options.names);
 	copy->expected_types = std::move(copy_options.expected_types);
@@ -295,9 +302,9 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	copy->children.push_back(std::move(ducklake_scan));
 
 	// followed by the compaction operator (that writes the results back to the
-	auto compaction =
-	    make_uniq<DuckLakeLogicalCompaction>(binder.GenerateTableIndex(), table, std::move(source_files),
-	                                         std::move(encryption_key), partition_id, std::move(partition_values));
+	auto compaction = make_uniq<DuckLakeLogicalCompaction>(binder.GenerateTableIndex(), table, std::move(source_files),
+	                                                       std::move(copy_input.encryption_key), partition_id,
+	                                                       std::move(partition_values));
 	compaction->children.push_back(std::move(copy));
 	return std::move(compaction);
 }
@@ -307,11 +314,6 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 //===--------------------------------------------------------------------===//
 unique_ptr<LogicalOperator> MergeAdjacentFilesBind(ClientContext &context, TableFunctionBindInput &input,
                                                    idx_t bind_index, vector<string> &return_names) {
-	// bind operator ->
-	// LogicalSetOperation (LogicalGet -> LogicalCopyToFile)
-	// COPY (....) TO ... UNION ALL COPY (...) TO ... ....
-	// FIXME: we cannot merge files if they do not all have the same schema?
-	// FIXME get list of catalogs - if they do not have the same schema version
 	// gather a list of files to compact
 	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
 	auto &ducklake_catalog = catalog.Cast<DuckLakeCatalog>();
@@ -324,7 +326,7 @@ unique_ptr<LogicalOperator> MergeAdjacentFilesBind(ClientContext &context, Table
 		schema.get().Scan(context, CatalogType::TABLE_ENTRY, [&](CatalogEntry &entry) {
 			auto &table = entry.Cast<DuckLakeTableEntry>();
 			DuckLakeCompactor compactor(context, ducklake_catalog, transaction, *input.binder, table.GetTableId());
-			compactor.GenerateCompactions(compactions);
+			compactor.GenerateCompactions(table, compactions);
 		});
 	}
 	return_names.push_back("Success");

@@ -8,15 +8,15 @@
 
 #pragma once
 
-#include "duckdb/transaction/transaction.hpp"
-#include "duckdb/common/case_insensitive_map.hpp"
-#include "duckdb/main/connection.hpp"
-#include "storage/ducklake_catalog_set.hpp"
-#include "storage/ducklake_metadata_manager.hpp"
-#include "common/ducklake_snapshot.hpp"
 #include "common/ducklake_data_file.hpp"
+#include "common/ducklake_snapshot.hpp"
+#include "duckdb/common/case_insensitive_map.hpp"
 #include "duckdb/common/types/value_map.hpp"
+#include "duckdb/main/connection.hpp"
+#include "duckdb/transaction/transaction.hpp"
+#include "storage/ducklake_catalog_set.hpp"
 #include "storage/ducklake_inlined_data.hpp"
+#include "storage/ducklake_metadata_manager.hpp"
 
 namespace duckdb {
 class DuckLakeCatalog;
@@ -31,7 +31,9 @@ struct SnapshotChangeInformation;
 struct TransactionChangeInformation;
 struct NewDataInfo;
 struct NewTableInfo;
+struct NewNameMapInfo;
 struct CompactionInformation;
+struct DuckLakePath;
 
 class DuckLakeTransaction : public Transaction, public enable_shared_from_this<DuckLakeTransaction> {
 public:
@@ -61,6 +63,8 @@ public:
 	void CreateEntry(unique_ptr<CatalogEntry> entry);
 	void DropEntry(CatalogEntry &entry);
 	bool IsDeleted(CatalogEntry &entry);
+	optional_ptr<CatalogEntry> GetLocalEntryById(SchemaIndex schema_id);
+	optional_ptr<CatalogEntry> GetLocalEntryById(TableIndex table_id);
 
 	void AlterEntry(CatalogEntry &old_entry, unique_ptr<CatalogEntry> new_entry);
 
@@ -77,6 +81,10 @@ public:
 	void AppendFiles(TableIndex table_id, vector<DuckLakeDataFile> files);
 	void AddDeletes(TableIndex table_id, vector<DuckLakeDeleteFile> files);
 	void AddCompaction(TableIndex table_id, DuckLakeCompactionEntry entry);
+
+	MappingIndex AddNameMap(unique_ptr<DuckLakeNameMap> name_map);
+	const DuckLakeNameMap &GetMappingById(MappingIndex mapping_id);
+	NewNameMapInfo GetNewNameMaps(DuckLakeSnapshot &commit_snapshot);
 
 	void AppendInlinedData(TableIndex table_id, unique_ptr<DuckLakeInlinedData> collection);
 	void AddNewInlinedDeletes(TableIndex table_id, const string &table_name, set<idx_t> new_deletes);
@@ -98,6 +106,7 @@ public:
 	static bool IsTransactionLocal(idx_t id) {
 		return id >= DuckLakeConstants::TRANSACTION_LOCAL_ID_START;
 	}
+	void SetConfigOption(const DuckLakeConfigOption &option);
 
 	string GetDefaultSchemaName();
 
@@ -111,9 +120,15 @@ public:
 	string GenerateUUID() const;
 	static string GenerateUUIDv7();
 
+	//! Returns the current version of the catalog:
+	//! If there are no uncommitted changes, this is the schema version of the snapshot.
+	//! Otherwise, it is an id that is incremented whenever the schema changes (not stored between restarts)
+	idx_t GetCatalogVersion();
+
 private:
 	void CleanupFiles();
 	void FlushChanges();
+	void FlushSettingChanges();
 	void CommitChanges(DuckLakeSnapshot &commit_snapshot, TransactionChangeInformation &transaction_changes);
 	void CommitCompaction(DuckLakeSnapshot &commit_snapshot, TransactionChangeInformation &transaction_changes);
 	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,
@@ -136,9 +151,11 @@ private:
 	void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, TransactionChangeInformation &changes);
 	//! Return the set of changes made by this transaction
 	TransactionChangeInformation GetTransactionChanges();
-	void GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> table_entry, NewTableInfo &result,
+	void GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, DuckLakeCatalogSet &catalog_set,
+	                     reference<CatalogEntry> table_entry, NewTableInfo &result,
 	                     TransactionChangeInformation &transaction_changes);
-	void GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> table_entry, NewTableInfo &result,
+	void GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, DuckLakeCatalogSet &catalog_set,
+	                    reference<CatalogEntry> table_entry, NewTableInfo &result,
 	                    TransactionChangeInformation &transaction_changes);
 	CompactionInformation GetCompactionChanges(DuckLakeSnapshot &commit_snapshot);
 
@@ -176,6 +193,10 @@ private:
 	map<TableIndex, vector<DuckLakeCompactionEntry>> compactions;
 	//! Snapshot cache for the AT (...) conditions that are referenced in the transaction
 	value_map_t<DuckLakeSnapshot> snapshot_cache;
+	//! New set of transaction-local name maps
+	DuckLakeNameMapSet new_name_maps;
+
+	atomic<idx_t> catalog_version;
 };
 
 } // namespace duckdb

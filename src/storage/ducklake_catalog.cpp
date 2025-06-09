@@ -1,30 +1,26 @@
 #include "storage/ducklake_catalog.hpp"
-#include "storage/ducklake_initializer.hpp"
-#include "storage/ducklake_schema_entry.hpp"
-#include "storage/ducklake_table_entry.hpp"
-#include "storage/ducklake_view_entry.hpp"
-#include "storage/ducklake_transaction.hpp"
-#include "common/ducklake_types.hpp"
 
-#include "duckdb/storage/database_size.hpp"
-#include "duckdb/main/attached_database.hpp"
+#include "common/ducklake_types.hpp"
 #include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
+#include "duckdb/main/attached_database.hpp"
+#include "duckdb/parser/constraints/not_null_constraint.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 #include "duckdb/parser/parsed_data/create_view_info.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
-#include "duckdb/parser/constraints/not_null_constraint.hpp"
-#include "duckdb/common/types/uuid.hpp"
+#include "duckdb/storage/database_size.hpp"
+#include "storage/ducklake_initializer.hpp"
+#include "storage/ducklake_schema_entry.hpp"
+#include "storage/ducklake_table_entry.hpp"
+#include "storage/ducklake_transaction.hpp"
+#include "storage/ducklake_transaction_manager.hpp"
+#include "storage/ducklake_view_entry.hpp"
 
 namespace duckdb {
 
-DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, string metadata_database_p, string metadata_path_p,
-                                 string data_path_p, string metadata_schema_p, DuckLakeEncryption encryption,
-                                 idx_t data_inlining_row_limit)
-    : Catalog(db_p), metadata_database(std::move(metadata_database_p)), metadata_path(std::move(metadata_path_p)),
-      data_path(std::move(data_path_p)), metadata_schema(std::move(metadata_schema_p)), encryption(encryption),
-      data_inlining_row_limit(data_inlining_row_limit) {
+DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options_p)
+    : Catalog(db_p), options(std::move(options_p)), last_uncommitted_catalog_version(TRANSACTION_ID_START) {
 }
 
 DuckLakeCatalog::~DuckLakeCatalog() {
@@ -36,8 +32,30 @@ void DuckLakeCatalog::Initialize(bool load_builtin) {
 
 void DuckLakeCatalog::Initialize(optional_ptr<ClientContext> context, bool load_builtin) {
 	// initialize the metadata database
-	DuckLakeInitializer initializer(*context, *this, metadata_database, metadata_path, metadata_schema, data_path);
+	DuckLakeInitializer initializer(*context, *this, options);
 	initializer.Initialize();
+	db.tags["data_path"] = DataPath();
+}
+
+bool CanGeneratePathFromName(const string &name) {
+	for (auto c : name) {
+		if (StringUtil::CharacterIsAlphaNumeric(c)) {
+			continue;
+		}
+		if (c == '_' || c == '-') {
+			continue;
+		}
+		return false;
+	}
+	return true;
+}
+
+string DuckLakeCatalog::GeneratePathFromName(const string &uuid, const string &name) {
+	// if the name has special characters we fallback to uuid
+	if (CanGeneratePathFromName(name)) {
+		return name + separator;
+	}
+	return uuid + separator;
 }
 
 optional_ptr<CatalogEntry> DuckLakeCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {
@@ -59,7 +77,9 @@ optional_ptr<CatalogEntry> DuckLakeCatalog::CreateSchema(CatalogTransaction tran
 	//! get a local table-id
 	auto schema_id = SchemaIndex(duck_transaction.GetLocalCatalogId());
 	auto schema_uuid = duck_transaction.GenerateUUID();
-	auto schema_entry = make_uniq<DuckLakeSchemaEntry>(*this, info, schema_id, std::move(schema_uuid));
+	auto schema_data_path = DataPath() + DuckLakeCatalog::GeneratePathFromName(schema_uuid, info.schema);
+	auto schema_entry =
+	    make_uniq<DuckLakeSchemaEntry>(*this, info, schema_id, std::move(schema_uuid), std::move(schema_data_path));
 	auto result = schema_entry.get();
 	duck_transaction.CreateEntry(std::move(schema_entry));
 	return result;
@@ -96,7 +116,21 @@ void DuckLakeCatalog::ScanSchemas(ClientContext &context, std::function<void(Sch
 }
 
 optional_ptr<CatalogEntry> DuckLakeCatalog::GetEntryById(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
+                                                         SchemaIndex schema_id) {
+	auto local_entry = transaction.GetLocalEntryById(schema_id);
+	if (local_entry) {
+		return local_entry;
+	}
+	auto &schema = GetSchemaForSnapshot(transaction, snapshot);
+	return schema.GetEntryById(schema_id);
+}
+
+optional_ptr<CatalogEntry> DuckLakeCatalog::GetEntryById(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
                                                          TableIndex table_id) {
+	auto local_entry = transaction.GetLocalEntryById(table_id);
+	if (local_entry) {
+		return local_entry;
+	}
 	auto &schema = GetSchemaForSnapshot(transaction, snapshot);
 	return schema.GetEntryById(table_id);
 }
@@ -169,16 +203,16 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 	auto &metadata_manager = transaction.GetMetadataManager();
 	auto catalog = metadata_manager.GetCatalogForSnapshot(snapshot);
 	ducklake_entries_map_t schema_map;
-	map<SchemaIndex, reference<DuckLakeSchemaEntry>> schema_id_map;
 	for (auto &schema : catalog.schemas) {
 		CreateSchemaInfo schema_info;
 		schema_info.schema = schema.name;
-		auto schema_entry = make_uniq<DuckLakeSchemaEntry>(*this, schema_info, schema.id, std::move(schema.uuid));
-		schema_id_map.insert(make_pair(schema.id, reference<DuckLakeSchemaEntry>(*schema_entry)));
+		auto schema_entry = make_uniq<DuckLakeSchemaEntry>(*this, schema_info, schema.id, std::move(schema.uuid),
+		                                                   std::move(schema.path));
 		schema_map.insert(make_pair(std::move(schema.name), std::move(schema_entry)));
 	}
 
 	auto schema_set = make_uniq<DuckLakeCatalogSet>(std::move(schema_map));
+	auto &schema_id_map = schema_set->GetSchemaIdMap();
 	// load the table entries
 	for (auto &table : catalog.tables) {
 		// find the schema for the table
@@ -226,9 +260,9 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 			create_table_info->constraints.push_back(make_uniq<NotNullConstraint>(col.Logical()));
 		}
 		// create the table and add it to the schema set
-		auto table_entry = make_uniq<DuckLakeTableEntry>(*this, schema_entry, *create_table_info, table.id,
-		                                                 std::move(table.uuid), std::move(field_data), optional_idx(),
-		                                                 std::move(table.inlined_data_tables), LocalChangeType::NONE);
+		auto table_entry = make_uniq<DuckLakeTableEntry>(
+		    *this, schema_entry, *create_table_info, table.id, std::move(table.uuid), std::move(table.path),
+		    std::move(field_data), optional_idx(), std::move(table.inlined_data_tables), LocalChangeType::NONE);
 		schema_set->AddEntry(schema_entry, table.id, std::move(table_entry));
 	}
 
@@ -290,6 +324,80 @@ DuckLakeStats &DuckLakeCatalog::GetStatsForSnapshot(DuckLakeTransaction &transac
 	auto &result = *table_stats;
 	stats.insert(make_pair(snapshot.next_file_id, std::move(table_stats)));
 	return result;
+}
+
+unique_ptr<DuckLakeNameMap> ConvertNameMap(DuckLakeColumnMappingInfo column_mapping) {
+	if (column_mapping.map_type != "map_by_name") {
+		throw InvalidInputException("Unsupported column mapping type \"%s\"", column_mapping.map_type);
+	}
+	auto result = make_uniq<DuckLakeNameMap>();
+	result->id = column_mapping.mapping_id;
+	result->table_id = column_mapping.table_id;
+
+	// generate the recursive structure from the SQL table that only has parent references
+	unordered_map<idx_t, reference<DuckLakeNameMapEntry>> column_id_map;
+	for (auto &col : column_mapping.map_columns) {
+		// create the entry
+		auto map_entry = make_uniq<DuckLakeNameMapEntry>();
+		map_entry->source_name = std::move(col.source_name);
+		map_entry->target_field_id = col.target_field_id;
+		// add the column id -> entry mapping
+		column_id_map.emplace(col.column_id, *map_entry);
+		if (!col.parent_column.IsValid()) {
+			// root-entry, add to parent map directly
+			result->column_maps.push_back(std::move(map_entry));
+		} else {
+			// non-root entry: find parent entry
+			auto parent_entry = column_id_map.find(col.parent_column.GetIndex());
+			if (parent_entry == column_id_map.end()) {
+				throw InvalidInputException("Parent column %d not found when converting name map with id %d",
+				                            col.parent_column.GetIndex(), column_mapping.mapping_id.index);
+			}
+			auto &parent = parent_entry->second.get();
+			parent.child_entries.push_back(std::move(map_entry));
+		}
+	}
+	return result;
+}
+
+void DuckLakeCatalog::LoadNameMaps(DuckLakeTransaction &transaction) {
+	auto snapshot = transaction.GetSnapshot();
+	if (loaded_name_map_index.IsValid() && snapshot.next_file_id <= loaded_name_map_index.GetIndex()) {
+		// we have already loaded all name maps that could be relevant for this snapshot
+		return;
+	}
+	// name map entry not found - try to load any new ones
+	auto &metadata_manager = transaction.GetMetadataManager();
+	auto new_name_maps = metadata_manager.GetColumnMappings(loaded_name_map_index);
+	for (auto &column_mapping : new_name_maps) {
+		auto name_map = ConvertNameMap(std::move(column_mapping));
+		name_maps.Add(std::move(name_map));
+	}
+	loaded_name_map_index = snapshot.next_file_id;
+}
+
+optional_ptr<const DuckLakeNameMap> DuckLakeCatalog::TryGetMappingById(DuckLakeTransaction &transaction,
+                                                                       MappingIndex mapping_id) {
+	lock_guard<mutex> guard(schemas_lock);
+	auto entry = name_maps.name_maps.find(mapping_id);
+	if (entry != name_maps.name_maps.end()) {
+		return entry->second.get();
+	}
+	LoadNameMaps(transaction);
+	// try to fetch the name map again
+	entry = name_maps.name_maps.find(mapping_id);
+	if (entry != name_maps.name_maps.end()) {
+		return entry->second.get();
+	}
+	// still no success - return nullptr
+	return nullptr;
+}
+
+MappingIndex DuckLakeCatalog::TryGetCompatibleNameMap(DuckLakeTransaction &transaction,
+                                                      const DuckLakeNameMap &name_map) {
+	lock_guard<mutex> guard(schemas_lock);
+	LoadNameMaps(transaction);
+	return name_maps.TryGetCompatibleNameMap(name_map);
 }
 
 unique_ptr<DuckLakeStats> DuckLakeCatalog::LoadStatsForSnapshot(DuckLakeTransaction &transaction,
@@ -389,14 +497,14 @@ optional_ptr<SchemaCatalogEntry> DuckLakeCatalog::LookupSchema(CatalogTransactio
 }
 
 void DuckLakeCatalog::SetEncryption(DuckLakeEncryption new_encryption) {
-	if (encryption == new_encryption) {
+	if (options.encryption == new_encryption) {
 		// already set to this value
 		return;
 	}
-	switch (encryption) {
+	switch (options.encryption) {
 	case DuckLakeEncryption::AUTOMATIC:
 		// adopt whichever value here
-		encryption = new_encryption;
+		options.encryption = new_encryption;
 		break;
 	case DuckLakeEncryption::ENCRYPTED:
 		throw InvalidInputException(
@@ -432,7 +540,11 @@ bool DuckLakeCatalog::InMemory() {
 }
 
 string DuckLakeCatalog::GetDBPath() {
-	return metadata_path;
+	return options.metadata_path;
+}
+
+optional_ptr<BoundAtClause> DuckLakeCatalog::CatalogSnapshot() const {
+	return options.at_clause.get();
 }
 
 void DuckLakeCatalog::OnDetach(ClientContext &context) {
@@ -442,8 +554,61 @@ void DuckLakeCatalog::OnDetach(ClientContext &context) {
 }
 
 optional_idx DuckLakeCatalog::GetCatalogVersion(ClientContext &context) {
-	auto &transaction = DuckLakeTransaction::Get(context, *this);
-	return transaction.GetSnapshot().schema_version;
+	return DuckLakeTransaction::Get(context, *this).GetCatalogVersion();
+}
+
+void DuckLakeCatalog::SetConfigOption(const DuckLakeConfigOption &option) {
+	lock_guard<mutex> guard(config_lock);
+	auto &key = option.option.key;
+	auto &value = option.option.value;
+	if (option.table_id.IsValid()) {
+		// scoped to a table
+		options.table_options[option.table_id].emplace(key, value);
+		return;
+	}
+	if (option.schema_id.IsValid()) {
+		// scoped to a schema
+		options.schema_options[option.schema_id].emplace(key, value);
+		return;
+	}
+	// scoped globally
+	options.config_options.emplace(key, value);
+}
+
+bool DuckLakeCatalog::TryGetConfigOption(const string &option, string &result, SchemaIndex schema_id,
+                                         TableIndex table_id) const {
+	lock_guard<mutex> guard(config_lock);
+	// search options in-order
+	// table scope
+	if (table_id.IsValid()) {
+		auto table_entry = options.table_options.find(table_id);
+		if (table_entry != options.table_options.end()) {
+			auto table_options_entry = table_entry->second.find(option);
+			if (table_options_entry != table_entry->second.end()) {
+				result = table_options_entry->second;
+				return true;
+			}
+		}
+	}
+	// schema scope
+	if (schema_id.IsValid()) {
+		auto schema_entry = options.schema_options.find(schema_id);
+		if (schema_entry != options.schema_options.end()) {
+			auto schema_options_entry = schema_entry->second.find(option);
+			if (schema_options_entry != schema_entry->second.end()) {
+				result = schema_options_entry->second;
+				return true;
+			}
+		}
+	}
+
+	// global scope
+	auto entry = options.config_options.find(option);
+	if (entry == options.config_options.end()) {
+		return false;
+	}
+	result = entry->second;
+	return true;
 }
 
 } // namespace duckdb

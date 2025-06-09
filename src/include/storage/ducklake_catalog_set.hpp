@@ -17,6 +17,7 @@
 namespace duckdb {
 class DuckLakeTransaction;
 class DuckLakeSchemaEntry;
+class DuckLakeTableEntry;
 
 using ducklake_entries_map_t = case_insensitive_map_t<unique_ptr<CatalogEntry>>;
 
@@ -30,8 +31,11 @@ public:
 	void CreateEntry(unique_ptr<CatalogEntry> entry);
 	optional_ptr<CatalogEntry> GetEntry(const string &name);
 	unique_ptr<CatalogEntry> DropEntry(const string &name);
+	optional_ptr<CatalogEntry> GetEntryById(SchemaIndex index);
 	optional_ptr<CatalogEntry> GetEntryById(TableIndex index);
 	void AddEntry(DuckLakeSchemaEntry &schema, TableIndex id, unique_ptr<CatalogEntry> entry);
+	void RemapEntry(SchemaIndex old_index, SchemaIndex new_index, DuckLakeSchemaEntry &schema);
+	void RemapEntry(TableIndex old_index, TableIndex new_index, DuckLakeTableEntry &table);
 
 	template <class T>
 	optional_ptr<T> GetEntry(const string &name) {
@@ -45,9 +49,13 @@ public:
 	const ducklake_entries_map_t &GetEntries() {
 		return catalog_entries;
 	}
+	const map<SchemaIndex, reference<DuckLakeSchemaEntry>> &GetSchemaIdMap() {
+		return schema_entry_map;
+	}
 
 private:
 	ducklake_entries_map_t catalog_entries;
+	map<SchemaIndex, reference<DuckLakeSchemaEntry>> schema_entry_map;
 	map<TableIndex, reference<CatalogEntry>> table_entry_map;
 };
 

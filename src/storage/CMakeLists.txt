@@ -2,6 +2,7 @@ add_library(
   ducklake_storage OBJECT
   ducklake_catalog.cpp
   ducklake_checkpoint.cpp
+  ducklake_default_functions.cpp
   ducklake_delete_filter.cpp
   ducklake_field_data.cpp
   ducklake_inline_data.cpp
@@ -18,6 +19,7 @@ add_library(
   ducklake_stats.cpp
   ducklake_table_entry.cpp
   ducklake_initializer.cpp
+  ducklake_autoload_helper.cpp
   ducklake_update.cpp
   ducklake_scan.cpp
   ducklake_transaction.cpp

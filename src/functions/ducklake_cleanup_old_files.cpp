@@ -40,7 +40,7 @@ static unique_ptr<FunctionData> DuckLakeCleanupBind(ClientContext &context, Tabl
 	string filter;
 	if (has_timestamp) {
 		auto ts = Timestamp::ToString(timestamp_t(from_timestamp.value));
-		filter = StringUtil::Format("WHERE schedule_start < TIMESTAMP '%s' AT TIME ZONE 'UTC'", ts);
+		filter = StringUtil::Format("WHERE schedule_start < '%s'", ts);
 	}
 	auto &transaction = DuckLakeTransaction::Get(context, catalog);
 	auto &metadata_manager = transaction.GetMetadataManager();
@@ -75,7 +75,7 @@ void DuckLakeCleanupExecute(ClientContext &context, TableFunctionInput &data_p, 
 		// delete the files
 		auto &fs = FileSystem::GetFileSystem(context);
 		for (auto &file : data.files) {
-			fs.RemoveFile(file.path);
+			fs.TryRemoveFile(file.path);
 		}
 		// remove the files that are scheduled for cleanup
 		auto &transaction = DuckLakeTransaction::Get(context, data.catalog);

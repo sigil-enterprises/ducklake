@@ -1,5 +1,6 @@
-#define DUCKDB_EXTENSION_MAIN
-
+#ifndef DUCKDB_BUILD_LOADABLE_EXTENSION
+#define DUCKDB_BUILD_LOADABLE_EXTENSION
+#endif
 #include "ducklake_extension.hpp"
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
@@ -11,16 +12,21 @@
 namespace duckdb {
 
 static void LoadInternal(DatabaseInstance &instance) {
+	ExtensionUtil::RegisterExtension(instance, "ducklake", {"Adds support for DuckLake, SQL as a Lakehouse Format"});
+
 	auto &config = DBConfig::GetConfig(instance);
 	config.storage_extensions["ducklake"] = make_uniq<DuckLakeStorageExtension>();
 
 	DuckLakeSnapshotsFunction snapshots;
 	ExtensionUtil::RegisterFunction(instance, snapshots);
 
-	DuckLakeTableInsertionsFunction table_insertions;
+	DuckLakeTableInfoFunction table_info;
+	ExtensionUtil::RegisterFunction(instance, table_info);
+
+	auto table_insertions = DuckLakeTableInsertionsFunction::GetFunctions();
 	ExtensionUtil::RegisterFunction(instance, table_insertions);
 
-	DuckLakeTableDeletionsFunction table_deletions;
+	auto table_deletions = DuckLakeTableDeletionsFunction::GetFunctions();
 	ExtensionUtil::RegisterFunction(instance, table_deletions);
 
 	DuckLakeMergeAdjacentFilesFunction merge_adjacent_files;
@@ -32,8 +38,20 @@ static void LoadInternal(DatabaseInstance &instance) {
 	DuckLakeExpireSnapshotsFunction expire_snapshots;
 	ExtensionUtil::RegisterFunction(instance, expire_snapshots);
 
+	DuckLakeSetOptionFunction set_options;
+	ExtensionUtil::RegisterFunction(instance, set_options);
+
+	DuckLakeOptionsFunction options;
+	ExtensionUtil::RegisterFunction(instance, options);
+
 	auto table_changes = DuckLakeTableInsertionsFunction::GetDuckLakeTableChanges();
 	ExtensionUtil::RegisterFunction(instance, *table_changes);
+
+	DuckLakeListFilesFunction list_files;
+	ExtensionUtil::RegisterFunction(instance, list_files);
+
+	DuckLakeAddDataFilesFunction add_files;
+	ExtensionUtil::RegisterFunction(instance, add_files);
 }
 
 void DucklakeExtension::Load(DuckDB &db) {
@@ -64,7 +82,3 @@ DUCKDB_EXTENSION_API const char *ducklake_version() {
 	return duckdb::DuckDB::LibraryVersion();
 }
 }
-
-#ifndef DUCKDB_EXTENSION_MAIN
-#error DUCKDB_EXTENSION_MAIN not defined
-#endif

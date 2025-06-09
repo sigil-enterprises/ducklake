@@ -1,5 +1,6 @@
 #include "storage/ducklake_catalog_set.hpp"
 #include "storage/ducklake_schema_entry.hpp"
+#include "storage/ducklake_table_entry.hpp"
 #include "storage/ducklake_transaction.hpp"
 
 namespace duckdb {
@@ -8,6 +9,10 @@ DuckLakeCatalogSet::DuckLakeCatalogSet() {
 }
 DuckLakeCatalogSet::DuckLakeCatalogSet(ducklake_entries_map_t catalog_entries_p)
     : catalog_entries(std::move(catalog_entries_p)) {
+	for (auto &entry : catalog_entries) {
+		auto &schema_entry = entry.second->Cast<DuckLakeSchemaEntry>();
+		schema_entry_map.insert(make_pair(schema_entry.GetSchemaId(), reference<DuckLakeSchemaEntry>(schema_entry)));
+	}
 }
 
 void DuckLakeCatalogSet::CreateEntry(unique_ptr<CatalogEntry> catalog_entry) {
@@ -34,6 +39,15 @@ optional_ptr<CatalogEntry> DuckLakeCatalogSet::GetEntry(const string &name) {
 	return entry->second.get();
 }
 
+optional_ptr<CatalogEntry> DuckLakeCatalogSet::GetEntryById(SchemaIndex index) {
+	auto entry = schema_entry_map.find(index);
+	if (entry == schema_entry_map.end()) {
+		return nullptr;
+	}
+	D_ASSERT(entry->second.get().type == CatalogType::SCHEMA_ENTRY);
+	return entry->second.get();
+}
+
 optional_ptr<CatalogEntry> DuckLakeCatalogSet::GetEntryById(TableIndex index) {
 	auto entry = table_entry_map.find(index);
 	if (entry == table_entry_map.end()) {
@@ -47,6 +61,16 @@ void DuckLakeCatalogSet::AddEntry(DuckLakeSchemaEntry &schema, TableIndex id, un
 	auto catalog_type = entry->type;
 	table_entry_map.insert(make_pair(id, reference<CatalogEntry>(*entry)));
 	schema.AddEntry(catalog_type, std::move(entry));
+}
+
+void DuckLakeCatalogSet::RemapEntry(SchemaIndex old_index, SchemaIndex new_index, DuckLakeSchemaEntry &schema) {
+	schema_entry_map.erase(old_index);
+	schema_entry_map.insert(make_pair(new_index, reference<DuckLakeSchemaEntry>(schema)));
+}
+
+void DuckLakeCatalogSet::RemapEntry(TableIndex old_index, TableIndex new_index, DuckLakeTableEntry &table) {
+	table_entry_map.erase(old_index);
+	table_entry_map.insert(make_pair(new_index, reference<CatalogEntry>(table)));
 }
 
 } // namespace duckdb

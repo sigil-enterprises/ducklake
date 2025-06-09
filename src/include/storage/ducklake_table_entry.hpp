@@ -33,8 +33,9 @@ struct ColumnChangeInfo {
 class DuckLakeTableEntry : public TableCatalogEntry {
 public:
 	DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info, TableIndex table_id,
-	                   string table_uuid, shared_ptr<DuckLakeFieldData> field_data, optional_idx next_column_id,
-	                   vector<DuckLakeInlinedTableInfo> inlined_data_tables, LocalChange local_change);
+	                   string table_uuid, string data_path, shared_ptr<DuckLakeFieldData> field_data,
+	                   optional_idx next_column_id, vector<DuckLakeInlinedTableInfo> inlined_data_tables,
+	                   LocalChange local_change);
 
 public:
 	TableIndex GetTableId() const {
@@ -146,6 +147,7 @@ public:
 private:
 	TableIndex table_id;
 	string table_uuid;
+	string data_path;
 	shared_ptr<DuckLakeFieldData> field_data;
 	optional_idx next_column_id;
 	vector<DuckLakeInlinedTableInfo> inlined_data_tables;

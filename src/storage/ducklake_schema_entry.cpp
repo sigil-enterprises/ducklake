@@ -2,6 +2,7 @@
 #include "storage/ducklake_table_entry.hpp"
 #include "storage/ducklake_transaction.hpp"
 #include "storage/ducklake_view_entry.hpp"
+#include "storage/ducklake_catalog.hpp"
 
 #include "duckdb/planner/parsed_data/bound_create_table_info.hpp"
 #include "duckdb/parser/parsed_data/create_view_info.hpp"
@@ -12,8 +13,9 @@
 namespace duckdb {
 
 DuckLakeSchemaEntry::DuckLakeSchemaEntry(Catalog &catalog, CreateSchemaInfo &info, SchemaIndex schema_id,
-                                         string schema_uuid)
-    : SchemaCatalogEntry(catalog, info), schema_id(schema_id), schema_uuid(std::move(schema_uuid)) {
+                                         string schema_uuid, string data_path_p)
+    : SchemaCatalogEntry(catalog, info), schema_id(schema_id), schema_uuid(std::move(schema_uuid)),
+      data_path(std::move(data_path_p)) {
 }
 
 bool DuckLakeSchemaEntry::HandleCreateConflict(CatalogTransaction transaction, CatalogType catalog_type,
@@ -48,27 +50,37 @@ bool DuckLakeSchemaEntry::HandleCreateConflict(CatalogTransaction transaction, C
 	return true;
 }
 
-optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction transaction,
-                                                            BoundCreateTableInfo &info) {
-	auto &base_info = info.Base();
+optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTableExtended(CatalogTransaction transaction,
+                                                                    BoundCreateTableInfo &info, string table_uuid,
+                                                                    string table_data_path) {
 	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
+	auto &base_info = info.Base();
 	// check if we have an existing entry with this name
 	if (!HandleCreateConflict(transaction, CatalogType::TABLE_ENTRY, base_info.table, base_info.on_conflict)) {
 		return nullptr;
 	}
 	//! get a local table-id
 	auto table_id = TableIndex(duck_transaction.GetLocalCatalogId());
-	auto table_uuid = duck_transaction.GenerateUUID();
 	// generate field ids based on the column ids
 	idx_t column_id = 1;
 	auto field_data = DuckLakeFieldData::FromColumns(base_info.columns, column_id);
 	vector<DuckLakeInlinedTableInfo> inlined_tables;
 	auto table_entry = make_uniq<DuckLakeTableEntry>(ParentCatalog(), *this, base_info, table_id, std::move(table_uuid),
-	                                                 std::move(field_data), column_id, std::move(inlined_tables),
-	                                                 LocalChangeType::CREATED);
+	                                                 std::move(table_data_path), std::move(field_data), column_id,
+	                                                 std::move(inlined_tables), LocalChangeType::CREATED);
 	auto result = table_entry.get();
 	duck_transaction.CreateEntry(std::move(table_entry));
 	return result;
+}
+
+optional_ptr<CatalogEntry> DuckLakeSchemaEntry::CreateTable(CatalogTransaction transaction,
+                                                            BoundCreateTableInfo &info) {
+	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
+	auto &duck_catalog = catalog.Cast<DuckLakeCatalog>();
+	auto &base_info = info.Base();
+	auto table_uuid = duck_transaction.GenerateUUID();
+	auto table_data_path = DataPath() + duck_catalog.GeneratePathFromName(table_uuid, base_info.table);
+	return CreateTableExtended(transaction, info, std::move(table_uuid), std::move(table_data_path));
 }
 
 bool DuckLakeSchemaEntry::CatalogTypeIsSupported(CatalogType type) {
@@ -264,6 +276,12 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::LookupEntry(CatalogTransaction t
                                                             const EntryLookupInfo &lookup_info) {
 	auto catalog_type = lookup_info.GetCatalogType();
 	auto &entry_name = lookup_info.GetEntryName();
+	if (catalog_type == CatalogType::TABLE_FUNCTION_ENTRY) {
+		auto entry = TryLoadBuiltInFunction(entry_name);
+		if (entry) {
+			return entry;
+		}
+	}
 	if (!CatalogTypeIsSupported(catalog_type)) {
 		return nullptr;
 	}

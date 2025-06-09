@@ -17,8 +17,7 @@ class DuckLakeTransaction;
 
 class DuckLakeInitializer {
 public:
-	DuckLakeInitializer(ClientContext &context, DuckLakeCatalog &catalog, const string &metadata_database,
-	                    const string &metadata_path, string &schema, string &data_path);
+	DuckLakeInitializer(ClientContext &context, DuckLakeCatalog &catalog, DuckLakeOptions &options);
 
 public:
 	void Initialize();
@@ -26,14 +25,14 @@ public:
 private:
 	void InitializeNewDuckLake(DuckLakeTransaction &transaction, bool has_explicit_schema);
 	void LoadExistingDuckLake(DuckLakeTransaction &transaction);
+	void InitializeDataPath();
+	string GetAttachOptions();
+	void CheckAndAutoloadedRequiredExtension(const string &pattern);
 
 private:
 	ClientContext &context;
 	DuckLakeCatalog &catalog;
-	const string &metadata_database;
-	const string &metadata_path;
-	string &schema;
-	string &data_path;
+	DuckLakeOptions &options;
 };
 
 } // namespace duckdb

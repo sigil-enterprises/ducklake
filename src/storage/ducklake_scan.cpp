@@ -60,6 +60,13 @@ virtual_column_map_t DuckLakeVirtualColumns(ClientContext &context, optional_ptr
 	return result;
 }
 
+vector<column_t> DuckLakeGetRowIdColumn(ClientContext &context, optional_ptr<FunctionData> bind_data) {
+	vector<column_t> result;
+	result.emplace_back(MultiFileReader::COLUMN_IDENTIFIER_FILENAME);
+	result.emplace_back(MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER);
+	return result;
+}
+
 TableFunction DuckLakeFunctions::GetDuckLakeScanFunction(DatabaseInstance &instance) {
 	// Parquet extension needs to be loaded for this to make sense
 	ExtensionHelper::AutoLoadExtension(instance, "parquet");
@@ -75,6 +82,7 @@ TableFunction DuckLakeFunctions::GetDuckLakeScanFunction(DatabaseInstance &insta
 	function.statistics = DuckLakeStatistics;
 	function.get_bind_info = DuckLakeBindInfo;
 	function.get_virtual_columns = DuckLakeVirtualColumns;
+	function.get_row_id_columns = DuckLakeGetRowIdColumn;
 
 	// Unset all of these: they are either broken, very inefficient.
 	// TODO: implement/fix these

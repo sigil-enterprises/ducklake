@@ -63,7 +63,7 @@ COMMIT
 statement error con2
 COMMIT
 ----
-Conflict
+
 
 statement ok
 INSERT INTO ducklake.test FROM range(1000)

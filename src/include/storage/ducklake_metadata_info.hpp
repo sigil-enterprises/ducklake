@@ -16,6 +16,7 @@
 #include "duckdb/common/types/value.hpp"
 #include "common/index.hpp"
 #include "common/ducklake_data_file.hpp"
+#include "common/ducklake_name_map.hpp"
 #include "storage/ducklake_inlined_data.hpp"
 
 namespace duckdb {
@@ -25,14 +26,27 @@ struct DuckLakeTag {
 	string value;
 };
 
+struct DuckLakeSchemaSetting {
+	SchemaIndex schema_id;
+	DuckLakeTag tag;
+};
+
+struct DuckLakeTableSetting {
+	TableIndex table_id;
+	DuckLakeTag tag;
+};
+
 struct DuckLakeMetadata {
 	vector<DuckLakeTag> tags;
+	vector<DuckLakeSchemaSetting> schema_settings;
+	vector<DuckLakeTableSetting> table_settings;
 };
 
 struct DuckLakeSchemaInfo {
 	SchemaIndex id;
 	string uuid;
 	string name;
+	string path;
 	vector<DuckLakeTag> tags;
 };
 
@@ -42,14 +56,14 @@ struct DuckLakeColumnInfo {
 	string type;
 	Value initial_default;
 	Value default_value;
-	bool nulls_allowed;
+	bool nulls_allowed {};
 	vector<DuckLakeColumnInfo> children;
 	vector<DuckLakeTag> tags;
 };
 
 struct DuckLakeInlinedTableInfo {
 	string table_name;
-	idx_t schema_snapshot;
+	idx_t schema_version;
 };
 
 struct DuckLakeTableInfo {
@@ -57,6 +71,7 @@ struct DuckLakeTableInfo {
 	SchemaIndex schema_id;
 	string uuid;
 	string name;
+	string path;
 	vector<DuckLakeColumnInfo> columns;
 	vector<DuckLakeTag> tags;
 	vector<DuckLakeInlinedTableInfo> inlined_data_tables;
@@ -77,19 +92,26 @@ struct DuckLakeFilePartitionInfo {
 	string partition_value;
 };
 
+struct DuckLakePartialFileInfo {
+	idx_t snapshot_id;
+	idx_t max_row_count;
+};
+
 struct DuckLakeFileInfo {
 	DataFileIndex id;
 	TableIndex table_id;
 	string file_name;
 	idx_t row_count;
 	idx_t file_size_bytes;
-	idx_t footer_size;
+	optional_idx footer_size;
 	optional_idx row_id_start;
 	optional_idx partition_id;
 	optional_idx begin_snapshot;
 	string encryption_key;
+	MappingIndex mapping_id;
 	vector<DuckLakeColumnStatsInfo> column_stats;
 	vector<DuckLakeFilePartitionInfo> partition_values;
+	vector<DuckLakePartialFileInfo> partial_file_info;
 };
 
 struct DuckLakeInlinedDataInfo {
@@ -209,7 +231,7 @@ struct DuckLakeFileData {
 	string path;
 	string encryption_key;
 	idx_t file_size_bytes = 0;
-	idx_t footer_size = 0;
+	optional_idx footer_size;
 };
 
 enum class DuckLakeDataType {
@@ -224,6 +246,7 @@ struct DuckLakeFileListEntry {
 	idx_t row_id_start;
 	optional_idx snapshot_id;
 	optional_idx max_row_count;
+	MappingIndex mapping_id;
 	DuckLakeDataType data_type = DuckLakeDataType::DATA_FILE;
 };
 
@@ -233,6 +256,7 @@ struct DuckLakeDeleteScanEntry {
 	DuckLakeFileData previous_delete_file;
 	idx_t row_count;
 	idx_t row_id_start;
+	MappingIndex mapping_id;
 	optional_idx snapshot_id;
 };
 
@@ -265,16 +289,12 @@ struct DuckLakeFileScheduledForCleanup {
 
 struct DuckLakeCompactionFileData : public DuckLakeCompactionBaseFileData {
 	idx_t row_id_start;
+	MappingIndex mapping_id;
 	optional_idx partition_id;
 	vector<string> partition_values;
 };
 
 struct DuckLakeCompactionDeleteFileData : public DuckLakeCompactionBaseFileData {};
-
-struct DuckLakePartialFileInfo {
-	idx_t snapshot_id;
-	idx_t max_row_count;
-};
 
 struct DuckLakeCompactionFileEntry {
 	DuckLakeCompactionFileData file;
@@ -293,17 +313,44 @@ struct DuckLakeCompactedFileInfo {
 	string path;
 	DataFileIndex source_id;
 	DataFileIndex new_id;
-	idx_t snapshot_id;
-	idx_t new_row_id_limit;
 };
 
 struct DuckLakeTableSizeInfo {
+	SchemaIndex schema_id;
 	TableIndex table_id;
 	string table_name;
+	string table_uuid;
 	idx_t file_size_bytes = 0;
 	idx_t delete_file_size_bytes = 0;
 	idx_t file_count = 0;
 	idx_t delete_file_count = 0;
+};
+
+struct DuckLakePath {
+	string path;
+	bool path_is_relative;
+};
+
+struct DuckLakeConfigOption {
+	DuckLakeTag option;
+	//! schema_id, if scoped to a schema
+	SchemaIndex schema_id;
+	//! table_id, if scoped to a table
+	TableIndex table_id;
+};
+
+struct DuckLakeNameMapColumnInfo {
+	idx_t column_id;
+	string source_name;
+	FieldIndex target_field_id;
+	optional_idx parent_column;
+};
+
+struct DuckLakeColumnMappingInfo {
+	TableIndex table_id;
+	MappingIndex mapping_id;
+	string map_type;
+	vector<DuckLakeNameMapColumnInfo> map_columns;
 };
 
 } // namespace duckdb

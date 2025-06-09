@@ -59,7 +59,7 @@ shared_ptr<MultiFileList> DuckLakeMultiFileReader::CreateFileList(ClientContext 
 	return std::move(result);
 }
 
-MultiFileColumnDefinition CreateColumnFromFieldId(const DuckLakeFieldId &field_id) {
+MultiFileColumnDefinition CreateColumnFromFieldId(const DuckLakeFieldId &field_id, bool emit_key_value) {
 	MultiFileColumnDefinition column(field_id.Name(), field_id.Type());
 	auto &column_data = field_id.GetColumnData();
 	if (column_data.initial_default.IsNull()) {
@@ -69,15 +69,23 @@ MultiFileColumnDefinition CreateColumnFromFieldId(const DuckLakeFieldId &field_i
 	}
 	column.identifier = Value::INTEGER(field_id.GetFieldIndex().index);
 	for (auto &child : field_id.Children()) {
-		column.children.push_back(CreateColumnFromFieldId(*child));
+		column.children.push_back(CreateColumnFromFieldId(*child, emit_key_value));
+	}
+	if (field_id.Type().id() == LogicalTypeId::MAP && emit_key_value) {
+		// for maps, insert a dummy "key_value" entry
+		MultiFileColumnDefinition key_val("key_value", LogicalTypeId::INVALID);
+		key_val.children = std::move(column.children);
+		column.children.push_back(std::move(key_val));
 	}
 	return column;
 }
 
-vector<MultiFileColumnDefinition> DuckLakeMultiFileReader::ColumnsFromFieldData(const DuckLakeFieldData &field_data) {
+// FIXME: emit_key_value is a work-around for an inconsistency in the MultiFileColumnMapper
+vector<MultiFileColumnDefinition> DuckLakeMultiFileReader::ColumnsFromFieldData(const DuckLakeFieldData &field_data,
+                                                                                bool emit_key_value) {
 	vector<MultiFileColumnDefinition> result;
 	for (auto &item : field_data.GetFieldIds()) {
-		result.push_back(CreateColumnFromFieldId(*item));
+		result.push_back(CreateColumnFromFieldId(*item, emit_key_value));
 	}
 	return result;
 }
@@ -162,26 +170,26 @@ shared_ptr<BaseFileReader> DuckLakeMultiFileReader::TryCreateInlinedDataReader(c
 		if (!transaction_local_data) {
 			throw InternalException("No transaction local data");
 		}
-		auto columns = DuckLakeMultiFileReader::ColumnsFromFieldData(read_info.table.GetFieldData());
+		auto columns = DuckLakeMultiFileReader::ColumnsFromFieldData(read_info.table.GetFieldData(), true);
 		return make_shared_ptr<DuckLakeInlinedDataReader>(read_info, file, transaction_local_data, std::move(columns));
 	}
-	optional_idx schema_snapshot;
-	auto version_entry = file.extended_info->options.find("schema_snapshot");
+	optional_idx schema_version;
+	auto version_entry = file.extended_info->options.find("schema_version");
 	if (version_entry != file.extended_info->options.end()) {
-		schema_snapshot = version_entry->second.GetValue<idx_t>();
+		schema_version = version_entry->second.GetValue<idx_t>();
 	}
 	reference<DuckLakeTableEntry> schema_table = read_info.table;
-	if (schema_snapshot.IsValid()) {
+	if (schema_version.IsValid()) {
 		// read the table at the specified version
 		auto transaction = read_info.GetTransaction();
 		auto &catalog = transaction->GetCatalog();
 
-		DuckLakeSnapshot snapshot(0, schema_snapshot.GetIndex(), 0, 0);
+		DuckLakeSnapshot snapshot(0, schema_version.GetIndex(), 0, 0);
 		auto entry = catalog.GetEntryById(*transaction, snapshot, read_info.table.GetTableId());
 		schema_table = entry->Cast<DuckLakeTableEntry>();
 	}
 	// we are reading from a table - set up the inlined data reader that will read this data when requested
-	auto columns = DuckLakeMultiFileReader::ColumnsFromFieldData(schema_table.get().GetFieldData());
+	auto columns = DuckLakeMultiFileReader::ColumnsFromFieldData(schema_table.get().GetFieldData(), true);
 	columns.insert(columns.begin(), *snapshot_id_column);
 	columns.insert(columns.begin(), *row_id_column);
 
@@ -210,6 +218,67 @@ shared_ptr<BaseFileReader> DuckLakeMultiFileReader::CreateReader(ClientContext &
 		return reader;
 	}
 	return MultiFileReader::CreateReader(context, file, options, file_options, interface);
+}
+
+vector<MultiFileColumnDefinition> MapColumns(const vector<MultiFileColumnDefinition> &global_map,
+                                             const vector<unique_ptr<DuckLakeNameMapEntry>> &column_maps) {
+	vector<MultiFileColumnDefinition> result;
+
+	// create a map of field id -> column map index for the mapping at this level
+	unordered_map<idx_t, idx_t> field_id_map;
+	for (idx_t column_map_idx = 0; column_map_idx < column_maps.size(); column_map_idx++) {
+		auto &column_map = *column_maps[column_map_idx];
+		field_id_map.emplace(column_map.target_field_id.index, column_map_idx);
+	}
+	// iterate over the global columns
+	// note: we make a copy of the column here on purpose - we override it to generate the new column map
+	for (auto global_column : global_map) {
+		auto field_id = global_column.identifier.GetValue<idx_t>();
+		// look up the field id
+		auto entry = field_id_map.find(field_id);
+		if (entry == field_id_map.end()) {
+			// field-id not found - this means the column is not present in the file
+			// replace the identifier with a stub name to ensure it is omitted
+			global_column.identifier = Value("__ducklake_unknown_identifier");
+		} else {
+			// field-id found - add the name-based mapping at this level
+			auto &column_map = column_maps[entry->second];
+			global_column.identifier = Value(column_map->source_name);
+			// recursively process any child nodes
+			if (!column_map->child_entries.empty()) {
+				global_column.children = MapColumns(global_column.children, column_map->child_entries);
+			}
+		}
+		result.push_back(std::move(global_column));
+	}
+	return result;
+}
+
+vector<MultiFileColumnDefinition> CreateNewMapping(const vector<MultiFileColumnDefinition> &global_map,
+                                                   const DuckLakeNameMap &name_map) {
+	return MapColumns(global_map, name_map.column_maps);
+}
+
+ReaderInitializeType DuckLakeMultiFileReader::CreateMapping(
+    ClientContext &context, MultiFileReaderData &reader_data, const vector<MultiFileColumnDefinition> &global_columns,
+    const vector<ColumnIndex> &global_column_ids, optional_ptr<TableFilterSet> filters, MultiFileList &multi_file_list,
+    const MultiFileReaderBindData &bind_data, const virtual_column_map_t &virtual_columns) {
+	if (reader_data.reader->file.extended_info) {
+		auto &file_options = reader_data.reader->file.extended_info->options;
+		auto entry = file_options.find("mapping_id");
+		if (entry != file_options.end()) {
+			auto mapping_id = MappingIndex(entry->second.GetValue<idx_t>());
+			auto transaction = read_info.transaction.lock();
+			auto &mapping = transaction->GetMappingById(mapping_id);
+			// use the mapping to generate a new set of global columns for this file
+			auto mapped_columns = CreateNewMapping(global_columns, mapping);
+			return MultiFileReader::CreateMapping(context, reader_data, mapped_columns, global_column_ids, filters,
+			                                      multi_file_list, bind_data, virtual_columns,
+			                                      MultiFileColumnMappingMode::BY_NAME);
+		}
+	}
+	return MultiFileReader::CreateMapping(context, reader_data, global_columns, global_column_ids, filters,
+	                                      multi_file_list, bind_data, virtual_columns);
 }
 
 unique_ptr<Expression> DuckLakeMultiFileReader::GetVirtualColumnExpression(

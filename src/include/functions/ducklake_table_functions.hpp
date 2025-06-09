@@ -10,6 +10,7 @@
 
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/parser/parsed_data/create_macro_info.hpp"
+#include "duckdb/function/function_set.hpp"
 
 namespace duckdb {
 class DuckLakeCatalog;
@@ -37,15 +38,20 @@ public:
 	static vector<Value> GetSnapshotValues(const DuckLakeSnapshotInfo &snapshot);
 };
 
-class DuckLakeTableInsertionsFunction : public TableFunction {
+class DuckLakeTableInfoFunction : public BaseMetadataFunction {
 public:
-	DuckLakeTableInsertionsFunction();
+	DuckLakeTableInfoFunction();
+};
 
+class DuckLakeTableInsertionsFunction {
+public:
+	static TableFunctionSet GetFunctions();
 	static unique_ptr<CreateMacroInfo> GetDuckLakeTableChanges();
 };
 
-class DuckLakeTableDeletionsFunction : public TableFunction {
+class DuckLakeTableDeletionsFunction {
 public:
+	static TableFunctionSet GetFunctions();
 	DuckLakeTableDeletionsFunction();
 };
 
@@ -62,6 +68,26 @@ public:
 class DuckLakeExpireSnapshotsFunction : public TableFunction {
 public:
 	DuckLakeExpireSnapshotsFunction();
+};
+
+class DuckLakeSetOptionFunction : public TableFunction {
+public:
+	DuckLakeSetOptionFunction();
+};
+
+class DuckLakeOptionsFunction : public BaseMetadataFunction {
+public:
+	DuckLakeOptionsFunction();
+};
+
+class DuckLakeListFilesFunction : public BaseMetadataFunction {
+public:
+	DuckLakeListFilesFunction();
+};
+
+class DuckLakeAddDataFilesFunction : public TableFunction {
+public:
+	DuckLakeAddDataFilesFunction();
 };
 
 } // namespace duckdb

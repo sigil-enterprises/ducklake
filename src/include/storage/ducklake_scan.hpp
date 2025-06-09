@@ -25,7 +25,7 @@ public:
 
 	static unique_ptr<FunctionData> BindDuckLakeScan(ClientContext &context, TableFunction &function);
 
-	static CopyFunctionCatalogEntry &GetCopyFunction(DatabaseInstance &db, const string &name);
+	static CopyFunctionCatalogEntry &GetCopyFunction(ClientContext &context, const string &name);
 };
 
 enum class DuckLakeScanType { SCAN_TABLE, SCAN_INSERTIONS, SCAN_DELETIONS };

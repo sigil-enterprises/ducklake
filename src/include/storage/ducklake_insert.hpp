@@ -17,10 +17,12 @@
 
 namespace duckdb {
 class DuckLakeCatalog;
+class DuckLakeSchemaEntry;
 class DuckLakeTableEntry;
 class DuckLakeFieldData;
 struct DuckLakePartition;
 struct DuckLakeCopyOptions;
+struct DuckLakeCopyInput;
 
 enum class InsertVirtualColumns { NONE, WRITE_ROW_ID, WRITE_SNAPSHOT_ID, WRITE_ROW_ID_AND_SNAPSHOT_ID };
 
@@ -41,7 +43,7 @@ public:
 	               string encryption_key);
 	//! CREATE TABLE AS
 	DuckLakeInsert(const vector<LogicalType> &types, SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info,
-	               string encryption_key);
+	               string table_uuid, string table_data_path, string encryption_key);
 
 	//! The table to insert into
 	optional_ptr<DuckLakeTableEntry> table;
@@ -49,6 +51,10 @@ public:
 	optional_ptr<SchemaCatalogEntry> schema;
 	//! Create table info, in case of CREATE TABLE AS
 	unique_ptr<BoundCreateTableInfo> info;
+	//! The table UUID, in case of CREATE TABLE AS
+	string table_uuid;
+	//! The table data path, in case of CREATE TABLE AS
+	string table_data_path;
 	//! The partition id we are writing into (if any)
 	optional_idx partition_id;
 	//! The encryption key used for writing the Parquet files
@@ -63,19 +69,9 @@ public:
 	}
 
 	static DuckLakeColumnStats ParseColumnStats(const LogicalType &type, const vector<Value> stats);
-	static DuckLakeCopyOptions GetCopyOptions(ClientContext &context, const ColumnList &columns,
-	                                          optional_ptr<DuckLakePartition> partition_data,
-	                                          optional_ptr<DuckLakeFieldData> field_data, const string &data_path,
-	                                          string encryption_key, InsertVirtualColumns virtual_columns);
+	static DuckLakeCopyOptions GetCopyOptions(ClientContext &context, DuckLakeCopyInput &copy_input);
 	static PhysicalOperator &PlanCopyForInsert(ClientContext &context, PhysicalPlanGenerator &planner,
-	                                           DuckLakeTableEntry &table, optional_ptr<PhysicalOperator> plan,
-	                                           string encryption_key,
-	                                           InsertVirtualColumns virtual_columns = InsertVirtualColumns::NONE);
-	static PhysicalOperator &
-	PlanCopyForInsert(ClientContext &context, const ColumnList &columns, PhysicalPlanGenerator &planner,
-	                  optional_ptr<DuckLakePartition> partition_data, optional_ptr<DuckLakeFieldData> field_data,
-	                  optional_ptr<PhysicalOperator> plan, const string &data_path, string encryption_key,
-	                  InsertVirtualColumns virtual_columns = InsertVirtualColumns::NONE);
+	                                           DuckLakeCopyInput &copy_input, optional_ptr<PhysicalOperator> plan);
 	static PhysicalOperator &PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner,
 	                                    DuckLakeTableEntry &table, string encryption_key);
 	static void AddWrittenFiles(DuckLakeInsertGlobalState &gstate, DataChunk &chunk, const string &encryption_key,
@@ -124,6 +120,22 @@ struct DuckLakeCopyOptions {
 	vector<idx_t> partition_columns;
 	vector<string> names;
 	vector<LogicalType> expected_types;
+};
+
+struct DuckLakeCopyInput {
+	explicit DuckLakeCopyInput(ClientContext &context, DuckLakeTableEntry &table);
+	DuckLakeCopyInput(ClientContext &context, DuckLakeSchemaEntry &schema, const ColumnList &columns,
+	                  const string &data_path_p);
+
+	DuckLakeCatalog &catalog;
+	optional_ptr<DuckLakePartition> partition_data;
+	optional_ptr<DuckLakeFieldData> field_data;
+	const ColumnList &columns;
+	const string &data_path;
+	string encryption_key;
+	SchemaIndex schema_id;
+	TableIndex table_id;
+	InsertVirtualColumns virtual_columns = InsertVirtualColumns::NONE;
 };
 
 } // namespace duckdb

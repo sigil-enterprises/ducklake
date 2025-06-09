@@ -8,23 +8,25 @@
 
 #pragma once
 
+#include "common/ducklake_encryption.hpp"
+#include "common/ducklake_options.hpp"
+#include "common/ducklake_name_map.hpp"
 #include "duckdb/catalog/catalog.hpp"
 #include "storage/ducklake_catalog_set.hpp"
-#include "storage/ducklake_stats.hpp"
 #include "storage/ducklake_partition_data.hpp"
-#include "common/ducklake_encryption.hpp"
+#include "storage/ducklake_stats.hpp"
 
 namespace duckdb {
 class ColumnList;
 class DuckLakeFieldData;
 struct DuckLakeFileListEntry;
+struct DuckLakeConfigOption;
 struct DeleteFileMap;
 class LogicalGet;
 
 class DuckLakeCatalog : public Catalog {
 public:
-	DuckLakeCatalog(AttachedDatabase &db_p, string metadata_database, string metadata_path, string data_path,
-	                string metadata_schema, DuckLakeEncryption encryption, idx_t data_inlining_row_limit);
+	DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options);
 	~DuckLakeCatalog();
 
 public:
@@ -34,20 +36,27 @@ public:
 		return "ducklake";
 	}
 	const string &MetadataDatabaseName() const {
-		return metadata_database;
+		return options.metadata_database;
 	}
 	const string &MetadataSchemaName() const {
-		return metadata_schema;
+		return options.metadata_schema;
 	}
 	const string &MetadataPath() const {
-		return metadata_path;
+		return options.metadata_path;
 	}
 	const string &DataPath() const {
-		return data_path;
+		return options.data_path;
 	}
 	idx_t DataInliningRowLimit() const {
-		return data_inlining_row_limit;
+		return options.data_inlining_row_limit;
 	}
+	string &Separator() {
+		return separator;
+	}
+	void SetConfigOption(const DuckLakeConfigOption &option);
+	bool TryGetConfigOption(const string &option, string &result, SchemaIndex schema_id, TableIndex table_id) const;
+
+	optional_ptr<BoundAtClause> CatalogSnapshot() const;
 
 	optional_ptr<CatalogEntry> CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) override;
 
@@ -73,7 +82,10 @@ public:
 	                                               TableIndex table_id);
 
 	optional_ptr<CatalogEntry> GetEntryById(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
+	                                        SchemaIndex schema_id);
+	optional_ptr<CatalogEntry> GetEntryById(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
 	                                        TableIndex table_id);
+	string GeneratePathFromName(const string &uuid, const string &name);
 
 	bool InMemory() override;
 	string GetDBPath() override;
@@ -83,7 +95,7 @@ public:
 	}
 
 	DuckLakeEncryption Encryption() const {
-		return encryption;
+		return options.encryption;
 	}
 	void SetEncryption(DuckLakeEncryption encryption);
 	// Generate an encryption key for writing (or empty if encryption is disabled)
@@ -92,6 +104,13 @@ public:
 	void OnDetach(ClientContext &context) override;
 
 	optional_idx GetCatalogVersion(ClientContext &context) override;
+
+	idx_t GetNewUncommittedCatalogVersion() {
+		return ++last_uncommitted_catalog_version;
+	}
+
+	optional_ptr<const DuckLakeNameMap> TryGetMappingById(DuckLakeTransaction &transaction, MappingIndex mapping_id);
+	MappingIndex TryGetCompatibleNameMap(DuckLakeTransaction &transaction, const DuckLakeNameMap &name_map);
 
 private:
 	void DropSchema(ClientContext &context, DropInfo &info) override;
@@ -102,6 +121,7 @@ private:
 	DuckLakeStats &GetStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
 	unique_ptr<DuckLakeStats> LoadStatsForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
 	                                               DuckLakeCatalogSet &schema);
+	void LoadNameMaps(DuckLakeTransaction &transaction);
 
 private:
 	mutex schemas_lock;
@@ -109,12 +129,18 @@ private:
 	unordered_map<idx_t, unique_ptr<DuckLakeCatalogSet>> schemas;
 	//! Map of data file index -> table stats
 	unordered_map<idx_t, unique_ptr<DuckLakeStats>> stats;
-	string metadata_database;
-	string metadata_path;
-	string data_path;
-	string metadata_schema;
-	DuckLakeEncryption encryption;
-	idx_t data_inlining_row_limit;
+	//! Map of mapping index -> name map
+	DuckLakeNameMapSet name_maps;
+	//! The maximum name map index we have loaded so far
+	optional_idx loaded_name_map_index;
+	//! The configuration lock
+	mutable mutex config_lock;
+	//! The DuckLake options
+	DuckLakeOptions options;
+	// The path separator
+	string separator = "/";
+	//! A unique tracker for catalog changes in uncommitted transactions.
+	atomic<idx_t> last_uncommitted_catalog_version;
 };
 
 } // namespace duckdb

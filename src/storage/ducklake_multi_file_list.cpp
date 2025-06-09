@@ -62,7 +62,7 @@ string CastValueToTarget(const Value &val, const LogicalType &type) {
 string CastStatsToTarget(const string &stats, const LogicalType &type) {
 	// we only need to cast numerics
 	if (type.IsNumeric()) {
-		return stats + "::" + type.ToString();
+		return "TRY_CAST(" + stats + " AS " + type.ToString() + ")";
 	}
 	return stats;
 }
@@ -314,18 +314,23 @@ OpenFileInfo DuckLakeMultiFileList::GetFile(idx_t i) {
 		// scanning transaction local data
 		extended_info->options["transaction_local_data"] = Value::BOOLEAN(true);
 		extended_info->options["inlined_data"] = Value::BOOLEAN(true);
-		extended_info->options["row_id_start"] = Value::BIGINT(files[i].row_id_start);
+		extended_info->options["row_id_start"] = Value::BIGINT(file_entry.row_id_start);
 		extended_info->options["snapshot_id"] = Value(LogicalType::BIGINT);
+		if (file_entry.mapping_id.IsValid()) {
+			extended_info->options["mapping_id"] = Value::UBIGINT(file_entry.mapping_id.index);
+		}
 	} else if (i >= inlined_data_file_start) {
 		// scanning inlined data
 		auto inlined_data_index = i - inlined_data_file_start;
 		auto &inlined_data_table = inlined_data_tables[inlined_data_index];
 		extended_info->options["table_name"] = inlined_data_table.table_name;
 		extended_info->options["inlined_data"] = Value::BOOLEAN(true);
-		extended_info->options["schema_snapshot"] = Value::BIGINT(inlined_data_table.schema_snapshot);
+		extended_info->options["schema_version"] = Value::BIGINT(inlined_data_table.schema_version);
 	} else {
 		extended_info->options["file_size"] = Value::UBIGINT(file.file_size_bytes);
-		extended_info->options["footer_size"] = Value::UBIGINT(file.footer_size);
+		if (file.footer_size.IsValid()) {
+			extended_info->options["footer_size"] = Value::UBIGINT(file.footer_size.GetIndex());
+		}
 		extended_info->options["row_id_start"] = Value::UBIGINT(files[i].row_id_start);
 		Value snapshot_id;
 		if (files[i].snapshot_id.IsValid()) {
@@ -344,6 +349,9 @@ OpenFileInfo DuckLakeMultiFileList::GetFile(idx_t i) {
 		extended_info->options["last_modified"] = Value::TIMESTAMP(timestamp_t(0));
 		if (!file_entry.delete_file.path.empty() || file_entry.max_row_count.IsValid()) {
 			extended_info->options["has_deletes"] = Value::BOOLEAN(true);
+		}
+		if (file_entry.mapping_id.IsValid()) {
+			extended_info->options["mapping_id"] = Value::UBIGINT(file_entry.mapping_id.index);
 		}
 	}
 	result.extended_info = std::move(extended_info);
@@ -393,7 +401,7 @@ vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() 
 	if (!read_info.table_id.IsTransactionLocal()) {
 		// not a transaction local table - read the file list from the metadata store
 		auto &metadata_manager = transaction.GetMetadataManager();
-		result = metadata_manager.GetExtendedFilesForTable(read_info.snapshot, read_info.table_id, filter);
+		result = metadata_manager.GetExtendedFilesForTable(read_info.table, read_info.snapshot, filter);
 	}
 	if (transaction.HasDroppedFiles()) {
 		for (idx_t file_idx = 0; file_idx < result.size(); file_idx++) {
@@ -463,7 +471,7 @@ void DuckLakeMultiFileList::GetFilesForTable() {
 	if (!read_info.table_id.IsTransactionLocal()) {
 		// not a transaction local table - read the file list from the metadata store
 		auto &metadata_manager = transaction.GetMetadataManager();
-		files = metadata_manager.GetFilesForTable(read_info.snapshot, read_info.table_id, filter);
+		files = metadata_manager.GetFilesForTable(read_info.table, read_info.snapshot, filter);
 	}
 	if (transaction.HasDroppedFiles()) {
 		for (idx_t file_idx = 0; file_idx < files.size(); file_idx++) {
@@ -485,6 +493,7 @@ void DuckLakeMultiFileList::GetFilesForTable() {
 		file_entry.file = GetFileData(file);
 		file_entry.row_id_start = transaction_row_start;
 		file_entry.delete_file = GetDeleteData(file);
+		file_entry.mapping_id = file.mapping_id;
 		transaction_row_start += file.row_count;
 		files.emplace_back(std::move(file_entry));
 	}
@@ -513,7 +522,7 @@ void DuckLakeMultiFileList::GetTableInsertions() {
 	auto transaction_ref = read_info.GetTransaction();
 	auto &transaction = *transaction_ref;
 	auto &metadata_manager = transaction.GetMetadataManager();
-	files = metadata_manager.GetTableInsertions(*read_info.start_snapshot, read_info.snapshot, read_info.table_id);
+	files = metadata_manager.GetTableInsertions(read_info.table, *read_info.start_snapshot, read_info.snapshot);
 	// add inlined data tables as sources (if any)
 	auto &inlined_data_tables = read_info.table.GetInlinedDataTables();
 	for (auto &table : inlined_data_tables) {
@@ -532,13 +541,13 @@ void DuckLakeMultiFileList::GetTableDeletions() {
 	auto transaction_ref = read_info.GetTransaction();
 	auto &transaction = *transaction_ref;
 	auto &metadata_manager = transaction.GetMetadataManager();
-	delete_scans =
-	    metadata_manager.GetTableDeletions(*read_info.start_snapshot, read_info.snapshot, read_info.table_id);
+	delete_scans = metadata_manager.GetTableDeletions(read_info.table, *read_info.start_snapshot, read_info.snapshot);
 	for (auto &file : delete_scans) {
 		DuckLakeFileListEntry file_entry;
 		file_entry.file = file.file;
 		file_entry.row_id_start = file.row_id_start;
 		file_entry.snapshot_id = file.snapshot_id;
+		file_entry.mapping_id = file.mapping_id;
 		files.emplace_back(std::move(file_entry));
 	}
 	// add inlined data tables as sources (if any)

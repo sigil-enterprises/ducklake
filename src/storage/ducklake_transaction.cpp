@@ -1,23 +1,24 @@
 #include "storage/ducklake_transaction.hpp"
+
+#include "common/ducklake_types.hpp"
+#include "common/ducklake_util.hpp"
+#include "duckdb/common/types/uuid.hpp"
+#include "duckdb/main/attached_database.hpp"
+#include "duckdb/main/database_manager.hpp"
+#include "duckdb/planner/tableref/bound_at_clause.hpp"
 #include "storage/ducklake_catalog.hpp"
 #include "storage/ducklake_schema_entry.hpp"
 #include "storage/ducklake_table_entry.hpp"
-#include "storage/ducklake_view_entry.hpp"
-#include "common/ducklake_types.hpp"
-#include "common/ducklake_util.hpp"
-
-#include "duckdb/common/types/uuid.hpp"
-#include "duckdb/main/database_manager.hpp"
-#include "duckdb/main/attached_database.hpp"
-#include "duckdb/planner/tableref/bound_at_clause.hpp"
 #include "storage/ducklake_transaction_changes.hpp"
+#include "storage/ducklake_transaction_manager.hpp"
+#include "storage/ducklake_view_entry.hpp"
 
 namespace duckdb {
 
 DuckLakeTransaction::DuckLakeTransaction(DuckLakeCatalog &ducklake_catalog, TransactionManager &manager,
                                          ClientContext &context)
     : Transaction(manager, context), ducklake_catalog(ducklake_catalog), db(*context.db),
-      local_catalog_id(DuckLakeConstants::TRANSACTION_LOCAL_ID_START) {
+      local_catalog_id(DuckLakeConstants::TRANSACTION_LOCAL_ID_START), catalog_version(0) {
 	metadata_manager = make_uniq<DuckLakeMetadataManager>(*this);
 }
 
@@ -61,7 +62,7 @@ bool DuckLakeTransaction::SchemaChangesMade() {
 
 bool DuckLakeTransaction::ChangesMade() {
 	return SchemaChangesMade() || !new_data_files.empty() || !new_delete_files.empty() || !dropped_files.empty() ||
-	       !new_inlined_data.empty() || !new_inlined_data_deletes.empty();
+	       !new_inlined_data.empty() || !new_inlined_data_deletes.empty() || !new_name_maps.name_maps.empty();
 }
 
 struct TransactionChangeInformation {
@@ -327,7 +328,15 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 	// check if we are dropping the same table as another transaction
 	for (auto &dropped_idx : changes.dropped_tables) {
 		if (other_changes.dropped_tables.find(dropped_idx) != other_changes.dropped_tables.end()) {
-			throw TransactionException("Transaction conflict - attempting to drop table with table index \"%s\""
+			throw TransactionException("Transaction conflict - attempting to drop table with table index \"%d\""
+			                           "- but this has been dropped by another transaction already",
+			                           dropped_idx.index);
+		}
+	}
+	// check if we are dropping the same view as another transaction
+	for (auto &dropped_idx : changes.dropped_views) {
+		if (other_changes.dropped_views.find(dropped_idx) != other_changes.dropped_views.end()) {
+			throw TransactionException("Transaction conflict - attempting to drop view with view index \"%d\""
 			                           "- but this has been dropped by another transaction already",
 			                           dropped_idx.index);
 		}
@@ -489,13 +498,17 @@ vector<DuckLakeSchemaInfo> DuckLakeTransaction::GetNewSchemas(DuckLakeSnapshot &
 	vector<DuckLakeSchemaInfo> schemas;
 	for (auto &entry : new_schemas->GetEntries()) {
 		auto &schema_entry = entry.second->Cast<DuckLakeSchemaEntry>();
+		auto old_id = schema_entry.GetSchemaId();
 		DuckLakeSchemaInfo schema_info;
 		schema_info.id = SchemaIndex(commit_snapshot.next_catalog_id++);
 		schema_info.uuid = schema_entry.GetSchemaUUID();
 		schema_info.name = schema_entry.name;
+		schema_info.path = schema_entry.DataPath();
 
 		// set the schema id of this schema entry so subsequent tables are written correctly
 		schema_entry.SetSchemaId(schema_info.id);
+
+		new_schemas->RemapEntry(old_id, schema_info.id, schema_entry);
 
 		// add the schema to the list
 		schemas.push_back(std::move(schema_info));
@@ -574,6 +587,7 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 	table_entry.uuid = table.GetTableUUID();
 	table_entry.schema_id = schema.GetSchemaId();
 	table_entry.name = table.name;
+	table_entry.path = table.DataPath();
 	if (is_new_table) {
 		// if this is a new table - write the columns
 		table_entry.columns = GetTableColumns(table);
@@ -588,6 +602,13 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 		if (inlined_data_entry != new_inlined_data.end()) {
 			new_inlined_data[table_entry.id] = std::move(inlined_data_entry->second);
 			new_inlined_data.erase(original_id);
+		}
+		// same for column mappings that apply to this table
+		for (auto &entry : new_name_maps.name_maps) {
+			auto &name_map = *entry.second;
+			if (name_map.table_id == original_id) {
+				name_map.table_id = table_entry.id;
+			}
 		}
 	}
 	return table_entry;
@@ -620,8 +641,9 @@ void HandleChangedFields(TableIndex table_id, const ColumnChangeInfo &change_inf
 	}
 }
 
-void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> table_entry,
-                                          NewTableInfo &result, TransactionChangeInformation &transaction_changes) {
+void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, DuckLakeCatalogSet &catalog_set,
+                                          reference<CatalogEntry> table_entry, NewTableInfo &result,
+                                          TransactionChangeInformation &transaction_changes) {
 	// iterate over the table chain in reverse order when committing
 	// the latest entry is the root entry - but we need to commit starting from the first entry written
 	// gather all tables
@@ -635,6 +657,7 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 	}
 	// traverse in reverse order
 	bool column_schema_change = false;
+	TableIndex old_table_id;
 	TableIndex new_table_id;
 	for (idx_t table_idx = tables.size(); table_idx > 0; table_idx--) {
 		auto &table = tables[table_idx - 1].get();
@@ -716,6 +739,7 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 		case LocalChangeType::NONE:
 		case LocalChangeType::CREATED:
 		case LocalChangeType::RENAMED: {
+			old_table_id = table.GetTableId();
 			auto new_table = GetNewTable(commit_snapshot, table);
 			new_table_id = new_table.id;
 			result.new_tables.push_back(std::move(new_table));
@@ -724,6 +748,10 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, ref
 		default:
 			throw NotImplementedException("Unsupported transaction local change");
 		}
+	}
+	if (new_table_id.IsValid()) {
+		// if we changed the table-id - remap it in the transaction-local storage
+		catalog_set.RemapEntry(old_table_id, new_table_id, tables.front().get());
 	}
 	if (column_schema_change) {
 		// we changed the column definitions of a table - we need to create a new inlined data table (if data inlining
@@ -758,8 +786,9 @@ DuckLakeViewInfo DuckLakeTransaction::GetNewView(DuckLakeSnapshot &commit_snapsh
 	return view_entry;
 }
 
-void DuckLakeTransaction::GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, reference<CatalogEntry> view_entry,
-                                         NewTableInfo &result, TransactionChangeInformation &transaction_changes) {
+void DuckLakeTransaction::GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, DuckLakeCatalogSet &catalog_set,
+                                         reference<CatalogEntry> view_entry, NewTableInfo &result,
+                                         TransactionChangeInformation &transaction_changes) {
 	// iterate over the view chain in reverse order when committing
 	// the latest entry is the root entry - but we need to commit starting from the first entry written
 	// gather all views
@@ -810,10 +839,10 @@ NewTableInfo DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &commit_snapshot
 		for (auto &entry : schema_entry.second->GetEntries()) {
 			switch (entry.second->type) {
 			case CatalogType::TABLE_ENTRY:
-				GetNewTableInfo(commit_snapshot, *entry.second, result, transaction_changes);
+				GetNewTableInfo(commit_snapshot, *schema_entry.second, *entry.second, result, transaction_changes);
 				break;
 			case CatalogType::VIEW_ENTRY:
-				GetNewViewInfo(commit_snapshot, *entry.second, result, transaction_changes);
+				GetNewViewInfo(commit_snapshot, *schema_entry.second, *entry.second, result, transaction_changes);
 				break;
 			default:
 				throw InternalException("Unknown type in new_tables");
@@ -875,6 +904,7 @@ DuckLakeFileInfo DuckLakeTransaction::GetNewDataFile(DuckLakeDataFile &file, Duc
 	data_file.partition_id = file.partition_id;
 	data_file.encryption_key = file.encryption_key;
 	data_file.row_id_start = row_id_start;
+	data_file.mapping_id = file.mapping_id;
 	// gather the column statistics for this file
 	for (auto &column_stats_entry : file.column_stats) {
 		DuckLakeColumnStatsInfo column_stats;
@@ -1037,6 +1067,68 @@ vector<DuckLakeDeleteFileInfo> DuckLakeTransaction::GetNewDeleteFiles(DuckLakeSn
 	return result;
 }
 
+struct NewNameMapInfo {
+	vector<DuckLakeColumnMappingInfo> new_column_mappings;
+};
+
+void ConvertNameMapColumn(const DuckLakeNameMapEntry &name_map_entry, MappingIndex map_id, idx_t &column_idx,
+                          DuckLakeColumnMappingInfo &result, optional_idx parent_idx = optional_idx()) {
+	auto column_id = column_idx++;
+
+	DuckLakeNameMapColumnInfo column_info;
+	column_info.column_id = column_id;
+	column_info.source_name = std::move(name_map_entry.source_name);
+	column_info.target_field_id = name_map_entry.target_field_id;
+	column_info.parent_column = parent_idx;
+	result.map_columns.push_back(std::move(column_info));
+
+	// recurse into children
+	for (auto &child_column : name_map_entry.child_entries) {
+		ConvertNameMapColumn(*child_column, map_id, column_idx, result, column_id);
+	}
+}
+
+NewNameMapInfo DuckLakeTransaction::GetNewNameMaps(DuckLakeSnapshot &commit_snapshot) {
+	NewNameMapInfo result;
+	map<MappingIndex, MappingIndex> remap_mapping_index;
+	for (auto &entry : new_name_maps.name_maps) {
+		// generate a new mapping id
+		auto local_map_id = entry.first;
+		auto &mapping = *entry.second;
+		MappingIndex new_map_id(commit_snapshot.next_file_id++);
+
+		if (mapping.table_id.IsTransactionLocal()) {
+			throw InternalException("table_id should be rewritten to non-transaction local before");
+		}
+		DuckLakeColumnMappingInfo map_info;
+		map_info.table_id = mapping.table_id;
+		map_info.mapping_id = new_map_id;
+		map_info.map_type = "map_by_name";
+
+		// iterate over the columns to generate the new name map columns
+		idx_t column_idx = 0;
+		for (auto &name_map_column : mapping.column_maps) {
+			ConvertNameMapColumn(*name_map_column, new_map_id, column_idx, map_info);
+		}
+		result.new_column_mappings.push_back(std::move(map_info));
+
+		remap_mapping_index[local_map_id] = new_map_id;
+	}
+	// iterate over the data files to point them towards any new mapping ids
+	for (auto &entry : new_data_files) {
+		for (auto &data_file : entry.second) {
+			if (!data_file.mapping_id.IsValid()) {
+				continue;
+			}
+			auto entry = remap_mapping_index.find(data_file.mapping_id);
+			if (entry != remap_mapping_index.end()) {
+				data_file.mapping_id = entry->second;
+			}
+		}
+	}
+	return result;
+}
+
 vector<DuckLakeDeletedInlinedDataInfo> DuckLakeTransaction::GetNewInlinedDeletes(DuckLakeSnapshot &commit_snapshot) {
 	vector<DuckLakeDeletedInlinedDataInfo> result;
 	for (auto &entry : new_inlined_data_deletes) {
@@ -1089,6 +1181,12 @@ void DuckLakeTransaction::CommitChanges(DuckLakeSnapshot &commit_snapshot,
 		metadata_manager->WriteNewInlinedTables(commit_snapshot, result.new_inlined_data_tables);
 	}
 
+	// write new name maps
+	if (!new_name_maps.name_maps.empty()) {
+		auto result = GetNewNameMaps(commit_snapshot);
+		metadata_manager->WriteNewColumnMappings(commit_snapshot, result.new_column_mappings);
+	}
+
 	// write new data / data files
 	if (!new_data_files.empty() || !new_inlined_data.empty()) {
 		auto result = GetNewDataFiles(commit_snapshot);
@@ -1135,34 +1233,22 @@ CompactionInformation DuckLakeTransaction::GetCompactionChanges(DuckLakeSnapshot
 			for (auto &compacted_file : compaction.source_files) {
 				row_id_limit += compacted_file.file.row_count;
 
-				idx_t compacted_file_snapshot = compacted_file.file.begin_snapshot;
 				if (!compacted_file.partial_files.empty()) {
 					// first process any partial file info that already existed for this file
-					if (!result.compacted_files.empty()) {
+					if (!new_file.partial_file_info.empty()) {
 						throw InternalException("Only the first compacted file can have existing partial file info");
 					}
-					for (auto &partial_file : compacted_file.partial_files) {
-						if (partial_file.max_row_count == compacted_file.file.row_count) {
-							// this snapshot reads the entire file
-							// set the compacted file snapshot to this snapshot
-							compacted_file_snapshot = partial_file.snapshot_id;
-						} else {
-							DuckLakeCompactedFileInfo file_info;
-							file_info.path = string();
-							file_info.source_id = DataFileIndex(0);
-							file_info.new_id = new_file.id;
-							file_info.snapshot_id = partial_file.snapshot_id;
-							file_info.new_row_id_limit = partial_file.max_row_count;
-							result.compacted_files.push_back(std::move(file_info));
-						}
-					}
+					new_file.partial_file_info = compacted_file.partial_files;
+				} else {
+					DuckLakePartialFileInfo partial_info;
+					partial_info.snapshot_id = compacted_file.file.begin_snapshot;
+					partial_info.max_row_count = row_id_limit;
+					new_file.partial_file_info.push_back(partial_info);
 				}
 				DuckLakeCompactedFileInfo file_info;
 				file_info.path = compacted_file.file.data.path;
 				file_info.source_id = compacted_file.file.id;
 				file_info.new_id = new_file.id;
-				file_info.snapshot_id = compacted_file_snapshot;
-				file_info.new_row_id_limit = row_id_limit;
 				if (row_id_limit > new_file.row_count) {
 					throw InternalException("Compaction error - row id limit is larger than the row count of the file");
 				}
@@ -1181,6 +1267,23 @@ void DuckLakeTransaction::CommitCompaction(DuckLakeSnapshot &commit_snapshot,
 		metadata_manager->WriteCompactions(std::move(compaction_changes.compacted_files));
 		metadata_manager->WriteNewDataFiles(commit_snapshot, compaction_changes.new_files);
 	}
+}
+
+bool RetryOnError(const string &original_message) {
+	auto message = StringUtil::Lower(original_message);
+	// retry on primary key errors
+	if (StringUtil::Contains(message, "primary key") || StringUtil::Contains(message, "unique")) {
+		return true;
+	}
+	// retry on conflicts
+	if (StringUtil::Contains(message, "conflict")) {
+		return true;
+	}
+	// retry on concurrent access
+	if (StringUtil::Contains(message, "concurrent")) {
+		return true;
+	}
+	return false;
 }
 
 void DuckLakeTransaction::FlushChanges() {
@@ -1218,20 +1321,19 @@ void DuckLakeTransaction::FlushChanges() {
 
 			WriteSnapshotChanges(commit_snapshot, transaction_changes);
 			connection->Commit();
+			catalog_version = commit_snapshot.schema_version;
 			// finished writing
 			break;
 		} catch (std::exception &ex) {
 			ErrorData error(ex);
-			connection->Rollback();
-			if (error.Type() == ExceptionType::TRANSACTION) {
-				// immediately rethrow transaction conflicts - no need to retry
-				connection.reset();
-				CleanupFiles();
-				throw;
+			// rollback if there is an active transaction
+			auto has_active_transaction = connection->context->transaction.HasActiveTransaction();
+			if (has_active_transaction) {
+				connection->Rollback();
 			}
-			bool is_primary_key_error = StringUtil::Contains(error.Message(), "primary key constraint");
+			bool retry_on_error = RetryOnError(error.Message());
 			bool finished_retrying = i + 1 >= max_retry_count;
-			if (!is_primary_key_error || finished_retrying) {
+			if (!retry_on_error || finished_retrying) {
 				// we abort after the max retry count
 				CleanupFiles();
 				error.Throw("Failed to commit DuckLake transaction: ");
@@ -1241,6 +1343,13 @@ void DuckLakeTransaction::FlushChanges() {
 			snapshot.reset();
 		}
 	}
+}
+
+void DuckLakeTransaction::SetConfigOption(const DuckLakeConfigOption &option) {
+	// write the config option to the metadata
+	metadata_manager->SetConfigOption(option);
+	// set the option in the catalog
+	ducklake_catalog.SetConfigOption(option);
 }
 
 void DuckLakeTransaction::DeleteSnapshots(const vector<DuckLakeSnapshotInfo> &snapshots) {
@@ -1282,6 +1391,11 @@ string DuckLakeTransaction::GetDefaultSchemaName() {
 }
 
 DuckLakeSnapshot DuckLakeTransaction::GetSnapshot() {
+	auto catalog_snapshot = ducklake_catalog.CatalogSnapshot();
+	if (catalog_snapshot) {
+		// the catalog was opened at a specific snapshot - load that snapshot
+		return GetSnapshot(catalog_snapshot);
+	}
 	if (!snapshot) {
 		// no snapshot loaded yet for this transaction - load it
 		snapshot = metadata_manager->GetSnapshot();
@@ -1562,6 +1676,7 @@ DuckLakeTransaction &DuckLakeTransaction::Get(ClientContext &context, Catalog &c
 }
 
 void DuckLakeTransaction::CreateEntry(unique_ptr<CatalogEntry> entry) {
+	catalog_version = ducklake_catalog.GetNewUncommittedCatalogVersion();
 	auto &set = GetOrCreateTransactionLocalEntries(*entry);
 	set.CreateEntry(std::move(entry));
 }
@@ -1584,6 +1699,7 @@ void DuckLakeTransaction::DropSchema(DuckLakeSchemaEntry &schema) {
 }
 
 void DuckLakeTransaction::DropTable(DuckLakeTableEntry &table) {
+	catalog_version = ducklake_catalog.GetNewUncommittedCatalogVersion();
 	if (table.IsTransactionLocal()) {
 		// table is transaction-local - drop it from the transaction local changes
 		auto schema_entry = new_tables.find(table.ParentSchema().name);
@@ -1637,6 +1753,7 @@ bool DuckLakeTransaction::FileIsDropped(const string &path) const {
 }
 
 void DuckLakeTransaction::DropEntry(CatalogEntry &entry) {
+	catalog_version = ducklake_catalog.GetNewUncommittedCatalogVersion();
 	switch (entry.type) {
 	case CatalogType::TABLE_ENTRY:
 		DropTable(entry.Cast<DuckLakeTableEntry>());
@@ -1672,6 +1789,7 @@ bool DuckLakeTransaction::IsDeleted(CatalogEntry &entry) {
 }
 
 void DuckLakeTransaction::AlterEntry(CatalogEntry &entry, unique_ptr<CatalogEntry> new_entry) {
+	catalog_version = ducklake_catalog.GetNewUncommittedCatalogVersion();
 	if (!new_entry) {
 		return;
 	}
@@ -1800,12 +1918,141 @@ optional_ptr<DuckLakeCatalogSet> DuckLakeTransaction::GetTransactionLocalEntries
 	}
 }
 
+optional_ptr<CatalogEntry> DuckLakeTransaction::GetLocalEntryById(SchemaIndex schema_id) {
+	if (!new_schemas) {
+		return nullptr;
+	}
+	return new_schemas->GetEntryById(schema_id);
+}
+
+optional_ptr<CatalogEntry> DuckLakeTransaction::GetLocalEntryById(TableIndex table_id) {
+	for (auto &schema_entry : new_tables) {
+		auto entry = schema_entry.second->GetEntryById(table_id);
+		if (entry) {
+			return entry;
+		}
+	}
+	return nullptr;
+}
+
+MappingIndex DuckLakeTransaction::AddNameMap(unique_ptr<DuckLakeNameMap> name_map) {
+	// check if we can re-use a previously added name map
+	auto map_index = ducklake_catalog.TryGetCompatibleNameMap(*this, *name_map);
+	if (map_index.IsValid()) {
+		return map_index;
+	}
+	map_index = new_name_maps.TryGetCompatibleNameMap(*name_map);
+	if (map_index.IsValid()) {
+		// found a compatible map already - return it
+		return map_index;
+	}
+	// no compatible map found - generate a new index
+	MappingIndex new_index(GetLocalCatalogId());
+	name_map->id = new_index;
+	new_name_maps.Add(std::move(name_map));
+	return new_index;
+}
+
+const DuckLakeNameMap &DuckLakeTransaction::GetMappingById(MappingIndex mapping_id) {
+	// search the transaction-local name maps
+	auto entry = new_name_maps.name_maps.find(mapping_id);
+	if (entry != new_name_maps.name_maps.end()) {
+		return *entry->second;
+	}
+	// search the catalog name maps
+	auto name_map = ducklake_catalog.TryGetMappingById(*this, mapping_id);
+	if (name_map) {
+		return *name_map;
+	}
+	throw InvalidInputException("Unknown name map id %d when trying to map file", mapping_id.index);
+}
+
+// FIXME: this is copied from mainline DuckDB because of a bug in UUID v7 generation
+// when v1.3.1 lands this can be removed
+hugeint_t ConvertUUID(const std::array<uint8_t, 16> &bytes) {
+	hugeint_t result;
+	result.upper = 0;
+	result.upper |= ((int64_t)bytes[0] << 56);
+	result.upper |= ((int64_t)bytes[1] << 48);
+	result.upper |= ((int64_t)bytes[2] << 40);
+	result.upper |= ((int64_t)bytes[3] << 32);
+	result.upper |= ((int64_t)bytes[4] << 24);
+	result.upper |= ((int64_t)bytes[5] << 16);
+	result.upper |= ((int64_t)bytes[6] << 8);
+	result.upper |= bytes[7];
+	result.lower = 0;
+	result.lower |= ((uint64_t)bytes[8] << 56);
+	result.lower |= ((uint64_t)bytes[9] << 48);
+	result.lower |= ((uint64_t)bytes[10] << 40);
+	result.lower |= ((uint64_t)bytes[11] << 32);
+	result.lower |= ((uint64_t)bytes[12] << 24);
+	result.lower |= ((uint64_t)bytes[13] << 16);
+	result.lower |= ((uint64_t)bytes[14] << 8);
+	result.lower |= bytes[15];
+	return result;
+}
+
+hugeint_t GenerateUUIDV7() {
+	RandomEngine engine;
+	std::array<uint8_t, 16> bytes; // Intentionally no initialization.
+
+	const auto now = std::chrono::system_clock::now();
+	const auto time_ns = std::chrono::time_point_cast<std::chrono::nanoseconds>(now);
+	const auto unix_ts_ns = static_cast<uint64_t>(time_ns.time_since_epoch().count());
+
+	// Begins with a 48 bit big-endian Unix Epoch timestamp with millisecond granularity.
+	static constexpr uint64_t kNanoToMilli = 1000000;
+	const uint64_t unix_ts_ms = unix_ts_ns / kNanoToMilli;
+	bytes[0] = static_cast<uint8_t>(unix_ts_ms >> 40);
+	bytes[1] = static_cast<uint8_t>(unix_ts_ms >> 32);
+	bytes[2] = static_cast<uint8_t>(unix_ts_ms >> 24);
+	bytes[3] = static_cast<uint8_t>(unix_ts_ms >> 16);
+	bytes[4] = static_cast<uint8_t>(unix_ts_ms >> 8);
+	bytes[5] = static_cast<uint8_t>(unix_ts_ms);
+
+	// Fill in random bits.
+	const uint32_t random_a = engine.NextRandomInteger();
+	const uint32_t random_b = engine.NextRandomInteger();
+	const uint32_t random_c = engine.NextRandomInteger();
+	bytes[6] = static_cast<uint8_t>(random_a >> 24);
+	bytes[7] = static_cast<uint8_t>(random_a >> 16);
+	bytes[8] = static_cast<uint8_t>(random_a >> 8);
+	bytes[9] = static_cast<uint8_t>(random_a);
+	bytes[10] = static_cast<uint8_t>(random_b >> 24);
+	bytes[11] = static_cast<uint8_t>(random_b >> 16);
+	bytes[12] = static_cast<uint8_t>(random_b >> 8);
+	bytes[13] = static_cast<uint8_t>(random_b);
+	bytes[14] = static_cast<uint8_t>(random_c >> 24);
+	bytes[15] = static_cast<uint8_t>(random_c >> 16);
+
+	// Fill in version number.
+	constexpr uint8_t kVersion = 7;
+	bytes[6] = (bytes[6] & 0x0f) | (kVersion << 4);
+
+	// Fill in variant field.
+	bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+	// Flip the top byte
+	auto result = ConvertUUID(bytes);
+	result.upper ^= NumericLimits<int64_t>::Minimum();
+	return result;
+}
+
 string DuckLakeTransaction::GenerateUUIDv7() {
-	return UUID::ToString(UUIDv7::GenerateRandomUUID());
+	auto uuidv7 = UUIDv7::GenerateRandomUUID();
+	uuidv7.upper ^= NumericLimits<int64_t>::Minimum();
+	return UUID::ToString(GenerateUUIDV7());
 }
 
 string DuckLakeTransaction::GenerateUUID() const {
 	return GenerateUUIDv7();
+}
+
+idx_t DuckLakeTransaction::GetCatalogVersion() {
+	if (catalog_version > 0) {
+		return catalog_version;
+	}
+	return GetSnapshot().schema_version;
 }
 
 } // namespace duckdb

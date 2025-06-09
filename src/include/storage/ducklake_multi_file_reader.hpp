@@ -17,17 +17,6 @@ class DuckLakeMultiFileList;
 struct DuckLakeDeleteMap;
 class DuckLakeFieldData;
 
-struct DuckLakeMultiFileReaderGlobalState : public MultiFileReaderGlobalState {
-	DuckLakeMultiFileReaderGlobalState(vector<LogicalType> extra_columns_p,
-	                                   optional_ptr<const MultiFileList> file_list_p)
-	    : MultiFileReaderGlobalState(extra_columns_p, file_list_p) {
-	}
-	//! The idx of the file number column in the result chunk
-	idx_t delta_file_number_idx = DConstants::INVALID_INDEX;
-	//! The idx of the file_row_number column in the result chunk
-	idx_t file_row_number_idx = DConstants::INVALID_INDEX;
-};
-
 struct DuckLakeMultiFileReader : public MultiFileReader {
 public:
 	static constexpr column_t COLUMN_IDENTIFIER_SNAPSHOT_ID = UINT64_C(10000000000000000000);
@@ -67,6 +56,13 @@ public:
 	                                        BaseFileReaderOptions &options, const MultiFileOptions &file_options,
 	                                        MultiFileReaderInterface &interface) override;
 
+	ReaderInitializeType CreateMapping(ClientContext &context, MultiFileReaderData &reader_data,
+	                                   const vector<MultiFileColumnDefinition> &global_columns,
+	                                   const vector<ColumnIndex> &global_column_ids,
+	                                   optional_ptr<TableFilterSet> filters, MultiFileList &multi_file_list,
+	                                   const MultiFileReaderBindData &bind_data,
+	                                   const virtual_column_map_t &virtual_columns) override;
+
 	unique_ptr<Expression>
 	GetVirtualColumnExpression(ClientContext &context, MultiFileReaderData &reader_data,
 	                           const vector<MultiFileColumnDefinition> &local_columns, idx_t &column_id,
@@ -75,7 +71,8 @@ public:
 
 	unique_ptr<MultiFileReader> Copy() const override;
 
-	static vector<MultiFileColumnDefinition> ColumnsFromFieldData(const DuckLakeFieldData &field_data);
+	static vector<MultiFileColumnDefinition> ColumnsFromFieldData(const DuckLakeFieldData &field_data,
+	                                                              bool emit_key_value = false);
 
 private:
 	shared_ptr<BaseFileReader> TryCreateInlinedDataReader(const OpenFileInfo &file);
