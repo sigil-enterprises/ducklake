@@ -323,8 +323,12 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckL
 		info->options["compression_level"].emplace_back(parquet_compression_level);
 	}
 	string row_group_size;
-	if (catalog.TryGetConfigOption("row_group_size", row_group_size, schema_id, table_id)) {
+	if (catalog.TryGetConfigOption("parquet_row_group_size", row_group_size, schema_id, table_id)) {
 		info->options["row_group_size"].emplace_back(row_group_size);
+	}
+	string row_group_size_bytes;
+	if (catalog.TryGetConfigOption("parquet_row_group_size_bytes", row_group_size_bytes, schema_id, table_id)) {
+		info->options["row_group_size_bytes"].emplace_back(row_group_size_bytes + " bytes");
 	}
 	idx_t target_file_size = DuckLakeCatalog::DEFAULT_TARGET_FILE_SIZE;
 	string target_file_size_str;

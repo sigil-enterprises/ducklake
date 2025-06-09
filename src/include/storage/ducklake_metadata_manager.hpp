@@ -78,6 +78,9 @@ public:
 	virtual void DropDeleteFiles(DuckLakeSnapshot commit_snapshot, const set<DataFileIndex> &dropped_files);
 	virtual void WriteNewDeleteFiles(DuckLakeSnapshot commit_snapshot,
 	                                 const vector<DuckLakeDeleteFileInfo> &new_delete_files);
+	virtual vector<DuckLakeColumnMappingInfo> GetColumnMappings(optional_idx start_from);
+	virtual void WriteNewColumnMappings(DuckLakeSnapshot commit_snapshot,
+	                                    const vector<DuckLakeColumnMappingInfo> &new_column_mappings);
 	virtual void WriteCompactions(vector<DuckLakeCompactedFileInfo> compactions);
 	virtual void InsertSnapshot(DuckLakeSnapshot commit_snapshot);
 	virtual void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, const SnapshotChangeInfo &change_info);

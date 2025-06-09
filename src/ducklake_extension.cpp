@@ -41,11 +41,17 @@ static void LoadInternal(DatabaseInstance &instance) {
 	DuckLakeSetOptionFunction set_options;
 	ExtensionUtil::RegisterFunction(instance, set_options);
 
+	DuckLakeOptionsFunction options;
+	ExtensionUtil::RegisterFunction(instance, options);
+
 	auto table_changes = DuckLakeTableInsertionsFunction::GetDuckLakeTableChanges();
 	ExtensionUtil::RegisterFunction(instance, *table_changes);
 
 	DuckLakeListFilesFunction list_files;
 	ExtensionUtil::RegisterFunction(instance, list_files);
+
+	DuckLakeAddDataFilesFunction add_files;
+	ExtensionUtil::RegisterFunction(instance, add_files);
 }
 
 void DucklakeExtension::Load(DuckDB &db) {
