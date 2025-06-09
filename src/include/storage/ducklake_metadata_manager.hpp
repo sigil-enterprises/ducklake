@@ -37,6 +37,8 @@ public:
 	DuckLakeMetadataManager(DuckLakeTransaction &transaction);
 	virtual ~DuckLakeMetadataManager();
 
+	static unique_ptr<DuckLakeMetadataManager> Create(DuckLakeTransaction &transaction);
+
 	DuckLakeMetadataManager &Get(DuckLakeTransaction &transaction);
 
 	//! Initialize a new DuckLake
@@ -111,6 +113,9 @@ public:
 
 	string LoadPath(string path);
 	string StorePath(string path);
+
+protected:
+	virtual string GetLatestSnapshotQuery() const;
 
 protected:
 	string GetInlinedTableQuery(const DuckLakeTableInfo &table, const string &table_name);
