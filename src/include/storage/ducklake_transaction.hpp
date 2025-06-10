@@ -41,9 +41,9 @@ public:
 	~DuckLakeTransaction() override;
 
 public:
-	void Start();
-	void Commit();
-	void Rollback();
+	virtual void Start();
+	virtual void Commit();
+	virtual void Rollback();
 
 	DuckLakeCatalog &GetCatalog() {
 		return ducklake_catalog;
@@ -124,6 +124,11 @@ public:
 	//! If there are no uncommitted changes, this is the schema version of the snapshot.
 	//! Otherwise, it is an id that is incremented whenever the schema changes (not stored between restarts)
 	idx_t GetCatalogVersion();
+
+protected:
+	void SetMetadataManager(unique_ptr<DuckLakeMetadataManager> metadata_manager) {
+		this->metadata_manager = std::move(metadata_manager);
+	}
 
 private:
 	void CleanupFiles();

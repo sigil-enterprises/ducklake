@@ -40,7 +40,7 @@ DuckLakeMultiFileReader::~DuckLakeMultiFileReader() {
 unique_ptr<MultiFileReader> DuckLakeMultiFileReader::Copy() const {
 	auto result = make_uniq<DuckLakeMultiFileReader>(read_info);
 	result->transaction_local_data = transaction_local_data;
-	return result;
+	return std::move(result);
 }
 
 unique_ptr<MultiFileReader> DuckLakeMultiFileReader::CreateInstance(const TableFunction &table_function) {

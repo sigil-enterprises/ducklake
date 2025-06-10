@@ -49,7 +49,7 @@ static unique_ptr<FunctionData> DuckLakeAddDataFilesBind(ClientContext &context,
 
 	names.emplace_back("filename");
 	return_types.emplace_back(LogicalType::VARCHAR);
-	return result;
+	return std::move(result);
 }
 
 struct DuckLakeAddDataFilesState : public GlobalTableFunctionState {
