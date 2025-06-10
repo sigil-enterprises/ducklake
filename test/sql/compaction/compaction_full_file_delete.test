@@ -1,0 +1,37 @@
+# name: test/sql/compaction/compaction_full_file_delete.test
+# description: test compaction on a table with full-file deletes
+# group: [compaction]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_compaction_full_file_delete.db' AS ducklake
+
+statement ok
+use ducklake;
+
+statement ok
+create table test (id int);
+
+statement ok
+insert into test values (1);
+
+statement ok
+delete from test where id = 1;
+
+statement ok
+insert into test values (2);
+
+statement ok
+insert into test values (3);
+
+statement ok
+CALL merge_adjacent_files();
+
+query I
+from test;
+----
+2
+3

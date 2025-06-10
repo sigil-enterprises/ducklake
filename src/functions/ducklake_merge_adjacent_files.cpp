@@ -175,7 +175,7 @@ void DuckLakeCompactor::GenerateCompactions(DuckLakeTableEntry &table,
 				break;
 			}
 			auto &candidate = files[compaction_idx];
-			if (!candidate.delete_files.empty()) {
+			if (!candidate.delete_files.empty() || candidate.file.end_snapshot.IsValid()) {
 				// FIXME: files with deletions cannot be merged currently
 				break;
 			}
