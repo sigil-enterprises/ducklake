@@ -12,6 +12,7 @@
 #include "storage/ducklake_transaction_changes.hpp"
 #include "storage/ducklake_transaction_manager.hpp"
 #include "storage/ducklake_view_entry.hpp"
+#include "duckdb/main/client_data.hpp"
 
 namespace duckdb {
 
@@ -50,6 +51,14 @@ Connection &DuckLakeTransaction::GetConnection() {
 	lock_guard<mutex> lock(connection_lock);
 	if (!connection) {
 		connection = make_uniq<Connection>(db);
+		// set the search path to the metadata catalog
+		auto &client_data = ClientData::Get(*connection->context);
+		CatalogSearchEntry metadata_entry(ducklake_catalog.MetadataDatabaseName(),
+		                                  ducklake_catalog.MetadataSchemaName());
+		if (metadata_entry.schema.empty()) {
+			metadata_entry.schema = "main";
+		}
+		client_data.catalog_search_path->Set(metadata_entry, CatalogSetPathType::SET_DIRECTLY);
 		connection->BeginTransaction();
 	}
 	return *connection;

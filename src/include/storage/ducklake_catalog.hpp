@@ -36,6 +36,7 @@ public:
 public:
 	void Initialize(bool load_builtin) override;
 	void Initialize(optional_ptr<ClientContext> context, bool load_builtin) override;
+	void FinalizeLoad(optional_ptr<ClientContext> context) override;
 	string GetCatalogType() override {
 		return "ducklake";
 	}
@@ -151,6 +152,8 @@ private:
 	atomic<idx_t> last_uncommitted_catalog_version;
 	//! The metadata server type
 	string metadata_type;
+	//! Whether or not the catalog is initialized
+	bool initialized = false;
 };
 
 } // namespace duckdb

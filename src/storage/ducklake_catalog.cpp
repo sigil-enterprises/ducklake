@@ -42,10 +42,23 @@ void DuckLakeCatalog::Initialize(bool load_builtin) {
 }
 
 void DuckLakeCatalog::Initialize(optional_ptr<ClientContext> context, bool load_builtin) {
+}
+
+void DuckLakeCatalog::FinalizeLoad(optional_ptr<ClientContext> context) {
 	// initialize the metadata database
+	unique_ptr<Connection> con;
+	if (!context) {
+		con = make_uniq<Connection>(GetDatabase());
+		con->BeginTransaction();
+		context = con->context.get();
+	}
 	DuckLakeInitializer initializer(*context, *this, options);
 	initializer.Initialize();
 	db.tags["data_path"] = DataPath();
+	if (con) {
+		con->Commit();
+	}
+	initialized = true;
 }
 
 bool CanGeneratePathFromName(const string &name) {
@@ -108,6 +121,9 @@ void DuckLakeCatalog::DropSchema(ClientContext &context, DropInfo &info) {
 }
 
 void DuckLakeCatalog::ScanSchemas(ClientContext &context, std::function<void(SchemaCatalogEntry &)> callback) {
+	if (!initialized) {
+		return;
+	}
 	auto &duck_transaction = DuckLakeTransaction::Get(context, *this);
 	auto set = duck_transaction.GetTransactionLocalSchemas();
 	if (set) {
@@ -479,6 +495,13 @@ optional_ptr<SchemaCatalogEntry> DuckLakeCatalog::LookupSchema(CatalogTransactio
                                                                const EntryLookupInfo &schema_lookup,
                                                                OnEntryNotFound if_not_found) {
 	auto &schema_name = schema_lookup.GetEntryName();
+	if (!initialized) {
+		if (if_not_found == OnEntryNotFound::THROW_EXCEPTION) {
+			throw BinderException("Failed to look-up \"%s\" - DuckLake %s is not yet initialized", schema_name,
+			                      GetName());
+		}
+		return nullptr;
+	}
 	auto at_clause = schema_lookup.GetAtClause();
 	auto &duck_transaction = transaction.transaction->Cast<DuckLakeTransaction>();
 	if (!at_clause) {
