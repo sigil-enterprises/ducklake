@@ -162,7 +162,7 @@ void DuckLakeInlinedDataReader::Scan(ClientContext &context, GlobalTableFunction
 			if (is_virtual[c]) {
 				auto row_id_data = FlatVector::GetData<int64_t>(chunk.data[c]);
 				for (idx_t r = 0; r < scan_chunk.size(); r++) {
-					row_id_data[r] = file_row_number + r;
+					row_id_data[r] = NumericCast<int64_t>(file_row_number + r);
 				}
 				continue;
 			}
@@ -199,7 +199,7 @@ void DuckLakeInlinedDataReader::Scan(ClientContext &context, GlobalTableFunction
 			chunk.Slice(sel, approved_tuple_count);
 		}
 	}
-	file_row_number += scan_count;
+	file_row_number += NumericCast<int64_t>(scan_count);
 }
 
 void DuckLakeInlinedDataReader::AddVirtualColumn(column_t virtual_column_id) {

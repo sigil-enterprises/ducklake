@@ -26,7 +26,7 @@ using ducklake_entries_map_t = case_insensitive_map_t<unique_ptr<CatalogEntry>>;
 class DuckLakeCatalogSet {
 public:
 	DuckLakeCatalogSet();
-	DuckLakeCatalogSet(ducklake_entries_map_t catalog_entries_p);
+	explicit DuckLakeCatalogSet(ducklake_entries_map_t catalog_entries_p);
 
 	void CreateEntry(unique_ptr<CatalogEntry> entry);
 	optional_ptr<CatalogEntry> GetEntry(const string &name);

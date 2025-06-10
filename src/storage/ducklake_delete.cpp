@@ -286,7 +286,7 @@ void DuckLakeDelete::FlushDelete(DuckLakeTransaction &transaction, ClientContext
 	idx_t row_count = 0;
 	auto row_data = FlatVector::GetData<int64_t>(write_chunk.data[1]);
 	for (auto &row_idx : sorted_deletes) {
-		row_data[row_count++] = row_idx;
+		row_data[row_count++] = NumericCast<int64_t>(row_idx);
 		if (row_count >= STANDARD_VECTOR_SIZE) {
 			write_chunk.SetCardinality(row_count);
 			copy_to_file.Sink(execution_context, write_chunk, sink_input);
@@ -349,8 +349,8 @@ SinkFinalizeType DuckLakeDelete::Finalize(Pipeline &pipeline, Event &event, Clie
 			delete_files.push_back(std::move(delete_file));
 		} else {
 			// deleting from a transaction local file - find the file we are deleting from
-			transaction.TransactionLocalDelete(table.GetTableId(), data_file_path, std::move(delete_file));
 			delete_file.overwrites_existing_delete = false;
+			transaction.TransactionLocalDelete(table.GetTableId(), data_file_path, std::move(delete_file));
 		}
 	}
 	transaction.AddDeletes(table.GetTableId(), std::move(delete_files));
@@ -363,7 +363,7 @@ SinkFinalizeType DuckLakeDelete::Finalize(Pipeline &pipeline, Event &event, Clie
 SourceResultType DuckLakeDelete::GetData(ExecutionContext &context, DataChunk &chunk,
                                          OperatorSourceInput &input) const {
 	auto &global_state = sink_state->Cast<DuckLakeDeleteGlobalState>();
-	auto value = Value::BIGINT(global_state.total_deleted_count);
+	auto value = Value::BIGINT(NumericCast<int64_t>(global_state.total_deleted_count));
 	chunk.SetCardinality(1);
 	chunk.SetValue(0, 0, value);
 	return SourceResultType::FINISHED;

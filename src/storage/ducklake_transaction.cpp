@@ -857,7 +857,7 @@ struct DuckLakeNewGlobalStats {
 	bool initialized = false;
 };
 
-void DuckLakeTransaction::UpdateGlobalTableStats(TableIndex table_id, DuckLakeNewGlobalStats new_global_stats) {
+void DuckLakeTransaction::UpdateGlobalTableStats(TableIndex table_id, const DuckLakeNewGlobalStats &new_global_stats) {
 	DuckLakeGlobalStatsInfo stats;
 	stats.table_id = table_id;
 
@@ -1037,7 +1037,7 @@ NewDataInfo DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &commit_snapsh
 		auto table_id = entry.first;
 		auto &new_stats = entry.second;
 		// update the global stats for this table based on the newly written files
-		UpdateGlobalTableStats(table_id, std::move(new_stats));
+		UpdateGlobalTableStats(table_id, new_stats);
 	}
 	return result;
 }
@@ -1077,7 +1077,7 @@ void ConvertNameMapColumn(const DuckLakeNameMapEntry &name_map_entry, MappingInd
 
 	DuckLakeNameMapColumnInfo column_info;
 	column_info.column_id = column_id;
-	column_info.source_name = std::move(name_map_entry.source_name);
+	column_info.source_name = name_map_entry.source_name;
 	column_info.target_field_id = name_map_entry.target_field_id;
 	column_info.parent_column = parent_idx;
 	result.map_columns.push_back(std::move(column_info));
@@ -1264,7 +1264,7 @@ void DuckLakeTransaction::CommitCompaction(DuckLakeSnapshot &commit_snapshot,
                                            TransactionChangeInformation &transaction_changes) {
 	if (!compactions.empty()) {
 		auto compaction_changes = GetCompactionChanges(commit_snapshot);
-		metadata_manager->WriteCompactions(std::move(compaction_changes.compacted_files));
+		metadata_manager->WriteCompactions(compaction_changes.compacted_files);
 		metadata_manager->WriteNewDataFiles(commit_snapshot, compaction_changes.new_files);
 	}
 }
@@ -1474,7 +1474,7 @@ void DuckLakeTransaction::DropTransactionLocalFile(TableIndex table_id, const st
 		auto &file = table_files[i];
 		if (file.file_name == path) {
 			// found the file - delete it from the table list and from disk
-			table_files.erase(table_files.begin() + i);
+			table_files.erase_at(i);
 			auto &fs = FileSystem::GetFileSystem(db);
 			fs.RemoveFile(path);
 			if (table_files.empty()) {
@@ -1691,7 +1691,7 @@ void DuckLakeTransaction::DropSchema(DuckLakeSchemaEntry &schema) {
 			throw InternalException("Dropping a transaction local table that does not exist?");
 		}
 		new_schemas->DropEntry(schema.name);
-		if (new_schemas->GetEntries().size() == 0) {
+		if (new_schemas->GetEntries().empty()) {
 			// we have dropped all schemas created in this transaction - clear it
 			new_schemas.reset();
 		}

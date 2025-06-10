@@ -395,7 +395,7 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	if (!existing_idx.IsValid()) {
 		throw CatalogException("Cannot DROP NULL on column %s - it has no NOT NULL constraint defined", col.GetName());
 	}
-	table_info.constraints.erase(table_info.constraints.begin() + existing_idx.GetIndex());
+	table_info.constraints.erase_at(existing_idx.GetIndex());
 
 	auto new_entry = make_uniq<DuckLakeTableEntry>(*this, table_info, LocalChange::DropNull(field_id.GetFieldIndex()));
 	return std::move(new_entry);
@@ -480,7 +480,7 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 			auto &not_null = constraint->Cast<NotNullConstraint>();
 			if (not_null.index == removed_index) {
 				// this index belongs to the removed column - remove it
-				table_info.constraints.erase(table_info.constraints.begin() + c_idx);
+				table_info.constraints.erase_at(c_idx);
 				c_idx--;
 				continue;
 			}
@@ -760,8 +760,9 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	auto &current_field_ids = field_data->GetFieldIds();
 	auto new_field_ids = make_shared_ptr<DuckLakeFieldData>();
 	for (auto &field_id : current_field_ids) {
-		if (field_id->Name() == info.column_name) {
+		if (new_field_id && field_id->Name() == info.column_name) {
 			new_field_ids->Add(std::move(new_field_id));
+			new_field_id.reset();
 		} else {
 			new_field_ids->Add(field_id->Copy());
 		}
@@ -821,11 +822,12 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	auto new_field_ids = make_shared_ptr<DuckLakeFieldData>();
 	for (idx_t col_idx = 0; col_idx < current_field_ids.size(); col_idx++) {
 		auto &field_id = current_field_ids[col_idx];
-		if (field_id->Name() == info.column_path[0]) {
+		if (child_field_id && field_id->Name() == info.column_path[0]) {
 			auto new_field_id = field_id->AddField(info.column_path, std::move(child_field_id));
 			auto &col = table_info.columns.GetColumnMutable(PhysicalIndex(col_idx));
 			col.SetType(new_field_id->Type());
 			new_field_ids->Add(std::move(new_field_id));
+			child_field_id.reset();
 		} else {
 			new_field_ids->Add(field_id->Copy());
 		}

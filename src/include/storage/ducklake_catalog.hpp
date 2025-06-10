@@ -31,7 +31,7 @@ public:
 
 public:
 	DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options);
-	~DuckLakeCatalog();
+	~DuckLakeCatalog() override;
 
 public:
 	void Initialize(bool load_builtin) override;

@@ -62,7 +62,7 @@ unique_ptr<GlobalSinkState> DuckLakeInsert::GetGlobalSinkState(ClientContext &co
 //===--------------------------------------------------------------------===//
 // Sink
 //===--------------------------------------------------------------------===//
-DuckLakeColumnStats DuckLakeInsert::ParseColumnStats(const LogicalType &type, const vector<Value> col_stats) {
+DuckLakeColumnStats DuckLakeInsert::ParseColumnStats(const LogicalType &type, const vector<Value> &col_stats) {
 	DuckLakeColumnStats column_stats(type);
 	for (idx_t stats_idx = 0; stats_idx < col_stats.size(); stats_idx++) {
 		auto &stats_children = StructValue::GetChildren(col_stats[stats_idx]);
@@ -161,7 +161,7 @@ SinkResultType DuckLakeInsert::Sink(ExecutionContext &context, DataChunk &chunk,
 SourceResultType DuckLakeInsert::GetData(ExecutionContext &context, DataChunk &chunk,
                                          OperatorSourceInput &input) const {
 	auto &global_state = sink_state->Cast<DuckLakeInsertGlobalState>();
-	auto value = Value::BIGINT(global_state.total_insert_count);
+	auto value = Value::BIGINT(NumericCast<int64_t>(global_state.total_insert_count));
 	chunk.SetCardinality(1);
 	chunk.SetValue(0, 0, value);
 	return SourceResultType::FINISHED;
@@ -221,7 +221,7 @@ CopyFunctionCatalogEntry &DuckLakeFunctions::GetCopyFunction(ClientContext &cont
 }
 
 Value GetFieldIdValue(const DuckLakeFieldId &field_id) {
-	auto field_id_value = Value::BIGINT(field_id.GetFieldIndex().index);
+	auto field_id_value = Value::BIGINT(NumericCast<int64_t>(field_id.GetFieldIndex().index));
 	if (!field_id.HasChildren()) {
 		// primitive type - return the field-id directly
 		return field_id_value;

@@ -50,9 +50,9 @@ void DuckLakeSnapshotsFunction::GetSnapshotTypes(vector<LogicalType> &return_typ
 
 vector<Value> DuckLakeSnapshotsFunction::GetSnapshotValues(const DuckLakeSnapshotInfo &snapshot) {
 	vector<Value> row_values;
-	row_values.push_back(Value::BIGINT(snapshot.id));
+	row_values.push_back(Value::BIGINT(NumericCast<int64_t>(snapshot.id)));
 	row_values.push_back(Value::TIMESTAMPTZ(snapshot.time));
-	row_values.push_back(Value::BIGINT(snapshot.schema_version));
+	row_values.push_back(Value::BIGINT(NumericCast<int64_t>(snapshot.schema_version)));
 
 	auto other_changes = SnapshotChangeInformation::ParseChangesMade(snapshot.change_info.changes_made);
 	vector<Value> change_keys;
