@@ -314,7 +314,7 @@ OpenFileInfo DuckLakeMultiFileList::GetFile(idx_t i) {
 		// scanning transaction local data
 		extended_info->options["transaction_local_data"] = Value::BOOLEAN(true);
 		extended_info->options["inlined_data"] = Value::BOOLEAN(true);
-		extended_info->options["row_id_start"] = Value::BIGINT(file_entry.row_id_start);
+		extended_info->options["row_id_start"] = Value::BIGINT(NumericCast<int64_t>(file_entry.row_id_start));
 		extended_info->options["snapshot_id"] = Value(LogicalType::BIGINT);
 		if (file_entry.mapping_id.IsValid()) {
 			extended_info->options["mapping_id"] = Value::UBIGINT(file_entry.mapping_id.index);
@@ -325,7 +325,8 @@ OpenFileInfo DuckLakeMultiFileList::GetFile(idx_t i) {
 		auto &inlined_data_table = inlined_data_tables[inlined_data_index];
 		extended_info->options["table_name"] = inlined_data_table.table_name;
 		extended_info->options["inlined_data"] = Value::BOOLEAN(true);
-		extended_info->options["schema_version"] = Value::BIGINT(inlined_data_table.schema_version);
+		extended_info->options["schema_version"] =
+		    Value::BIGINT(NumericCast<int64_t>(inlined_data_table.schema_version));
 	} else {
 		extended_info->options["file_size"] = Value::UBIGINT(file.file_size_bytes);
 		if (file.footer_size.IsValid()) {
@@ -406,7 +407,7 @@ vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() 
 	if (transaction.HasDroppedFiles()) {
 		for (idx_t file_idx = 0; file_idx < result.size(); file_idx++) {
 			if (transaction.FileIsDropped(result[file_idx].file.path)) {
-				result.erase(result.begin() + file_idx);
+				result.erase_at(file_idx);
 				file_idx--;
 			}
 		}
@@ -476,7 +477,7 @@ void DuckLakeMultiFileList::GetFilesForTable() {
 	if (transaction.HasDroppedFiles()) {
 		for (idx_t file_idx = 0; file_idx < files.size(); file_idx++) {
 			if (transaction.FileIsDropped(files[file_idx].file.path)) {
-				files.erase(files.begin() + file_idx);
+				files.erase_at(file_idx);
 				file_idx--;
 			}
 		}

@@ -108,7 +108,7 @@ private:
 	vector<unique_ptr<DuckLakeNameMapEntry>> MapColumns(ParquetFileMetadata &file,
 	                                                    vector<unique_ptr<ParquetColumn>> &parquet_columns,
 	                                                    const vector<unique_ptr<DuckLakeFieldId>> &field_ids,
-	                                                    DuckLakeDataFile &result, string prefix = string());
+	                                                    DuckLakeDataFile &result, const string &prefix = string());
 
 	Value GetStatsValue(string name, Value val);
 	void CheckMatchingType(const LogicalType &type, ParquetColumn &column);
@@ -209,7 +209,7 @@ FROM parquet_schema(%s)
 
 Value DuckLakeFileProcessor::GetStatsValue(string name, Value val) {
 	child_list_t<Value> children;
-	children.emplace_back("key", Value(name));
+	children.emplace_back("key", Value(std::move(name)));
 	children.emplace_back("value", std::move(val));
 	return Value::STRUCT(std::move(children));
 }
@@ -692,7 +692,7 @@ unique_ptr<DuckLakeNameMapEntry> DuckLakeFileProcessor::MapColumn(ParquetFileMet
 
 vector<unique_ptr<DuckLakeNameMapEntry>> DuckLakeFileProcessor::MapColumns(
     ParquetFileMetadata &file_metadata, vector<unique_ptr<ParquetColumn>> &parquet_columns,
-    const vector<unique_ptr<DuckLakeFieldId>> &field_ids, DuckLakeDataFile &result, string prefix) {
+    const vector<unique_ptr<DuckLakeFieldId>> &field_ids, DuckLakeDataFile &result, const string &prefix) {
 	// create a top-level map of columns
 	case_insensitive_map_t<const_reference<DuckLakeFieldId>> field_id_map;
 	for (auto &field_id : field_ids) {

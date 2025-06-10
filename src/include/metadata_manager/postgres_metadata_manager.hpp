@@ -14,7 +14,7 @@ namespace duckdb {
 
 class PostgresMetadataManager : public DuckLakeMetadataManager {
 public:
-	PostgresMetadataManager(DuckLakeTransaction &transaction);
+	explicit PostgresMetadataManager(DuckLakeTransaction &transaction);
 
 protected:
 	string GetLatestSnapshotQuery() const override;

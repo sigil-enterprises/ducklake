@@ -94,7 +94,7 @@ unique_ptr<DuckLakeFieldId> DuckLakeFieldId::FieldIdFromType(const string &name,
 }
 
 unique_ptr<ParsedExpression> DuckLakeFieldId::GetDefault() const {
-	if (children.size() == 0) {
+	if (children.empty()) {
 		if (column_data.default_value.IsNull()) {
 			// no default value defined
 			return nullptr;
@@ -182,9 +182,10 @@ unique_ptr<DuckLakeFieldId> DuckLakeFieldId::AddField(const vector<string> &colu
 		bool found = false;
 		for (idx_t child_idx = 0; child_idx < children.size(); child_idx++) {
 			auto &child = *children[child_idx];
-			if (StringUtil::CIEquals(child.Name(), column_path[depth])) {
+			if (!found && StringUtil::CIEquals(child.Name(), column_path[depth])) {
 				// found it!
 				auto new_field = child.AddField(column_path, std::move(new_child), depth + 1);
+				new_child.reset();
 				new_children.push_back(std::move(new_field));
 				found = true;
 			} else {

@@ -849,16 +849,16 @@ void DuckLakeMetadataManager::FlushDrop(DuckLakeSnapshot commit_snapshot, const 
 	}
 }
 
-void DuckLakeMetadataManager::DropSchemas(DuckLakeSnapshot commit_snapshot, set<SchemaIndex> ids) {
+void DuckLakeMetadataManager::DropSchemas(DuckLakeSnapshot commit_snapshot, const set<SchemaIndex> &ids) {
 	FlushDrop(commit_snapshot, "ducklake_schema", "schema_id", ids);
 }
 
-void DuckLakeMetadataManager::DropTables(DuckLakeSnapshot commit_snapshot, set<TableIndex> ids) {
+void DuckLakeMetadataManager::DropTables(DuckLakeSnapshot commit_snapshot, const set<TableIndex> &ids) {
 	FlushDrop(commit_snapshot, "ducklake_table", "table_id", ids);
 	FlushDrop(commit_snapshot, "ducklake_partition_info", "table_id", ids);
 }
 
-void DuckLakeMetadataManager::DropViews(DuckLakeSnapshot commit_snapshot, set<TableIndex> ids) {
+void DuckLakeMetadataManager::DropViews(DuckLakeSnapshot commit_snapshot, const set<TableIndex> &ids) {
 	FlushDrop(commit_snapshot, "ducklake_view", "view_id", ids);
 }
 
@@ -1989,7 +1989,7 @@ idx_t DuckLakeMetadataManager::GetNextColumnId(TableIndex table_id) {
 	throw InternalException("Invalid result for GetNextColumnId");
 }
 
-void DuckLakeMetadataManager::WriteCompactions(vector<DuckLakeCompactedFileInfo> compactions) {
+void DuckLakeMetadataManager::WriteCompactions(const vector<DuckLakeCompactedFileInfo> &compactions) {
 	string deleted_file_ids;
 	string scheduled_deletions;
 	for (auto &compaction : compactions) {

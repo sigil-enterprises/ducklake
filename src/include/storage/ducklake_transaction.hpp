@@ -145,7 +145,7 @@ private:
 	NewDataInfo GetNewDataFiles(DuckLakeSnapshot &commit_snapshot);
 	vector<DuckLakeDeleteFileInfo> GetNewDeleteFiles(DuckLakeSnapshot &commit_snapshot,
 	                                                 set<DataFileIndex> &overwritten_delete_files);
-	void UpdateGlobalTableStats(TableIndex table_id, DuckLakeNewGlobalStats new_stats);
+	void UpdateGlobalTableStats(TableIndex table_id, const DuckLakeNewGlobalStats &new_stats);
 	void CheckForConflicts(DuckLakeSnapshot transaction_snapshot, const TransactionChangeInformation &changes);
 	void CheckForConflicts(const TransactionChangeInformation &changes, const SnapshotChangeInformation &other_changes);
 	void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, TransactionChangeInformation &changes);

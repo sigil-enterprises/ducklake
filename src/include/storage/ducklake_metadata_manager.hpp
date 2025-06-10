@@ -34,7 +34,7 @@ class FileSystem;
 // The DuckLake metadata manger is the communication layer between the system and the metadata catalog
 class DuckLakeMetadataManager {
 public:
-	DuckLakeMetadataManager(DuckLakeTransaction &transaction);
+	explicit DuckLakeMetadataManager(DuckLakeTransaction &transaction);
 	virtual ~DuckLakeMetadataManager();
 
 	static unique_ptr<DuckLakeMetadataManager> Create(DuckLakeTransaction &transaction);
@@ -58,9 +58,9 @@ public:
 	virtual vector<DuckLakeCompactionFileEntry> GetFilesForCompaction(DuckLakeTableEntry &table);
 	virtual vector<DuckLakeFileScheduledForCleanup> GetFilesScheduledForCleanup(const string &filter);
 	virtual void RemoveFilesScheduledForCleanup(const vector<DuckLakeFileScheduledForCleanup> &cleaned_up_files);
-	virtual void DropSchemas(DuckLakeSnapshot commit_snapshot, set<SchemaIndex> ids);
-	virtual void DropTables(DuckLakeSnapshot commit_snapshot, set<TableIndex> ids);
-	virtual void DropViews(DuckLakeSnapshot commit_snapshot, set<TableIndex> ids);
+	virtual void DropSchemas(DuckLakeSnapshot commit_snapshot, const set<SchemaIndex> &ids);
+	virtual void DropTables(DuckLakeSnapshot commit_snapshot, const set<TableIndex> &ids);
+	virtual void DropViews(DuckLakeSnapshot commit_snapshot, const set<TableIndex> &ids);
 	virtual void WriteNewSchemas(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeSchemaInfo> &new_schemas);
 	virtual void WriteNewTables(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeTableInfo> &new_tables);
 	virtual void WriteNewViews(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeViewInfo> &new_views);
@@ -83,7 +83,7 @@ public:
 	virtual vector<DuckLakeColumnMappingInfo> GetColumnMappings(optional_idx start_from);
 	virtual void WriteNewColumnMappings(DuckLakeSnapshot commit_snapshot,
 	                                    const vector<DuckLakeColumnMappingInfo> &new_column_mappings);
-	virtual void WriteCompactions(vector<DuckLakeCompactedFileInfo> compactions);
+	virtual void WriteCompactions(const vector<DuckLakeCompactedFileInfo> &compactions);
 	virtual void InsertSnapshot(DuckLakeSnapshot commit_snapshot);
 	virtual void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, const SnapshotChangeInfo &change_info);
 	virtual void UpdateGlobalTableStats(const DuckLakeGlobalStatsInfo &stats);

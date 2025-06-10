@@ -48,7 +48,7 @@ struct DuckLakeDeleteMap {
 
 	void AddDeleteData(const string &filename, shared_ptr<DuckLakeDeleteData> delete_data) {
 		lock_guard<mutex> guard(lock);
-		delete_data_map.emplace(filename, delete_data);
+		delete_data_map.emplace(filename, std::move(delete_data));
 	}
 
 private:

@@ -16,13 +16,13 @@ static unique_ptr<FunctionData> DuckLakeTableInfoBind(ClientContext &context, Ta
 	for (auto &table_info : tables) {
 		vector<Value> row_values;
 		row_values.push_back(Value(table_info.table_name));
-		row_values.push_back(Value::BIGINT(table_info.schema_id.index));
-		row_values.push_back(Value::BIGINT(table_info.table_id.index));
+		row_values.push_back(Value::BIGINT(NumericCast<int64_t>(table_info.schema_id.index)));
+		row_values.push_back(Value::BIGINT(NumericCast<int64_t>(table_info.table_id.index)));
 		row_values.push_back(Value::UUID(table_info.table_uuid));
-		row_values.push_back(Value::BIGINT(table_info.file_count));
-		row_values.push_back(Value::BIGINT(table_info.file_size_bytes));
-		row_values.push_back(Value::BIGINT(table_info.delete_file_count));
-		row_values.push_back(Value::BIGINT(table_info.delete_file_size_bytes));
+		row_values.push_back(Value::BIGINT(NumericCast<int64_t>(table_info.file_count)));
+		row_values.push_back(Value::BIGINT(NumericCast<int64_t>(table_info.file_size_bytes)));
+		row_values.push_back(Value::BIGINT(NumericCast<int64_t>(table_info.delete_file_count)));
+		row_values.push_back(Value::BIGINT(NumericCast<int64_t>(table_info.delete_file_size_bytes)));
 		result->rows.push_back(std::move(row_values));
 	}
 

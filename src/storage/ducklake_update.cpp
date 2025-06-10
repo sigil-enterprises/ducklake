@@ -179,7 +179,7 @@ SinkFinalizeType DuckLakeUpdate::Finalize(Pipeline &pipeline, Event &event, Clie
 SourceResultType DuckLakeUpdate::GetData(ExecutionContext &context, DataChunk &chunk,
                                          OperatorSourceInput &input) const {
 	auto &global_state = sink_state->Cast<DuckLakeUpdateGlobalState>();
-	auto value = Value::BIGINT(global_state.total_updated_count);
+	auto value = Value::BIGINT(NumericCast<int64_t>(global_state.total_updated_count.load()));
 	chunk.SetCardinality(1);
 	chunk.SetValue(0, 0, value);
 	return SourceResultType::FINISHED;

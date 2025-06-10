@@ -188,7 +188,7 @@ unique_ptr<DuckLakeFieldId> TransformColumnType(DuckLakeColumnInfo &col) {
 		auto child_type = child_id->Type();
 		vector<unique_ptr<DuckLakeFieldId>> child_fields;
 		child_fields.push_back(std::move(child_id));
-		return make_uniq<DuckLakeFieldId>(std::move(col_data), col.name, LogicalType::LIST(std::move(child_type)),
+		return make_uniq<DuckLakeFieldId>(std::move(col_data), col.name, LogicalType::LIST(child_type),
 		                                  std::move(child_fields));
 	}
 	if (StringUtil::CIEquals(col.type, "map")) {
@@ -314,7 +314,7 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 			partition_field.partition_key_index = field.partition_key_index;
 			partition_field.column_id = field.column_id;
 			partition_field.transform.type = DuckLakeTransformType::IDENTITY;
-			partition->fields.push_back(std::move(partition_field));
+			partition->fields.push_back(partition_field);
 		}
 		auto &ducklake_table = table->Cast<DuckLakeTableEntry>();
 		ducklake_table.SetPartitionData(std::move(partition));

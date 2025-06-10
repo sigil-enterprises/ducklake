@@ -67,7 +67,7 @@ MultiFileColumnDefinition CreateColumnFromFieldId(const DuckLakeFieldId &field_i
 	} else {
 		column.default_expression = make_uniq<ConstantExpression>(column_data.initial_default);
 	}
-	column.identifier = Value::INTEGER(field_id.GetFieldIndex().index);
+	column.identifier = Value::INTEGER(NumericCast<int32_t>(field_id.GetFieldIndex().index));
 	for (auto &child : field_id.Children()) {
 		column.children.push_back(CreateColumnFromFieldId(*child, emit_key_value));
 	}
