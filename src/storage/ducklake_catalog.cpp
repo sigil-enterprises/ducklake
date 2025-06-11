@@ -583,8 +583,8 @@ optional_ptr<BoundAtClause> DuckLakeCatalog::CatalogSnapshot() const {
 
 void DuckLakeCatalog::OnDetach(ClientContext &context) {
 	// detach the metadata database
-	auto &transaction = DuckLakeTransaction::Get(context, *this);
-	transaction.Query("DETACH {METADATA_CATALOG_NAME_IDENTIFIER}");
+	auto &db_manager = DatabaseManager::Get(context);
+	db_manager.DetachDatabase(context, MetadataDatabaseName(), OnEntryNotFound::RETURN_NULL);
 }
 
 optional_idx DuckLakeCatalog::GetCatalogVersion(ClientContext &context) {
