@@ -8,6 +8,7 @@
 #include "storage/ducklake_storage.hpp"
 #include "functions/ducklake_table_functions.hpp"
 #include "duckdb/main/extension_util.hpp"
+#include "storage/ducklake_secret.hpp"
 
 namespace duckdb {
 
@@ -52,6 +53,13 @@ static void LoadInternal(DatabaseInstance &instance) {
 
 	DuckLakeAddDataFilesFunction add_files;
 	ExtensionUtil::RegisterFunction(instance, add_files);
+
+	// secrets
+	auto secret_type = DuckLakeSecret::GetSecretType();
+	ExtensionUtil::RegisterSecretType(instance, secret_type);
+
+	auto ducklake_secret_function = DuckLakeSecret::GetFunction();
+	ExtensionUtil::RegisterFunction(instance, ducklake_secret_function);
 }
 
 void DucklakeExtension::Load(DuckDB &db) {

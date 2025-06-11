@@ -3,52 +3,80 @@
 #include "storage/ducklake_storage.hpp"
 #include "storage/ducklake_catalog.hpp"
 #include "storage/ducklake_transaction_manager.hpp"
+#include "storage/ducklake_secret.hpp"
 
 namespace duckdb {
+
+static void HandleDuckLakeOption(DuckLakeOptions &options, const string &option, const Value &value) {
+	auto lcase = StringUtil::Lower(option);
+	if (lcase == "data_path") {
+		options.data_path = value.ToString();
+	} else if (lcase == "metadata_schema") {
+		options.metadata_schema = value.ToString();
+	} else if (lcase == "metadata_catalog") {
+		options.metadata_database = value.ToString();
+	} else if (lcase == "metadata_path") {
+		options.metadata_path = value.ToString();
+	} else if (lcase == "encrypted") {
+		if (value.GetValue<bool>()) {
+			options.encryption = DuckLakeEncryption::ENCRYPTED;
+		} else {
+			options.encryption = DuckLakeEncryption::UNENCRYPTED;
+		}
+	} else if (lcase == "data_inlining_row_limit") {
+		options.data_inlining_row_limit = value.GetValue<idx_t>();
+	} else if (lcase == "snapshot_version") {
+		if (options.at_clause) {
+			throw InvalidInputException("Cannot specify both VERSION and TIMESTAMP");
+		}
+		options.at_clause = make_uniq<BoundAtClause>("version", value.DefaultCastAs(LogicalType::BIGINT));
+	} else if (lcase == "snapshot_time") {
+		if (options.at_clause) {
+			throw InvalidInputException("Cannot specify both VERSION and TIMESTAMP");
+		}
+		options.at_clause = make_uniq<BoundAtClause>("timestamp", value.DefaultCastAs(LogicalType::TIMESTAMP_TZ));
+	} else if (StringUtil::StartsWith(lcase, "meta_")) {
+		auto parameter_name = lcase.substr(5);
+		options.metadata_parameters[parameter_name] = value;
+	} else if (lcase == "readonly" || lcase == "read_only" || lcase == "readwrite" || lcase == "read_write" ||
+	           lcase == "type" || lcase == "default_table") {
+		// built-in options for ATTACH
+		// FIXME: this should really be handled differently upstream
+		return;
+	} else {
+		throw NotImplementedException("Unsupported option %s for DuckLake", option);
+	}
+}
 
 static unique_ptr<Catalog> DuckLakeAttach(StorageExtensionInfo *storage_info, ClientContext &context,
                                           AttachedDatabase &db, const string &name, AttachInfo &info,
                                           AccessMode access_mode) {
 	DuckLakeOptions options;
-	options.metadata_path = info.path;
-	for (auto &entry : info.options) {
-		auto lcase = StringUtil::Lower(entry.first);
-		if (lcase == "data_path") {
-			options.data_path = entry.second.ToString();
-		} else if (lcase == "metadata_schema") {
-			options.metadata_schema = entry.second.ToString();
-		} else if (lcase == "metadata_catalog") {
-			options.metadata_database = entry.second.ToString();
-		} else if (lcase == "encrypted") {
-			if (entry.second.GetValue<bool>()) {
-				options.encryption = DuckLakeEncryption::ENCRYPTED;
-			} else {
-				options.encryption = DuckLakeEncryption::UNENCRYPTED;
-			}
-		} else if (lcase == "data_inlining_row_limit") {
-			options.data_inlining_row_limit = entry.second.GetValue<idx_t>();
-		} else if (lcase == "snapshot_version") {
-			if (options.at_clause) {
-				throw InvalidInputException("Cannot specify both VERSION and TIMESTAMP");
-			}
-			options.at_clause = make_uniq<BoundAtClause>("version", entry.second.DefaultCastAs(LogicalType::BIGINT));
-		} else if (lcase == "snapshot_time") {
-			if (options.at_clause) {
-				throw InvalidInputException("Cannot specify both VERSION and TIMESTAMP");
-			}
-			options.at_clause =
-			    make_uniq<BoundAtClause>("timestamp", entry.second.DefaultCastAs(LogicalType::TIMESTAMP_TZ));
-		} else if (StringUtil::StartsWith(lcase, "meta_")) {
-			auto parameter_name = lcase.substr(5);
-			options.metadata_parameters[parameter_name] = entry.second;
-		} else if (lcase == "readonly" || lcase == "read_only" || lcase == "readwrite" || lcase == "read_write" ||
-		           lcase == "type" || lcase == "default_table") {
-			// built-in options
-			// FIXME: this should really be handled differently upstream
-			continue;
-		} else {
-			throw NotImplementedException("Unsupported option %s for DuckLake", entry.first);
+	unique_ptr<SecretEntry> secret;
+	if (info.path.empty()) {
+		// no path specified - load the default secret
+		secret = DuckLakeSecret::GetSecret(context, DuckLakeSecret::DEFAULT_SECRET);
+	} else if (DuckLakeSecret::PathIsSecret(info.path)) {
+		// if the path is a plain name - load the secret name
+		secret = DuckLakeSecret::GetSecret(context, info.path);
+		if (!secret) {
+			throw InvalidInputException(
+			    "Secret %s was not found - if this was meant to be a path, use duckdb:%s instead", info.path,
+			    info.path);
 		}
+	} else {
+		// otherwise set the remainder of the path as the metadata path
+		options.metadata_path = info.path;
+	}
+	if (secret) {
+		// if we have a secret - handle the options
+		const auto &kv_secret = dynamic_cast<const KeyValueSecret &>(*secret->secret);
+		for (auto &entry : kv_secret.secret_map) {
+			HandleDuckLakeOption(options, entry.first, entry.second);
+		}
+	}
+	for (auto &entry : info.options) {
+		HandleDuckLakeOption(options, entry.first, entry.second);
 	}
 	if (options.metadata_database.empty()) {
 		options.metadata_database = "__ducklake_metadata_" + name;
