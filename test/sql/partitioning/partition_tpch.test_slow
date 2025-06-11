@@ -47,6 +47,18 @@ SELECT COUNT(*) FROM glob('__TEST_DIR__/ducklake_partition_tpch/main/part/**')
 statement ok
 USE ducklake
 
+# verify partitions are used
+query II
+EXPLAIN ANALYZE SELECT COUNT(*) FROM lineitem WHERE l_shipdate >= DATE '1993-07-01' AND l_shipdate < DATE '1993-08-01'
+----
+analyzed_plan	<REGEX>:.*Total Files Read: 1.*
+
+query II
+EXPLAIN ANALYZE SELECT COUNT(*) FROM orders WHERE o_orderstatus = 'F'
+----
+analyzed_plan	<REGEX>:.*Total Files Read: 4.*
+
+# run TPC-H
 loop i 1 9
 
 query I
