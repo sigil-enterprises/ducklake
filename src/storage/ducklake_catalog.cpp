@@ -329,7 +329,19 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 			DuckLakePartitionField partition_field;
 			partition_field.partition_key_index = field.partition_key_index;
 			partition_field.column_id = field.column_id;
-			partition_field.transform.type = DuckLakeTransformType::IDENTITY;
+			if (field.transform == "year") {
+				partition_field.transform.type = DuckLakeTransformType::YEAR;
+			} else if (field.transform == "month") {
+				partition_field.transform.type = DuckLakeTransformType::MONTH;
+			} else if (field.transform == "day") {
+				partition_field.transform.type = DuckLakeTransformType::DAY;
+			} else if (field.transform == "hour") {
+				partition_field.transform.type = DuckLakeTransformType::HOUR;
+			} else if (field.transform == "identity") {
+				partition_field.transform.type = DuckLakeTransformType::IDENTITY;
+			} else {
+				throw InvalidInputException("Unsupported partition transform %s", field.transform);
+			}
 			partition->fields.push_back(partition_field);
 		}
 		auto &ducklake_table = table->Cast<DuckLakeTableEntry>();

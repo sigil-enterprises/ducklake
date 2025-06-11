@@ -12,6 +12,7 @@
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 #include "duckdb/parser/expression/cast_expression.hpp"
 #include "duckdb/parser/expression/columnref_expression.hpp"
+#include "duckdb/parser/expression/function_expression.hpp"
 #include "duckdb/storage/statistics/struct_stats.hpp"
 #include "duckdb/storage/statistics/list_stats.hpp"
 #include "duckdb/parser/parsed_data/comment_on_column_info.hpp"
@@ -299,18 +300,54 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	return make_uniq<DuckLakeTableEntry>(*this, table_info, LocalChangeType::RENAMED);
 }
 
-DuckLakePartitionField GetPartitionField(DuckLakeTableEntry &table, ParsedExpression &expr) {
-	if (expr.type != ExpressionType::COLUMN_REF) {
-		throw NotImplementedException("Unsupported partition key %s - only columns are supported", expr.ToString());
-	}
-	auto &colref = expr.Cast<ColumnRefExpression>();
+string GetPartitionColumnName(ColumnRefExpression &colref) {
 	if (colref.IsQualified()) {
-		throw InvalidInputException("Unexpected qualified column reference - only columns are supported");
+		throw InvalidInputException("Unexpected qualified column reference - only unqualified columns are supported");
+	}
+	return colref.GetColumnName();
+}
+
+DuckLakePartitionField GetPartitionField(DuckLakeTableEntry &table, ParsedExpression &expr) {
+	string column_name;
+	DuckLakeTransformType transform_type;
+	switch (expr.type) {
+	case ExpressionType::COLUMN_REF: {
+		auto &colref = expr.Cast<ColumnRefExpression>();
+		column_name = GetPartitionColumnName(colref);
+		transform_type = DuckLakeTransformType::IDENTITY;
+		break;
+	}
+	case ExpressionType::FUNCTION: {
+		auto &function = expr.Cast<FunctionExpression>();
+		auto name = StringUtil::Lower(function.function_name);
+		if (name == "year") {
+			transform_type = DuckLakeTransformType::YEAR;
+		} else if (name == "month") {
+			transform_type = DuckLakeTransformType::MONTH;
+		} else if (name == "day") {
+			transform_type = DuckLakeTransformType::DAY;
+		} else if (name == "hour") {
+			transform_type = DuckLakeTransformType::HOUR;
+		} else {
+			throw NotImplementedException(
+			    "Unsupported partition function %s - only year, month, day, hour are supported", name);
+		}
+		if (function.children.size() != 1 || function.children[0]->type != ExpressionType::COLUMN_REF) {
+			throw NotImplementedException("Expected %s(column), but got %s", name, expr.ToString());
+		}
+		auto &colref = function.children[0]->Cast<ColumnRefExpression>();
+		column_name = GetPartitionColumnName(colref);
+		break;
+	}
+	default:
+		throw NotImplementedException(
+		    "Unsupported partition key %s - only identity columns and year/month/day/hour are supported",
+		    expr.ToString());
 	}
 	DuckLakePartitionField field;
-	auto &col = table.GetColumn(colref.GetColumnName());
+	auto &col = table.GetColumn(column_name);
 	field.column_id = col.Oid();
-	field.transform.type = DuckLakeTransformType::IDENTITY;
+	field.transform.type = transform_type;
 	return field;
 }
 

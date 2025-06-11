@@ -546,10 +546,25 @@ DuckLakePartitionInfo DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &
 		DuckLakePartitionFieldInfo partition_field;
 		partition_field.partition_key_index = field.partition_key_index;
 		partition_field.column_id = field.column_id;
-		if (field.transform.type != DuckLakeTransformType::IDENTITY) {
+		switch (field.transform.type) {
+		case DuckLakeTransformType::IDENTITY:
+			partition_field.transform = "identity";
+			break;
+		case DuckLakeTransformType::YEAR:
+			partition_field.transform = "year";
+			break;
+		case DuckLakeTransformType::MONTH:
+			partition_field.transform = "month";
+			break;
+		case DuckLakeTransformType::DAY:
+			partition_field.transform = "day";
+			break;
+		case DuckLakeTransformType::HOUR:
+			partition_field.transform = "hour";
+			break;
+		default:
 			throw NotImplementedException("Unimplemented transform type for partition");
 		}
-		partition_field.transform = "identity";
 		partition_key.fields.push_back(std::move(partition_field));
 	}
 
