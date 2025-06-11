@@ -16,6 +16,7 @@ add_library(
   ducklake_storage.cpp
   ducklake_delete.cpp
   ducklake_multi_file_reader.cpp
+  ducklake_secret.cpp
   ducklake_stats.cpp
   ducklake_table_entry.cpp
   ducklake_initializer.cpp
