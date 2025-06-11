@@ -17,6 +17,13 @@ static void HandleDuckLakeOption(DuckLakeOptions &options, const string &option,
 		options.metadata_database = value.ToString();
 	} else if (lcase == "metadata_path") {
 		options.metadata_path = value.ToString();
+	} else if (lcase == "metadata_parameters") {
+		auto &children = MapValue::GetChildren(value);
+		for (auto &child : children) {
+			auto &key_value = StructValue::GetChildren(child);
+			auto &parameter_name = StringValue::Get(key_value[0]);
+			options.metadata_parameters[parameter_name] = key_value[1];
+		}
 	} else if (lcase == "encrypted") {
 		if (value.GetValue<bool>()) {
 			options.encryption = DuckLakeEncryption::ENCRYPTED;
@@ -61,8 +68,8 @@ static unique_ptr<Catalog> DuckLakeAttach(StorageExtensionInfo *storage_info, Cl
 		secret = DuckLakeSecret::GetSecret(context, info.path);
 		if (!secret) {
 			throw InvalidInputException(
-			    "Secret %s was not found - if this was meant to be a path, use duckdb:%s instead", info.path,
-			    info.path);
+			    "Secret \"%s\" was not found - if this was meant to be a path to a DuckDB file, use duckdb:%s instead",
+			    info.path, info.path);
 		}
 	} else {
 		// otherwise set the remainder of the path as the metadata path
