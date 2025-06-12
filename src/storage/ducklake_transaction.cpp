@@ -1304,7 +1304,7 @@ void DuckLakeTransaction::FlushChanges() {
 	idx_t max_retry_count = 5;
 	Value max_retry_count_value;
 	auto context_ref = context.lock();
-	auto lookup_result = context_ref->TryGetCurrentSetting("ducklake_txn_max_retry_count", max_retry_count_value);
+	auto lookup_result = context_ref->TryGetCurrentSetting("ducklake_max_retry_count", max_retry_count_value);
 	if (lookup_result) {
 		max_retry_count = max_retry_count_value.GetValue<idx_t>();
 	}
