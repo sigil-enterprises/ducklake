@@ -346,7 +346,9 @@ DuckLakePartitionField GetPartitionField(DuckLakeTableEntry &table, ParsedExpres
 	}
 	DuckLakePartitionField field;
 	auto &col = table.GetColumn(column_name);
-	field.column_id = col.Oid();
+	PhysicalIndex column_index(col.StorageOid());
+	auto &field_id = table.GetFieldData().GetByRootIndex(column_index);
+	field.field_id = field_id.GetFieldIndex();
 	field.transform.type = transform_type;
 	return field;
 }

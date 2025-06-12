@@ -139,7 +139,7 @@ struct DuckLakeDeleteFileInfo {
 
 struct DuckLakePartitionFieldInfo {
 	idx_t partition_key_index = 0;
-	idx_t column_id;
+	FieldIndex field_id;
 	string transform;
 };
 

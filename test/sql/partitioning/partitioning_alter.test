@@ -1,4 +1,4 @@
-# name: test/sql/partitioning/year_month_day.test
+# name: test/sql/partitioning/partitioning_alter.test
 # description: Test partitioning by year/month/day
 # group: [partitioning]
 
@@ -20,7 +20,13 @@ statement ok
 ALTER TABLE partitioned_tbl SET PARTITIONED BY (year(ts), month(ts));
 
 statement ok
-INSERT INTO partitioned_tbl SELECT i, TIMESTAMP '2020-01-01' + interval (i) hours, concat('thisisastring_', i) FROM range(10000) t(i)
+INSERT INTO partitioned_tbl SELECT i, TIMESTAMP '2020-01-01' + interval (i) hours, concat('thisisastring_', i) FROM range(5000) t(i)
+
+statement ok
+ALTER TABLE partitioned_tbl DROP COLUMN id
+
+statement ok
+INSERT INTO partitioned_tbl SELECT TIMESTAMP '2020-01-01' + interval (i) hours, concat('thisisastring_', i) FROM range(5000, 10000) t(i)
 
 query IIII
 SELECT year(ts), COUNT(*), MIN(values), MAX(values) FROM partitioned_tbl GROUP BY year(ts)
@@ -29,7 +35,7 @@ SELECT year(ts), COUNT(*), MIN(values), MAX(values) FROM partitioned_tbl GROUP B
 2021	1216	thisisastring_8784	thisisastring_9999
 
 query II
-SELECT regexp_extract(path, '.*year=([0-9]+)[/\\].*', 1)::INT AS year_part, regexp_extract(path, '.*month=([0-9]+)[/\\].*', 1)::INT AS month_part
+SELECT DISTINCT regexp_extract(path, '.*year=([0-9]+)[/\\].*', 1)::INT AS year_part, regexp_extract(path, '.*month=([0-9]+)[/\\].*', 1)::INT AS month_part
 FROM glob('__TEST_DIR__/ducklake_partition_transform/**') t(path) ORDER BY ALL
 ----
 2020	1

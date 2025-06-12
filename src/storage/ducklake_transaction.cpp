@@ -545,7 +545,7 @@ DuckLakePartitionInfo DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &
 	for (auto &field : partition_data->fields) {
 		DuckLakePartitionFieldInfo partition_field;
 		partition_field.partition_key_index = field.partition_key_index;
-		partition_field.column_id = field.column_id;
+		partition_field.field_id = field.field_id;
 		switch (field.transform.type) {
 		case DuckLakeTransformType::IDENTITY:
 			partition_field.transform = "identity";
