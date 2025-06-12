@@ -36,7 +36,7 @@ SELECT year(ts), COUNT(*), MIN(values), MAX(values) FROM partitioned_tbl GROUP B
 
 query II
 SELECT DISTINCT regexp_extract(path, '.*year=([0-9]+)[/\\].*', 1)::INT AS year_part, regexp_extract(path, '.*month=([0-9]+)[/\\].*', 1)::INT AS month_part
-FROM glob('__TEST_DIR__/ducklake_partition_transform/**') t(path) ORDER BY ALL
+FROM glob('__TEST_DIR__/ducklake_partition_alter/**') t(path) ORDER BY ALL
 ----
 2020	1
 2020	2
