@@ -31,7 +31,7 @@ static void HandleDuckLakeOption(DuckLakeOptions &options, const string &option,
 			options.encryption = DuckLakeEncryption::UNENCRYPTED;
 		}
 	} else if (lcase == "data_inlining_row_limit") {
-		options.data_inlining_row_limit = value.GetValue<idx_t>();
+		options.config_options["data_inlining_row_limit"] = value.DefaultCastAs(LogicalType::UBIGINT).ToString();
 	} else if (lcase == "snapshot_version") {
 		if (options.at_clause) {
 			throw InvalidInputException("Cannot specify both VERSION and TIMESTAMP");

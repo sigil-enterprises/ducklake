@@ -72,10 +72,15 @@ public:
 	virtual void WriteNewTags(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeTagInfo> &new_tags);
 	virtual void WriteNewColumnTags(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeColumnTagInfo> &new_tags);
 	virtual void WriteNewDataFiles(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeFileInfo> &new_files);
-	virtual void WriteNewInlinedData(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeInlinedDataInfo> &new_data);
+	virtual void WriteNewInlinedData(DuckLakeSnapshot &commit_snapshot,
+	                                 const vector<DuckLakeInlinedDataInfo> &new_data);
 	virtual void WriteNewInlinedDeletes(DuckLakeSnapshot commit_snapshot,
 	                                    const vector<DuckLakeDeletedInlinedDataInfo> &new_deletes);
 	virtual void WriteNewInlinedTables(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeTableInfo> &tables);
+	virtual string GetInlinedTableQueries(DuckLakeSnapshot commit_snapshot, const DuckLakeTableInfo &table,
+	                                      string &inlined_tables, string &inlined_table_queries);
+	virtual void ExecuteInlinedTableQueries(DuckLakeSnapshot commit_snapshot, string &inlined_tables,
+	                                        const string &inlined_table_queries);
 	virtual void DropDataFiles(DuckLakeSnapshot commit_snapshot, const set<DataFileIndex> &dropped_files);
 	virtual void DropDeleteFiles(DuckLakeSnapshot commit_snapshot, const set<DataFileIndex> &dropped_files);
 	virtual void WriteNewDeleteFiles(DuckLakeSnapshot commit_snapshot,
