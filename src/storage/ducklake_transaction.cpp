@@ -1055,7 +1055,7 @@ NewDataInfo DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &commit_snapsh
 		new_global_stats.emplace(table_id, std::move(new_globals));
 
 		// add the file to the to-be-written inlined data list
-		new_inlined_data.data = std::move(entry.second);
+		new_inlined_data.data = entry.second.get();
 		result.new_inlined_data.push_back(std::move(new_inlined_data));
 	}
 	if (!new_inlined_data.empty() && new_data_files.empty()) {
