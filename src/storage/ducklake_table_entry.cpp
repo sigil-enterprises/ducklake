@@ -346,7 +346,9 @@ DuckLakePartitionField GetPartitionField(DuckLakeTableEntry &table, ParsedExpres
 	}
 	DuckLakePartitionField field;
 	auto &col = table.GetColumn(column_name);
-	field.column_id = col.Oid();
+	PhysicalIndex column_index(col.StorageOid());
+	auto &field_id = table.GetFieldData().GetByRootIndex(column_index);
+	field.field_id = field_id.GetFieldIndex();
 	field.transform.type = transform_type;
 	return field;
 }
@@ -509,6 +511,16 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	auto &field_id = GetFieldId(col.Physical());
 	if (columns.LogicalColumnCount() == 1) {
 		throw CatalogException("Cannot drop column: table only has one column remaining!");
+	}
+	// check if we are partitioning on this column
+	if (partition_data) {
+		for (auto &partition_field : partition_data->fields) {
+			if (field_id.GetFieldIndex() == partition_field.field_id) {
+				throw CatalogException("Cannot drop column \"%s\" - the table is partitioned by this column. Reset or "
+				                       "change the partitioning on this table in order to drop this column",
+				                       col.Name());
+			}
+		}
 	}
 	auto removed_index = col.Logical();
 	for (idx_t c_idx = 0; c_idx < table_info.constraints.size(); c_idx++) {

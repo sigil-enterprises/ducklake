@@ -97,6 +97,7 @@ ALTER TABLE {METADATA_CATALOG}.ducklake_metadata ADD COLUMN scope_id BIGINT;
 ALTER TABLE {METADATA_CATALOG}.ducklake_data_file ADD COLUMN mapping_id BIGINT;
 CREATE TABLE {METADATA_CATALOG}.ducklake_column_mapping(mapping_id BIGINT, table_id BIGINT, type VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_name_mapping(mapping_id BIGINT, column_id BIGINT, source_name VARCHAR, target_field_id BIGINT, parent_column BIGINT);
+UPDATE {METADATA_CATALOG}.ducklake_partition_column SET column_id = (SELECT LIST(column_id ORDER BY column_order) FROM {METADATA_CATALOG}.ducklake_column WHERE table_id = ducklake_partition_column.table_id AND parent_column IS NULL AND end_snapshot IS NULL)[ducklake_partition_column.column_id + 1];
 UPDATE {METADATA_CATALOG}.ducklake_metadata SET value = '0.2' WHERE key = 'version';
 	)";
 	auto result = transaction.Query(migrate_query);
@@ -389,7 +390,7 @@ ORDER BY part.table_id, partition_id, partition_key_index
 
 		DuckLakePartitionFieldInfo partition_field;
 		partition_field.partition_key_index = row.GetValue<uint64_t>(2);
-		partition_field.column_id = row.GetValue<uint64_t>(3);
+		partition_field.field_id = FieldIndex(row.GetValue<uint64_t>(3));
 		partition_field.transform = row.GetValue<string>(4);
 		partition_entry.fields.push_back(std::move(partition_field));
 	}
@@ -1709,7 +1710,7 @@ void DuckLakeMetadataManager::WriteNewPartitionKeys(DuckLakeSnapshot commit_snap
 			}
 			insert_partition_cols +=
 			    StringUtil::Format("(%d, %d, %d, %d, %s)", partition_id, partition.table_id.index,
-			                       field.partition_key_index, field.column_id, SQLString(field.transform));
+			                       field.partition_key_index, field.field_id.index, SQLString(field.transform));
 		}
 	}
 	// update old partition information for any tables that have been altered

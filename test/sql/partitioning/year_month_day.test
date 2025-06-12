@@ -14,13 +14,13 @@ statement ok
 USE ducklake
 
 statement ok
-CREATE TABLE partitioned_tbl(ts TIMESTAMP, values VARCHAR);
+CREATE TABLE partitioned_tbl(id INTEGER, ts TIMESTAMP, values VARCHAR);
 
 statement ok
 ALTER TABLE partitioned_tbl SET PARTITIONED BY (year(ts), month(ts));
 
 statement ok
-INSERT INTO partitioned_tbl SELECT TIMESTAMP '2020-01-01' + interval (i) hours, concat('thisisastring_', i) FROM range(10000) t(i)
+INSERT INTO partitioned_tbl SELECT i, TIMESTAMP '2020-01-01' + interval (i) hours, concat('thisisastring_', i) FROM range(10000) t(i)
 
 query IIII
 SELECT year(ts), COUNT(*), MIN(values), MAX(values) FROM partitioned_tbl GROUP BY year(ts)

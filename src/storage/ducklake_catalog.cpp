@@ -328,7 +328,7 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 		for (auto &field : entry.fields) {
 			DuckLakePartitionField partition_field;
 			partition_field.partition_key_index = field.partition_key_index;
-			partition_field.column_id = field.column_id;
+			partition_field.field_id = field.field_id;
 			if (field.transform == "year") {
 				partition_field.transform.type = DuckLakeTransformType::YEAR;
 			} else if (field.transform == "month") {

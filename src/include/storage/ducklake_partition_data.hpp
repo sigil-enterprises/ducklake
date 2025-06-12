@@ -10,6 +10,7 @@
 
 #include "duckdb/common/case_insensitive_map.hpp"
 #include "duckdb/common/common.hpp"
+#include "common/index.hpp"
 
 namespace duckdb {
 class BaseStatistics;
@@ -22,7 +23,7 @@ struct DuckLakeTransform {
 
 struct DuckLakePartitionField {
 	idx_t partition_key_index = 0;
-	idx_t column_id;
+	FieldIndex field_id;
 	DuckLakeTransform transform;
 };
 
