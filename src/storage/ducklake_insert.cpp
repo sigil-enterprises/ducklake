@@ -388,6 +388,7 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckL
 	result.file_extension = "parquet";
 	result.overwrite_mode = CopyOverwriteMode::COPY_OVERWRITE_OR_IGNORE;
 	result.per_thread_output = false;
+	result.write_partition_columns = true;
 	result.return_type = CopyFunctionReturnType::WRITTEN_FILE_STATISTICS;
 	result.names = names_to_write;
 	result.expected_types = types_to_write;
@@ -491,7 +492,6 @@ void GeneratePartitionedInsert(ClientContext &context, PhysicalPlanGenerator &pl
 	if (all_identity) {
 		// all transforms are identity transforms - we can partition on the columns directly
 		// just set up the correct references to the partition columns
-		copy_options.write_partition_columns = true;
 		for (auto &field : copy_input.partition_data->fields) {
 			optional_idx col_idx;
 			GetTopLevelColumn(copy_input, field.field_id, col_idx);
