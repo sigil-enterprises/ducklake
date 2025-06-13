@@ -13,7 +13,6 @@
 #include "storage/ducklake_transaction_manager.hpp"
 #include "storage/ducklake_view_entry.hpp"
 #include "duckdb/main/client_data.hpp"
-#include <algorithm>
 
 namespace duckdb {
 
@@ -1307,12 +1306,12 @@ void DuckLakeTransaction::FlushChanges() {
 	auto context_ref = context.lock();
 	auto lookup_result = context_ref->TryGetCurrentSetting("ducklake_max_retry_count", max_retry_count_value);
 	if (lookup_result) {
-		max_retry_count = std::max((idx_t)1, max_retry_count_value.GetValue<idx_t>());
+		max_retry_count = max_retry_count_value.GetValue<idx_t>();
 	}
 
 	auto transaction_snapshot = GetSnapshot();
 	auto transaction_changes = GetTransactionChanges();
-	for (idx_t i = 0; i < max_retry_count; i++) {
+	for (idx_t i = 0; i < max_retry_count + 1; i++) {
 		auto commit_snapshot = GetSnapshot();
 		commit_snapshot.snapshot_id++;
 		if (SchemaChangesMade()) {
