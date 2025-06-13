@@ -579,12 +579,11 @@ DuckLakePartitionInfo DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &
 	return partition_key;
 }
 
-vector<DuckLakeColumnInfo> DuckLakeTransaction::GetTableColumns(DuckLakeTableEntry &table) {
+vector<DuckLakeColumnInfo> DuckLakeTableEntry::GetTableColumns() const {
 	vector<DuckLakeColumnInfo> result;
-	auto not_null_fields = table.GetNotNullFields();
-	for (auto &col : table.GetColumns().Logical()) {
-		auto col_info =
-		    DuckLakeTableEntry::ConvertColumn(col.GetName(), col.GetType(), table.GetFieldId(col.Physical()));
+	auto not_null_fields = GetNotNullFields();
+	for (auto &col : GetColumns().Logical()) {
+		auto col_info = DuckLakeTableEntry::ConvertColumn(col.GetName(), col.GetType(), GetFieldId(col.Physical()));
 		if (not_null_fields.count(col.GetName())) {
 			// no null values allowed in this field
 			col_info.nulls_allowed = false;
@@ -594,10 +593,20 @@ vector<DuckLakeColumnInfo> DuckLakeTransaction::GetTableColumns(DuckLakeTableEnt
 	return result;
 }
 
-DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table) {
-	auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
+DuckLakeTableInfo DuckLakeTableEntry::GetTableInfo() const {
+	auto &schema = ParentSchema().Cast<DuckLakeSchemaEntry>();
 	DuckLakeTableInfo table_entry;
-	auto original_id = table.GetTableId();
+	table_entry.id = GetTableId();
+	table_entry.uuid = GetTableUUID();
+	table_entry.schema_id = schema.GetSchemaId();
+	table_entry.name = name;
+	table_entry.path = DataPath();
+	return table_entry;
+}
+
+DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table) {
+	auto table_entry = table.GetTableInfo();
+	auto original_id = table_entry.id;
 	bool is_new_table;
 	if (original_id.IsTransactionLocal()) {
 		table_entry.id = TableIndex(commit_snapshot.next_catalog_id++);
@@ -608,13 +617,9 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 		table_entry.id = original_id;
 		is_new_table = false;
 	}
-	table_entry.uuid = table.GetTableUUID();
-	table_entry.schema_id = schema.GetSchemaId();
-	table_entry.name = table.name;
-	table_entry.path = table.DataPath();
 	if (is_new_table) {
 		// if this is a new table - write the columns
-		table_entry.columns = GetTableColumns(table);
+		table_entry.columns = table.GetTableColumns();
 
 		// if we have written any data to this table - move them to the new (correct) table id as well
 		auto data_file_entry = new_data_files.find(original_id);
@@ -785,7 +790,7 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, Duc
 		DuckLakeTableInfo table_entry;
 		table_entry.id = table.GetTableId();
 		table_entry.uuid = table.GetTableUUID();
-		table_entry.columns = GetTableColumns(table);
+		table_entry.columns = table.GetTableColumns();
 		result.new_inlined_data_tables.push_back(std::move(table_entry));
 	}
 }
@@ -1050,7 +1055,7 @@ NewDataInfo DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &commit_snapsh
 		new_global_stats.emplace(table_id, std::move(new_globals));
 
 		// add the file to the to-be-written inlined data list
-		new_inlined_data.data = std::move(entry.second);
+		new_inlined_data.data = entry.second.get();
 		result.new_inlined_data.push_back(std::move(new_inlined_data));
 	}
 	if (!new_inlined_data.empty() && new_data_files.empty()) {

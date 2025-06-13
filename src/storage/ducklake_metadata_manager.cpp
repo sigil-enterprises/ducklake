@@ -979,39 +979,54 @@ void DuckLakeMetadataManager::WriteNewTables(DuckLakeSnapshot commit_snapshot,
 	WriteNewInlinedTables(commit_snapshot, new_tables);
 }
 
+string GetInlinedTableName(const DuckLakeTableInfo &table, const DuckLakeSnapshot &snapshot) {
+	return StringUtil::Format("ducklake_inlined_data_%d_%d", table.id.index, snapshot.schema_version);
+}
+
+string DuckLakeMetadataManager::GetInlinedTableQueries(DuckLakeSnapshot commit_snapshot, const DuckLakeTableInfo &table,
+                                                       string &inlined_tables, string &inlined_table_queries) {
+	if (!inlined_tables.empty()) {
+		inlined_tables += ", ";
+	}
+	auto schema_version = commit_snapshot.schema_version;
+	string inlined_table_name = GetInlinedTableName(table, commit_snapshot);
+	inlined_tables += StringUtil::Format("(%d, %s, %d)", table.id.index, SQLString(inlined_table_name), schema_version);
+	if (!inlined_table_queries.empty()) {
+		inlined_table_queries += "\n";
+	}
+	inlined_table_queries += GetInlinedTableQuery(table, inlined_table_name);
+	return inlined_table_name;
+}
+
+void DuckLakeMetadataManager::ExecuteInlinedTableQueries(DuckLakeSnapshot commit_snapshot, string &inlined_tables,
+                                                         const string &inlined_table_queries) {
+	if (inlined_tables.empty()) {
+		return;
+	}
+	inlined_tables = "INSERT INTO {METADATA_CATALOG}.ducklake_inlined_data_tables VALUES " + inlined_tables;
+	auto result = transaction.Query(commit_snapshot, inlined_tables);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to write new inlined tables table to DuckLake: ");
+	}
+	result = transaction.Query(commit_snapshot, inlined_table_queries);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to write new inlined tables to DuckLake: ");
+	}
+}
+
 void DuckLakeMetadataManager::WriteNewInlinedTables(DuckLakeSnapshot commit_snapshot,
                                                     const vector<DuckLakeTableInfo> &new_tables) {
 	auto &catalog = transaction.GetCatalog();
-	if (catalog.DataInliningRowLimit() == 0) {
-		return;
-	}
 	string inlined_tables;
 	string inlined_table_queries;
 	for (auto &table : new_tables) {
-		if (!inlined_tables.empty()) {
-			inlined_tables += ", ";
+		if (catalog.DataInliningRowLimit(table.schema_id, table.id) == 0) {
+			// not inlining for this table - skip it
+			continue;
 		}
-		auto schema_version = commit_snapshot.schema_version;
-		string inlined_table_name = StringUtil::Format("ducklake_inlined_data_%d_%d", table.id.index, schema_version);
-		inlined_tables +=
-		    StringUtil::Format("(%d, %s, %d)", table.id.index, SQLString(inlined_table_name), schema_version);
-		if (inlined_table_queries.empty()) {
-			inlined_table_queries += "\n";
-		}
-		inlined_table_queries += GetInlinedTableQuery(table, inlined_table_name);
+		GetInlinedTableQueries(commit_snapshot, table, inlined_tables, inlined_table_queries);
 	}
-
-	if (!inlined_tables.empty()) {
-		inlined_tables = "INSERT INTO {METADATA_CATALOG}.ducklake_inlined_data_tables VALUES " + inlined_tables;
-		auto result = transaction.Query(commit_snapshot, inlined_tables);
-		if (result->HasError()) {
-			result->GetErrorObject().Throw("Failed to write new inlined tables table to DuckLake: ");
-		}
-		result = transaction.Query(commit_snapshot, inlined_table_queries);
-		if (result->HasError()) {
-			result->GetErrorObject().Throw("Failed to write new inlined tables to DuckLake: ");
-		}
-	}
+	ExecuteInlinedTableQueries(commit_snapshot, inlined_tables, inlined_table_queries);
 }
 
 void DuckLakeMetadataManager::WriteDroppedColumns(DuckLakeSnapshot commit_snapshot,
@@ -1083,7 +1098,7 @@ void DuckLakeMetadataManager::WriteNewViews(DuckLakeSnapshot commit_snapshot,
 	}
 }
 
-void DuckLakeMetadataManager::WriteNewInlinedData(DuckLakeSnapshot commit_snapshot,
+void DuckLakeMetadataManager::WriteNewInlinedData(DuckLakeSnapshot &commit_snapshot,
                                                   const vector<DuckLakeInlinedDataInfo> &new_data) {
 	if (new_data.empty()) {
 		return;
@@ -1110,8 +1125,24 @@ WHERE table_id = %d AND schema_version=(
 			inlined_table_name = row.GetValue<string>(0);
 		}
 		if (inlined_table_name.empty()) {
-			throw InvalidInputException("Failed to get table name for writing inlined data for table id %d",
-			                            entry.table_id.index);
+			// no inlined table yet - create a new one
+			// first fetch the table info
+			auto current_snapshot = transaction.GetSnapshot();
+			auto table_entry = transaction.GetCatalog().GetEntryById(transaction, current_snapshot, entry.table_id);
+			if (!table_entry) {
+				throw InternalException("Writing inlined data for a table that cannot be found in the catalog");
+			}
+			auto &table = table_entry->Cast<DuckLakeTableEntry>();
+			auto table_info = table.GetTableInfo();
+			table_info.columns = table.GetTableColumns();
+
+			// write the new inlined table
+			string inlined_tables;
+			string inlined_table_queries;
+			commit_snapshot.schema_version++;
+			inlined_table_name =
+			    GetInlinedTableQueries(commit_snapshot, table_info, inlined_tables, inlined_table_queries);
+			ExecuteInlinedTableQueries(commit_snapshot, inlined_tables, inlined_table_queries);
 		}
 
 		// append the data

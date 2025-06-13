@@ -117,7 +117,7 @@ struct DuckLakeFileInfo {
 struct DuckLakeInlinedDataInfo {
 	TableIndex table_id;
 	idx_t row_id_start;
-	unique_ptr<DuckLakeInlinedData> data;
+	optional_ptr<DuckLakeInlinedData> data;
 };
 
 struct DuckLakeDeletedInlinedDataInfo {

@@ -12,18 +12,20 @@ struct DuckLakeOptionMetadata {
 	const char *description;
 };
 
-using ducklake_option_array = std::array<DuckLakeOptionMetadata, 9>;
+using ducklake_option_array = std::array<DuckLakeOptionMetadata, 11>;
 
 static constexpr const ducklake_option_array DUCKLAKE_OPTIONS = {
-    {{"parquet_compression", "Compression algorithm for Parquet files (uncompressed, snappy, gzip, zstd, brotli, lz4)"},
+    {{"data_inlining_row_limit", "Maximum amount of rows to inline in a single insert"},
+     {"parquet_compression", "Compression algorithm for Parquet files (uncompressed, snappy, gzip, zstd, brotli, lz4)"},
      {"parquet_version", "Parquet format version (1 or 2)"},
      {"parquet_compression_level", "Compression level for Parquet files"},
      {"parquet_row_group_size", "Number of rows per row group in Parquet files"},
      {"parquet_row_group_size_bytes", "Number of bytes per row group in Parquet files"},
+     {"target_file_size", "The target data file size for insertion and compaction operations"},
      {"version", "DuckLake format version"},
-     {"created_by", "DuckLake creator information"},
+     {"created_by", "Tool used to write the DuckLake"},
      {"data_path", "Path to data files"},
-     {"encrypted", "Whether the DuckLake is encrypted"}}};
+     {"encrypted", "Whether or not to encrypt Parquet files written to the data path"}}};
 
 struct DuckLakeOptionsData : public TableFunctionData {
 	explicit DuckLakeOptionsData(Catalog &catalog) : catalog(catalog) {
@@ -34,7 +36,7 @@ struct DuckLakeOptionsData : public TableFunctionData {
 
 struct DuckLakeOptionInfo {
 	string option_name;
-	string description;
+	Value description;
 	string value;
 	string scope;
 	string scope_entry;
@@ -70,13 +72,13 @@ static unique_ptr<FunctionData> DuckLakeOptionsBind(ClientContext &context, Tabl
 	return make_uniq<DuckLakeOptionsData>(catalog);
 }
 
-static string GetOptionDescription(const string &option_name) {
+static Value GetOptionDescription(const string &option_name) {
 	for (auto &opt : DUCKLAKE_OPTIONS) {
 		if (StringUtil::CIEquals(opt.name, option_name)) {
 			return opt.description;
 		}
 	}
-	return "Custom configuration option";
+	return Value();
 }
 
 unique_ptr<GlobalTableFunctionState> DuckLakeOptionsInit(ClientContext &context, TableFunctionInitInput &input) {
@@ -145,7 +147,7 @@ void DuckLakeOptionsExecute(ClientContext &context, TableFunctionInput &data_p, 
 	while (state.offset < state.options.size() && count < STANDARD_VECTOR_SIZE) {
 		auto &option = state.options[state.offset++];
 		output.SetValue(0, count, Value(option.option_name));
-		output.SetValue(1, count, Value(option.description));
+		output.SetValue(1, count, option.description);
 		output.SetValue(2, count, Value(option.value));
 		output.SetValue(3, count, Value(option.scope));
 		output.SetValue(4, count, option.scope_entry.empty() ? Value() : Value(option.scope_entry));

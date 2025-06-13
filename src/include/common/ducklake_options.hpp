@@ -27,7 +27,6 @@ struct DuckLakeOptions {
 	string data_path;
 	AccessMode access_mode = AccessMode::AUTOMATIC;
 	DuckLakeEncryption encryption = DuckLakeEncryption::AUTOMATIC;
-	idx_t data_inlining_row_limit = 0;
 	unique_ptr<BoundAtClause> at_clause;
 	unordered_map<string, Value> metadata_parameters;
 	option_map_t config_options;

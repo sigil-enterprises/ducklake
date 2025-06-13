@@ -331,11 +331,8 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckL
 	if (catalog.TryGetConfigOption("parquet_row_group_size_bytes", row_group_size_bytes, schema_id, table_id)) {
 		info->options["row_group_size_bytes"].emplace_back(row_group_size_bytes + " bytes");
 	}
-	idx_t target_file_size = DuckLakeCatalog::DEFAULT_TARGET_FILE_SIZE;
-	string target_file_size_str;
-	if (catalog.TryGetConfigOption("target_file_size", target_file_size_str, schema_id, table_id)) {
-		target_file_size = Value(target_file_size_str).DefaultCastAs(LogicalType::UBIGINT).GetValue<idx_t>();
-	}
+	idx_t target_file_size = catalog.GetConfigOption<idx_t>("target_file_size", schema_id, table_id,
+	                                                        DuckLakeCatalog::DEFAULT_TARGET_FILE_SIZE);
 
 	// Get Parquet Copy function
 	auto &copy_fun = DuckLakeFunctions::GetCopyFunction(context, "parquet");
@@ -611,9 +608,12 @@ PhysicalOperator &DuckLakeCatalog::PlanInsert(ClientContext &context, PhysicalPl
 		plan = planner.ResolveDefaultsProjection(op, *plan);
 	}
 	auto &ducklake_table = op.table.Cast<DuckLakeTableEntry>();
+	auto &ducklake_schema = ducklake_table.ParentSchema().Cast<DuckLakeSchemaEntry>();
 	optional_ptr<DuckLakeInlineData> inline_data;
-	if (DataInliningRowLimit() > 0) {
-		plan = planner.Make<DuckLakeInlineData>(*plan, DataInliningRowLimit());
+
+	idx_t data_inlining_row_limit = DataInliningRowLimit(ducklake_schema.GetSchemaId(), ducklake_table.GetTableId());
+	if (data_inlining_row_limit > 0) {
+		plan = planner.Make<DuckLakeInlineData>(*plan, data_inlining_row_limit);
 		inline_data = plan->Cast<DuckLakeInlineData>();
 	}
 	DuckLakeCopyInput copy_input(context, ducklake_table);
@@ -630,18 +630,19 @@ PhysicalOperator &DuckLakeCatalog::PlanCreateTableAs(ClientContext &context, Phy
                                                      LogicalCreateTable &op, PhysicalOperator &plan) {
 	auto &create_info = op.info->Base();
 	auto &columns = create_info.columns;
+	auto &duck_transaction = DuckLakeTransaction::Get(context, *this);
+	auto &duck_schema = op.schema.Cast<DuckLakeSchemaEntry>();
 	// FIXME: if table already exists and we are doing CREATE IF NOT EXISTS - skip
 	reference<PhysicalOperator> root = plan;
 	optional_ptr<DuckLakeInlineData> inline_data;
-	if (DataInliningRowLimit() > 0) {
-		root = planner.Make<DuckLakeInlineData>(root.get(), DataInliningRowLimit());
+	idx_t data_inlining_row_limit = DataInliningRowLimit(duck_schema.GetSchemaId(), TableIndex());
+	if (data_inlining_row_limit > 0) {
+		root = planner.Make<DuckLakeInlineData>(root.get(), data_inlining_row_limit);
 		inline_data = root.get().Cast<DuckLakeInlineData>();
 	}
 	for (auto &col : op.info->Base().columns.Logical()) {
 		DuckLakeTypes::CheckSupportedType(col.Type());
 	}
-	auto &duck_transaction = DuckLakeTransaction::Get(context, *this);
-	auto &duck_schema = op.schema.Cast<DuckLakeSchemaEntry>();
 	auto table_uuid = duck_transaction.GenerateUUID();
 	auto table_data_path =
 	    duck_schema.DataPath() + DuckLakeCatalog::GeneratePathFromName(table_uuid, create_info.table);

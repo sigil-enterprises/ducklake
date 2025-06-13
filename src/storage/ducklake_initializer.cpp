@@ -64,7 +64,7 @@ void DuckLakeInitializer::Initialize() {
 		// if the schema is not explicitly set by the user - set it to the default schema in the catalog
 		options.metadata_schema = transaction.GetDefaultSchemaName();
 	}
-	if (options.data_inlining_row_limit > 0) {
+	if (catalog.DataInliningRowLimit(SchemaIndex(), TableIndex()) > 0) {
 		auto &metadata_catalog = Catalog::GetCatalog(*transaction.GetConnection().context, options.metadata_database);
 		if (!metadata_catalog.IsDuckCatalog()) {
 			throw NotImplementedException("Data inlining is currently only supported on DuckDB catalogs");

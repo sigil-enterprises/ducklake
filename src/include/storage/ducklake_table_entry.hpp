@@ -81,6 +81,9 @@ public:
 	//! Gets the top-level not-null fields
 	case_insensitive_set_t GetNotNullFields() const;
 
+	DuckLakeTableInfo GetTableInfo() const;
+	vector<DuckLakeColumnInfo> GetTableColumns() const;
+
 public:
 	unique_ptr<BaseStatistics> GetStatistics(ClientContext &context, column_t column_id) override;
 

@@ -55,14 +55,20 @@ public:
 	const string &MetadataType() const {
 		return metadata_type;
 	}
-	idx_t DataInliningRowLimit() const {
-		return options.data_inlining_row_limit;
-	}
+	idx_t DataInliningRowLimit(SchemaIndex schema_index, TableIndex table_index) const;
 	string &Separator() {
 		return separator;
 	}
 	void SetConfigOption(const DuckLakeConfigOption &option);
 	bool TryGetConfigOption(const string &option, string &result, SchemaIndex schema_id, TableIndex table_id) const;
+	template <class T>
+	T GetConfigOption(const string &option, SchemaIndex schema_id, TableIndex table_id, T default_value) const {
+		string value_str;
+		if (TryGetConfigOption(option, value_str, schema_id, table_id)) {
+			return Value(value_str).GetValue<T>();
+		}
+		return default_value;
+	}
 	bool TryGetConfigOption(const string &option, string &result, DuckLakeTableEntry &table) const;
 
 	optional_ptr<BoundAtClause> CatalogSnapshot() const;
