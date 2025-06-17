@@ -286,6 +286,14 @@ DuckLakeCopyInput::DuckLakeCopyInput(ClientContext &context, DuckLakeSchemaEntry
 	encryption_key = catalog.GenerateEncryptionKey(context);
 }
 
+void StripTrailingSeparator(FileSystem &fs, string &path) {
+	auto sep = fs.PathSeparator(path);
+	if (!StringUtil::EndsWith(path, sep)) {
+		return;
+	}
+	path = path.substr(0, path.size() - sep.size());
+}
+
 DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckLakeCopyInput &copy_input) {
 	auto info = make_uniq<CopyInfo>();
 	auto &catalog = copy_input.catalog;
@@ -368,20 +376,19 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckL
 	result.use_tmp_file = false;
 	if (copy_input.partition_data) {
 		result.filename_pattern.SetFilenamePattern("ducklake-{uuidv7}");
-		result.file_path = copy_input.data_path;
 		result.partition_output = true;
 		result.write_empty_file = true;
 		result.rotate = false;
 	} else {
 		result.filename_pattern.SetFilenamePattern("ducklake-{uuidv7}");
-		result.file_path = copy_input.data_path;
 		result.partition_output = false;
 		result.write_empty_file = false;
 		// file_size_bytes is currently only supported for unpartitioned writes
 		result.file_size_bytes = target_file_size;
 		result.rotate = true;
 	}
-
+	result.file_path = copy_input.data_path;
+	StripTrailingSeparator(fs, result.file_path);
 	result.file_extension = "parquet";
 	result.overwrite_mode = CopyOverwriteMode::COPY_OVERWRITE_OR_IGNORE;
 	result.per_thread_output = false;

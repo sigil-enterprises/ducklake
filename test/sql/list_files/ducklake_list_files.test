@@ -25,10 +25,28 @@ INSERT INTO ducklake.test FROM range(100, 200);
 statement ok
 INSERT INTO ducklake.test FROM range(200, 300);
 
+# partitions
+# snapshot 5
+statement ok
+CREATE TABLE ducklake.partitioned_tbl(part_key INT, value INT);
+
+# snapshot 6
+statement ok
+ALTER TABLE ducklake.partitioned_tbl SET PARTITIONED BY (part_key);
+
+# snapshot 7
+statement ok
+INSERT INTO ducklake.partitioned_tbl VALUES (1, 50), (2, 100);
+
 query I
-SELECT COUNT(*) FROM ducklake_list_files('ducklake', 'test')
+SELECT COUNT(*) FROM ducklake_list_files('ducklake', 'test') WHERE '//' NOT IN data_file
 ----
 3
+
+query I
+SELECT COUNT(*) FROM ducklake_list_files('ducklake', 'partitioned_tbl') WHERE '//' NOT IN data_file
+----
+2
 
 # schema parameter
 query I

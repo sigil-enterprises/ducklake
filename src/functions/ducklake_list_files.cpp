@@ -103,8 +103,6 @@ static unique_ptr<FunctionData> DuckLakeListFilesBind(ClientContext &context, Ta
 		result->rows.push_back(std::move(row_values));
 	}
 	return std::move(result);
-
-	return std::move(result);
 }
 
 DuckLakeListFilesFunction::DuckLakeListFilesFunction()
