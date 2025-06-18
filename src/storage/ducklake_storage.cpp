@@ -63,6 +63,10 @@ static unique_ptr<Catalog> DuckLakeAttach(StorageExtensionInfo *storage_info, Cl
 	if (info.path.empty()) {
 		// no path specified - load the default secret
 		secret = DuckLakeSecret::GetSecret(context, DuckLakeSecret::DEFAULT_SECRET);
+		if (!secret) {
+			throw InvalidInputException(
+			    "Default secret was not found - either specify a path to attach to directly, or create the secret");
+		}
 	} else if (DuckLakeSecret::PathIsSecret(info.path)) {
 		// if the path is a plain name - load the secret name
 		secret = DuckLakeSecret::GetSecret(context, info.path);
