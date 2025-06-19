@@ -13,6 +13,7 @@
 #include "storage/ducklake_transaction_manager.hpp"
 #include "storage/ducklake_view_entry.hpp"
 #include "duckdb/main/client_data.hpp"
+#include "duckdb/common/thread.hpp"
 
 namespace duckdb {
 
@@ -1320,13 +1321,19 @@ void DuckLakeTransaction::FlushChanges() {
 		// read-only transactions don't need to do anything
 		return;
 	}
-
-	idx_t max_retry_count = 5;
-	Value max_retry_count_value;
+	idx_t max_retry_count = 10;
+	idx_t retry_wait_ms = 100;
+	double retry_backoff = 1.5;
+	Value setting_val;
 	auto context_ref = context.lock();
-	auto lookup_result = context_ref->TryGetCurrentSetting("ducklake_max_retry_count", max_retry_count_value);
-	if (lookup_result) {
-		max_retry_count = max_retry_count_value.GetValue<idx_t>();
+	if (context_ref->TryGetCurrentSetting("ducklake_max_retry_count", setting_val)) {
+		max_retry_count = setting_val.GetValue<idx_t>();
+	}
+	if (context_ref->TryGetCurrentSetting("ducklake_retry_wait_ms", setting_val)) {
+		retry_wait_ms = setting_val.GetValue<idx_t>();
+	}
+	if (context_ref->TryGetCurrentSetting("ducklake_retry_backoff", setting_val)) {
+		retry_backoff = setting_val.GetValue<double>();
 	}
 
 	auto transaction_snapshot = GetSnapshot();
@@ -1338,7 +1345,9 @@ void DuckLakeTransaction::FlushChanges() {
 			// we changed the schema - need to get a new schema version
 			commit_snapshot.schema_version++;
 		}
+		bool can_retry;
 		try {
+			can_retry = false;
 			if (i > 0) {
 				// we failed our first commit due to another transaction committing
 				// retry - but first check for conflicts
@@ -1347,6 +1356,7 @@ void DuckLakeTransaction::FlushChanges() {
 			if (ChangesMade() && PerformedCompaction()) {
 				throw InvalidInputException("Transactions can either make changes OR perform compaction - not both");
 			}
+			can_retry = true;
 			if (ChangesMade()) {
 				CommitChanges(commit_snapshot, transaction_changes);
 			} else {
@@ -1369,11 +1379,22 @@ void DuckLakeTransaction::FlushChanges() {
 			}
 			bool retry_on_error = RetryOnError(error.Message());
 			bool finished_retrying = i + 1 >= max_retry_count;
-			if (!retry_on_error || finished_retrying) {
+			if (!can_retry || !retry_on_error || finished_retrying) {
 				// we abort after the max retry count
 				CleanupFiles();
 				error.Throw("Failed to commit DuckLake transaction: ");
 			}
+
+			//
+#ifndef DUCKDB_NO_THREADS
+			RandomEngine random;
+			// random multiplier between 0.5 - 1.0
+			double random_multiplier = (random.NextRandom() + 1.0) / 2.0;
+			uint64_t sleep_amount =
+			    (uint64_t)((double)retry_wait_ms * random_multiplier * pow(retry_backoff, static_cast<double>(i)));
+			std::this_thread::sleep_for(std::chrono::milliseconds(sleep_amount));
+#endif
+
 			// retry the transaction (with a new snapshot id)
 			connection->BeginTransaction();
 			snapshot.reset();

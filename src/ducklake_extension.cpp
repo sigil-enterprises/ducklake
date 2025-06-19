@@ -18,8 +18,13 @@ static void LoadInternal(DatabaseInstance &instance) {
 	auto &config = DBConfig::GetConfig(instance);
 	config.storage_extensions["ducklake"] = make_uniq<DuckLakeStorageExtension>();
 
-	config.AddExtensionOption("ducklake_max_retry_count", "The maximum amount of retry attempts for a ducklake transaction",
-	                          LogicalType::UBIGINT, Value::UBIGINT(5));
+	config.AddExtensionOption("ducklake_max_retry_count",
+	                          "The maximum amount of retry attempts for a ducklake transaction", LogicalType::UBIGINT,
+	                          Value::UBIGINT(10));
+	config.AddExtensionOption("ducklake_retry_wait_ms", "Time between retries", LogicalType::UBIGINT,
+	                          Value::UBIGINT(100));
+	config.AddExtensionOption("ducklake_retry_backoff", "Backoff factor for exponentially increasing retry wait time",
+	                          LogicalType::DOUBLE, Value::DOUBLE(1.5));
 
 	DuckLakeSnapshotsFunction snapshots;
 	ExtensionUtil::RegisterFunction(instance, snapshots);
