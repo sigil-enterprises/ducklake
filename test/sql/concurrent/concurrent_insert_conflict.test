@@ -13,6 +13,12 @@ statement ok
 ATTACH 'ducklake:__TEST_DIR__/ducklake_concurrent_insert.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_concurrent_insert_files')
 
 statement ok
+SET ducklake_retry_wait_ms=100
+
+statement ok
+SET ducklake_retry_backoff=2.0
+
+statement ok
 CREATE TABLE ducklake.tbl(key INTEGER);
 
 concurrentloop i 0 2
