@@ -1,4 +1,4 @@
-# name: test/sql/settings/max_retry_count.test  
+# name: test/sql/settings/max_retry_count.test
 # description: Test ducklake_max_retry_count configuration reading and usage
 # group: [settings]
 
@@ -16,7 +16,7 @@ USE ducklake
 query I
 SELECT current_setting('ducklake_max_retry_count')
 ----
-5
+10
 
 # Test 2: Set to custom value and verify
 statement ok
@@ -65,7 +65,7 @@ RESET ducklake_max_retry_count;
 query I
 SELECT current_setting('ducklake_max_retry_count')
 ----
-5
+10
 
 # Verify all data was inserted correctly
 query II

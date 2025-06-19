@@ -1345,7 +1345,9 @@ void DuckLakeTransaction::FlushChanges() {
 			// we changed the schema - need to get a new schema version
 			commit_snapshot.schema_version++;
 		}
+		bool can_retry;
 		try {
+			can_retry = false;
 			if (i > 0) {
 				// we failed our first commit due to another transaction committing
 				// retry - but first check for conflicts
@@ -1354,6 +1356,7 @@ void DuckLakeTransaction::FlushChanges() {
 			if (ChangesMade() && PerformedCompaction()) {
 				throw InvalidInputException("Transactions can either make changes OR perform compaction - not both");
 			}
+			can_retry = true;
 			if (ChangesMade()) {
 				CommitChanges(commit_snapshot, transaction_changes);
 			} else {
@@ -1376,7 +1379,7 @@ void DuckLakeTransaction::FlushChanges() {
 			}
 			bool retry_on_error = RetryOnError(error.Message());
 			bool finished_retrying = i + 1 >= max_retry_count;
-			if (!retry_on_error || finished_retrying) {
+			if (!can_retry || !retry_on_error || finished_retrying) {
 				// we abort after the max retry count
 				CleanupFiles();
 				error.Throw("Failed to commit DuckLake transaction: ");
