@@ -45,6 +45,8 @@ static void HandleDuckLakeOption(DuckLakeOptions &options, const string &option,
 	} else if (StringUtil::StartsWith(lcase, "meta_")) {
 		auto parameter_name = lcase.substr(5);
 		options.metadata_parameters[parameter_name] = value;
+	} else if (lcase == "create_if_not_exists") {
+		options.create_if_not_exists = BooleanValue::Get(value.DefaultCastAs(LogicalType::BOOLEAN));
 	} else if (lcase == "readonly" || lcase == "read_only" || lcase == "readwrite" || lcase == "read_write" ||
 	           lcase == "type" || lcase == "default_table") {
 		// built-in options for ATTACH
