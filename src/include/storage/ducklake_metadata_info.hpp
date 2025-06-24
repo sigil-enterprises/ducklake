@@ -243,7 +243,7 @@ enum class DuckLakeDataType {
 struct DuckLakeFileListEntry {
 	DuckLakeFileData file;
 	DuckLakeFileData delete_file;
-	idx_t row_id_start;
+	optional_idx row_id_start;
 	optional_idx snapshot_id;
 	optional_idx max_row_count;
 	MappingIndex mapping_id;
@@ -255,7 +255,7 @@ struct DuckLakeDeleteScanEntry {
 	DuckLakeFileData delete_file;
 	DuckLakeFileData previous_delete_file;
 	idx_t row_count;
-	idx_t row_id_start;
+	optional_idx row_id_start;
 	MappingIndex mapping_id;
 	optional_idx snapshot_id;
 };
@@ -265,7 +265,7 @@ struct DuckLakeFileListExtendedEntry {
 	DataFileIndex delete_file_id;
 	DuckLakeFileData file;
 	DuckLakeFileData delete_file;
-	idx_t row_id_start;
+	optional_idx row_id_start;
 	optional_idx snapshot_id;
 	idx_t row_count;
 	idx_t delete_count = 0;
@@ -288,7 +288,7 @@ struct DuckLakeFileScheduledForCleanup {
 };
 
 struct DuckLakeCompactionFileData : public DuckLakeCompactionBaseFileData {
-	idx_t row_id_start;
+	optional_idx row_id_start;
 	MappingIndex mapping_id;
 	optional_idx partition_id;
 	vector<string> partition_values;
@@ -306,7 +306,7 @@ struct DuckLakeCompactionFileEntry {
 struct DuckLakeCompactionEntry {
 	vector<DuckLakeCompactionFileEntry> source_files;
 	DuckLakeDataFile written_file;
-	idx_t row_id_start;
+	optional_idx row_id_start;
 };
 
 struct DuckLakeCompactedFileInfo {
