@@ -153,6 +153,41 @@ DuckLakeCompactor::DuckLakeCompactor(ClientContext &context, DuckLakeCatalog &ca
     : context(context), catalog(catalog), transaction(transaction), binder(binder), table_id(table_id) {
 }
 
+struct DuckLakeCompactionCandidates {
+	vector<idx_t> candidate_files;
+};
+
+struct DuckLakeCompactionGroup {
+	idx_t schema_version;
+	optional_idx partition_id;
+	vector<string> partition_values;
+};
+
+struct DuckLakeCompactionGroupHash {
+	uint64_t operator()(const DuckLakeCompactionGroup &group) const {
+		uint64_t hash = 0;
+		hash ^= std::hash<idx_t>()(group.schema_version);
+		if (group.partition_id.IsValid()) {
+			hash ^= std::hash<idx_t>()(group.partition_id.GetIndex());
+		}
+		for (auto &partition_val : group.partition_values) {
+			hash ^= std::hash<string>()(partition_val);
+		}
+		return hash;
+	}
+};
+
+struct DuckLakeCompactionGroupEquality {
+	bool operator()(const DuckLakeCompactionGroup &a, const DuckLakeCompactionGroup &b) const {
+		return a.schema_version == b.schema_version && a.partition_id == b.partition_id &&
+		       a.partition_values == b.partition_values;
+	}
+};
+
+template <typename T>
+using compaction_map_t =
+    unordered_map<DuckLakeCompactionGroup, T, DuckLakeCompactionGroupHash, DuckLakeCompactionGroupEquality>;
+
 void DuckLakeCompactor::GenerateCompactions(DuckLakeTableEntry &table,
                                             vector<unique_ptr<LogicalOperator>> &compactions) {
 	auto &metadata_manager = transaction.GetMetadataManager();
@@ -164,61 +199,78 @@ void DuckLakeCompactor::GenerateCompactions(DuckLakeTableEntry &table,
 		target_file_size = Value(target_file_size_str).DefaultCastAs(LogicalType::UBIGINT).GetValue<idx_t>();
 	}
 
-	// simple compaction: iterate over the files and find adjacent files that can be merged
+	// iterate over the files and split into separate compaction groups
+	compaction_map_t<DuckLakeCompactionCandidates> candidates;
 	for (idx_t file_idx = 0; file_idx < files.size(); file_idx++) {
-		// check if we can merge this file with subsequent files
-		idx_t current_file_size = 0;
-		idx_t compaction_idx;
-		for (compaction_idx = file_idx; compaction_idx < files.size(); compaction_idx++) {
-			if (current_file_size >= target_file_size) {
-				// we hit the target size already - stop
-				break;
-			}
-			auto &candidate = files[compaction_idx];
-			if (!candidate.delete_files.empty() || candidate.file.end_snapshot.IsValid()) {
-				// FIXME: files with deletions cannot be merged currently
-				break;
-			}
-			if (!candidate.partial_files.empty()) {
-				// the file already has partial files - we can only accept this as a candidate if it is the first file
-				if (compaction_idx != file_idx) {
-					// not the first file - we cannot compact this file together with the existing file
-					break;
-				}
-			}
-			if (candidate.schema_version != files[file_idx].schema_version) {
-				// we do not merge across different schema versions - as ALTER statements might make files incompatible
-				break;
-			}
-			if (candidate.file.partition_id != files[file_idx].file.partition_id ||
-			    candidate.file.partition_values != files[file_idx].file.partition_values) {
-				// this file is partitioned differently from the previous file - it cannot be compacted together
-				break;
-			}
-			// FIXME: take deletions into account here once we support vacuuming deletions
-			idx_t file_size = candidate.file.data.file_size_bytes;
-			if (file_size >= target_file_size) {
-				// don't consider merging if the file is larger than the target size
-				break;
-			}
-			if (compaction_idx > file_idx) {
-				// rows must be adjacent to qualify for compaction
-				auto &prev_file = files[compaction_idx - 1];
-				if (prev_file.file.row_id_start + prev_file.file.row_count != candidate.file.row_id_start) {
-					break;
-				}
-			}
-			// this file can be compacted along with the neighbors
-			current_file_size += file_size;
+		auto &candidate = files[file_idx];
+		if (candidate.file.data.file_size_bytes >= target_file_size) {
+			// this file by itself exceeds the threshold - skip merging
+			continue;
 		}
-		idx_t compaction_file_count = compaction_idx - file_idx;
-		if (compaction_file_count > 1) {
-			vector<DuckLakeCompactionFileEntry> compaction_files;
-			for (idx_t i = 0; i < compaction_file_count; i++) {
-				compaction_files.push_back(std::move(files[file_idx + i]));
+		if (!candidate.delete_files.empty() || candidate.file.end_snapshot.IsValid()) {
+			// FIXME: files with deletions cannot be merged currently
+			continue;
+		}
+		// construct the compaction group for this file - i.e. the set of candidate files we can compact it with
+		DuckLakeCompactionGroup group;
+		group.schema_version = candidate.schema_version;
+		group.partition_id = candidate.file.partition_id;
+		group.partition_values = candidate.file.partition_values;
+
+		candidates[group].candidate_files.push_back(file_idx);
+	}
+
+	// we have gathered all of the candidate files per compaction group
+	// iterate over them to generate actual compaction commands
+	for (auto &entry : candidates) {
+		auto &candidate_list = entry.second.candidate_files;
+		if (candidate_list.size() <= 1) {
+			// we need at least 2 files to consider a merge
+			continue;
+		}
+		for (idx_t start_idx = 0; start_idx < candidate_list.size(); start_idx++) {
+			// check if we can merge this file with subsequent files
+			idx_t current_file_size = 0;
+			idx_t compaction_idx;
+			for (compaction_idx = 0; compaction_idx < candidate_list.size(); compaction_idx++) {
+				if (current_file_size >= target_file_size) {
+					// we hit the target size already - stop
+					break;
+				}
+				auto candidate_idx = candidate_list[compaction_idx];
+				auto &candidate = files[candidate_idx];
+				if (!candidate.partial_files.empty()) {
+					// the file already has partial files - we can only accept this as a candidate if it is the first
+					// file
+					if (compaction_idx != start_idx) {
+						// not the first file - we cannot compact this file together with the existing file
+						break;
+					}
+				}
+				idx_t file_size = candidate.file.data.file_size_bytes;
+				if (file_size >= target_file_size) {
+					// don't consider merging if the file is larger than the target size
+					break;
+				}
+				if (compaction_idx > start_idx) {
+					// rows must be adjacent to qualify for compaction
+					auto &prev_file = files[candidate_list[compaction_idx - 1]];
+					if (prev_file.file.row_id_start + prev_file.file.row_count != candidate.file.row_id_start) {
+						break;
+					}
+				}
+				// this file can be compacted along with the neighbors
+				current_file_size += file_size;
 			}
-			compactions.push_back(GenerateCompactionCommand(std::move(compaction_files)));
-			file_idx += compaction_file_count - 1;
+			idx_t compaction_file_count = compaction_idx - start_idx;
+			if (compaction_file_count > 1) {
+				vector<DuckLakeCompactionFileEntry> compaction_files;
+				for (idx_t i = start_idx; i < compaction_idx; i++) {
+					compaction_files.push_back(std::move(files[candidate_list[i]]));
+				}
+				compactions.push_back(GenerateCompactionCommand(std::move(compaction_files)));
+				start_idx += compaction_file_count - 1;
+			}
 		}
 	}
 }
