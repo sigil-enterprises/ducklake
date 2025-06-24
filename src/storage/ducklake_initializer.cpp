@@ -152,8 +152,12 @@ void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction)
 		}
 		if (tag.key == "data_path") {
 			if (options.data_path.empty()) {
-				options.data_path = metadata_manager.LoadPath(tag.value);
+				// set the data path to the value in the tag
+				options.data_path = tag.value;
 				InitializeDataPath();
+				// load the correct path from the metadata manager
+				// we need to do this after InitializeDataPath() because that sets up the correct separator
+				options.data_path = metadata_manager.LoadPath(options.data_path);
 			}
 		}
 		if (tag.key == "encrypted") {
