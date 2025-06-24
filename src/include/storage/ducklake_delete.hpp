@@ -60,7 +60,7 @@ private:
 class DuckLakeDelete : public PhysicalOperator {
 public:
 	DuckLakeDelete(DuckLakeTableEntry &table, PhysicalOperator &child, shared_ptr<DuckLakeDeleteMap> delete_map,
-	               vector<idx_t> row_id_indexes, string encryption_key);
+	               vector<idx_t> row_id_indexes, string encryption_key, bool allow_duplicates);
 
 	//! The table to delete from
 	DuckLakeTableEntry &table;
@@ -70,6 +70,8 @@ public:
 	vector<idx_t> row_id_indexes;
 	//! The encryption key used to encrypt the written files
 	string encryption_key;
+	//! Whether or not we allow duplicate deletes
+	bool allow_duplicates;
 
 public:
 	// // Source interface
@@ -81,7 +83,8 @@ public:
 
 	static PhysicalOperator &PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner,
 	                                    DuckLakeTableEntry &table, PhysicalOperator &child_plan,
-	                                    vector<idx_t> row_id_indexes, string encryption_key);
+	                                    vector<idx_t> row_id_indexes, string encryption_key,
+	                                    bool allow_duplicates = true);
 
 public:
 	// Sink interface
