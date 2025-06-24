@@ -923,7 +923,7 @@ void DuckLakeTransaction::UpdateGlobalTableStats(TableIndex table_id, const Duck
 }
 
 DuckLakeFileInfo DuckLakeTransaction::GetNewDataFile(DuckLakeDataFile &file, DuckLakeSnapshot &commit_snapshot,
-                                                     TableIndex table_id, idx_t row_id_start) {
+                                                     TableIndex table_id, optional_idx row_id_start) {
 	DuckLakeFileInfo data_file;
 	data_file.id = DataFileIndex(commit_snapshot.next_file_id++);
 	data_file.table_id = table_id;

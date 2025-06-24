@@ -568,7 +568,10 @@ WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_I
 		DuckLakeFileListEntry file_entry;
 		idx_t col_idx = 0;
 		file_entry.file = ReadDataFile(table, row, col_idx, IsEncrypted());
-		file_entry.row_id_start = row.GetValue<idx_t>(col_idx++);
+		if (!row.IsNull(col_idx)) {
+			file_entry.row_id_start = row.GetValue<idx_t>(col_idx);
+		}
+		col_idx++;
 		file_entry.snapshot_id = row.GetValue<idx_t>(col_idx++);
 		if (!row.IsNull(col_idx)) {
 			auto partial_file_info = row.GetValue<string>(col_idx);
@@ -610,7 +613,10 @@ WHERE data.table_id=%d AND data.begin_snapshot >= %d AND data.begin_snapshot <= 
 		DuckLakeFileListEntry file_entry;
 		idx_t col_idx = 0;
 		file_entry.file = ReadDataFile(table, row, col_idx, IsEncrypted());
-		file_entry.row_id_start = row.GetValue<idx_t>(col_idx++);
+		if (!row.IsNull(col_idx)) {
+			file_entry.row_id_start = row.GetValue<idx_t>(col_idx);
+		}
+		col_idx++;
 		file_entry.snapshot_id = row.GetValue<idx_t>(col_idx++);
 		if (!row.IsNull(col_idx)) {
 			auto partial_file_info = row.GetValue<string>(col_idx);
@@ -687,7 +693,10 @@ USING (data_file_id), (
 		DuckLakeDeleteScanEntry entry;
 		idx_t col_idx = 0;
 		entry.file = ReadDataFile(table, row, col_idx, IsEncrypted());
-		entry.row_id_start = row.GetValue<idx_t>(col_idx++);
+		if (!row.IsNull(col_idx)) {
+			entry.row_id_start = row.GetValue<idx_t>(col_idx);
+		}
+		col_idx++;
 		entry.row_count = row.GetValue<idx_t>(col_idx++);
 		if (!row.IsNull(col_idx)) {
 			entry.mapping_id = MappingIndex(row.GetValue<idx_t>(col_idx));
@@ -736,7 +745,10 @@ WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_I
 		file_entry.row_count = row.GetValue<idx_t>(2);
 		idx_t col_idx = 3;
 		file_entry.file = ReadDataFile(table, row, col_idx, IsEncrypted());
-		file_entry.row_id_start = row.GetValue<idx_t>(col_idx++);
+		if (!row.IsNull(col_idx)) {
+			file_entry.row_id_start = row.GetValue<idx_t>(col_idx);
+		}
+		col_idx++;
 		file_entry.delete_file = ReadDataFile(table, row, col_idx, IsEncrypted());
 		files.push_back(std::move(file_entry));
 	}
@@ -767,7 +779,7 @@ LEFT JOIN (
    GROUP BY data_file_id
 ) partition_info USING (data_file_id)
 WHERE data.table_id=%d
-ORDER BY data.row_id_start, data.data_file_id, del.begin_snapshot
+ORDER BY data.begin_snapshot, data.row_id_start, data.data_file_id, del.begin_snapshot
 		)",
 	                                select_list, table_id.index, table_id.index);
 	auto result = transaction.Query(query);
@@ -781,7 +793,10 @@ ORDER BY data.row_id_start, data.data_file_id, del.begin_snapshot
 		// parse the data file
 		new_entry.file.id = DataFileIndex(row.GetValue<idx_t>(col_idx++));
 		new_entry.file.row_count = row.GetValue<idx_t>(col_idx++);
-		new_entry.file.row_id_start = row.GetValue<idx_t>(col_idx++);
+		if (!row.IsNull(col_idx)) {
+			new_entry.file.row_id_start = row.GetValue<idx_t>(col_idx);
+		}
+		col_idx++;
 		new_entry.file.begin_snapshot = row.GetValue<idx_t>(col_idx++);
 		new_entry.file.end_snapshot = row.IsNull(col_idx) ? optional_idx() : row.GetValue<idx_t>(col_idx);
 		col_idx++;

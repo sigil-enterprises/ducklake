@@ -23,10 +23,10 @@ namespace duckdb {
 DuckLakeCompaction::DuckLakeCompaction(const vector<LogicalType> &types, DuckLakeTableEntry &table,
                                        vector<DuckLakeCompactionFileEntry> source_files_p, string encryption_key_p,
                                        optional_idx partition_id, vector<string> partition_values_p,
-                                       PhysicalOperator &child)
+                                       optional_idx row_id_start, PhysicalOperator &child)
     : PhysicalOperator(PhysicalOperatorType::EXTENSION, types, 0), table(table),
       source_files(std::move(source_files_p)), encryption_key(std::move(encryption_key_p)), partition_id(partition_id),
-      partition_values(std::move(partition_values_p)) {
+      partition_values(std::move(partition_values_p)), row_id_start(row_id_start) {
 	children.push_back(child);
 }
 
@@ -72,7 +72,7 @@ SinkFinalizeType DuckLakeCompaction::Finalize(Pipeline &pipeline, Event &event, 
 	}
 
 	DuckLakeCompactionEntry compaction_entry;
-	compaction_entry.row_id_start = source_files[0].file.row_id_start;
+	compaction_entry.row_id_start = row_id_start;
 	compaction_entry.source_files = source_files;
 	compaction_entry.written_file = global_state.written_files[0];
 
@@ -95,10 +95,10 @@ class DuckLakeLogicalCompaction : public LogicalExtensionOperator {
 public:
 	DuckLakeLogicalCompaction(idx_t table_index, DuckLakeTableEntry &table,
 	                          vector<DuckLakeCompactionFileEntry> source_files_p, string encryption_key_p,
-	                          optional_idx partition_id, vector<string> partition_values_p)
+	                          optional_idx partition_id, vector<string> partition_values_p, optional_idx row_id_start)
 	    : table_index(table_index), table(table), source_files(std::move(source_files_p)),
 	      encryption_key(std::move(encryption_key_p)), partition_id(partition_id),
-	      partition_values(std::move(partition_values_p)) {
+	      partition_values(std::move(partition_values_p)), row_id_start(row_id_start) {
 	}
 
 	idx_t table_index;
@@ -107,12 +107,13 @@ public:
 	string encryption_key;
 	optional_idx partition_id;
 	vector<string> partition_values;
+	optional_idx row_id_start;
 
 public:
 	PhysicalOperator &CreatePlan(ClientContext &context, PhysicalPlanGenerator &planner) override {
 		auto &child = planner.CreatePlan(*children[0]);
 		return planner.Make<DuckLakeCompaction>(types, table, std::move(source_files), std::move(encryption_key),
-		                                        partition_id, std::move(partition_values), child);
+		                                        partition_id, std::move(partition_values), row_id_start, child);
 	}
 
 	string GetExtensionName() const override {
@@ -153,6 +154,41 @@ DuckLakeCompactor::DuckLakeCompactor(ClientContext &context, DuckLakeCatalog &ca
     : context(context), catalog(catalog), transaction(transaction), binder(binder), table_id(table_id) {
 }
 
+struct DuckLakeCompactionCandidates {
+	vector<idx_t> candidate_files;
+};
+
+struct DuckLakeCompactionGroup {
+	idx_t schema_version;
+	optional_idx partition_id;
+	vector<string> partition_values;
+};
+
+struct DuckLakeCompactionGroupHash {
+	uint64_t operator()(const DuckLakeCompactionGroup &group) const {
+		uint64_t hash = 0;
+		hash ^= std::hash<idx_t>()(group.schema_version);
+		if (group.partition_id.IsValid()) {
+			hash ^= std::hash<idx_t>()(group.partition_id.GetIndex());
+		}
+		for (auto &partition_val : group.partition_values) {
+			hash ^= std::hash<string>()(partition_val);
+		}
+		return hash;
+	}
+};
+
+struct DuckLakeCompactionGroupEquality {
+	bool operator()(const DuckLakeCompactionGroup &a, const DuckLakeCompactionGroup &b) const {
+		return a.schema_version == b.schema_version && a.partition_id == b.partition_id &&
+		       a.partition_values == b.partition_values;
+	}
+};
+
+template <typename T>
+using compaction_map_t =
+    unordered_map<DuckLakeCompactionGroup, T, DuckLakeCompactionGroupHash, DuckLakeCompactionGroupEquality>;
+
 void DuckLakeCompactor::GenerateCompactions(DuckLakeTableEntry &table,
                                             vector<unique_ptr<LogicalOperator>> &compactions) {
 	auto &metadata_manager = transaction.GetMetadataManager();
@@ -164,61 +200,71 @@ void DuckLakeCompactor::GenerateCompactions(DuckLakeTableEntry &table,
 		target_file_size = Value(target_file_size_str).DefaultCastAs(LogicalType::UBIGINT).GetValue<idx_t>();
 	}
 
-	// simple compaction: iterate over the files and find adjacent files that can be merged
+	// iterate over the files and split into separate compaction groups
+	compaction_map_t<DuckLakeCompactionCandidates> candidates;
 	for (idx_t file_idx = 0; file_idx < files.size(); file_idx++) {
-		// check if we can merge this file with subsequent files
-		idx_t current_file_size = 0;
-		idx_t compaction_idx;
-		for (compaction_idx = file_idx; compaction_idx < files.size(); compaction_idx++) {
-			if (current_file_size >= target_file_size) {
-				// we hit the target size already - stop
-				break;
-			}
-			auto &candidate = files[compaction_idx];
-			if (!candidate.delete_files.empty() || candidate.file.end_snapshot.IsValid()) {
-				// FIXME: files with deletions cannot be merged currently
-				break;
-			}
-			if (!candidate.partial_files.empty()) {
-				// the file already has partial files - we can only accept this as a candidate if it is the first file
-				if (compaction_idx != file_idx) {
-					// not the first file - we cannot compact this file together with the existing file
-					break;
-				}
-			}
-			if (candidate.schema_version != files[file_idx].schema_version) {
-				// we do not merge across different schema versions - as ALTER statements might make files incompatible
-				break;
-			}
-			if (candidate.file.partition_id != files[file_idx].file.partition_id ||
-			    candidate.file.partition_values != files[file_idx].file.partition_values) {
-				// this file is partitioned differently from the previous file - it cannot be compacted together
-				break;
-			}
-			// FIXME: take deletions into account here once we support vacuuming deletions
-			idx_t file_size = candidate.file.data.file_size_bytes;
-			if (file_size >= target_file_size) {
-				// don't consider merging if the file is larger than the target size
-				break;
-			}
-			if (compaction_idx > file_idx) {
-				// rows must be adjacent to qualify for compaction
-				auto &prev_file = files[compaction_idx - 1];
-				if (prev_file.file.row_id_start + prev_file.file.row_count != candidate.file.row_id_start) {
-					break;
-				}
-			}
-			// this file can be compacted along with the neighbors
-			current_file_size += file_size;
+		auto &candidate = files[file_idx];
+		if (candidate.file.data.file_size_bytes >= target_file_size) {
+			// this file by itself exceeds the threshold - skip merging
+			continue;
 		}
-		idx_t compaction_file_count = compaction_idx - file_idx;
-		if (compaction_file_count > 1) {
-			vector<DuckLakeCompactionFileEntry> compaction_files;
-			for (idx_t i = 0; i < compaction_file_count; i++) {
-				compaction_files.push_back(std::move(files[file_idx + i]));
+		if (!candidate.delete_files.empty() || candidate.file.end_snapshot.IsValid()) {
+			// FIXME: files with deletions cannot be merged currently
+			continue;
+		}
+		// construct the compaction group for this file - i.e. the set of candidate files we can compact it with
+		DuckLakeCompactionGroup group;
+		group.schema_version = candidate.schema_version;
+		group.partition_id = candidate.file.partition_id;
+		group.partition_values = candidate.file.partition_values;
+
+		candidates[group].candidate_files.push_back(file_idx);
+	}
+
+	// we have gathered all of the candidate files per compaction group
+	// iterate over them to generate actual compaction commands
+	for (auto &entry : candidates) {
+		auto &candidate_list = entry.second.candidate_files;
+		if (candidate_list.size() <= 1) {
+			// we need at least 2 files to consider a merge
+			continue;
+		}
+		for (idx_t start_idx = 0; start_idx < candidate_list.size(); start_idx++) {
+			// check if we can merge this file with subsequent files
+			idx_t current_file_size = 0;
+			idx_t compaction_idx;
+			for (compaction_idx = 0; compaction_idx < candidate_list.size(); compaction_idx++) {
+				if (current_file_size >= target_file_size) {
+					// we hit the target size already - stop
+					break;
+				}
+				auto candidate_idx = candidate_list[compaction_idx];
+				auto &candidate = files[candidate_idx];
+				if (!candidate.partial_files.empty()) {
+					// the file already has partial files - we can only accept this as a candidate if it is the first
+					// file
+					if (compaction_idx != start_idx) {
+						// not the first file - we cannot compact this file together with the existing file
+						break;
+					}
+				}
+				idx_t file_size = candidate.file.data.file_size_bytes;
+				if (file_size >= target_file_size) {
+					// don't consider merging if the file is larger than the target size
+					break;
+				}
+				// this file can be compacted along with the neighbors
+				current_file_size += file_size;
 			}
-			compactions.push_back(GenerateCompactionCommand(std::move(compaction_files)));
-			file_idx += compaction_file_count - 1;
+			idx_t compaction_file_count = compaction_idx - start_idx;
+			if (compaction_file_count > 1) {
+				vector<DuckLakeCompactionFileEntry> compaction_files;
+				for (idx_t i = start_idx; i < compaction_idx; i++) {
+					compaction_files.push_back(std::move(files[candidate_list[i]]));
+				}
+				compactions.push_back(GenerateCompactionCommand(std::move(compaction_files)));
+				start_idx += compaction_file_count - 1;
+			}
 		}
 	}
 }
@@ -243,6 +289,8 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	auto partition_id = source_files[0].file.partition_id;
 	auto partition_values = source_files[0].file.partition_values;
 
+	bool files_are_adjacent = true;
+	optional_idx prev_row_id;
 	// set the files to scan as only the files we are trying to compact
 	vector<DuckLakeFileListEntry> files_to_scan;
 	for (auto &source : source_files) {
@@ -253,6 +301,17 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 		result.mapping_id = source.file.mapping_id;
 		if (!source.delete_files.empty()) {
 			throw InternalException("FIXME: compact deletions");
+		}
+		// check if this file is adjacent (row-id wise) to the previous file
+		if (!source.file.row_id_start.IsValid()) {
+			// the file does not have a row_id_start defined - it cannot be adjacent
+			files_are_adjacent = false;
+		} else {
+			if (prev_row_id.IsValid() && prev_row_id.GetIndex() != source.file.row_id_start.GetIndex()) {
+				// not adjacent - we need to write row-ids to the file
+				files_are_adjacent = false;
+			}
+			prev_row_id = source.file.row_id_start.GetIndex() + source.file.row_count;
 		}
 		files_to_scan.push_back(std::move(result));
 	}
@@ -266,7 +325,12 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	DuckLakeCopyInput copy_input(context, table);
 	// merge_adjacent_files does not use partitioning information - instead we always merge within partitions
 	copy_input.partition_data = nullptr;
-	copy_input.virtual_columns = InsertVirtualColumns::WRITE_SNAPSHOT_ID;
+	// if files are adjacent we don't need to write the row-id to the file
+	if (files_are_adjacent) {
+		copy_input.virtual_columns = InsertVirtualColumns::WRITE_SNAPSHOT_ID;
+	} else {
+		copy_input.virtual_columns = InsertVirtualColumns::WRITE_ROW_ID_AND_SNAPSHOT_ID;
+	}
 
 	auto copy_options = DuckLakeInsert::GetCopyOptions(context, copy_input);
 
@@ -277,6 +341,9 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	auto &column_ids = ducklake_scan->GetMutableColumnIds();
 	for (idx_t i = 0; i < columns.PhysicalColumnCount(); i++) {
 		column_ids.emplace_back(i);
+	}
+	if (!files_are_adjacent) {
+		column_ids.emplace_back(COLUMN_IDENTIFIER_ROW_ID);
 	}
 	column_ids.emplace_back(DuckLakeMultiFileReader::COLUMN_IDENTIFIER_SNAPSHOT_ID);
 
@@ -307,10 +374,15 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 
 	copy->children.push_back(std::move(ducklake_scan));
 
+	optional_idx target_row_id_start;
+	if (files_are_adjacent) {
+		target_row_id_start = source_files[0].file.row_id_start;
+	}
+
 	// followed by the compaction operator (that writes the results back to the
 	auto compaction = make_uniq<DuckLakeLogicalCompaction>(binder.GenerateTableIndex(), table, std::move(source_files),
 	                                                       std::move(copy_input.encryption_key), partition_id,
-	                                                       std::move(partition_values));
+	                                                       std::move(partition_values), target_row_id_start);
 	compaction->children.push_back(std::move(copy));
 	return std::move(compaction);
 }

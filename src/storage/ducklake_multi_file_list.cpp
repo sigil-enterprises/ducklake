@@ -314,7 +314,9 @@ OpenFileInfo DuckLakeMultiFileList::GetFile(idx_t i) {
 		// scanning transaction local data
 		extended_info->options["transaction_local_data"] = Value::BOOLEAN(true);
 		extended_info->options["inlined_data"] = Value::BOOLEAN(true);
-		extended_info->options["row_id_start"] = Value::BIGINT(NumericCast<int64_t>(file_entry.row_id_start));
+		if (file_entry.row_id_start.IsValid()) {
+			extended_info->options["row_id_start"] = Value::UBIGINT(file_entry.row_id_start.GetIndex());
+		}
 		extended_info->options["snapshot_id"] = Value(LogicalType::BIGINT);
 		if (file_entry.mapping_id.IsValid()) {
 			extended_info->options["mapping_id"] = Value::UBIGINT(file_entry.mapping_id.index);
@@ -332,7 +334,9 @@ OpenFileInfo DuckLakeMultiFileList::GetFile(idx_t i) {
 		if (file.footer_size.IsValid()) {
 			extended_info->options["footer_size"] = Value::UBIGINT(file.footer_size.GetIndex());
 		}
-		extended_info->options["row_id_start"] = Value::UBIGINT(files[i].row_id_start);
+		if (files[i].row_id_start.IsValid()) {
+			extended_info->options["row_id_start"] = Value::UBIGINT(files[i].row_id_start.GetIndex());
+		}
 		Value snapshot_id;
 		if (files[i].snapshot_id.IsValid()) {
 			snapshot_id = Value::BIGINT(NumericCast<int64_t>(files[i].snapshot_id.GetIndex()));

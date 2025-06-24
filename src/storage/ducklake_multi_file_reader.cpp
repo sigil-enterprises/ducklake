@@ -303,10 +303,13 @@ unique_ptr<Expression> DuckLakeMultiFileReader::GetVirtualColumnExpression(
 		if (!reader_data.file_to_be_opened.extended_info) {
 			throw InternalException("Extended info not found for reading row id column");
 		}
+
 		auto &options = reader_data.file_to_be_opened.extended_info->options;
 		auto entry = options.find("row_id_start");
 		if (entry == options.end()) {
-			throw InternalException("row_id_start not found for reading row id column");
+			throw InvalidInputException("File \"%s\" does not have row_id_start defined, and the file does not have a "
+			                            "row_id column written either - row id could not be read",
+			                            reader_data.file_to_be_opened.path);
 		}
 		auto row_id_expr = make_uniq<BoundConstantExpression>(entry->second);
 		auto file_row_number = make_uniq<BoundReferenceExpression>(type, local_idx.GetIndex());
