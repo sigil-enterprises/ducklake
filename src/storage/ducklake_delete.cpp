@@ -27,10 +27,10 @@ namespace duckdb {
 
 DuckLakeDelete::DuckLakeDelete(DuckLakeTableEntry &table, PhysicalOperator &child,
                                shared_ptr<DuckLakeDeleteMap> delete_map_p, vector<idx_t> row_id_indexes_p,
-                               string encryption_key_p)
+                               string encryption_key_p, bool allow_duplicates)
     : PhysicalOperator(PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, 1), table(table),
       delete_map(std::move(delete_map_p)), row_id_indexes(std::move(row_id_indexes_p)),
-      encryption_key(std::move(encryption_key_p)) {
+      encryption_key(std::move(encryption_key_p)), allow_duplicates(allow_duplicates) {
 	children.push_back(child);
 }
 
@@ -170,6 +170,10 @@ void DuckLakeDelete::FlushDelete(DuckLakeTransaction &transaction, ClientContext
 	set<idx_t> sorted_deletes;
 	for (auto &row_idx : deleted_rows) {
 		sorted_deletes.insert(row_idx);
+	}
+	if (sorted_deletes.size() != deleted_rows.size() && !allow_duplicates) {
+		throw NotImplementedException("The same row was updated multiple times - this is not (yet) supported in "
+		                              "DuckLake. Eliminate duplicate matches prior to running the UPDATE");
 	}
 
 	if (data_file_info.data_type == DuckLakeDataType::TRANSACTION_LOCAL_INLINED_DATA) {
@@ -409,7 +413,8 @@ optional_ptr<PhysicalTableScan> FindDeleteSource(PhysicalOperator &plan) {
 
 PhysicalOperator &DuckLakeDelete::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner,
                                              DuckLakeTableEntry &table, PhysicalOperator &child_plan,
-                                             vector<idx_t> row_id_indexes, string encryption_key) {
+                                             vector<idx_t> row_id_indexes, string encryption_key,
+                                             bool allow_duplicates) {
 	auto delete_source = FindDeleteSource(child_plan);
 	auto delete_map = make_shared_ptr<DuckLakeDeleteMap>();
 	if (delete_source) {
@@ -423,7 +428,7 @@ PhysicalOperator &DuckLakeDelete::PlanDelete(ClientContext &context, PhysicalPla
 		reader.delete_map = delete_map;
 	}
 	return planner.Make<DuckLakeDelete>(table, child_plan, std::move(delete_map), std::move(row_id_indexes),
-	                                    std::move(encryption_key));
+	                                    std::move(encryption_key), allow_duplicates);
 }
 
 PhysicalOperator &DuckLakeCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op,

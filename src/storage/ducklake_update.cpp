@@ -198,27 +198,6 @@ InsertionOrderPreservingMap<string> DuckLakeUpdate::ParamsToString() const {
 	return result;
 }
 
-void CheckPlanSupportedForUpdate(PhysicalOperator &op) {
-	switch (op.type) {
-	case PhysicalOperatorType::CROSS_PRODUCT:
-	case PhysicalOperatorType::BLOCKWISE_NL_JOIN:
-	case PhysicalOperatorType::NESTED_LOOP_JOIN:
-	case PhysicalOperatorType::HASH_JOIN:
-	case PhysicalOperatorType::PIECEWISE_MERGE_JOIN:
-	case PhysicalOperatorType::IE_JOIN:
-	case PhysicalOperatorType::LEFT_DELIM_JOIN:
-	case PhysicalOperatorType::RIGHT_DELIM_JOIN:
-	case PhysicalOperatorType::POSITIONAL_JOIN:
-	case PhysicalOperatorType::ASOF_JOIN:
-		throw NotImplementedException("Complex update plans are not yet supported for updates in DuckLake");
-	default:
-		break;
-	}
-	for (auto &child_op : op.children) {
-		CheckPlanSupportedForUpdate(child_op.get());
-	}
-}
-
 PhysicalOperator &DuckLakeCatalog::PlanUpdate(ClientContext &context, PhysicalPlanGenerator &planner, LogicalUpdate &op,
                                               PhysicalOperator &child_plan) {
 	if (op.return_chunk) {
@@ -229,7 +208,6 @@ PhysicalOperator &DuckLakeCatalog::PlanUpdate(ClientContext &context, PhysicalPl
 			throw BinderException("SET DEFAULT is not yet supported for updates of a DuckLake table");
 		}
 	}
-	CheckPlanSupportedForUpdate(child_plan);
 
 	auto &table = op.table.Cast<DuckLakeTableEntry>();
 	// FIXME: we should take the inlining limit into account here and write new updates to the inline data tables if
@@ -245,7 +223,7 @@ PhysicalOperator &DuckLakeCatalog::PlanUpdate(ClientContext &context, PhysicalPl
 		row_id_indexes.push_back(i);
 	}
 	auto &delete_op = DuckLakeDelete::PlanDelete(context, planner, table, child_plan, std::move(row_id_indexes),
-	                                             copy_input.encryption_key);
+	                                             copy_input.encryption_key, false);
 	// plan the actual insert
 	auto &insert_op = DuckLakeInsert::PlanInsert(context, planner, table, copy_input.encryption_key);
 
