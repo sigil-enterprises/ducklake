@@ -21,6 +21,12 @@ COPY partitioned_tbl TO '__TEST_DIR__/ducklake_add_files_hive/' (FORMAT PARQUET,
 statement ok
 CREATE TABLE ducklake.test(part_key INT, part_key2 INT, val VARCHAR);
 
+# we need the hive partition columns
+statement error
+CALL ducklake_add_data_files('ducklake', 'test', '__TEST_DIR__/ducklake_add_files_hive/**/*.parquet', hive_partitioning => false)
+----
+allow_missing
+
 statement ok
 CALL ducklake_add_data_files('ducklake', 'test', '__TEST_DIR__/ducklake_add_files_hive/**/*.parquet', hive_partitioning => true)
 
@@ -46,8 +52,9 @@ SELECT new_part_key, part_key2, val FROM ducklake.test ORDER BY ALL
 statement ok
 COPY (FROM (VALUES (1, 10, 'new value')) t(new_part_key, part_key2, val)) TO '__TEST_DIR__/ducklake_add_files_hive/' (FORMAT PARQUET, PARTITION_BY(new_part_key, part_key2), APPEND);
 
+# hive partitioning is automatically detected by default
 statement ok
-CALL ducklake_add_data_files('ducklake', 'test', '__TEST_DIR__/ducklake_add_files_hive/new_part_key=*/**/*.parquet', hive_partitioning => true)
+CALL ducklake_add_data_files('ducklake', 'test', '__TEST_DIR__/ducklake_add_files_hive/new_part_key=*/**/*.parquet')
 
 query III
 SELECT new_part_key, part_key2, val FROM ducklake.test ORDER BY ALL
