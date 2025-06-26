@@ -37,6 +37,12 @@ SELECT part_key, part_key2, val FROM ducklake.test ORDER BY ALL
 2	10	world
 2	20	abc
 
+# test pushdown into stats
+query II
+EXPLAIN ANALYZE SELECT COUNT(*) FROM ducklake.test WHERE part_key=1
+----
+analyzed_plan	<REGEX>:.*Total Files Read: 1.*
+
 # rename the hive partition
 statement ok
 ALTER TABLE ducklake.test RENAME part_key TO new_part_key
@@ -55,6 +61,24 @@ COPY (FROM (VALUES (1, 10, 'new value')) t(new_part_key, part_key2, val)) TO '__
 # hive partitioning is automatically detected by default
 statement ok
 CALL ducklake_add_data_files('ducklake', 'test', '__TEST_DIR__/ducklake_add_files_hive/new_part_key=*/**/*.parquet')
+
+query III
+SELECT new_part_key, part_key2, val FROM ducklake.test ORDER BY ALL
+----
+1	10	hello
+1	10	new value
+2	10	world
+2	20	abc
+
+# test pushdown into stats
+query II
+EXPLAIN ANALYZE SELECT COUNT(*) FROM ducklake.test WHERE new_part_key=1
+----
+analyzed_plan	<REGEX>:.*Total Files Read: 2.*
+
+# type promotion
+statement ok
+ALTER TABLE ducklake.test ALTER new_part_key SET TYPE BIGINT
 
 query III
 SELECT new_part_key, part_key2, val FROM ducklake.test ORDER BY ALL
