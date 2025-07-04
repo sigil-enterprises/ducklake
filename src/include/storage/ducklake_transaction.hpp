@@ -173,6 +173,7 @@ private:
 	mutex connection_lock;
 	unique_ptr<Connection> connection;
 	//! The snapshot of the transaction (latest snapshot in DuckLake)
+	mutex snapshot_lock;
 	unique_ptr<DuckLakeSnapshot> snapshot;
 	idx_t local_catalog_id;
 	//! New tables added by this transaction
