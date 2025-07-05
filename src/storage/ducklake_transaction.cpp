@@ -1414,6 +1414,11 @@ void DuckLakeTransaction::DeleteSnapshots(const vector<DuckLakeSnapshotInfo> &sn
 	metadata_manager.DeleteSnapshots(snapshots);
 }
 
+void DuckLakeTransaction::DeleteInlinedData(const DuckLakeInlinedTableInfo &inlined_table) {
+	auto &metadata_manager = GetMetadataManager();
+	metadata_manager.DeleteInlinedData(inlined_table);
+}
+
 unique_ptr<QueryResult> DuckLakeTransaction::Query(string query) {
 	auto &connection = GetConnection();
 	auto catalog_identifier = DuckLakeUtil::SQLIdentifierToString(ducklake_catalog.MetadataDatabaseName());

@@ -98,6 +98,7 @@ public:
 	void DropFile(TableIndex table_id, DataFileIndex data_file_id, string path);
 
 	void DeleteSnapshots(const vector<DuckLakeSnapshotInfo> &snapshots);
+	void DeleteInlinedData(const DuckLakeInlinedTableInfo &inlined_table);
 
 	bool SchemaChangesMade();
 	bool ChangesMade();

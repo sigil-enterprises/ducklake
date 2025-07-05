@@ -2284,6 +2284,17 @@ WHERE end_snapshot IS NOT NULL AND NOT EXISTS(
 	}
 }
 
+void DuckLakeMetadataManager::DeleteInlinedData(const DuckLakeInlinedTableInfo &inlined_table) {
+	auto result = transaction.Query(StringUtil::Format(R"(
+		DELETE FROM {METADATA_CATALOG}.%s
+)",
+	                                                   SQLIdentifier(inlined_table.table_name)));
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to delete inlined data in DuckLake from table " +
+		                               inlined_table.table_name + ": ");
+	}
+}
+
 vector<DuckLakeTableSizeInfo> DuckLakeMetadataManager::GetTableSizes(DuckLakeSnapshot snapshot) {
 	vector<DuckLakeTableSizeInfo> table_sizes;
 	auto result = transaction.Query(snapshot, R"(
