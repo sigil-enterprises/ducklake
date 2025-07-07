@@ -936,6 +936,7 @@ DuckLakeFileInfo DuckLakeTransaction::GetNewDataFile(DuckLakeDataFile &file, Duc
 	data_file.row_id_start = row_id_start;
 	data_file.mapping_id = file.mapping_id;
 	data_file.begin_snapshot = file.begin_snapshot;
+	data_file.max_partial_file_snapshot = file.max_partial_file_snapshot;
 	// gather the column statistics for this file
 	for (auto &column_stats_entry : file.column_stats) {
 		DuckLakeColumnStatsInfo column_stats;

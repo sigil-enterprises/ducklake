@@ -46,6 +46,7 @@ struct DuckLakeDataFile {
 	string encryption_key;
 	MappingIndex mapping_id;
 	optional_idx begin_snapshot;
+	optional_idx max_partial_file_snapshot;
 };
 
 } // namespace duckdb

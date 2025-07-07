@@ -39,12 +39,12 @@ SELECT rowid, snapshot_id, * FROM ducklake.test ORDER BY ALL
 8	10	8
 9	11	9
 
-query I
-SELECT * FROM ducklake.test AT (version => 4) ORDER BY ALL
+query III
+SELECT rowid, snapshot_id, * FROM ducklake.test AT (version => 4) ORDER BY ALL
 ----
-0
-1
-2
+0	2	0
+1	3	1
+2	4	2
 
 # flush inlined data
 statement ok
@@ -70,10 +70,16 @@ SELECT rowid, snapshot_id, * FROM ducklake.test ORDER BY ALL
 8	10	8
 9	11	9
 
-# FIXME: need to "backdate" the snapshot version
 query I
 SELECT * FROM ducklake.test AT (version => 4) ORDER BY ALL
 ----
 0
 1
 2
+
+query III
+SELECT rowid, snapshot_id, * FROM ducklake.test AT (version => 4) ORDER BY ALL
+----
+0	2	0
+1	3	1
+2	4	2

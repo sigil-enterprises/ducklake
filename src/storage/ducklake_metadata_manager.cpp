@@ -537,6 +537,20 @@ idx_t GetMaxRowCount(DuckLakeSnapshot snapshot, const string &partial_file_info_
 	return max_row_count;
 }
 
+void ParsePartialFileInfo(DuckLakeSnapshot snapshot, const string &partial_file_info_str,
+                          DuckLakeFileListEntry &file_entry) {
+	if (StringUtil::StartsWith(partial_file_info_str, "partial_max:")) {
+		auto max_partial_file_snapshot = StringUtil::ToUnsigned(partial_file_info_str.substr(12));
+		if (max_partial_file_snapshot <= snapshot.snapshot_id) {
+			// all snapshot ids are included for this snapshot - skip reading partial file info
+			return;
+		}
+		file_entry.snapshot_filter = snapshot.snapshot_id;
+	} else {
+		file_entry.max_row_count = GetMaxRowCount(snapshot, partial_file_info_str);
+	}
+}
+
 vector<DuckLakeFileListEntry>
 DuckLakeMetadataManager::GetFilesForTable(DuckLakeTableEntry &table, DuckLakeSnapshot snapshot, const string &filter) {
 	auto table_id = table.GetTableId();
@@ -575,7 +589,7 @@ WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_I
 		file_entry.snapshot_id = row.GetValue<idx_t>(col_idx++);
 		if (!row.IsNull(col_idx)) {
 			auto partial_file_info = row.GetValue<string>(col_idx);
-			file_entry.max_row_count = GetMaxRowCount(snapshot, partial_file_info);
+			ParsePartialFileInfo(snapshot, partial_file_info, file_entry);
 		}
 		col_idx++;
 		if (!row.IsNull(col_idx)) {
@@ -620,7 +634,7 @@ WHERE data.table_id=%d AND data.begin_snapshot >= %d AND data.begin_snapshot <= 
 		file_entry.snapshot_id = row.GetValue<idx_t>(col_idx++);
 		if (!row.IsNull(col_idx)) {
 			auto partial_file_info = row.GetValue<string>(col_idx);
-			file_entry.max_row_count = GetMaxRowCount(end_snapshot, partial_file_info);
+			ParsePartialFileInfo(end_snapshot, partial_file_info, file_entry);
 		}
 		col_idx++;
 		if (!row.IsNull(col_idx)) {
@@ -1452,7 +1466,12 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
 		    file.encryption_key.empty() ? "NULL" : "'" + Blob::ToBase64(string_t(file.encryption_key)) + "'";
 		string partial_file_info = "NULL";
 		if (!file.partial_file_info.empty()) {
+			if (file.max_partial_file_snapshot.IsValid()) {
+				throw InternalException("Either partial_file_info or max_partial_file_snapshot can be set - not both");
+			}
 			partial_file_info = "'" + PartialFileInfoToString(file.partial_file_info) + "'";
+		} else if (file.max_partial_file_snapshot.IsValid()) {
+			partial_file_info = "'partial_max:" + to_string(file.max_partial_file_snapshot.GetIndex()) + "'";
 		}
 		string footer_size = file.footer_size.IsValid() ? to_string(file.footer_size.GetIndex()) : "NULL";
 		string mapping = file.mapping_id.IsValid() ? to_string(file.mapping_id.index) : "NULL";

@@ -123,6 +123,9 @@ void DuckLakeInsert::AddWrittenFiles(DuckLakeInsertGlobalState &global_state, Da
 					if (snapshot_stats.has_min) {
 						data_file.begin_snapshot = StringUtil::ToUnsigned(snapshot_stats.min);
 					}
+					if (snapshot_stats.has_max) {
+						data_file.max_partial_file_snapshot = StringUtil::ToUnsigned(snapshot_stats.max);
+					}
 				}
 				continue;
 			}
