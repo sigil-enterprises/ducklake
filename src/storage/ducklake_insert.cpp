@@ -94,7 +94,7 @@ DuckLakeColumnStats DuckLakeInsert::ParseColumnStats(const LogicalType &type, co
 }
 
 void DuckLakeInsert::AddWrittenFiles(DuckLakeInsertGlobalState &global_state, DataChunk &chunk,
-                                     const string &encryption_key, optional_idx partition_id) {
+                                     const string &encryption_key, optional_idx partition_id, bool set_snapshot_id) {
 	for (idx_t r = 0; r < chunk.size(); r++) {
 		DuckLakeDataFile data_file;
 		data_file.file_name = chunk.GetValue(0, r).GetValue<string>();
@@ -116,7 +116,17 @@ void DuckLakeInsert::AddWrittenFiles(DuckLakeInsertGlobalState &global_state, Da
 			auto &col_stats = MapValue::GetChildren(struct_children[1]);
 			auto column_names = DuckLakeUtil::ParseQuotedList(col_name, '.');
 			// FIXME: this should be checked differently
-			if (column_names[0] == "_ducklake_internal_row_id" || column_names[0] == "_ducklake_internal_snapshot_id") {
+			if (column_names[0] == "_ducklake_internal_snapshot_id") {
+				if (set_snapshot_id) {
+					// set start snapshot id based on the minimum written to the file
+					auto snapshot_stats = ParseColumnStats(LogicalType::UBIGINT, col_stats);
+					if (snapshot_stats.has_min) {
+						data_file.begin_snapshot = StringUtil::ToUnsigned(snapshot_stats.min);
+					}
+				}
+				continue;
+			}
+			if (column_names[0] == "_ducklake_internal_row_id") {
 				continue;
 			}
 
@@ -144,6 +154,9 @@ void DuckLakeInsert::AddWrittenFiles(DuckLakeInsertGlobalState &global_state, Da
 				file_partition_info.partition_value = part_value;
 				data_file.partition_values.push_back(std::move(file_partition_info));
 			}
+		}
+		if (set_snapshot_id && !data_file.begin_snapshot.IsValid()) {
+			throw InvalidInputException("Did not find written snapshot id - but operation requires it to be set");
 		}
 
 		global_state.written_files.push_back(std::move(data_file));

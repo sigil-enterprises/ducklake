@@ -47,7 +47,7 @@ unique_ptr<GlobalSinkState> DuckLakeFlushData::GetGlobalSinkState(ClientContext 
 
 SinkResultType DuckLakeFlushData::Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const {
 	auto &global_state = input.global_state.Cast<DuckLakeInsertGlobalState>();
-	DuckLakeInsert::AddWrittenFiles(global_state, chunk, encryption_key, partition_id);
+	DuckLakeInsert::AddWrittenFiles(global_state, chunk, encryption_key, partition_id, true);
 	return SinkResultType::NEED_MORE_INPUT;
 }
 

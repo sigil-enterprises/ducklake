@@ -15,6 +15,7 @@ DuckLakeDataFile::DuckLakeDataFile(const DuckLakeDataFile &other) {
 	partition_values = other.partition_values;
 	encryption_key = other.encryption_key;
 	mapping_id = other.mapping_id;
+	begin_snapshot = other.begin_snapshot;
 }
 
 DuckLakeDataFile &DuckLakeDataFile::operator=(const DuckLakeDataFile &other) {
@@ -30,6 +31,7 @@ DuckLakeDataFile &DuckLakeDataFile::operator=(const DuckLakeDataFile &other) {
 	partition_values = other.partition_values;
 	encryption_key = other.encryption_key;
 	mapping_id = other.mapping_id;
+	begin_snapshot = other.begin_snapshot;
 	return *this;
 }
 

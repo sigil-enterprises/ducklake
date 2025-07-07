@@ -45,6 +45,7 @@ struct DuckLakeDataFile {
 	vector<DuckLakeFilePartition> partition_values;
 	string encryption_key;
 	MappingIndex mapping_id;
+	optional_idx begin_snapshot;
 };
 
 } // namespace duckdb
