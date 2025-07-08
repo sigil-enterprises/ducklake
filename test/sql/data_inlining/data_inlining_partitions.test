@@ -28,7 +28,7 @@ endloop
 
 # all data is inlined
 query I
-SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_inlining_partitions/**')
+SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_inlining_partitions/main/partitioned_tbl/**')
 ----
 0
 
@@ -54,7 +54,7 @@ CALL ducklake_flush_inlined_data('ducklake')
 
 # we now have 14 files
 query I
-SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_inlining_partitions/**')
+SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_inlining_partitions/main/partitioned_tbl/**')
 ----
 14
 
