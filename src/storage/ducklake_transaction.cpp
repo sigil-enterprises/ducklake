@@ -702,6 +702,7 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, Duc
 			result.new_partition_keys.push_back(std::move(partition_key));
 
 			transaction_changes.altered_tables.insert(table_id);
+			column_schema_change = true;
 			break;
 		}
 		case LocalChangeType::SET_COMMENT: {

@@ -15,6 +15,7 @@
 #include "duckdb/planner/tableref/bound_at_clause.hpp"
 #include "duckdb/planner/operator/logical_empty_result.hpp"
 #include "storage/ducklake_flush_data.hpp"
+#include "duckdb/planner/operator/logical_projection.hpp"
 
 namespace duckdb {
 
@@ -167,6 +168,7 @@ unique_ptr<LogicalOperator> DuckLakeDataFlusher::GenerateFlushCommand() {
 	auto &columns = table.GetColumns();
 
 	DuckLakeCopyInput copy_input(context, table);
+	copy_input.get_table_index = table_idx;
 	copy_input.virtual_columns = InsertVirtualColumns::WRITE_ROW_ID_AND_SNAPSHOT_ID;
 
 	auto copy_options = DuckLakeInsert::GetCopyOptions(context, copy_input);
@@ -182,12 +184,21 @@ unique_ptr<LogicalOperator> DuckLakeDataFlusher::GenerateFlushCommand() {
 	column_ids.emplace_back(COLUMN_IDENTIFIER_ROW_ID);
 	column_ids.emplace_back(DuckLakeMultiFileReader::COLUMN_IDENTIFIER_SNAPSHOT_ID);
 
+	unique_ptr<LogicalOperator> root;
+	root = std::move(ducklake_scan);
+
+	if (!copy_options.projection_list.empty()) {
+		// push a projection
+		auto proj = make_uniq<LogicalProjection>(binder.GenerateTableIndex(), std::move(copy_options.projection_list));
+		proj->children.push_back(std::move(root));
+		root = std::move(proj);
+	}
+
 	// generate the LogicalCopyToFile
 	auto copy = make_uniq<LogicalCopyToFile>(std::move(copy_options.copy_function), std::move(copy_options.bind_data),
 	                                         std::move(copy_options.info));
 
-	auto &fs = FileSystem::GetFileSystem(context);
-	copy->file_path = copy_options.filename_pattern.CreateFilename(fs, copy_options.file_path, "parquet", 0);
+	copy->file_path = std::move(copy_options.file_path);
 	copy->use_tmp_file = copy_options.use_tmp_file;
 	copy->filename_pattern = std::move(copy_options.filename_pattern);
 	copy->file_extension = std::move(copy_options.file_extension);
@@ -199,15 +210,12 @@ unique_ptr<LogicalOperator> DuckLakeDataFlusher::GenerateFlushCommand() {
 
 	copy->partition_output = copy_options.partition_output;
 	copy->write_partition_columns = copy_options.write_partition_columns;
-	copy->write_empty_file = false;
+	copy->write_empty_file = copy_options.write_empty_file;
 	copy->partition_columns = std::move(copy_options.partition_columns);
 	copy->names = std::move(copy_options.names);
 	copy->expected_types = std::move(copy_options.expected_types);
-	copy->preserve_order = PreserveOrderType::PRESERVE_ORDER;
-	copy->file_size_bytes = optional_idx();
-	copy->rotate = false;
 
-	copy->children.push_back(std::move(ducklake_scan));
+	copy->children.push_back(std::move(root));
 
 	// followed by the compaction operator (that writes the results back to the
 	auto compaction = make_uniq<DuckLakeLogicalFlush>(binder.GenerateTableIndex(), table, inlined_table,

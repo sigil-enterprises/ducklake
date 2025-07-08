@@ -120,6 +120,9 @@ struct DuckLakeCopyOptions {
 	vector<idx_t> partition_columns;
 	vector<string> names;
 	vector<LogicalType> expected_types;
+
+	//! Set of projection columns to execute prior to inserting (if any)
+	vector<unique_ptr<Expression>> projection_list;
 };
 
 struct DuckLakeCopyInput {
@@ -136,6 +139,7 @@ struct DuckLakeCopyInput {
 	SchemaIndex schema_id;
 	TableIndex table_id;
 	InsertVirtualColumns virtual_columns = InsertVirtualColumns::NONE;
+	optional_idx get_table_index;
 };
 
 } // namespace duckdb
