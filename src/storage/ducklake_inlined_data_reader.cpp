@@ -162,7 +162,7 @@ void DuckLakeInlinedDataReader::Scan(ClientContext &context, GlobalTableFunction
 
 		idx_t source_idx = 0;
 		for (idx_t c = 0; c < virtual_columns.size(); c++) {
-			switch(virtual_columns[c]) {
+			switch (virtual_columns[c]) {
 			case InlinedVirtualColumn::NONE: {
 				auto column_id = source_idx++;
 				chunk.data[c].Reference(scan_chunk.data[column_id]);

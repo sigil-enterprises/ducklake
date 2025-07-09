@@ -1,6 +1,6 @@
-# name: test/sql/transaction/transaction_conflict_inlining_flush.test
+# name: test/sql/transaction/transaction_conflict_inlining.test
 # description: Test ducklake transaction conflicts with data inlining
-# group: [data_inlining]
+# group: [transaction]
 
 require ducklake
 
@@ -12,35 +12,17 @@ ATTACH 'ducklake:__TEST_DIR__/ducklake_inlining_encryption.db' AS ducklake (DATA
 statement ok
 CREATE TABLE ducklake.test AS SELECT i id FROM range(1000) t(i);
 
-query II
-SELECT COUNT(*), SUM(id) FROM ducklake.test
-----
-1000	499500
+# two transactions try to flush the inlined data
+statement ok con1
+BEGIN
 
-# data is inlined
-query I
-SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_inlining_encryption_files/main/test/**')
-----
-0
-
-# we can flush the data
-statement ok
+statement ok con1
 CALL ducklake_flush_inlined_data('ducklake')
 
-# now we have a file
 query I
-SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_inlining_encryption_files/main/test/**')
+SELECT COUNT(*) FROM ducklake.test
 ----
-1
+1000
 
-# that file is encrypted
-statement error
-SELECT * FROM '__TEST_DIR__/ducklake_inlining_encryption_files/main/test/*.parquet'
-----
-encrypted
-
-# but we can read it
-query II
-SELECT COUNT(*), SUM(id) FROM ducklake.test
-----
-1000	499500
+statement ok con1
+COMMIT

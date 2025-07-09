@@ -1541,6 +1541,9 @@ void DuckLakeMetadataManager::DropDeleteFiles(DuckLakeSnapshot commit_snapshot,
 
 void DuckLakeMetadataManager::WriteNewDeleteFiles(DuckLakeSnapshot commit_snapshot,
                                                   const vector<DuckLakeDeleteFileInfo> &new_files) {
+	if (new_files.empty()) {
+		return;
+	}
 	string delete_file_insert_query;
 	for (auto &file : new_files) {
 		if (!delete_file_insert_query.empty()) {
@@ -2056,6 +2059,9 @@ idx_t DuckLakeMetadataManager::GetNextColumnId(TableIndex table_id) {
 }
 
 void DuckLakeMetadataManager::WriteCompactions(const vector<DuckLakeCompactedFileInfo> &compactions) {
+	if (compactions.empty()) {
+		return;
+	}
 	string deleted_file_ids;
 	string scheduled_deletions;
 	for (auto &compaction : compactions) {

@@ -63,6 +63,11 @@ BEGIN
 statement ok
 CALL ducklake_flush_inlined_data('ducklake')
 
+query II
+SELECT snapshot_id, changes FROM ducklake.snapshots() ORDER BY snapshot_id
+----
+
+
 query I
 SELECT COUNT(*) FROM ducklake.test
 ----
