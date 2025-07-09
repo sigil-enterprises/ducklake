@@ -436,6 +436,22 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 			                           table_id.index);
 		}
 	}
+	for (auto &table_id : changes.tables_inserted_inlined) {
+		auto dropped_entry = other_changes.dropped_tables.find(table_id);
+		if (dropped_entry != other_changes.dropped_tables.end()) {
+			// trying to insert into a table that was dropped
+			throw TransactionException("Transaction conflict - attempting to insert into table with id %d"
+			                           " - but this table has been dropped by another transaction",
+			                           table_id.index);
+		}
+		auto alter_entry = other_changes.altered_tables.find(table_id);
+		if (alter_entry != other_changes.altered_tables.end()) {
+			// trying to insert into a table that was dropped
+			throw TransactionException("Transaction conflict - attempting to insert into table with id %d"
+			                           " - but this table has been altered by another transaction",
+			                           table_id.index);
+		}
+	}
 	for (auto &table_id : changes.tables_deleted_from) {
 		auto dropped_entry = other_changes.dropped_tables.find(table_id);
 		if (dropped_entry != other_changes.dropped_tables.end()) {
@@ -463,6 +479,66 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 			// trying to delete from a table that was compacted from
 			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
 			                           " - but this table has been compacted from by another transaction",
+			                           table_id.index);
+		}
+	}
+	for (auto &table_id : changes.tables_deleted_inlined) {
+		auto dropped_entry = other_changes.dropped_tables.find(table_id);
+		if (dropped_entry != other_changes.dropped_tables.end()) {
+			// trying to delete from a table that was dropped
+			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
+			                           " - but this table has been dropped by another transaction",
+			                           table_id.index);
+		}
+		auto alter_entry = other_changes.altered_tables.find(table_id);
+		if (alter_entry != other_changes.altered_tables.end()) {
+			// trying to delete from a table that was altered
+			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
+			                           " - but this table has been altered by another transaction",
+			                           table_id.index);
+		}
+		auto delete_entry = other_changes.tables_deleted_inlined.find(table_id);
+		if (delete_entry != other_changes.tables_deleted_inlined.end()) {
+			// trying to delete from a table that was deleted from
+			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
+			                           " - but this table has been deleted from by another transaction",
+			                           table_id.index);
+		}
+		auto flush_entry = other_changes.tables_flushed_inlined.find(table_id);
+		if (flush_entry != other_changes.tables_flushed_inlined.end()) {
+			// trying to delete from a table that was flushed
+			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
+			                           " - but this inlined data has been flushed by another transaction",
+			                           table_id.index);
+		}
+		auto compact_entry = other_changes.tables_compacted.find(table_id);
+		if (compact_entry != other_changes.tables_compacted.end()) {
+			// trying to delete from a table that was compacted from
+			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
+			                           " - but this table has been compacted from by another transaction",
+			                           table_id.index);
+		}
+	}
+	for (auto &table_id : changes.tables_flushed_inlined) {
+		auto dropped_entry = other_changes.dropped_tables.find(table_id);
+		if (dropped_entry != other_changes.dropped_tables.end()) {
+			// trying to delete from a table that was dropped
+			throw TransactionException("Transaction conflict - attempting to flush inline data from table with id %d"
+			                           " - but this table has been dropped by another transaction",
+			                           table_id.index);
+		}
+		auto delete_entry = other_changes.tables_deleted_inlined.find(table_id);
+		if (delete_entry != other_changes.tables_deleted_inlined.end()) {
+			// trying to delete from a table that was deleted from
+			throw TransactionException("Transaction conflict - attempting to flush inline data from table with id %d"
+			                           " - but this table has been deleted from by another transaction",
+			                           table_id.index);
+		}
+		auto flush_entry = other_changes.tables_flushed_inlined.find(table_id);
+		if (flush_entry != other_changes.tables_flushed_inlined.end()) {
+			// trying to delete from a table that was flushed
+			throw TransactionException("Transaction conflict - attempting to flush inline data from table with id %d"
+			                           " - but this inlined data has been flushed by another transaction",
 			                           table_id.index);
 		}
 	}
