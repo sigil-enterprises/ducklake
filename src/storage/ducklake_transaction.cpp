@@ -104,6 +104,9 @@ struct TransactionChangeInformation {
 	set<TableIndex> dropped_views;
 	set<TableIndex> tables_inserted_into;
 	set<TableIndex> tables_deleted_from;
+	set<TableIndex> tables_inserted_inlined;
+	set<TableIndex> tables_deleted_inlined;
+	set<TableIndex> tables_flushed_inlined;
 	set<TableIndex> tables_compacted;
 };
 
@@ -225,14 +228,45 @@ TransactionChangeInformation DuckLakeTransaction::GetTransactionChanges() {
 
 void DuckLakeTransaction::AddTableChanges(TableIndex table_id, const LocalTableDataChanges &table_changes,
                                           TransactionChangeInformation &changes) {
-	if (!table_changes.new_data_files.empty() || table_changes.new_inlined_data) {
+	bool inserted_data = false;
+	bool flushed_inline_data = false;
+	for (auto &file : table_changes.new_data_files) {
+		if (file.begin_snapshot.IsValid()) {
+			flushed_inline_data = true;
+		} else {
+			inserted_data = true;
+		}
+	}
+
+	if (inserted_data) {
 		changes.tables_inserted_into.insert(table_id);
 	}
-	if (!table_changes.new_delete_files.empty() || !table_changes.new_inlined_data_deletes.empty()) {
+	if (flushed_inline_data) {
+		changes.tables_flushed_inlined.insert(table_id);
+	}
+	if (table_changes.new_inlined_data) {
+		changes.tables_inserted_inlined.insert(table_id);
+	}
+	if (!table_changes.new_delete_files.empty()) {
 		changes.tables_deleted_from.insert(table_id);
+	}
+	if (!table_changes.new_inlined_data_deletes.empty()) {
+		changes.tables_deleted_inlined.insert(table_id);
 	}
 	if (!table_changes.compactions.empty()) {
 		changes.tables_compacted.insert(table_id);
+	}
+}
+
+template <class T>
+void AddChangeInfo(SnapshotChangeInfo &change_info, const set<T> &changes, const char *change_type) {
+	for (auto &entry : changes) {
+		if (!change_info.changes_made.empty()) {
+			change_info.changes_made += ",";
+		}
+		change_info.changes_made += change_type;
+		change_info.changes_made += ":";
+		change_info.changes_made += to_string(entry.index);
 	}
 }
 
@@ -255,20 +289,8 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 		change_info.changes_made += "dropped_schema:";
 		change_info.changes_made += to_string(schema_id);
 	}
-	for (auto &dropped_table_idx : changes.dropped_tables) {
-		if (!change_info.changes_made.empty()) {
-			change_info.changes_made += ",";
-		}
-		change_info.changes_made += "dropped_table:";
-		change_info.changes_made += to_string(dropped_table_idx.index);
-	}
-	for (auto &dropped_view_idx : changes.dropped_views) {
-		if (!change_info.changes_made.empty()) {
-			change_info.changes_made += ",";
-		}
-		change_info.changes_made += "dropped_view:";
-		change_info.changes_made += to_string(dropped_view_idx.index);
-	}
+	AddChangeInfo(change_info, changes.dropped_tables, "dropped_table");
+	AddChangeInfo(change_info, changes.dropped_views, "dropped_view");
 	for (auto &created_schema : changes.created_schemas) {
 		if (!change_info.changes_made.empty()) {
 			change_info.changes_made += ",";
@@ -288,34 +310,13 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 			change_info.changes_made += schema_prefix + KeywordHelper::WriteQuoted(created_table.get().name, '"');
 		}
 	}
-	for (auto &inserted_table_idx : changes.tables_inserted_into) {
-		if (!change_info.changes_made.empty()) {
-			change_info.changes_made += ",";
-		}
-		change_info.changes_made += "inserted_into_table:";
-		change_info.changes_made += to_string(inserted_table_idx.index);
-	}
-	for (auto &table_idx : changes.tables_deleted_from) {
-		if (!change_info.changes_made.empty()) {
-			change_info.changes_made += ",";
-		}
-		change_info.changes_made += "deleted_from_table:";
-		change_info.changes_made += to_string(table_idx.index);
-	}
-	for (auto &altered_table_idx : changes.altered_tables) {
-		if (!change_info.changes_made.empty()) {
-			change_info.changes_made += ",";
-		}
-		change_info.changes_made += "altered_table:";
-		change_info.changes_made += to_string(altered_table_idx.index);
-	}
-	for (auto &altered_view_idx : changes.altered_views) {
-		if (!change_info.changes_made.empty()) {
-			change_info.changes_made += ",";
-		}
-		change_info.changes_made += "altered_view:";
-		change_info.changes_made += to_string(altered_view_idx.index);
-	}
+	AddChangeInfo(change_info, changes.tables_inserted_into, "inserted_into_table");
+	AddChangeInfo(change_info, changes.tables_deleted_from, "deleted_from_table");
+	AddChangeInfo(change_info, changes.altered_tables, "altered_table");
+	AddChangeInfo(change_info, changes.altered_views, "altered_view");
+	AddChangeInfo(change_info, changes.tables_inserted_inlined, "inlined_insert");
+	AddChangeInfo(change_info, changes.tables_deleted_inlined, "inlined_delete");
+	AddChangeInfo(change_info, changes.tables_flushed_inlined, "flushed_inlined");
 	if (!changes.tables_compacted.empty() && !change_info.changes_made.empty()) {
 		throw InvalidInputException("Transactions can either make changes OR perform compaction - not both");
 	}

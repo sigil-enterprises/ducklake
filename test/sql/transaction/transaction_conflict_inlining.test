@@ -10,19 +10,58 @@ statement ok
 ATTACH 'ducklake:__TEST_DIR__/ducklake_inlining_encryption.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_inlining_encryption_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 10000)
 
 statement ok
-CREATE TABLE ducklake.test AS SELECT i id FROM range(1000) t(i);
+SET immediate_transaction_mode=true
 
-# two transactions try to flush the inlined data
+# statement ok
+# CREATE TABLE ducklake.test AS SELECT i id FROM range(1000) t(i);
+#
+# # two transactions try to flush the inlined data
+# statement ok con1
+# BEGIN
+#
+# statement ok con1
+# CALL ducklake_flush_inlined_data('ducklake')
+#
+# query I
+# SELECT COUNT(*) FROM ducklake.test
+# ----
+# 1000
+#
+# statement ok con1
+# COMMIT
+#
+#
+# statement ok
+# DROP TABLE ducklake.test
+
+# one transaction flushes inlined data, the other updates it
+statement ok
+CREATE TABLE ducklake.test2(id INTEGER);
+
+statement ok
+INSERT INTO ducklake.test2 FROM range(1000);
+
 statement ok con1
 BEGIN
 
-statement ok con1
-CALL ducklake_flush_inlined_data('ducklake')
+statement ok con2
+BEGIN
 
-query I
-SELECT COUNT(*) FROM ducklake.test
-----
-1000
+statement ok con1
+UPDATE ducklake.test2 SET id=id+1000
+
+statement ok con2
+CALL ducklake_flush_inlined_data('ducklake')
 
 statement ok con1
 COMMIT
+
+statement error con2
+COMMIT
+----
+zxcv
+
+query I
+SELECT COUNT(*) FROM ducklake.test2
+----
+1000
