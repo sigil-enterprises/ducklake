@@ -153,17 +153,17 @@ struct DuckLakePartitionInfo {
 struct DuckLakeGlobalColumnStatsInfo {
 	FieldIndex column_id;
 
-	bool contains_null;
-	bool has_contains_null;
+	bool contains_null = false;
+	bool has_contains_null = false;
 
-	bool contains_nan;
-	bool has_contains_nan;
+	bool contains_nan = false;
+	bool has_contains_nan = false;
 
 	string min_val;
-	bool has_min;
+	bool has_min = false;
 
 	string max_val;
-	bool has_max;
+	bool has_max = false;
 };
 
 struct DuckLakeGlobalStatsInfo {

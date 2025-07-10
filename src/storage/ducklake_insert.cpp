@@ -440,7 +440,7 @@ void GeneratePartitionExpressions(ClientContext &context, DuckLakeCopyInput &cop
 	}
 	// if we have partition columns that are NOT identity we need to compute them separately, and NOT write them
 	idx_t partition_column_start = copy_input.columns.PhysicalColumnCount() + virtual_column_count;
-	for (auto &_ : copy_input.partition_data->fields) {
+	for (idx_t part_idx = 0; part_idx < copy_input.partition_data->fields.size(); part_idx++) {
 		copy_options.partition_columns.push_back(partition_column_start++);
 	}
 	copy_options.write_partition_columns = false;
@@ -650,7 +650,7 @@ string DuckLakeCatalog::GenerateEncryptionKey(ClientContext &context) const {
 	auto &engine = RandomEngine::Get(context);
 	static constexpr const idx_t ENCRYPTION_KEY_SIZE = 16;
 	data_t bytes[ENCRYPTION_KEY_SIZE];
-	for (int i = 0; i < ENCRYPTION_KEY_SIZE; i += 4) {
+	for (idx_t i = 0; i < ENCRYPTION_KEY_SIZE; i += 4) {
 		*reinterpret_cast<uint32_t *>(bytes + i) = engine.NextRandomInteger();
 	}
 	return string(char_ptr_cast(bytes), ENCRYPTION_KEY_SIZE);
