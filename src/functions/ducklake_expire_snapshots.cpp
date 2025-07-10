@@ -24,7 +24,7 @@ static unique_ptr<FunctionData> DuckLakeExpireSnapshotsBind(ClientContext &conte
 	bool has_versions = false;
 	for (auto &entry : input.named_parameters) {
 		if (StringUtil::CIEquals(entry.first, "dry_run")) {
-			result->dry_run = true;
+			result->dry_run = BooleanValue::Get(entry.second);
 		} else if (StringUtil::CIEquals(entry.first, "versions")) {
 			has_versions = true;
 			for (auto &snapshot_id : ListValue::GetChildren(entry.second)) {
