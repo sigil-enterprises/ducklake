@@ -35,7 +35,7 @@ SELECT snapshot_id FROM ducklake_expire_snapshots('ducklake', dry_run => true, v
 
 # actually expire
 statement ok
-CALL ducklake_expire_snapshots('ducklake', versions => [2])
+CALL ducklake_expire_snapshots('ducklake', dry_run => false, versions => [2])
 
 # the snapshot is no longer available
 statement error

@@ -1399,6 +1399,7 @@ DuckLakeSnapshot DuckLakeTransaction::GetSnapshot() {
 		// the catalog was opened at a specific snapshot - load that snapshot
 		return GetSnapshot(catalog_snapshot);
 	}
+	lock_guard<mutex> guard(snapshot_lock);
 	if (!snapshot) {
 		// no snapshot loaded yet for this transaction - load it
 		snapshot = metadata_manager->GetSnapshot();
@@ -1416,6 +1417,8 @@ DuckLakeSnapshot DuckLakeTransaction::GetSnapshot(optional_ptr<BoundAtClause> at
 	child_list_t<Value> values;
 	values.push_back(make_pair(at_clause->Unit(), at_clause->GetValue()));
 	auto snapshot_value = Value::STRUCT(std::move(values));
+
+	lock_guard<mutex> guard(snapshot_lock);
 	auto entry = snapshot_cache.find(snapshot_value);
 	if (entry != snapshot_cache.end()) {
 		// we already found this snapshot - return it
