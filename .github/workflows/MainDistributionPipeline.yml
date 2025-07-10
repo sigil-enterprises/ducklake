@@ -28,6 +28,7 @@ jobs:
       ci_tools_version: main
       extension_name: ducklake
       build_type: debug
+      fail_fast: false
 
   duckdb-stable-deploy:
     name: Deploy extension binaries
