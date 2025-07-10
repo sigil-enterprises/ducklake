@@ -350,47 +350,48 @@ void DuckLakeTransaction::CleanupFiles() {
 	}
 }
 
+template <class T, class MAP>
+void ConflictCheck(T index, const MAP &conflict_map, const char *action, const char *conflict_action) {
+	if (conflict_map.find(index) != conflict_map.end()) {
+		throw TransactionException("Transaction conflict - attempting to %s with index \"%d\""
+		                           " - but another transaction has %s",
+		                           action, index.index, conflict_action);
+	}
+}
+
+template <class MAP>
+void ConflictCheck(const string &source_name, const MAP &conflict_map, const char *action,
+                   const char *conflict_action) {
+	if (conflict_map.find(source_name) != conflict_map.end()) {
+		throw TransactionException("Transaction conflict - attempting to %s with name \"%s\""
+		                           " - but another transaction has %s",
+		                           action, source_name, conflict_action);
+	}
+}
+
 void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &changes,
                                             const SnapshotChangeInformation &other_changes) {
 	// check if we are dropping the same table as another transaction
 	for (auto &dropped_idx : changes.dropped_tables) {
-		if (other_changes.dropped_tables.find(dropped_idx) != other_changes.dropped_tables.end()) {
-			throw TransactionException("Transaction conflict - attempting to drop table with table index \"%d\""
-			                           "- but this has been dropped by another transaction already",
-			                           dropped_idx.index);
-		}
+		ConflictCheck(dropped_idx, other_changes.dropped_tables, "drop table", "dropped it already");
 	}
 	// check if we are dropping the same view as another transaction
 	for (auto &dropped_idx : changes.dropped_views) {
-		if (other_changes.dropped_views.find(dropped_idx) != other_changes.dropped_views.end()) {
-			throw TransactionException("Transaction conflict - attempting to drop view with view index \"%d\""
-			                           "- but this has been dropped by another transaction already",
-			                           dropped_idx.index);
-		}
+		ConflictCheck(dropped_idx, other_changes.dropped_views, "drop view", "dropped it already");
 	}
 	// check if we are dropping the same schema as another transaction
 	for (auto &entry : changes.dropped_schemas) {
 		auto &dropped_schema = entry.second.get();
 		auto dropped_idx = entry.first;
-		if (other_changes.dropped_schemas.find(dropped_idx) != other_changes.dropped_schemas.end()) {
-			throw TransactionException("Transaction conflict - attempting to drop schema \"%s\""
-			                           "- but this has been dropped by another transaction already",
-			                           dropped_schema.name);
-		}
-		auto tbl_entry = other_changes.created_tables.find(dropped_schema.name);
-		if (tbl_entry != other_changes.created_tables.end()) {
-			throw TransactionException("Transaction conflict - attempting to drop schema \"%s\""
-			                           "- but another transaction has created a an entry in this schema",
-			                           dropped_schema.name);
-		}
+		ConflictCheck(dropped_idx, other_changes.dropped_schemas, "drop schema", "dropped it already");
+
+		ConflictCheck(dropped_schema.name, other_changes.created_tables, "drop schema",
+		              "created an entry in this schema");
 	}
 	// check if we are creating the same schema as another transaction
 	for (auto &created_schema : changes.created_schemas) {
-		if (other_changes.created_schemas.find(created_schema) != other_changes.created_schemas.end()) {
-			throw TransactionException("Transaction conflict - attempting to create schema \"%s\""
-			                           "- but this has been created by another transaction already",
-			                           created_schema);
-		}
+		ConflictCheck(created_schema, other_changes.created_schemas, "create schema",
+		              "created a schema with this name already");
 	}
 	// check if we are creating the same table as another transaction
 	for (auto &entry : changes.created_tables) {
@@ -400,13 +401,11 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 			auto &table = table_ref.get();
 			auto &schema = table.ParentSchema().Cast<DuckLakeSchemaEntry>();
 			auto entry_type = table.type == CatalogType::TABLE_ENTRY ? "table" : "view";
-			auto schema_entry = other_changes.dropped_schemas.find(schema.GetSchemaId());
-			if (schema_entry != other_changes.dropped_schemas.end()) {
-				// the schema this table was created in was dropped
-				throw TransactionException("Transaction conflict - attempting to create %s \"%s\" in schema \"%s\" "
-				                           "- but this schema has been dropped by another transaction already",
-				                           entry_type, table.name, schema_name);
-			}
+
+			string action =
+			    StringUtil::Format("create %s \"%s\" in schema \"%s\"", entry_type, table.name, schema_name);
+			ConflictCheck(schema.GetSchemaId(), other_changes.dropped_schemas, action.c_str(), "dropped this schema");
+
 			auto tbl_entry = other_changes.created_tables.find(schema_name);
 			if (tbl_entry != other_changes.created_tables.end()) {
 				auto &other_created_tables = tbl_entry->second;
@@ -421,167 +420,41 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 		}
 	}
 	for (auto &table_id : changes.tables_inserted_into) {
-		auto dropped_entry = other_changes.dropped_tables.find(table_id);
-		if (dropped_entry != other_changes.dropped_tables.end()) {
-			// trying to insert into a table that was dropped
-			throw TransactionException("Transaction conflict - attempting to insert into table with id %d"
-			                           " - but this table has been dropped by another transaction",
-			                           table_id.index);
-		}
-		auto alter_entry = other_changes.altered_tables.find(table_id);
-		if (alter_entry != other_changes.altered_tables.end()) {
-			// trying to insert into a table that was dropped
-			throw TransactionException("Transaction conflict - attempting to insert into table with id %d"
-			                           " - but this table has been altered by another transaction",
-			                           table_id.index);
-		}
+		ConflictCheck(table_id, other_changes.dropped_tables, "insert into table", "dropped it");
+		ConflictCheck(table_id, other_changes.altered_tables, "insert into table", "altered it");
 	}
 	for (auto &table_id : changes.tables_inserted_inlined) {
-		auto dropped_entry = other_changes.dropped_tables.find(table_id);
-		if (dropped_entry != other_changes.dropped_tables.end()) {
-			// trying to insert into a table that was dropped
-			throw TransactionException("Transaction conflict - attempting to insert into table with id %d"
-			                           " - but this table has been dropped by another transaction",
-			                           table_id.index);
-		}
-		auto alter_entry = other_changes.altered_tables.find(table_id);
-		if (alter_entry != other_changes.altered_tables.end()) {
-			// trying to insert into a table that was dropped
-			throw TransactionException("Transaction conflict - attempting to insert into table with id %d"
-			                           " - but this table has been altered by another transaction",
-			                           table_id.index);
-		}
+		ConflictCheck(table_id, other_changes.dropped_tables, "insert into table", "dropped it");
+		ConflictCheck(table_id, other_changes.altered_tables, "insert into table", "altered it");
 	}
 	for (auto &table_id : changes.tables_deleted_from) {
-		auto dropped_entry = other_changes.dropped_tables.find(table_id);
-		if (dropped_entry != other_changes.dropped_tables.end()) {
-			// trying to delete from a table that was dropped
-			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
-			                           " - but this table has been dropped by another transaction",
-			                           table_id.index);
-		}
-		auto alter_entry = other_changes.altered_tables.find(table_id);
-		if (alter_entry != other_changes.altered_tables.end()) {
-			// trying to delete from a table that was altered
-			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
-			                           " - but this table has been altered by another transaction",
-			                           table_id.index);
-		}
-		auto delete_entry = other_changes.tables_deleted_from.find(table_id);
-		if (delete_entry != other_changes.tables_deleted_from.end()) {
-			// trying to delete from a table that was deleted from
-			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
-			                           " - but this table has been deleted from by another transaction",
-			                           table_id.index);
-		}
-		auto compact_entry = other_changes.tables_compacted.find(table_id);
-		if (compact_entry != other_changes.tables_compacted.end()) {
-			// trying to delete from a table that was compacted from
-			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
-			                           " - but this table has been compacted from by another transaction",
-			                           table_id.index);
-		}
+		ConflictCheck(table_id, other_changes.dropped_tables, "delete from table", "dropped it");
+		ConflictCheck(table_id, other_changes.altered_tables, "delete from table", "altered it");
+		ConflictCheck(table_id, other_changes.tables_deleted_from, "delete from table", "deleted from it");
+		ConflictCheck(table_id, other_changes.tables_compacted, "delete from table", "compacted it");
 	}
 	for (auto &table_id : changes.tables_deleted_inlined) {
-		auto dropped_entry = other_changes.dropped_tables.find(table_id);
-		if (dropped_entry != other_changes.dropped_tables.end()) {
-			// trying to delete from a table that was dropped
-			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
-			                           " - but this table has been dropped by another transaction",
-			                           table_id.index);
-		}
-		auto alter_entry = other_changes.altered_tables.find(table_id);
-		if (alter_entry != other_changes.altered_tables.end()) {
-			// trying to delete from a table that was altered
-			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
-			                           " - but this table has been altered by another transaction",
-			                           table_id.index);
-		}
-		auto delete_entry = other_changes.tables_deleted_inlined.find(table_id);
-		if (delete_entry != other_changes.tables_deleted_inlined.end()) {
-			// trying to delete from a table that was deleted from
-			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
-			                           " - but this table has been deleted from by another transaction",
-			                           table_id.index);
-		}
-		auto flush_entry = other_changes.tables_flushed_inlined.find(table_id);
-		if (flush_entry != other_changes.tables_flushed_inlined.end()) {
-			// trying to delete from a table that was flushed
-			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
-			                           " - but this inlined data has been flushed by another transaction",
-			                           table_id.index);
-		}
-		auto compact_entry = other_changes.tables_compacted.find(table_id);
-		if (compact_entry != other_changes.tables_compacted.end()) {
-			// trying to delete from a table that was compacted from
-			throw TransactionException("Transaction conflict - attempting to delete from table with id %d"
-			                           " - but this table has been compacted from by another transaction",
-			                           table_id.index);
-		}
+		ConflictCheck(table_id, other_changes.dropped_tables, "delete from table", "dropped it");
+		ConflictCheck(table_id, other_changes.altered_tables, "delete from table", "altered it");
+		ConflictCheck(table_id, other_changes.tables_deleted_inlined, "delete from table", "deleted from it");
+		ConflictCheck(table_id, other_changes.tables_flushed_inlined, "delete from table", "flushed the inlined data");
 	}
 	for (auto &table_id : changes.tables_flushed_inlined) {
-		auto dropped_entry = other_changes.dropped_tables.find(table_id);
-		if (dropped_entry != other_changes.dropped_tables.end()) {
-			// trying to delete from a table that was dropped
-			throw TransactionException("Transaction conflict - attempting to flush inline data from table with id %d"
-			                           " - but this table has been dropped by another transaction",
-			                           table_id.index);
-		}
-		auto delete_entry = other_changes.tables_deleted_inlined.find(table_id);
-		if (delete_entry != other_changes.tables_deleted_inlined.end()) {
-			// trying to delete from a table that was deleted from
-			throw TransactionException("Transaction conflict - attempting to flush inline data from table with id %d"
-			                           " - but this table has been deleted from by another transaction",
-			                           table_id.index);
-		}
-		auto flush_entry = other_changes.tables_flushed_inlined.find(table_id);
-		if (flush_entry != other_changes.tables_flushed_inlined.end()) {
-			// trying to delete from a table that was flushed
-			throw TransactionException("Transaction conflict - attempting to flush inline data from table with id %d"
-			                           " - but this inlined data has been flushed by another transaction",
-			                           table_id.index);
-		}
+		ConflictCheck(table_id, other_changes.dropped_tables, "flush inline data", "dropped it");
+		ConflictCheck(table_id, other_changes.tables_deleted_inlined, "flush inline data", "deleted from it");
+		ConflictCheck(table_id, other_changes.tables_flushed_inlined, "flush inline data", "flushed it");
 	}
 	for (auto &table_id : changes.tables_compacted) {
-		auto delete_entry = other_changes.tables_deleted_from.find(table_id);
-		if (delete_entry != other_changes.tables_deleted_from.end()) {
-			// trying to delete from a table that was deleted from
-			throw TransactionException("Transaction conflict - attempting to compact table with id %d"
-			                           " - but this table has been deleted from by another transaction",
-			                           table_id.index);
-		}
-		auto compact_entry = other_changes.tables_compacted.find(table_id);
-		if (compact_entry != other_changes.tables_compacted.end()) {
-			// trying to delete from a table that was compacted from
-			throw TransactionException("Transaction conflict - attempting to compact table with id %d"
-			                           " - but this table has been compacted from by another transaction",
-			                           table_id.index);
-		}
+		ConflictCheck(table_id, other_changes.dropped_tables, "compact table", "dropped it");
+		ConflictCheck(table_id, other_changes.tables_deleted_from, "compact table", "deleted from it");
+		ConflictCheck(table_id, other_changes.tables_compacted, "compact table", "compacted it");
 	}
 	for (auto &table_id : changes.altered_tables) {
-		auto dropped_entry = other_changes.dropped_tables.find(table_id);
-		if (dropped_entry != other_changes.dropped_tables.end()) {
-			// trying to insert into a table that was dropped
-			throw TransactionException("Transaction conflict - attempting to alter table with id %d"
-			                           " - but this table has been dropped by another transaction",
-			                           table_id.index);
-		}
-		auto alter_entry = other_changes.altered_tables.find(table_id);
-		if (alter_entry != other_changes.altered_tables.end()) {
-			// trying to insert into a table that was dropped
-			throw TransactionException("Transaction conflict - attempting to alter table with id %d"
-			                           " - but this table has been altered by another transaction",
-			                           table_id.index);
-		}
+		ConflictCheck(table_id, other_changes.dropped_tables, "alter table", "dropped it");
+		ConflictCheck(table_id, other_changes.altered_tables, "alter table", "altered it");
 	}
 	for (auto &view_id : changes.altered_views) {
-		auto alter_entry = other_changes.altered_views.find(view_id);
-		if (alter_entry != other_changes.altered_views.end()) {
-			// trying to insert into a table that was dropped
-			throw TransactionException("Transaction conflict - attempting to alter view with id %d"
-			                           " - but this view has been altered by another transaction",
-			                           view_id.index);
-		}
+		ConflictCheck(view_id, other_changes.altered_views, "alter view", "altered it");
 	}
 }
 
