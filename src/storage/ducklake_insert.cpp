@@ -23,16 +23,16 @@
 
 namespace duckdb {
 
-DuckLakeInsert::DuckLakeInsert(const vector<LogicalType> &types, DuckLakeTableEntry &table, optional_idx partition_id,
-                               string encryption_key_p)
-    : PhysicalOperator(PhysicalOperatorType::EXTENSION, types, 1), table(&table), schema(nullptr),
+DuckLakeInsert::DuckLakeInsert(PhysicalPlan &physical_plan, const vector<LogicalType> &types, DuckLakeTableEntry &table,
+                               optional_idx partition_id, string encryption_key_p)
+    : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, types, 1), table(&table), schema(nullptr),
       partition_id(partition_id), encryption_key(std::move(encryption_key_p)) {
 }
 
-DuckLakeInsert::DuckLakeInsert(const vector<LogicalType> &types, SchemaCatalogEntry &schema,
-                               unique_ptr<BoundCreateTableInfo> info, string table_uuid_p, string table_data_path_p,
-                               string encryption_key_p)
-    : PhysicalOperator(PhysicalOperatorType::EXTENSION, types, 1), table(nullptr), schema(&schema),
+DuckLakeInsert::DuckLakeInsert(PhysicalPlan &physical_plan, const vector<LogicalType> &types,
+                               SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info, string table_uuid_p,
+                               string table_data_path_p, string encryption_key_p)
+    : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, types, 1), table(nullptr), schema(&schema),
       info(std::move(info)), table_uuid(std::move(table_uuid_p)), table_data_path(std::move(table_data_path_p)),
       encryption_key(std::move(encryption_key_p)) {
 }

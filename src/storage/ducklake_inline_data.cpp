@@ -6,8 +6,8 @@
 
 namespace duckdb {
 
-DuckLakeInlineData::DuckLakeInlineData(PhysicalOperator &child, idx_t inline_row_limit)
-    : PhysicalOperator(PhysicalOperatorType::EXTENSION, child.types, child.estimated_cardinality),
+DuckLakeInlineData::DuckLakeInlineData(PhysicalPlan &physical_plan, PhysicalOperator &child, idx_t inline_row_limit)
+    : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, child.types, child.estimated_cardinality),
       inline_row_limit(inline_row_limit) {
 	children.push_back(child);
 }

@@ -9,9 +9,10 @@
 
 namespace duckdb {
 
-DuckLakeUpdate::DuckLakeUpdate(DuckLakeTableEntry &table, vector<PhysicalIndex> columns_p, PhysicalOperator &child,
-                               PhysicalOperator &copy_op, PhysicalOperator &delete_op, PhysicalOperator &insert_op)
-    : PhysicalOperator(PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, 1), table(table),
+DuckLakeUpdate::DuckLakeUpdate(PhysicalPlan &physical_plan, DuckLakeTableEntry &table, vector<PhysicalIndex> columns_p,
+                               PhysicalOperator &child, PhysicalOperator &copy_op, PhysicalOperator &delete_op,
+                               PhysicalOperator &insert_op)
+    : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, 1), table(table),
       columns(std::move(columns_p)), copy_op(copy_op), delete_op(delete_op), insert_op(insert_op) {
 	children.push_back(child);
 }

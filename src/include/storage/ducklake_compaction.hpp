@@ -20,7 +20,7 @@ class DuckLakeTableEntry;
 
 class DuckLakeCompaction : public PhysicalOperator {
 public:
-	DuckLakeCompaction(const vector<LogicalType> &types, DuckLakeTableEntry &table,
+	DuckLakeCompaction(PhysicalPlan &physical_plan, const vector<LogicalType> &types, DuckLakeTableEntry &table,
 	                   vector<DuckLakeCompactionFileEntry> source_files_p, string encryption_key,
 	                   optional_idx partition_id, vector<string> partition_values, optional_idx row_id_start,
 	                   PhysicalOperator &child);

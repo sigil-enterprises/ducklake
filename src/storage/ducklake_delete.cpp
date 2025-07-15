@@ -25,10 +25,10 @@
 
 namespace duckdb {
 
-DuckLakeDelete::DuckLakeDelete(DuckLakeTableEntry &table, PhysicalOperator &child,
+DuckLakeDelete::DuckLakeDelete(PhysicalPlan &physical_plan, DuckLakeTableEntry &table, PhysicalOperator &child,
                                shared_ptr<DuckLakeDeleteMap> delete_map_p, vector<idx_t> row_id_indexes_p,
                                string encryption_key_p, bool allow_duplicates)
-    : PhysicalOperator(PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, 1), table(table),
+    : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, 1), table(table),
       delete_map(std::move(delete_map_p)), row_id_indexes(std::move(row_id_indexes_p)),
       encryption_key(std::move(encryption_key_p)), allow_duplicates(allow_duplicates) {
 	children.push_back(child);
@@ -253,7 +253,8 @@ void DuckLakeDelete::FlushDelete(DuckLakeTransaction &transaction, ClientContext
 
 	// generate the physical copy to file
 	auto copy_return_types = GetCopyFunctionReturnLogicalTypes(CopyFunctionReturnType::WRITTEN_FILE_STATISTICS);
-	PhysicalCopyToFile copy_to_file(copy_return_types, copy_fun.function, std::move(function_data), 1);
+	PhysicalPlan plan(Allocator::Get(context));
+	PhysicalCopyToFile copy_to_file(plan, copy_return_types, copy_fun.function, std::move(function_data), 1);
 
 	copy_to_file.use_tmp_file = false;
 	copy_to_file.file_path = delete_file_path;

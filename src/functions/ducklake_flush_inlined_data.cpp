@@ -22,10 +22,10 @@ namespace duckdb {
 //===--------------------------------------------------------------------===//
 // Flush Data Operator
 //===--------------------------------------------------------------------===//
-DuckLakeFlushData::DuckLakeFlushData(const vector<LogicalType> &types, DuckLakeTableEntry &table,
-                                     DuckLakeInlinedTableInfo inlined_table_p, string encryption_key_p,
-                                     optional_idx partition_id, PhysicalOperator &child)
-    : PhysicalOperator(PhysicalOperatorType::EXTENSION, types, 0), table(table),
+DuckLakeFlushData::DuckLakeFlushData(PhysicalPlan &physical_plan, const vector<LogicalType> &types,
+                                     DuckLakeTableEntry &table, DuckLakeInlinedTableInfo inlined_table_p,
+                                     string encryption_key_p, optional_idx partition_id, PhysicalOperator &child)
+    : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, types, 0), table(table),
       inlined_table(std::move(inlined_table_p)), encryption_key(std::move(encryption_key_p)),
       partition_id(partition_id) {
 	children.push_back(child);

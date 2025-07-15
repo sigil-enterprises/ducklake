@@ -39,11 +39,12 @@ public:
 class DuckLakeInsert : public PhysicalOperator {
 public:
 	//! INSERT INTO
-	DuckLakeInsert(const vector<LogicalType> &types, DuckLakeTableEntry &table, optional_idx partition_id,
-	               string encryption_key);
+	DuckLakeInsert(PhysicalPlan &physical_plan, const vector<LogicalType> &types, DuckLakeTableEntry &table,
+	               optional_idx partition_id, string encryption_key);
 	//! CREATE TABLE AS
-	DuckLakeInsert(const vector<LogicalType> &types, SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info,
-	               string table_uuid, string table_data_path, string encryption_key);
+	DuckLakeInsert(PhysicalPlan &physical_plan, const vector<LogicalType> &types, SchemaCatalogEntry &schema,
+	               unique_ptr<BoundCreateTableInfo> info, string table_uuid, string table_data_path,
+	               string encryption_key);
 
 	//! The table to insert into
 	optional_ptr<DuckLakeTableEntry> table;

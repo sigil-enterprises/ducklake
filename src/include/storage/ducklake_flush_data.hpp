@@ -20,7 +20,7 @@ class DuckLakeTableEntry;
 
 class DuckLakeFlushData : public PhysicalOperator {
 public:
-	DuckLakeFlushData(const vector<LogicalType> &types, DuckLakeTableEntry &table,
+	DuckLakeFlushData(PhysicalPlan &physical_plan, const vector<LogicalType> &types, DuckLakeTableEntry &table,
 	                  DuckLakeInlinedTableInfo inlined_table, string encryption_key, optional_idx partition_id,
 	                  PhysicalOperator &child);
 

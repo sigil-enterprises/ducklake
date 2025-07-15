@@ -2,7 +2,6 @@
 #include "duckdb/catalog/catalog_entry/table_function_catalog_entry.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
 #include "duckdb/parallel/thread_context.hpp"
-#include "duckdb/main/extension_util.hpp"
 #include "duckdb/main/database.hpp"
 
 namespace duckdb {
@@ -51,7 +50,8 @@ idx_t DuckLakeDeleteFilter::Filter(row_t start_row_index, idx_t count, Selection
 
 vector<idx_t> DuckLakeDeleteFilter::ScanDeleteFile(ClientContext &context, const DuckLakeFileData &delete_file) {
 	auto &instance = DatabaseInstance::GetDatabase(context);
-	auto &parquet_scan_entry = ExtensionUtil::GetTableFunction(instance, "parquet_scan");
+	ExtensionLoader loader(instance, "ducklake");
+	auto &parquet_scan_entry = loader.GetTableFunction("parquet_scan");
 	auto &parquet_scan = parquet_scan_entry.functions.functions[0];
 
 	// Prepare the inputs for the bind

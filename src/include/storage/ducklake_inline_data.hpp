@@ -21,7 +21,7 @@ public:
 	static constexpr const PhysicalOperatorType TYPE = PhysicalOperatorType::EXTENSION;
 
 public:
-	DuckLakeInlineData(PhysicalOperator &child, idx_t inline_row_limit);
+	DuckLakeInlineData(PhysicalPlan &physical_plan, PhysicalOperator &child, idx_t inline_row_limit);
 
 	idx_t inline_row_limit;
 	optional_ptr<DuckLakeInsert> insert;
