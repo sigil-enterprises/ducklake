@@ -29,9 +29,6 @@ public:
 	const string &GetViewUUID() const {
 		return view_uuid;
 	}
-	void SetViewId(TableIndex new_view_id) {
-		view_id = new_view_id;
-	}
 	bool IsTransactionLocal() const {
 		return local_change.type != LocalChangeType::NONE;
 	}

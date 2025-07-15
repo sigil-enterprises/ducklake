@@ -34,6 +34,7 @@ struct NewTableInfo;
 struct NewNameMapInfo;
 struct CompactionInformation;
 struct DuckLakePath;
+struct DuckLakeCommitState;
 
 class DuckLakeTransaction : public Transaction, public enable_shared_from_this<DuckLakeTransaction> {
 public:
@@ -84,13 +85,13 @@ public:
 
 	MappingIndex AddNameMap(unique_ptr<DuckLakeNameMap> name_map);
 	const DuckLakeNameMap &GetMappingById(MappingIndex mapping_id);
-	NewNameMapInfo GetNewNameMaps(DuckLakeSnapshot &commit_snapshot);
+	NewNameMapInfo GetNewNameMaps(DuckLakeCommitState &commit_state);
 
 	void AppendInlinedData(TableIndex table_id, unique_ptr<DuckLakeInlinedData> collection);
 	void AddNewInlinedDeletes(TableIndex table_id, const string &table_name, set<idx_t> new_deletes);
 	void DeleteFromLocalInlinedData(TableIndex table_id, set<idx_t> new_deletes);
 	optional_ptr<DuckLakeInlinedDataDeletes> GetInlinedDeletes(TableIndex table_id, const string &table_name);
-	vector<DuckLakeDeletedInlinedDataInfo> GetNewInlinedDeletes(DuckLakeSnapshot &commit_snapshot);
+	vector<DuckLakeDeletedInlinedDataInfo> GetNewInlinedDeletes(DuckLakeCommitState &commit_state);
 
 	void DropSchema(DuckLakeSchemaEntry &schema);
 	void DropTable(DuckLakeTableEntry &table);
@@ -134,31 +135,31 @@ private:
 	void CleanupFiles();
 	void FlushChanges();
 	void FlushSettingChanges();
-	void CommitChanges(DuckLakeSnapshot &commit_snapshot, TransactionChangeInformation &transaction_changes);
+	void CommitChanges(DuckLakeCommitState &commit_state, TransactionChangeInformation &transaction_changes);
 	void CommitCompaction(DuckLakeSnapshot &commit_snapshot, TransactionChangeInformation &transaction_changes);
 	void FlushDrop(DuckLakeSnapshot commit_snapshot, const string &metadata_table_name, const string &id_name,
 	               unordered_set<idx_t> &dropped_entries);
-	vector<DuckLakeSchemaInfo> GetNewSchemas(DuckLakeSnapshot &commit_snapshot);
-	NewTableInfo GetNewTables(DuckLakeSnapshot &commit_snapshot, TransactionChangeInformation &transaction_changes);
-	DuckLakePartitionInfo GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &tabletable_id);
-	DuckLakeTableInfo GetNewTable(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table);
-	DuckLakeViewInfo GetNewView(DuckLakeSnapshot &commit_snapshot, DuckLakeViewEntry &view);
+	vector<DuckLakeSchemaInfo> GetNewSchemas(DuckLakeCommitState &commit_state);
+	NewTableInfo GetNewTables(DuckLakeCommitState &commit_state, TransactionChangeInformation &transaction_changes);
+	DuckLakePartitionInfo GetNewPartitionKey(DuckLakeCommitState &commit_state, DuckLakeTableEntry &tabletable_id);
+	DuckLakeTableInfo GetNewTable(DuckLakeCommitState &commit_state, DuckLakeTableEntry &table);
+	DuckLakeViewInfo GetNewView(DuckLakeCommitState &commit_state, DuckLakeViewEntry &view);
 	void FlushNewPartitionKey(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table);
 	DuckLakeFileInfo GetNewDataFile(DuckLakeDataFile &file, DuckLakeSnapshot &commit_snapshot, TableIndex table_id,
 	                                optional_idx row_id_start);
-	NewDataInfo GetNewDataFiles(DuckLakeSnapshot &commit_snapshot);
-	vector<DuckLakeDeleteFileInfo> GetNewDeleteFiles(DuckLakeSnapshot &commit_snapshot,
+	NewDataInfo GetNewDataFiles(DuckLakeCommitState &commit_state);
+	vector<DuckLakeDeleteFileInfo> GetNewDeleteFiles(DuckLakeCommitState &commit_state,
 	                                                 set<DataFileIndex> &overwritten_delete_files);
 	void UpdateGlobalTableStats(TableIndex table_id, const DuckLakeNewGlobalStats &new_stats);
 	void CheckForConflicts(DuckLakeSnapshot transaction_snapshot, const TransactionChangeInformation &changes);
 	void CheckForConflicts(const TransactionChangeInformation &changes, const SnapshotChangeInformation &other_changes);
-	void WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot, TransactionChangeInformation &changes);
+	void WriteSnapshotChanges(DuckLakeCommitState &commit_state, TransactionChangeInformation &changes);
 	//! Return the set of changes made by this transaction
 	TransactionChangeInformation GetTransactionChanges();
-	void GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, DuckLakeCatalogSet &catalog_set,
+	void GetNewTableInfo(DuckLakeCommitState &commit_state, DuckLakeCatalogSet &catalog_set,
 	                     reference<CatalogEntry> table_entry, NewTableInfo &result,
 	                     TransactionChangeInformation &transaction_changes);
-	void GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, DuckLakeCatalogSet &catalog_set,
+	void GetNewViewInfo(DuckLakeCommitState &commit_state, DuckLakeCatalogSet &catalog_set,
 	                    reference<CatalogEntry> table_entry, NewTableInfo &result,
 	                    TransactionChangeInformation &transaction_changes);
 	CompactionInformation GetCompactionChanges(DuckLakeSnapshot &commit_snapshot);
