@@ -27,9 +27,6 @@ public:
 	const string &GetSchemaUUID() const {
 		return schema_uuid;
 	}
-	void SetSchemaId(SchemaIndex new_schema_id) {
-		schema_id = new_schema_id;
-	}
 	const string &DataPath() const {
 		return data_path;
 	}

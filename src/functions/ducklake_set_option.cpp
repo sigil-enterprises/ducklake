@@ -28,7 +28,7 @@ static unique_ptr<FunctionData> DuckLakeSetOptionBind(ClientContext &context, Ta
 	// read the option
 	if (option == "parquet_compression") {
 		auto codec = val.DefaultCastAs(LogicalType::VARCHAR).GetValue<string>();
-		vector<string> supported_algorithms {"uncompressed", "snappy", "gzip", "zstd", "brotli", "lz4"};
+		vector<string> supported_algorithms {"uncompressed", "snappy", "gzip", "zstd", "brotli", "lz4", "lz4_raw"};
 		bool found = false;
 		for (auto &algorithm : supported_algorithms) {
 			if (StringUtil::CIEquals(algorithm, codec)) {
