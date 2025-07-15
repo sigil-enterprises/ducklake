@@ -59,8 +59,9 @@ private:
 
 class DuckLakeDelete : public PhysicalOperator {
 public:
-	DuckLakeDelete(DuckLakeTableEntry &table, PhysicalOperator &child, shared_ptr<DuckLakeDeleteMap> delete_map,
-	               vector<idx_t> row_id_indexes, string encryption_key, bool allow_duplicates);
+	DuckLakeDelete(PhysicalPlan &physical_plan, DuckLakeTableEntry &table, PhysicalOperator &child,
+	               shared_ptr<DuckLakeDeleteMap> delete_map, vector<idx_t> row_id_indexes, string encryption_key,
+	               bool allow_duplicates);
 
 	//! The table to delete from
 	DuckLakeTableEntry &table;

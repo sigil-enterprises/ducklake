@@ -39,11 +39,12 @@ public:
 class DuckLakeInsert : public PhysicalOperator {
 public:
 	//! INSERT INTO
-	DuckLakeInsert(const vector<LogicalType> &types, DuckLakeTableEntry &table, optional_idx partition_id,
-	               string encryption_key);
+	DuckLakeInsert(PhysicalPlan &physical_plan, const vector<LogicalType> &types, DuckLakeTableEntry &table,
+	               optional_idx partition_id, string encryption_key);
 	//! CREATE TABLE AS
-	DuckLakeInsert(const vector<LogicalType> &types, SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info,
-	               string table_uuid, string table_data_path, string encryption_key);
+	DuckLakeInsert(PhysicalPlan &physical_plan, const vector<LogicalType> &types, SchemaCatalogEntry &schema,
+	               unique_ptr<BoundCreateTableInfo> info, string table_uuid, string table_data_path,
+	               string encryption_key);
 
 	//! The table to insert into
 	optional_ptr<DuckLakeTableEntry> table;
@@ -75,7 +76,7 @@ public:
 	static PhysicalOperator &PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner,
 	                                    DuckLakeTableEntry &table, string encryption_key);
 	static void AddWrittenFiles(DuckLakeInsertGlobalState &gstate, DataChunk &chunk, const string &encryption_key,
-	                            optional_idx partition_id);
+	                            optional_idx partition_id, bool set_snapshot_id = false);
 
 public:
 	// Sink interface
@@ -120,6 +121,9 @@ struct DuckLakeCopyOptions {
 	vector<idx_t> partition_columns;
 	vector<string> names;
 	vector<LogicalType> expected_types;
+
+	//! Set of projection columns to execute prior to inserting (if any)
+	vector<unique_ptr<Expression>> projection_list;
 };
 
 struct DuckLakeCopyInput {
@@ -136,6 +140,7 @@ struct DuckLakeCopyInput {
 	SchemaIndex schema_id;
 	TableIndex table_id;
 	InsertVirtualColumns virtual_columns = InsertVirtualColumns::NONE;
+	optional_idx get_table_index;
 };
 
 } // namespace duckdb

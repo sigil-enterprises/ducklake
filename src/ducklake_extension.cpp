@@ -1,21 +1,17 @@
-#ifndef DUCKDB_BUILD_LOADABLE_EXTENSION
-#define DUCKDB_BUILD_LOADABLE_EXTENSION
-#endif
 #include "ducklake_extension.hpp"
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "storage/ducklake_storage.hpp"
 #include "functions/ducklake_table_functions.hpp"
-#include "duckdb/main/extension_util.hpp"
 #include "storage/ducklake_secret.hpp"
 
 namespace duckdb {
 
-static void LoadInternal(DatabaseInstance &instance) {
-	ExtensionUtil::RegisterExtension(instance, "ducklake", {"Adds support for DuckLake, SQL as a Lakehouse Format"});
+static void LoadInternal(ExtensionLoader &loader) {
+	loader.SetDescription("Adds support for DuckLake, SQL as a Lakehouse Format");
 
-	auto &config = DBConfig::GetConfig(instance);
+	auto &config = DBConfig::GetConfig(loader.GetDatabaseInstance());
 	config.storage_extensions["ducklake"] = make_uniq<DuckLakeStorageExtension>();
 
 	config.AddExtensionOption("ducklake_max_retry_count",
@@ -27,51 +23,54 @@ static void LoadInternal(DatabaseInstance &instance) {
 	                          LogicalType::DOUBLE, Value::DOUBLE(1.5));
 
 	DuckLakeSnapshotsFunction snapshots;
-	ExtensionUtil::RegisterFunction(instance, snapshots);
+	loader.RegisterFunction(snapshots);
 
 	DuckLakeTableInfoFunction table_info;
-	ExtensionUtil::RegisterFunction(instance, table_info);
+	loader.RegisterFunction(table_info);
 
 	auto table_insertions = DuckLakeTableInsertionsFunction::GetFunctions();
-	ExtensionUtil::RegisterFunction(instance, table_insertions);
+	loader.RegisterFunction(table_insertions);
 
 	auto table_deletions = DuckLakeTableDeletionsFunction::GetFunctions();
-	ExtensionUtil::RegisterFunction(instance, table_deletions);
+	loader.RegisterFunction(table_deletions);
 
 	DuckLakeMergeAdjacentFilesFunction merge_adjacent_files;
-	ExtensionUtil::RegisterFunction(instance, merge_adjacent_files);
+	loader.RegisterFunction(merge_adjacent_files);
 
 	DuckLakeCleanupOldFilesFunction cleanup_old_files;
-	ExtensionUtil::RegisterFunction(instance, cleanup_old_files);
+	loader.RegisterFunction(cleanup_old_files);
 
 	DuckLakeExpireSnapshotsFunction expire_snapshots;
-	ExtensionUtil::RegisterFunction(instance, expire_snapshots);
+	loader.RegisterFunction(expire_snapshots);
+
+	DuckLakeFlushInlinedDataFunction flush_inlined_data;
+	loader.RegisterFunction(flush_inlined_data);
 
 	DuckLakeSetOptionFunction set_options;
-	ExtensionUtil::RegisterFunction(instance, set_options);
+	loader.RegisterFunction(set_options);
 
 	DuckLakeOptionsFunction options;
-	ExtensionUtil::RegisterFunction(instance, options);
+	loader.RegisterFunction(options);
 
 	auto table_changes = DuckLakeTableInsertionsFunction::GetDuckLakeTableChanges();
-	ExtensionUtil::RegisterFunction(instance, *table_changes);
+	loader.RegisterFunction(*table_changes);
 
 	DuckLakeListFilesFunction list_files;
-	ExtensionUtil::RegisterFunction(instance, list_files);
+	loader.RegisterFunction(list_files);
 
 	DuckLakeAddDataFilesFunction add_files;
-	ExtensionUtil::RegisterFunction(instance, add_files);
+	loader.RegisterFunction(add_files);
 
 	// secrets
 	auto secret_type = DuckLakeSecret::GetSecretType();
-	ExtensionUtil::RegisterSecretType(instance, secret_type);
+	loader.RegisterSecretType(secret_type);
 
 	auto ducklake_secret_function = DuckLakeSecret::GetFunction();
-	ExtensionUtil::RegisterFunction(instance, ducklake_secret_function);
+	loader.RegisterFunction(ducklake_secret_function);
 }
 
-void DucklakeExtension::Load(DuckDB &db) {
-	LoadInternal(*db.instance);
+void DucklakeExtension::Load(ExtensionLoader &loader) {
+	LoadInternal(loader);
 }
 std::string DucklakeExtension::Name() {
 	return "ducklake";
@@ -89,12 +88,7 @@ std::string DucklakeExtension::Version() const {
 
 extern "C" {
 
-DUCKDB_EXTENSION_API void ducklake_init(duckdb::DatabaseInstance &db) {
-	duckdb::DuckDB db_wrapper(db);
-	db_wrapper.LoadExtension<duckdb::DucklakeExtension>();
-}
-
-DUCKDB_EXTENSION_API const char *ducklake_version() {
-	return duckdb::DuckDB::LibraryVersion();
+DUCKDB_CPP_EXTENSION_ENTRY(ducklake, loader) {
+	LoadInternal(loader);
 }
 }

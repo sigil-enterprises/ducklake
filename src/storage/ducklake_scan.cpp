@@ -7,7 +7,6 @@
 #include "duckdb/catalog/catalog_entry/table_function_catalog_entry.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/extension_helper.hpp"
-#include "duckdb/main/extension_util.hpp"
 #include "duckdb/main/query_profiler.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
 #include "duckdb/parser/expression/function_expression.hpp"
@@ -73,7 +72,8 @@ TableFunction DuckLakeFunctions::GetDuckLakeScanFunction(DatabaseInstance &insta
 
 	// The ducklake_scan function is constructed by grabbing the parquet scan from the Catalog, then injecting the
 	// DuckLakeMultiFileReader into it to create a DuckLake-based multi file read
-	auto &parquet_scan = ExtensionUtil::GetTableFunction(instance, "parquet_scan");
+	ExtensionLoader loader(instance, "ducklake");
+	auto &parquet_scan = loader.GetTableFunction("parquet_scan");
 	auto function = parquet_scan.functions.GetFunctionByOffset(0);
 
 	// Register the MultiFileReader as the driver for reads

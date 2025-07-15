@@ -2,7 +2,6 @@
 #include "duckdb/catalog/catalog_entry/table_function_catalog_entry.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
 #include "duckdb/parallel/thread_context.hpp"
-#include "duckdb/main/extension_util.hpp"
 #include "duckdb/main/database.hpp"
 
 namespace duckdb {
@@ -17,7 +16,7 @@ idx_t DuckLakeDeleteData::Filter(row_t start_row_index, idx_t count, SelectionVe
 		return count;
 	}
 	idx_t end_pos = start_row_index + count;
-	auto delete_idx = entry - deleted_rows.begin();
+	auto delete_idx = NumericCast<idx_t>(entry - deleted_rows.begin());
 	if (deleted_rows[delete_idx] > end_pos) {
 		// nothing in this range is deleted - skip
 		return count;
@@ -40,7 +39,7 @@ idx_t DuckLakeDeleteFilter::Filter(row_t start_row_index, idx_t count, Selection
 	// apply max row count (if it is set)
 	if (max_row_count.IsValid()) {
 		auto max_count = max_row_count.GetIndex();
-		if (max_count <= start_row_index) {
+		if (max_count <= NumericCast<idx_t>(start_row_index)) {
 			// no rows to read based on max row count - skip
 			return 0;
 		}
@@ -51,7 +50,8 @@ idx_t DuckLakeDeleteFilter::Filter(row_t start_row_index, idx_t count, Selection
 
 vector<idx_t> DuckLakeDeleteFilter::ScanDeleteFile(ClientContext &context, const DuckLakeFileData &delete_file) {
 	auto &instance = DatabaseInstance::GetDatabase(context);
-	auto &parquet_scan_entry = ExtensionUtil::GetTableFunction(instance, "parquet_scan");
+	ExtensionLoader loader(instance, "ducklake");
+	auto &parquet_scan_entry = loader.GetTableFunction("parquet_scan");
 	auto &parquet_scan = parquet_scan_entry.functions.functions[0];
 
 	// Prepare the inputs for the bind

@@ -1,7 +1,7 @@
 //===----------------------------------------------------------------------===//
 //                         DuckDB
 //
-// storage/ducklake_compaction.hpp
+// storage/ducklake_flush_data.hpp
 //
 //
 //===----------------------------------------------------------------------===//
@@ -18,19 +18,16 @@
 namespace duckdb {
 class DuckLakeTableEntry;
 
-class DuckLakeCompaction : public PhysicalOperator {
+class DuckLakeFlushData : public PhysicalOperator {
 public:
-	DuckLakeCompaction(PhysicalPlan &physical_plan, const vector<LogicalType> &types, DuckLakeTableEntry &table,
-	                   vector<DuckLakeCompactionFileEntry> source_files_p, string encryption_key,
-	                   optional_idx partition_id, vector<string> partition_values, optional_idx row_id_start,
-	                   PhysicalOperator &child);
+	DuckLakeFlushData(PhysicalPlan &physical_plan, const vector<LogicalType> &types, DuckLakeTableEntry &table,
+	                  DuckLakeInlinedTableInfo inlined_table, string encryption_key, optional_idx partition_id,
+	                  PhysicalOperator &child);
 
 	DuckLakeTableEntry &table;
-	vector<DuckLakeCompactionFileEntry> source_files;
+	DuckLakeInlinedTableInfo inlined_table;
 	string encryption_key;
 	optional_idx partition_id;
-	vector<string> partition_values;
-	optional_idx row_id_start;
 
 public:
 	// // Source interface

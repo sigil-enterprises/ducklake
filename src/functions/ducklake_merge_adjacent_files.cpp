@@ -20,11 +20,12 @@ namespace duckdb {
 //===--------------------------------------------------------------------===//
 // Compaction Operator
 //===--------------------------------------------------------------------===//
-DuckLakeCompaction::DuckLakeCompaction(const vector<LogicalType> &types, DuckLakeTableEntry &table,
-                                       vector<DuckLakeCompactionFileEntry> source_files_p, string encryption_key_p,
-                                       optional_idx partition_id, vector<string> partition_values_p,
-                                       optional_idx row_id_start, PhysicalOperator &child)
-    : PhysicalOperator(PhysicalOperatorType::EXTENSION, types, 0), table(table),
+DuckLakeCompaction::DuckLakeCompaction(PhysicalPlan &physical_plan, const vector<LogicalType> &types,
+                                       DuckLakeTableEntry &table, vector<DuckLakeCompactionFileEntry> source_files_p,
+                                       string encryption_key_p, optional_idx partition_id,
+                                       vector<string> partition_values_p, optional_idx row_id_start,
+                                       PhysicalOperator &child)
+    : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, types, 0), table(table),
       source_files(std::move(source_files_p)), encryption_key(std::move(encryption_key_p)), partition_id(partition_id),
       partition_values(std::move(partition_values_p)), row_id_start(row_id_start) {
 	children.push_back(child);
