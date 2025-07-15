@@ -215,22 +215,64 @@ TransactionChangeInformation DuckLakeTransaction::GetTransactionChanges() {
 	return changes;
 }
 
-void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
+struct DuckLakeCommitState {
+	DuckLakeCommitState(DuckLakeSnapshot &snapshot) : commit_snapshot(snapshot) {
+	}
+
+	DuckLakeSnapshot &commit_snapshot;
+	map<SchemaIndex, SchemaIndex> committed_schemas;
+	map<TableIndex, TableIndex> committed_tables;
+
+	void RemapIdentifier(SchemaIndex &schema_id) const {
+		auto entry = committed_schemas.find(schema_id);
+		if (entry != committed_schemas.end()) {
+			schema_id = entry->second;
+		}
+	}
+	void RemapIdentifier(TableIndex &table_id) const {
+		auto entry = committed_tables.find(table_id);
+		if (entry != committed_tables.end()) {
+			table_id = entry->second;
+		}
+	}
+
+	SchemaIndex GetSchemaId(DuckLakeSchemaEntry &schema) const {
+		auto schema_id = schema.GetSchemaId();
+		RemapIdentifier(schema_id);
+		return schema_id;
+	}
+	TableIndex GetTableId(DuckLakeTableEntry &table) const {
+		auto table_id = table.GetTableId();
+		RemapIdentifier(table_id);
+		return table_id;
+	}
+	TableIndex GetTableId(TableIndex table_id) const {
+		RemapIdentifier(table_id);
+		return table_id;
+	}
+	TableIndex GetViewId(DuckLakeViewEntry &view) const {
+		auto view_id = view.GetViewId();
+		RemapIdentifier(view_id);
+		return view_id;
+	}
+};
+
+void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeCommitState &commit_state,
                                                TransactionChangeInformation &changes) {
 	SnapshotChangeInfo change_info;
 
 	// re-add all inserted tables - transaction-local table identifiers should have been converted at this stage
 	for (auto &entry : new_data_files) {
-		auto table_id = entry.first;
+		auto table_id = commit_state.GetTableId(entry.first);
 		changes.tables_inserted_into.insert(table_id);
 	}
 	changes.tables_deleted_from = tables_deleted_from;
 	for (auto &entry : new_delete_files) {
-		auto table_id = entry.first;
+		auto table_id = commit_state.GetTableId(entry.first);
 		changes.tables_deleted_from.insert(table_id);
 	}
 	for (auto &entry : new_inlined_data_deletes) {
-		auto table_id = entry.first;
+		auto table_id = commit_state.GetTableId(entry.first);
 		changes.tables_deleted_from.insert(table_id);
 	}
 	for (auto &entry : changes.dropped_schemas) {
@@ -275,25 +317,28 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 		}
 	}
 	for (auto &inserted_table_idx : changes.tables_inserted_into) {
+		auto table_id = commit_state.GetTableId(inserted_table_idx);
 		if (!change_info.changes_made.empty()) {
 			change_info.changes_made += ",";
 		}
 		change_info.changes_made += "inserted_into_table:";
-		change_info.changes_made += to_string(inserted_table_idx.index);
+		change_info.changes_made += to_string(table_id.index);
 	}
 	for (auto &table_idx : changes.tables_deleted_from) {
+		auto table_id = commit_state.GetTableId(table_idx);
 		if (!change_info.changes_made.empty()) {
 			change_info.changes_made += ",";
 		}
 		change_info.changes_made += "deleted_from_table:";
-		change_info.changes_made += to_string(table_idx.index);
+		change_info.changes_made += to_string(table_id.index);
 	}
 	for (auto &altered_table_idx : changes.altered_tables) {
+		auto table_id = commit_state.GetTableId(altered_table_idx);
 		if (!change_info.changes_made.empty()) {
 			change_info.changes_made += ",";
 		}
 		change_info.changes_made += "altered_table:";
-		change_info.changes_made += to_string(altered_table_idx.index);
+		change_info.changes_made += to_string(table_id.index);
 	}
 	for (auto &altered_view_idx : changes.altered_views) {
 		if (!change_info.changes_made.empty()) {
@@ -303,14 +348,14 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeSnapshot commit_snapshot,
 		change_info.changes_made += to_string(altered_view_idx.index);
 	}
 	for (auto &entry : compactions) {
-		auto table_id = entry.first;
+		auto table_id = commit_state.GetTableId(entry.first);
 		if (!change_info.changes_made.empty()) {
 			change_info.changes_made += ",";
 		}
 		change_info.changes_made += "compacted_table:";
 		change_info.changes_made += to_string(table_id.index);
 	}
-	metadata_manager->WriteSnapshotChanges(commit_snapshot, change_info);
+	metadata_manager->WriteSnapshotChanges(commit_state.commit_snapshot, change_info);
 }
 
 void DuckLakeTransaction::CleanupFiles() {
@@ -504,21 +549,19 @@ void DuckLakeTransaction::CheckForConflicts(DuckLakeSnapshot transaction_snapsho
 	CheckForConflicts(changes, other_changes);
 }
 
-vector<DuckLakeSchemaInfo> DuckLakeTransaction::GetNewSchemas(DuckLakeSnapshot &commit_snapshot) {
+vector<DuckLakeSchemaInfo> DuckLakeTransaction::GetNewSchemas(DuckLakeCommitState &commit_state) {
 	vector<DuckLakeSchemaInfo> schemas;
 	for (auto &entry : new_schemas->GetEntries()) {
 		auto &schema_entry = entry.second->Cast<DuckLakeSchemaEntry>();
 		auto old_id = schema_entry.GetSchemaId();
 		DuckLakeSchemaInfo schema_info;
-		schema_info.id = SchemaIndex(commit_snapshot.next_catalog_id++);
+		schema_info.id = SchemaIndex(commit_state.commit_snapshot.next_catalog_id++);
 		schema_info.uuid = schema_entry.GetSchemaUUID();
 		schema_info.name = schema_entry.name;
 		schema_info.path = schema_entry.DataPath();
 
-		// set the schema id of this schema entry so subsequent tables are written correctly
-		schema_entry.SetSchemaId(schema_info.id);
-
-		new_schemas->RemapEntry(old_id, schema_info.id, schema_entry);
+		// add this schema id to the schema id map
+		commit_state.committed_schemas.emplace(old_id, schema_info.id);
 
 		// add the schema to the list
 		schemas.push_back(std::move(schema_info));
@@ -526,10 +569,10 @@ vector<DuckLakeSchemaInfo> DuckLakeTransaction::GetNewSchemas(DuckLakeSnapshot &
 	return schemas;
 }
 
-DuckLakePartitionInfo DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &commit_snapshot,
+DuckLakePartitionInfo DuckLakeTransaction::GetNewPartitionKey(DuckLakeCommitState &commit_state,
                                                               DuckLakeTableEntry &table) {
 	DuckLakePartitionInfo partition_key;
-	partition_key.table_id = table.GetTableId();
+	partition_key.table_id = commit_state.GetTableId(table);
 	if (partition_key.table_id.IsTransactionLocal()) {
 		throw InternalException("Trying to write partition with transaction local table-id");
 	}
@@ -540,7 +583,7 @@ DuckLakePartitionInfo DuckLakeTransaction::GetNewPartitionKey(DuckLakeSnapshot &
 		return partition_key;
 	}
 	auto local_partition_id = partition_data->partition_id;
-	auto partition_id = commit_snapshot.next_catalog_id++;
+	auto partition_id = commit_state.commit_snapshot.next_catalog_id++;
 	partition_key.id = partition_id;
 	partition_data->partition_id = partition_id;
 	for (auto &field : partition_data->fields) {
@@ -605,12 +648,12 @@ DuckLakeTableInfo DuckLakeTableEntry::GetTableInfo() const {
 	return table_entry;
 }
 
-DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snapshot, DuckLakeTableEntry &table) {
+DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeCommitState &commit_state, DuckLakeTableEntry &table) {
 	auto table_entry = table.GetTableInfo();
 	auto original_id = table_entry.id;
 	bool is_new_table;
 	if (original_id.IsTransactionLocal()) {
-		table_entry.id = TableIndex(commit_snapshot.next_catalog_id++);
+		table_entry.id = TableIndex(commit_state.commit_snapshot.next_catalog_id++);
 		is_new_table = true;
 	} else {
 		// this table already has an id - keep it
@@ -618,28 +661,10 @@ DuckLakeTableInfo DuckLakeTransaction::GetNewTable(DuckLakeSnapshot &commit_snap
 		table_entry.id = original_id;
 		is_new_table = false;
 	}
+	commit_state.RemapIdentifier(table_entry.schema_id);
 	if (is_new_table) {
 		// if this is a new table - write the columns
 		table_entry.columns = table.GetTableColumns();
-
-		// if we have written any data to this table - move them to the new (correct) table id as well
-		auto data_file_entry = new_data_files.find(original_id);
-		if (data_file_entry != new_data_files.end()) {
-			new_data_files[table_entry.id] = std::move(data_file_entry->second);
-			new_data_files.erase(original_id);
-		}
-		auto inlined_data_entry = new_inlined_data.find(original_id);
-		if (inlined_data_entry != new_inlined_data.end()) {
-			new_inlined_data[table_entry.id] = std::move(inlined_data_entry->second);
-			new_inlined_data.erase(original_id);
-		}
-		// same for column mappings that apply to this table
-		for (auto &entry : new_name_maps.name_maps) {
-			auto &name_map = *entry.second;
-			if (name_map.table_id == original_id) {
-				name_map.table_id = table_entry.id;
-			}
-		}
 	}
 	return table_entry;
 }
@@ -671,7 +696,7 @@ void HandleChangedFields(TableIndex table_id, const ColumnChangeInfo &change_inf
 	}
 }
 
-void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, DuckLakeCatalogSet &catalog_set,
+void DuckLakeTransaction::GetNewTableInfo(DuckLakeCommitState &commit_state, DuckLakeCatalogSet &catalog_set,
                                           reference<CatalogEntry> table_entry, NewTableInfo &result,
                                           TransactionChangeInformation &transaction_changes) {
 	// iterate over the table chain in reverse order when committing
@@ -687,18 +712,13 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, Duc
 	}
 	// traverse in reverse order
 	bool column_schema_change = false;
-	TableIndex old_table_id;
-	TableIndex new_table_id;
 	for (idx_t table_idx = tables.size(); table_idx > 0; table_idx--) {
 		auto &table = tables[table_idx - 1].get();
-		if (new_table_id.IsValid()) {
-			table.SetTableId(new_table_id);
-		}
 		auto local_change = table.GetLocalChange();
 		auto table_id = table.GetTableId();
 		switch (local_change.type) {
 		case LocalChangeType::SET_PARTITION_KEY: {
-			auto partition_key = GetNewPartitionKey(commit_snapshot, table);
+			auto partition_key = GetNewPartitionKey(commit_state, table);
 			result.new_partition_keys.push_back(std::move(partition_key));
 
 			transaction_changes.altered_tables.insert(table_id);
@@ -706,7 +726,7 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, Duc
 		}
 		case LocalChangeType::SET_COMMENT: {
 			DuckLakeTagInfo comment_info;
-			comment_info.id = table.GetTableId().index;
+			comment_info.id = commit_state.GetTableId(table).index;
 			comment_info.key = "comment";
 			comment_info.value = table.comment;
 			result.new_tags.push_back(std::move(comment_info));
@@ -716,7 +736,7 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, Duc
 		}
 		case LocalChangeType::SET_COLUMN_COMMENT: {
 			DuckLakeColumnTagInfo comment_info;
-			comment_info.table_id = table.GetTableId();
+			comment_info.table_id = commit_state.GetTableId(table);
 			comment_info.field_index = local_change.field_index;
 			comment_info.key = "comment";
 			comment_info.value = table.GetColumnByFieldId(local_change.field_index).Comment();
@@ -731,13 +751,13 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, Duc
 		case LocalChangeType::SET_DEFAULT: {
 			// drop the previous column
 			DuckLakeDroppedColumn dropped_col;
-			dropped_col.table_id = table.GetTableId();
+			dropped_col.table_id = commit_state.GetTableId(table);
 			dropped_col.field_id = local_change.field_index;
 			result.dropped_columns.push_back(dropped_col);
 
 			// insert the new column with the new info
 			DuckLakeNewColumn new_col;
-			new_col.table_id = table.GetTableId();
+			new_col.table_id = commit_state.GetTableId(table);
 			new_col.column_info = table.GetColumnInfo(local_change.field_index);
 			result.new_columns.push_back(std::move(new_col));
 
@@ -751,14 +771,14 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, Duc
 		case LocalChangeType::CHANGE_COLUMN_TYPE: {
 			// drop the indicated column
 			// note that in case of nested types we might be dropping multiple columns here
-			HandleChangedFields(table.GetTableId(), table.GetChangedFields(), result);
+			HandleChangedFields(commit_state.GetTableId(table), table.GetChangedFields(), result);
 			column_schema_change = true;
 			break;
 		}
 		case LocalChangeType::ADD_COLUMN: {
 			// insert the new column
 			DuckLakeNewColumn new_col;
-			new_col.table_id = table.GetTableId();
+			new_col.table_id = commit_state.GetTableId(table);
 			new_col.column_info = table.GetAddColumnInfo();
 			result.new_columns.push_back(std::move(new_col));
 
@@ -769,19 +789,18 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, Duc
 		case LocalChangeType::NONE:
 		case LocalChangeType::CREATED:
 		case LocalChangeType::RENAMED: {
-			old_table_id = table.GetTableId();
-			auto new_table = GetNewTable(commit_snapshot, table);
-			new_table_id = new_table.id;
+			auto old_table_id = table.GetTableId();
+			auto new_table = GetNewTable(commit_state, table);
+			auto new_table_id = new_table.id;
 			result.new_tables.push_back(std::move(new_table));
+
+			// remap the table in the commit state
+			commit_state.committed_tables.emplace(old_table_id, new_table_id);
 			break;
 		}
 		default:
 			throw NotImplementedException("Unsupported transaction local change");
 		}
-	}
-	if (new_table_id.IsValid()) {
-		// if we changed the table-id - remap it in the transaction-local storage
-		catalog_set.RemapEntry(old_table_id, new_table_id, tables.front().get());
 	}
 	if (column_schema_change) {
 		// we changed the column definitions of a table - we need to create a new inlined data table (if data inlining
@@ -796,19 +815,19 @@ void DuckLakeTransaction::GetNewTableInfo(DuckLakeSnapshot &commit_snapshot, Duc
 	}
 }
 
-DuckLakeViewInfo DuckLakeTransaction::GetNewView(DuckLakeSnapshot &commit_snapshot, DuckLakeViewEntry &view) {
+DuckLakeViewInfo DuckLakeTransaction::GetNewView(DuckLakeCommitState &commit_state, DuckLakeViewEntry &view) {
 	auto &schema = view.ParentSchema().Cast<DuckLakeSchemaEntry>();
 	DuckLakeViewInfo view_entry;
 	auto original_id = view.GetViewId();
 	if (original_id.IsTransactionLocal()) {
-		view_entry.id = TableIndex(commit_snapshot.next_catalog_id++);
+		view_entry.id = TableIndex(commit_state.commit_snapshot.next_catalog_id++);
 	} else {
 		// this view already has an id - keep it
 		// this happens if e.g. this view is renamed
 		view_entry.id = original_id;
 	}
 	view_entry.uuid = view.GetViewUUID();
-	view_entry.schema_id = schema.GetSchemaId();
+	view_entry.schema_id = commit_state.GetSchemaId(schema);
 	view_entry.name = view.name;
 	view_entry.dialect = "duckdb";
 	view_entry.sql = view.GetQuerySQL();
@@ -816,7 +835,7 @@ DuckLakeViewInfo DuckLakeTransaction::GetNewView(DuckLakeSnapshot &commit_snapsh
 	return view_entry;
 }
 
-void DuckLakeTransaction::GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, DuckLakeCatalogSet &catalog_set,
+void DuckLakeTransaction::GetNewViewInfo(DuckLakeCommitState &commit_state, DuckLakeCatalogSet &catalog_set,
                                          reference<CatalogEntry> view_entry, NewTableInfo &result,
                                          TransactionChangeInformation &transaction_changes) {
 	// iterate over the view chain in reverse order when committing
@@ -831,16 +850,12 @@ void DuckLakeTransaction::GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, Duck
 		view_entry = view_entry.get().Child();
 	}
 	// traverse in reverse order
-	TableIndex new_view_id;
 	for (idx_t view_idx = views.size(); view_idx > 0; view_idx--) {
 		auto &view = views[view_idx - 1].get();
-		if (new_view_id.IsValid()) {
-			view.SetViewId(new_view_id);
-		}
 		switch (view.GetLocalChange().type) {
 		case LocalChangeType::SET_COMMENT: {
 			DuckLakeTagInfo comment_info;
-			comment_info.id = view.GetViewId().index;
+			comment_info.id = commit_state.GetViewId(view).index;
 			comment_info.key = "comment";
 			comment_info.value = view.comment;
 			result.new_tags.push_back(std::move(comment_info));
@@ -851,9 +866,13 @@ void DuckLakeTransaction::GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, Duck
 		case LocalChangeType::NONE:
 		case LocalChangeType::CREATED:
 		case LocalChangeType::RENAMED: {
-			auto new_view = GetNewView(commit_snapshot, view);
-			new_view_id = new_view.id;
+			auto old_view_id = view.GetViewId();
+			auto new_view = GetNewView(commit_state, view);
+			auto new_view_id = new_view.id;
 			result.new_views.push_back(std::move(new_view));
+
+			// remap the view in the commit state
+			commit_state.committed_tables.emplace(old_view_id, new_view_id);
 			break;
 		}
 		default:
@@ -862,17 +881,17 @@ void DuckLakeTransaction::GetNewViewInfo(DuckLakeSnapshot &commit_snapshot, Duck
 	}
 }
 
-NewTableInfo DuckLakeTransaction::GetNewTables(DuckLakeSnapshot &commit_snapshot,
+NewTableInfo DuckLakeTransaction::GetNewTables(DuckLakeCommitState &commit_state,
                                                TransactionChangeInformation &transaction_changes) {
 	NewTableInfo result;
 	for (auto &schema_entry : new_tables) {
 		for (auto &entry : schema_entry.second->GetEntries()) {
 			switch (entry.second->type) {
 			case CatalogType::TABLE_ENTRY:
-				GetNewTableInfo(commit_snapshot, *schema_entry.second, *entry.second, result, transaction_changes);
+				GetNewTableInfo(commit_state, *schema_entry.second, *entry.second, result, transaction_changes);
 				break;
 			case CatalogType::VIEW_ENTRY:
-				GetNewViewInfo(commit_snapshot, *schema_entry.second, *entry.second, result, transaction_changes);
+				GetNewViewInfo(commit_state, *schema_entry.second, *entry.second, result, transaction_changes);
 				break;
 			default:
 				throw InternalException("Unknown type in new_tables");
@@ -976,12 +995,12 @@ struct NewDataInfo {
 	vector<DuckLakeInlinedDataInfo> new_inlined_data;
 };
 
-NewDataInfo DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &commit_snapshot) {
+NewDataInfo DuckLakeTransaction::GetNewDataFiles(DuckLakeCommitState &commit_state) {
 	NewDataInfo result;
 	map<TableIndex, DuckLakeNewGlobalStats> new_global_stats;
 
 	for (auto &entry : new_data_files) {
-		auto table_id = entry.first;
+		auto table_id = commit_state.GetTableId(entry.first);
 		if (table_id.IsTransactionLocal()) {
 			throw InternalException("Cannot commit transaction local files - these should have been cleaned up before");
 		}
@@ -995,7 +1014,7 @@ NewDataInfo DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &commit_snapsh
 		auto &new_stats = new_globals.stats;
 		vector<DuckLakeDeleteFile> delete_files;
 		for (auto &file : entry.second) {
-			auto data_file = GetNewDataFile(file, commit_snapshot, table_id, new_stats.next_row_id);
+			auto data_file = GetNewDataFile(file, commit_state.commit_snapshot, table_id, new_stats.next_row_id);
 			if (file.delete_file) {
 				// this transaction-local file already has deletes - write them out
 				DuckLakeDeleteFile delete_file = *file.delete_file;
@@ -1018,7 +1037,7 @@ NewDataInfo DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &commit_snapsh
 		new_global_stats.emplace(table_id, std::move(new_globals));
 	}
 	for (auto &entry : new_inlined_data) {
-		auto table_id = entry.first;
+		auto table_id = commit_state.GetTableId(entry.first);
 		if (table_id.IsTransactionLocal()) {
 			throw InternalException("Cannot commit transaction local data - these should have been cleaned up before");
 		}
@@ -1061,7 +1080,7 @@ NewDataInfo DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &commit_snapsh
 	}
 	if (!new_inlined_data.empty() && new_data_files.empty()) {
 		// force an increment of file_id to signal a data change if we have only inlined data changes
-		commit_snapshot.next_file_id++;
+		commit_state.commit_snapshot.next_file_id++;
 	}
 	for (auto &entry : new_global_stats) {
 		auto table_id = entry.first;
@@ -1072,18 +1091,18 @@ NewDataInfo DuckLakeTransaction::GetNewDataFiles(DuckLakeSnapshot &commit_snapsh
 	return result;
 }
 
-vector<DuckLakeDeleteFileInfo> DuckLakeTransaction::GetNewDeleteFiles(DuckLakeSnapshot &commit_snapshot,
+vector<DuckLakeDeleteFileInfo> DuckLakeTransaction::GetNewDeleteFiles(DuckLakeCommitState &commit_state,
                                                                       set<DataFileIndex> &overwritten_delete_files) {
 	vector<DuckLakeDeleteFileInfo> result;
 	for (auto &entry : new_delete_files) {
-		auto table_id = entry.first;
+		auto table_id = commit_state.GetTableId(entry.first);
 		for (auto &file_entry : entry.second) {
 			auto &file = file_entry.second;
 			if (file.overwrites_existing_delete) {
 				overwritten_delete_files.insert(file.data_file_id);
 			}
 			DuckLakeDeleteFileInfo delete_file;
-			delete_file.id = DataFileIndex(commit_snapshot.next_file_id++);
+			delete_file.id = DataFileIndex(commit_state.commit_snapshot.next_file_id++);
 			delete_file.table_id = table_id;
 			delete_file.data_file_id = file.data_file_id;
 			delete_file.path = file.file_name;
@@ -1118,22 +1137,22 @@ void ConvertNameMapColumn(const DuckLakeNameMapEntry &name_map_entry, MappingInd
 	}
 }
 
-NewNameMapInfo DuckLakeTransaction::GetNewNameMaps(DuckLakeSnapshot &commit_snapshot) {
+NewNameMapInfo DuckLakeTransaction::GetNewNameMaps(DuckLakeCommitState &commit_state) {
 	NewNameMapInfo result;
 	map<MappingIndex, MappingIndex> remap_mapping_index;
 	for (auto &entry : new_name_maps.name_maps) {
 		// generate a new mapping id
 		auto local_map_id = entry.first;
 		auto &mapping = *entry.second;
-		MappingIndex new_map_id(commit_snapshot.next_file_id++);
+		MappingIndex new_map_id(commit_state.commit_snapshot.next_file_id++);
 
-		if (mapping.table_id.IsTransactionLocal()) {
-			throw InternalException("table_id should be rewritten to non-transaction local before");
-		}
 		DuckLakeColumnMappingInfo map_info;
-		map_info.table_id = mapping.table_id;
+		map_info.table_id = commit_state.GetTableId(mapping.table_id);
 		map_info.mapping_id = new_map_id;
 		map_info.map_type = "map_by_name";
+		if (map_info.table_id.IsTransactionLocal()) {
+			throw InternalException("table_id should be rewritten to non-transaction local before");
+		}
 
 		// iterate over the columns to generate the new name map columns
 		idx_t column_idx = 0;
@@ -1159,10 +1178,10 @@ NewNameMapInfo DuckLakeTransaction::GetNewNameMaps(DuckLakeSnapshot &commit_snap
 	return result;
 }
 
-vector<DuckLakeDeletedInlinedDataInfo> DuckLakeTransaction::GetNewInlinedDeletes(DuckLakeSnapshot &commit_snapshot) {
+vector<DuckLakeDeletedInlinedDataInfo> DuckLakeTransaction::GetNewInlinedDeletes(DuckLakeCommitState &commit_state) {
 	vector<DuckLakeDeletedInlinedDataInfo> result;
 	for (auto &entry : new_inlined_data_deletes) {
-		auto table_id = entry.first;
+		auto table_id = commit_state.GetTableId(entry.first);
 		for (auto &delete_entry : entry.second) {
 			DuckLakeDeletedInlinedDataInfo info;
 			info.table_id = table_id;
@@ -1176,8 +1195,9 @@ vector<DuckLakeDeletedInlinedDataInfo> DuckLakeTransaction::GetNewInlinedDeletes
 	return result;
 }
 
-void DuckLakeTransaction::CommitChanges(DuckLakeSnapshot &commit_snapshot,
+void DuckLakeTransaction::CommitChanges(DuckLakeCommitState &commit_state,
                                         TransactionChangeInformation &transaction_changes) {
+	auto &commit_snapshot = commit_state.commit_snapshot;
 	// drop entries
 	if (!dropped_tables.empty()) {
 		metadata_manager->DropTables(commit_snapshot, dropped_tables);
@@ -1194,13 +1214,13 @@ void DuckLakeTransaction::CommitChanges(DuckLakeSnapshot &commit_snapshot,
 	}
 	// write new schemas
 	if (new_schemas) {
-		auto schema_list = GetNewSchemas(commit_snapshot);
+		auto schema_list = GetNewSchemas(commit_state);
 		metadata_manager->WriteNewSchemas(commit_snapshot, schema_list);
 	}
 
 	// write new tables
 	if (!new_tables.empty()) {
-		auto result = GetNewTables(commit_snapshot, transaction_changes);
+		auto result = GetNewTables(commit_state, transaction_changes);
 		metadata_manager->WriteNewTables(commit_snapshot, result.new_tables);
 		metadata_manager->WriteNewPartitionKeys(commit_snapshot, result.new_partition_keys);
 		metadata_manager->WriteNewViews(commit_snapshot, result.new_views);
@@ -1213,13 +1233,13 @@ void DuckLakeTransaction::CommitChanges(DuckLakeSnapshot &commit_snapshot,
 
 	// write new name maps
 	if (!new_name_maps.name_maps.empty()) {
-		auto result = GetNewNameMaps(commit_snapshot);
+		auto result = GetNewNameMaps(commit_state);
 		metadata_manager->WriteNewColumnMappings(commit_snapshot, result.new_column_mappings);
 	}
 
 	// write new data / data files
 	if (!new_data_files.empty() || !new_inlined_data.empty()) {
-		auto result = GetNewDataFiles(commit_snapshot);
+		auto result = GetNewDataFiles(commit_state);
 		metadata_manager->WriteNewDataFiles(commit_snapshot, result.new_files);
 		metadata_manager->WriteNewInlinedData(commit_snapshot, result.new_inlined_data);
 	}
@@ -1236,12 +1256,12 @@ void DuckLakeTransaction::CommitChanges(DuckLakeSnapshot &commit_snapshot,
 	// write new delete files
 	if (!new_delete_files.empty()) {
 		set<DataFileIndex> overwritten_delete_files;
-		auto file_list = GetNewDeleteFiles(commit_snapshot, overwritten_delete_files);
+		auto file_list = GetNewDeleteFiles(commit_state, overwritten_delete_files);
 		metadata_manager->DropDeleteFiles(commit_snapshot, overwritten_delete_files);
 		metadata_manager->WriteNewDeleteFiles(commit_snapshot, file_list);
 	}
 	if (!new_inlined_data_deletes.empty()) {
-		auto inlined_deletes = GetNewInlinedDeletes(commit_snapshot);
+		auto inlined_deletes = GetNewInlinedDeletes(commit_state);
 		metadata_manager->WriteNewInlinedDeletes(commit_snapshot, inlined_deletes);
 	}
 }
@@ -1357,15 +1377,17 @@ void DuckLakeTransaction::FlushChanges() {
 				throw InvalidInputException("Transactions can either make changes OR perform compaction - not both");
 			}
 			can_retry = true;
+
+			DuckLakeCommitState commit_state(commit_snapshot);
 			if (ChangesMade()) {
-				CommitChanges(commit_snapshot, transaction_changes);
+				CommitChanges(commit_state, transaction_changes);
 			} else {
 				CommitCompaction(commit_snapshot, transaction_changes);
 			}
 			// write the new snapshot
 			metadata_manager->InsertSnapshot(commit_snapshot);
 
-			WriteSnapshotChanges(commit_snapshot, transaction_changes);
+			WriteSnapshotChanges(commit_state, transaction_changes);
 			connection->Commit();
 			catalog_version = commit_snapshot.schema_version;
 			// finished writing
