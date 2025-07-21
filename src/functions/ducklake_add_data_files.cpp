@@ -759,7 +759,12 @@ vector<DuckLakeDataFile> DuckLakeFileProcessor::AddFiles(const vector<string> &g
 	// we need to create a mapping from the columns in the file to the columns in the table
 	vector<DuckLakeDataFile> written_files;
 	for (auto &entry : parquet_files) {
-		written_files.push_back(AddFileToTable(*entry.second));
+		auto file = AddFileToTable(*entry.second);
+		if (file.row_count == 0) {
+			// skip adding empty files
+			continue;
+		}
+		written_files.push_back(std::move(file));
 	}
 	return written_files;
 }

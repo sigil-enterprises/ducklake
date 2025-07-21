@@ -1688,15 +1688,19 @@ SnapshotChangeInfo DuckLakeMetadataManager::GetChangesMadeAfterSnapshot(DuckLake
 	return change_info;
 }
 
-unique_ptr<DuckLakeSnapshot> GetSnapshotInternal(DataChunk &chunk) {
-	if (chunk.size() != 1) {
-		throw InvalidInputException("Corrupt DuckLake - multiple snapshots returned from database");
+unique_ptr<DuckLakeSnapshot> TryGetSnapshotInternal(QueryResult &result) {
+	unique_ptr<DuckLakeSnapshot> snapshot;
+	for (auto &row : result) {
+		if (snapshot) {
+			throw InvalidInputException("Corrupt DuckLake - multiple snapshots returned from database");
+		}
+		auto snapshot_id = row.GetValue<idx_t>(0);
+		auto schema_version = row.GetValue<idx_t>(1);
+		auto next_catalog_id = row.GetValue<idx_t>(2);
+		auto next_file_id = row.GetValue<idx_t>(3);
+		snapshot = make_uniq<DuckLakeSnapshot>(snapshot_id, schema_version, next_catalog_id, next_file_id);
 	}
-	auto snapshot_id = chunk.GetValue(0, 0).GetValue<idx_t>();
-	auto schema_version = chunk.GetValue(1, 0).GetValue<idx_t>();
-	auto next_catalog_id = chunk.GetValue(2, 0).GetValue<idx_t>();
-	auto next_file_id = chunk.GetValue(3, 0).GetValue<idx_t>();
-	return make_uniq<DuckLakeSnapshot>(snapshot_id, schema_version, next_catalog_id, next_file_id);
+	return snapshot;
 }
 
 string DuckLakeMetadataManager::GetLatestSnapshotQuery() const {
@@ -1708,11 +1712,11 @@ unique_ptr<DuckLakeSnapshot> DuckLakeMetadataManager::GetSnapshot() {
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to query most recent snapshot for DuckLake: ");
 	}
-	auto chunk = result->Fetch();
-	if (!chunk) {
+	auto snapshot = TryGetSnapshotInternal(*result);
+	if (!snapshot) {
 		throw InvalidInputException("No snapshot found in DuckLake");
 	}
-	return GetSnapshotInternal(*chunk);
+	return snapshot;
 }
 
 unique_ptr<DuckLakeSnapshot> DuckLakeMetadataManager::GetSnapshot(BoundAtClause &at_clause) {
@@ -1741,11 +1745,11 @@ WHERE snapshot_id = (
 		result->GetErrorObject().Throw(StringUtil::Format(
 		    "Failed to query snapshot at %s %s for DuckLake: ", StringUtil::Lower(unit), val.ToString()));
 	}
-	auto chunk = result->Fetch();
-	if (!chunk || chunk->size() == 0) {
+	auto snapshot = TryGetSnapshotInternal(*result);
+	if (!snapshot) {
 		throw InvalidInputException("No snapshot found at %s %s", StringUtil::Lower(unit), val.ToString());
 	}
-	return GetSnapshotInternal(*chunk);
+	return snapshot;
 }
 
 void DuckLakeMetadataManager::WriteNewPartitionKeys(DuckLakeSnapshot commit_snapshot,
