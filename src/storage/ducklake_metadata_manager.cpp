@@ -886,6 +886,11 @@ void DuckLakeMetadataManager::DropSchemas(DuckLakeSnapshot commit_snapshot, cons
 void DuckLakeMetadataManager::DropTables(DuckLakeSnapshot commit_snapshot, const set<TableIndex> &ids) {
 	FlushDrop(commit_snapshot, "ducklake_table", "table_id", ids);
 	FlushDrop(commit_snapshot, "ducklake_partition_info", "table_id", ids);
+	FlushDrop(commit_snapshot, "ducklake_column", "table_id", ids);
+	FlushDrop(commit_snapshot, "ducklake_column_tag", "table_id", ids);
+	FlushDrop(commit_snapshot, "ducklake_data_file", "table_id", ids);
+	FlushDrop(commit_snapshot, "ducklake_delete_file", "table_id", ids);
+	FlushDrop(commit_snapshot, "ducklake_tag", "object_id", ids);
 }
 
 void DuckLakeMetadataManager::DropViews(DuckLakeSnapshot commit_snapshot, const set<TableIndex> &ids) {
