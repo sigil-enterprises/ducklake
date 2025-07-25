@@ -92,7 +92,7 @@ void DuckLakeInitializer::Initialize() {
 		}
 		InitializeNewDuckLake(transaction, has_explicit_schema);
 	} else {
-		LoadExistingDuckLake(transaction, options.migrate_if_required);
+		LoadExistingDuckLake(transaction);
 	}
 	if (options.at_clause) {
 		// if the user specified a snapshot try to load it to trigger an error if it does not exist
@@ -141,14 +141,14 @@ void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction
 	}
 }
 
-void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction, bool migrate_if_required) {
+void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction) {
 	// load the data path from the existing duck lake
 	auto &metadata_manager = transaction.GetMetadataManager();
 	auto metadata = metadata_manager.LoadDuckLake();
 	for (auto &tag : metadata.tags) {
 		if (tag.key == "version") {
 			string version = tag.value;
-			if (version != "0.3-dev1" && !migrate_if_required) {
+			if (version != "0.3-dev1" && !options.migrate_if_required) {
 				// Throw when Loading the Ducklake if a Migration is required and migrate_if_required option is false
 				throw InvalidInputException(
 				    "DuckLake Extension requires a DuckLake Catalog version of 0.3-dev1 or higher, current version is %s "
