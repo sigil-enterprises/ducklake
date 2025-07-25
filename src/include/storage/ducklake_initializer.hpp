@@ -24,7 +24,7 @@ public:
 
 private:
 	void InitializeNewDuckLake(DuckLakeTransaction &transaction, bool has_explicit_schema);
-	void LoadExistingDuckLake(DuckLakeTransaction &transaction);
+	void LoadExistingDuckLake(DuckLakeTransaction &transaction, bool migrate_if_required);
 	void InitializeDataPath();
 	string GetAttachOptions();
 	void CheckAndAutoloadedRequiredExtension(const string &pattern);
