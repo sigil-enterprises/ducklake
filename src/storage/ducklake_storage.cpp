@@ -47,19 +47,14 @@ static void HandleDuckLakeOption(DuckLakeOptions &options, const string &option,
 		options.metadata_parameters[parameter_name] = value;
 	} else if (lcase == "create_if_not_exists") {
 		options.create_if_not_exists = BooleanValue::Get(value.DefaultCastAs(LogicalType::BOOLEAN));
-	} else if (lcase == "readonly" || lcase == "read_only" || lcase == "readwrite" || lcase == "read_write" ||
-	           lcase == "type" || lcase == "default_table") {
-		// built-in options for ATTACH
-		// FIXME: this should really be handled differently upstream
-		return;
 	} else {
 		throw NotImplementedException("Unsupported option %s for DuckLake", option);
 	}
 }
 
-static unique_ptr<Catalog> DuckLakeAttach(StorageExtensionInfo *storage_info, ClientContext &context,
+static unique_ptr<Catalog> DuckLakeAttach(optional_ptr<StorageExtensionInfo> storage_info, ClientContext &context,
                                           AttachedDatabase &db, const string &name, AttachInfo &info,
-                                          AccessMode access_mode) {
+                                          AttachOptions &attach_options) {
 	DuckLakeOptions options;
 	unique_ptr<SecretEntry> secret;
 	if (info.path.empty()) {
@@ -88,24 +83,24 @@ static unique_ptr<Catalog> DuckLakeAttach(StorageExtensionInfo *storage_info, Cl
 			HandleDuckLakeOption(options, entry.first, entry.second);
 		}
 	}
-	for (auto &entry : info.options) {
+	for (auto &entry : attach_options.options) {
 		HandleDuckLakeOption(options, entry.first, entry.second);
 	}
 	if (options.metadata_database.empty()) {
 		options.metadata_database = "__ducklake_metadata_" + name;
 	}
 	if (options.at_clause) {
-		if (access_mode == AccessMode::READ_WRITE) {
+		if (attach_options.access_mode == AccessMode::READ_WRITE) {
 			throw InvalidInputException("SNAPSHOT_VERSION / SNAPSHOT_TIME can only be used in read-only mode");
 		}
-		access_mode = AccessMode::READ_ONLY;
+		attach_options.access_mode = AccessMode::READ_ONLY;
 		db.SetReadOnlyDatabase();
 	}
-	options.access_mode = access_mode;
+	options.access_mode = attach_options.access_mode;
 	return make_uniq<DuckLakeCatalog>(db, std::move(options));
 }
 
-static unique_ptr<TransactionManager> DuckLakeCreateTransactionManager(StorageExtensionInfo *storage_info,
+static unique_ptr<TransactionManager> DuckLakeCreateTransactionManager(optional_ptr<StorageExtensionInfo> storage_info,
                                                                        AttachedDatabase &db, Catalog &catalog) {
 	auto &ducklake_catalog = catalog.Cast<DuckLakeCatalog>();
 	return make_uniq<DuckLakeTransactionManager>(db, ducklake_catalog);
