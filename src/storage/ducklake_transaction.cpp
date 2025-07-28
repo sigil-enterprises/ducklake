@@ -1159,7 +1159,7 @@ void DuckLakeTransaction::CommitChanges(DuckLakeCommitState &commit_state,
 	
 	// drop entries
 	if (!dropped_tables.empty()) {
-		metadata_manager->DropTables(commit_snapshot, dropped_tables, true);
+		metadata_manager->DropTables(commit_snapshot, dropped_tables, false);
 	}
 
 	if (!renamed_tables.empty()){
