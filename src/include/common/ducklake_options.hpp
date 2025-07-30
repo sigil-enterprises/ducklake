@@ -29,7 +29,6 @@ struct DuckLakeOptions {
 	DuckLakeEncryption encryption = DuckLakeEncryption::AUTOMATIC;
 	bool create_if_not_exists = true;
 	bool migrate_if_required = true;
-	bool require_commit_message = false;
 	unique_ptr<BoundAtClause> at_clause;
 	unordered_map<string, Value> metadata_parameters;
 	option_map_t config_options;
