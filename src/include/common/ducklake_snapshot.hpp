@@ -22,9 +22,6 @@ struct DuckLakeSnapshot {
 	idx_t schema_version;
 	idx_t next_catalog_id;
 	idx_t next_file_id;
-	string author;
-	string commit_message;
-	bool is_commit_info_set = false;
 };
 
 } // namespace duckdb

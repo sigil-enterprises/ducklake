@@ -1158,18 +1158,21 @@ void DuckLakeTransaction::CommitChanges(DuckLakeCommitState &commit_state,
 
 	auto &commit_snapshot = commit_state.commit_snapshot;
 
-	if (ducklake_catalog.IsCommitInfoRequired() && !commit_snapshot.is_commit_info_set) {
-		throw InvalidConfigurationException("Commit Information for the snapshot is required but has not been provided. \n * Provide the information with \"CALL ducklake.set_commit_message('author_name', 'commit_message'); \n * Set the required commit message to false with \"CALL ducklake.set_option('require_commit_message', False)\" '\"");
+	if (ducklake_catalog.IsCommitInfoRequired() && !commit_info.is_commit_info_set) {
+		throw InvalidConfigurationException(
+		    "Commit Information for the snapshot is required but has not been provided. \n * Provide the information "
+		    "with \"CALL ducklake.set_commit_message('author_name', 'commit_message'); \n * Set the required commit "
+		    "message to false with \"CALL ducklake.set_option('require_commit_message', False)\" '\"");
 	}
-	
+
 	// drop entries
 	if (!dropped_tables.empty()) {
 		metadata_manager->DropTables(commit_snapshot, dropped_tables, false);
 	}
 
-	if (!renamed_tables.empty()){
+	if (!renamed_tables.empty()) {
 		metadata_manager->DropTables(commit_snapshot, renamed_tables, true);
-	} 
+	}
 
 	if (!dropped_views.empty()) {
 		metadata_manager->DropViews(commit_snapshot, dropped_views);
@@ -1385,11 +1388,8 @@ void DuckLakeTransaction::SetConfigOption(const DuckLakeConfigOption &option) {
 	ducklake_catalog.SetConfigOption(option);
 }
 
-void DuckLakeTransaction::SetCommitMessage(const DuckLakeSnapshotCommit &option) const {
-	D_ASSERT(snapshot);
-	snapshot->author = option.author;
-	snapshot->commit_message = option.commit_message;
-	snapshot->is_commit_info_set = true;
+void DuckLakeTransaction::SetCommitMessage(const DuckLakeSnapshotCommit &option) {
+	commit_info = option;
 }
 
 void DuckLakeTransaction::DeleteSnapshots(const vector<DuckLakeSnapshotInfo> &snapshots) {
@@ -1427,15 +1427,16 @@ unique_ptr<QueryResult> DuckLakeTransaction::Query(DuckLakeSnapshot snapshot, st
 	query = StringUtil::Replace(query, "{SCHEMA_VERSION}", to_string(snapshot.schema_version));
 	query = StringUtil::Replace(query, "{NEXT_CATALOG_ID}", to_string(snapshot.next_catalog_id));
 	query = StringUtil::Replace(query, "{NEXT_FILE_ID}", to_string(snapshot.next_file_id));
-	if (snapshot.author.empty()) {
+	if (commit_info.author.empty()) {
 		query = StringUtil::Replace(query, "{AUTHOR}", "NULL");
 	} else {
-		query = StringUtil::Replace(query, "{AUTHOR}", DuckLakeUtil::SQLLiteralToString(snapshot.author));
+		query = StringUtil::Replace(query, "{AUTHOR}", DuckLakeUtil::SQLLiteralToString(commit_info.author));
 	}
-	if (snapshot.commit_message.empty()) {
+	if (commit_info.commit_message.empty()) {
 		query = StringUtil::Replace(query, "{COMMIT_MESSAGE}", "NULL");
 	} else {
-		query = StringUtil::Replace(query, "{COMMIT_MESSAGE}", DuckLakeUtil::SQLLiteralToString(snapshot.commit_message));
+		query = StringUtil::Replace(query, "{COMMIT_MESSAGE}",
+		                            DuckLakeUtil::SQLLiteralToString(commit_info.commit_message));
 	}
 
 	return Query(std::move(query));

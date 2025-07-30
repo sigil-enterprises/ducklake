@@ -119,7 +119,7 @@ public:
 	}
 	void SetConfigOption(const DuckLakeConfigOption &option);
 
-	void SetCommitMessage(const DuckLakeSnapshotCommit &option) const;
+	void SetCommitMessage(const DuckLakeSnapshotCommit &option);
 
 	string GetDefaultSchemaName();
 
@@ -183,6 +183,7 @@ private:
 
 private:
 	DuckLakeCatalog &ducklake_catalog;
+	DuckLakeSnapshotCommit commit_info;
 	DatabaseInstance &db;
 	unique_ptr<DuckLakeMetadataManager> metadata_manager;
 	mutex connection_lock;

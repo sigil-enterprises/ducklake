@@ -903,7 +903,7 @@ void DuckLakeMetadataManager::DropTables(DuckLakeSnapshot commit_snapshot, const
 		FlushDrop(commit_snapshot, "ducklake_data_file", "table_id", ids);
 		FlushDrop(commit_snapshot, "ducklake_delete_file", "table_id", ids);
 		FlushDrop(commit_snapshot, "ducklake_tag", "object_id", ids);
-	}	
+	}
 }
 
 void DuckLakeMetadataManager::DropViews(DuckLakeSnapshot commit_snapshot, const set<TableIndex> &ids) {

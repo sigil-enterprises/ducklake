@@ -340,6 +340,7 @@ struct DuckLakeSnapshotCommit {
 	string author;
 	//! The commit message for the snapshot
 	string commit_message;
+	bool is_commit_info_set = false;
 };
 
 struct DuckLakeConfigOption {

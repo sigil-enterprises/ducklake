@@ -619,7 +619,7 @@ void DuckLakeCatalog::SetConfigOption(const DuckLakeConfigOption &option) {
 		return;
 	}
 	// scoped globally
-	options.config_options[key] =  value;
+	options.config_options[key] = value;
 }
 
 bool DuckLakeCatalog::TryGetConfigOption(const string &option, string &result, SchemaIndex schema_id,

@@ -7,8 +7,9 @@ namespace duckdb {
 struct DuckLakeSetCommitMessageData : public TableFunctionData {
 	DuckLakeSetCommitMessageData(Catalog &catalog, const string &author, const string &commit_message)
 	    : catalog(catalog) {
-		 snapshot_commit_info.author = author;
-		 snapshot_commit_info.commit_message = commit_message;
+		snapshot_commit_info.author = author;
+		snapshot_commit_info.commit_message = commit_message;
+		snapshot_commit_info.is_commit_info_set = true;
 	}
 	Catalog &catalog;
 	DuckLakeSnapshotCommit snapshot_commit_info;
@@ -21,12 +22,13 @@ struct DuckLakeSetCommitMessageState : public GlobalTableFunctionState {
 	bool finished = false;
 };
 
-unique_ptr<GlobalTableFunctionState> DuckLakeSetCommitMessageInit(ClientContext &context, TableFunctionInitInput &input) {
+unique_ptr<GlobalTableFunctionState> DuckLakeSetCommitMessageInit(ClientContext &context,
+                                                                  TableFunctionInitInput &input) {
 	return make_uniq<DuckLakeSetCommitMessageState>();
 }
 
 static unique_ptr<FunctionData> DuckLakeSetCommitMessageBind(ClientContext &context, TableFunctionBindInput &input,
-                                                      vector<LogicalType> &return_types, vector<string> &names) {
+                                                             vector<LogicalType> &return_types, vector<string> &names) {
 	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
 	string author, commit_message;
 	if (!input.inputs[1].IsNull()) {
@@ -38,7 +40,7 @@ static unique_ptr<FunctionData> DuckLakeSetCommitMessageBind(ClientContext &cont
 
 	return_types.push_back(LogicalType::BOOLEAN);
 	names.push_back("Success");
-	return make_uniq<DuckLakeSetCommitMessageData>(catalog,author, commit_message);
+	return make_uniq<DuckLakeSetCommitMessageData>(catalog, author, commit_message);
 }
 
 void DuckLakeSetCommitMessageExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
@@ -49,7 +51,8 @@ void DuckLakeSetCommitMessageExecute(ClientContext &context, TableFunctionInput 
 	state.finished = true;
 }
 
-DuckLakeSetCommitMessage::DuckLakeSetCommitMessage():TableFunction("ducklake_set_commit_message", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
+DuckLakeSetCommitMessage::DuckLakeSetCommitMessage()
+    : TableFunction("ducklake_set_commit_message", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
                     DuckLakeSetCommitMessageExecute, DuckLakeSetCommitMessageBind, DuckLakeSetCommitMessageInit) {
 }
-} //namespace duckdb
+} // namespace duckdb
