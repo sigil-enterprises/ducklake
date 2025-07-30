@@ -1155,7 +1155,12 @@ struct CompactionInformation {
 
 void DuckLakeTransaction::CommitChanges(DuckLakeCommitState &commit_state,
                                         TransactionChangeInformation &transaction_changes) {
+
 	auto &commit_snapshot = commit_state.commit_snapshot;
+
+	if (ducklake_catalog.IsCommitInfoRequired() && !commit_snapshot.is_commit_info_set) {
+		throw InvalidConfigurationException("Commit Information for the snapshot is required but has not been provided. \n * Provide the information with \"CALL ducklake.set_commit_message('author_name', 'commit_message'); \n * Set the required commit message to false with \"CALL ducklake.set_option('require_commit_message', False)\" '\"");
+	}
 	
 	// drop entries
 	if (!dropped_tables.empty()) {
@@ -1384,6 +1389,7 @@ void DuckLakeTransaction::SetCommitMessage(const DuckLakeSnapshotCommit &option)
 	D_ASSERT(snapshot);
 	snapshot->author = option.author;
 	snapshot->commit_message = option.commit_message;
+	snapshot->is_commit_info_set = true;
 }
 
 void DuckLakeTransaction::DeleteSnapshots(const vector<DuckLakeSnapshotInfo> &snapshots) {
