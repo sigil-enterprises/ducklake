@@ -1,0 +1,48 @@
+# name: test/sql/audit/test_base_audit.test
+# description: test ducklake can keep track of audits on the base table
+# group: [audit]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_audit.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_audit')
+
+
+statement ok
+CREATE TABLE ducklake.test(a integer, b varchar);
+
+query II
+SELECT * FROM ducklake.test
+----
+
+# statement ok
+# CALL ducklake.set_option('require_commit_message', True)
+
+statement ok
+BEGIN;
+
+statement ok
+INSERT INTO ducklake.test VALUES (1, 'pedro'), (2 , 'mark'), (3, 'thijs');
+
+statement ok
+CALL ducklake.set_commit_message('Pedro', 'Inserting my favorite number');
+
+statement ok
+COMMIT;
+
+query II
+SELECT * FROM ducklake.test AT (VERSION => 1)
+----
+
+query II
+SELECT * FROM ducklake.test AT (VERSION => 2)
+----
+1	pedro
+2	mark
+3	thijs
+
+query II
+FROM ducklake.snapshots()
+----
