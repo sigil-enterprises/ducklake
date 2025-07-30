@@ -2,16 +2,16 @@
 #include "storage/ducklake_transaction.hpp"
 #include "storage/ducklake_catalog.hpp"
 #include "storage/ducklake_table_entry.hpp"
-// #include "storage/ducklake_schema_entry.hpp"
 
 namespace duckdb {
 struct DuckLakeSetCommitMessageData : public TableFunctionData {
-	DuckLakeSetCommitMessageData(Catalog &catalog, string author, string commit_message)
-	    : catalog(catalog), author(std::move(author)), commit_message(std::move(commit_message)) {
+	DuckLakeSetCommitMessageData(Catalog &catalog, const string &author, const string &commit_message)
+	    : catalog(catalog) {
+		 snapshot_commit_info.author = author;
+		 snapshot_commit_info.commit_message = commit_message;
 	}
 	Catalog &catalog;
-	string author;
-	string commit_message;
+	DuckLakeSnapshotCommit snapshot_commit_info;
 };
 
 struct DuckLakeSetCommitMessageState : public GlobalTableFunctionState {
@@ -28,8 +28,13 @@ unique_ptr<GlobalTableFunctionState> DuckLakeSetCommitMessageInit(ClientContext 
 static unique_ptr<FunctionData> DuckLakeSetCommitMessageBind(ClientContext &context, TableFunctionBindInput &input,
                                                       vector<LogicalType> &return_types, vector<string> &names) {
 	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
-	auto author = StringValue::Get(input.inputs[1]);
-	auto commit_message = StringValue::Get(input.inputs[2]);
+	string author, commit_message;
+	if (!input.inputs[1].IsNull()) {
+		author = StringValue::Get(input.inputs[1]);
+	}
+	if (!input.inputs[2].IsNull()) {
+		commit_message = StringValue::Get(input.inputs[2]);
+	}
 
 	return_types.push_back(LogicalType::BOOLEAN);
 	names.push_back("Success");
@@ -40,11 +45,11 @@ void DuckLakeSetCommitMessageExecute(ClientContext &context, TableFunctionInput 
 	auto &state = data_p.global_state->Cast<DuckLakeSetCommitMessageState>();
 	auto &bind_data = data_p.bind_data->Cast<DuckLakeSetCommitMessageData>();
 	auto &transaction = DuckLakeTransaction::Get(context, bind_data.catalog);
-	transaction.SetConfigOption(bind_data.option);
+	transaction.SetCommitMessage(bind_data.snapshot_commit_info);
 	state.finished = true;
 }
 
-DuckLakeSetCommitMessage::DuckLakeSetCommitMessage():TableFunction("ducklake_set_commit_message", {LogicalType::VARCHAR, LogicalType::VARCHAR},
+DuckLakeSetCommitMessage::DuckLakeSetCommitMessage():TableFunction("ducklake_set_commit_message", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
                     DuckLakeSetCommitMessageExecute, DuckLakeSetCommitMessageBind, DuckLakeSetCommitMessageInit) {
 }
 } //namespace duckdb

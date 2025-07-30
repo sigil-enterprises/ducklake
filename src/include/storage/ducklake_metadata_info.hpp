@@ -184,6 +184,8 @@ struct DuckLakeSnapshotInfo {
 	timestamp_tz_t time;
 	idx_t schema_version;
 	SnapshotChangeInfo change_info;
+	string author;
+	string commit_message;
 };
 
 struct DuckLakeViewInfo {
@@ -331,6 +333,13 @@ struct DuckLakeTableSizeInfo {
 struct DuckLakePath {
 	string path;
 	bool path_is_relative;
+};
+
+struct DuckLakeSnapshotCommit {
+	//! Author of the commit
+	string author;
+	//! The commit message for the snapshot
+	string commit_message;
 };
 
 struct DuckLakeConfigOption {

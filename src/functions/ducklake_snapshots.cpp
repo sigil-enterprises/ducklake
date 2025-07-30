@@ -110,8 +110,8 @@ vector<Value> DuckLakeSnapshotsFunction::GetSnapshotValues(const DuckLakeSnapsho
 	PushIDChangeList(change_keys, change_values, other_changes.tables_flushed_inlined, "flushed_inlined");
 	row_values.push_back(Value::MAP(LogicalType::VARCHAR, LogicalType::LIST(LogicalType::VARCHAR),
 	                                std::move(change_keys), std::move(change_values)));
-	row_values.push_back(Value());
-	row_values.push_back(Value());
+	row_values.push_back(Value(snapshot.author));
+	row_values.push_back(Value(snapshot.commit_message));
 	return row_values;
 }
 

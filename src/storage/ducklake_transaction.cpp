@@ -1380,6 +1380,12 @@ void DuckLakeTransaction::SetConfigOption(const DuckLakeConfigOption &option) {
 	ducklake_catalog.SetConfigOption(option);
 }
 
+void DuckLakeTransaction::SetCommitMessage(const DuckLakeSnapshotCommit &option) const {
+	D_ASSERT(snapshot);
+	snapshot->author = option.author;
+	snapshot->commit_message = option.commit_message;
+}
+
 void DuckLakeTransaction::DeleteSnapshots(const vector<DuckLakeSnapshotInfo> &snapshots) {
 	auto &metadata_manager = GetMetadataManager();
 	metadata_manager.DeleteSnapshots(snapshots);
@@ -1415,6 +1421,17 @@ unique_ptr<QueryResult> DuckLakeTransaction::Query(DuckLakeSnapshot snapshot, st
 	query = StringUtil::Replace(query, "{SCHEMA_VERSION}", to_string(snapshot.schema_version));
 	query = StringUtil::Replace(query, "{NEXT_CATALOG_ID}", to_string(snapshot.next_catalog_id));
 	query = StringUtil::Replace(query, "{NEXT_FILE_ID}", to_string(snapshot.next_file_id));
+	if (snapshot.author.empty()) {
+		query = StringUtil::Replace(query, "{AUTHOR}", "NULL");
+	} else {
+		query = StringUtil::Replace(query, "{AUTHOR}", DuckLakeUtil::SQLLiteralToString(snapshot.author));
+	}
+	if (snapshot.commit_message.empty()) {
+		query = StringUtil::Replace(query, "{COMMIT_MESSAGE}", "NULL");
+	} else {
+		query = StringUtil::Replace(query, "{COMMIT_MESSAGE}", DuckLakeUtil::SQLLiteralToString(snapshot.commit_message));
+	}
+
 	return Query(std::move(query));
 }
 

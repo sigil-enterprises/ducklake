@@ -119,6 +119,8 @@ public:
 	}
 	void SetConfigOption(const DuckLakeConfigOption &option);
 
+	void SetCommitMessage(const DuckLakeSnapshotCommit &option) const;
+
 	string GetDefaultSchemaName();
 
 	bool HasLocalDeletes(TableIndex table_id);
