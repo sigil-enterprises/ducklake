@@ -903,7 +903,7 @@ void DuckLakeMetadataManager::DropTables(DuckLakeSnapshot commit_snapshot, const
 		FlushDrop(commit_snapshot, "ducklake_data_file", "table_id", ids);
 		FlushDrop(commit_snapshot, "ducklake_delete_file", "table_id", ids);
 		FlushDrop(commit_snapshot, "ducklake_tag", "object_id", ids);
-	}	
+	}
 }
 
 void DuckLakeMetadataManager::DropViews(DuckLakeSnapshot commit_snapshot, const set<TableIndex> &ids) {
@@ -1796,7 +1796,7 @@ void DuckLakeMetadataManager::WriteNewPartitionKeys(DuckLakeSnapshot commit_snap
 			new_partition_values += ", ";
 		}
 		new_partition_values +=
-		    StringUtil::Format(R"((%d, %d, {SNAPSHOT_ID}, NULL);)", partition_id, partition.table_id.index);
+		    StringUtil::Format(R"((%d, %d, {SNAPSHOT_ID}, NULL))", partition_id, partition.table_id.index);
 		for (auto &field : partition.fields) {
 			if (!insert_partition_cols.empty()) {
 				insert_partition_cols += ", ";
