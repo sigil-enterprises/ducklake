@@ -107,7 +107,7 @@ statement ok
 BEGIN;
 
 statement ok
-INSERT INTO ducklake.test VALUES (5, 'TOM');
+INSERT INTO ducklake.test VALUES (5, 'Tom');
 
 statement ok
 CALL ducklake.set_commit_message('', '');
@@ -121,6 +121,28 @@ SELECT snapshot_id, author, commit_message FROM ducklake.snapshots() where snaps
 ----
 6	NULL	NULL
 7	NULL	NULL
+
+# Test that ROLLBACK doesn't mess things up
+# Empty
+statement ok
+BEGIN;
+
+statement ok
+INSERT INTO ducklake.test VALUES (6, 'Hannes');
+
+statement ok
+CALL ducklake.set_commit_message('Pedro', 'Adding Hannes');
+
+statement ok
+ROLLBACK;
+
+statement ok
+INSERT INTO ducklake.test VALUES (6, 'Hannes');
+
+query III
+SELECT snapshot_id, author, commit_message FROM ducklake.snapshots() where snapshot_id = 8
+----
+8	NULL	NULL
 
 # statement ok
 # CALL ducklake.set_option('require_commit_message', True)
