@@ -24,10 +24,10 @@ statement ok
 BEGIN;
 
 statement ok
-INSERT INTO ducklake.test VALUES (1, 'pedro'), (2 , 'mark'), (3, 'thijs');
+INSERT INTO ducklake.test VALUES (1, 'pedro');
 
 statement ok
-CALL ducklake.set_commit_message('Pedro', 'Inserting my favorite number');
+CALL ducklake.set_commit_message('Pedro', 'Inserting myself');
 
 statement ok
 COMMIT;
@@ -40,8 +40,6 @@ query II
 SELECT * FROM ducklake.test AT (VERSION => 2)
 ----
 1	pedro
-2	mark
-3	thijs
 
 query II
 FROM ducklake.snapshots()
