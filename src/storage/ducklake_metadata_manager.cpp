@@ -109,6 +109,8 @@ UPDATE {METADATA_CATALOG}.ducklake_metadata SET value = '0.2' WHERE key = 'versi
 void DuckLakeMetadataManager::MigrateV02() {
 	string migrate_query = R"(
 ALTER TABLE {METADATA_CATALOG}.ducklake_name_mapping ADD COLUMN is_partition BOOLEAN DEFAULT false;
+ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot ADD COLUMN author VARCHAR DEFAULT NULL;
+ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot ADD COLUMN commit_message VARCHAR DEFAULT NULL;
 UPDATE {METADATA_CATALOG}.ducklake_metadata SET value = '0.3-dev1' WHERE key = 'version';
 	)";
 	auto result = transaction.Query(migrate_query);

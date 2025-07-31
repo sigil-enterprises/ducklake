@@ -1435,8 +1435,7 @@ unique_ptr<QueryResult> DuckLakeTransaction::Query(DuckLakeSnapshot snapshot, st
 	if (commit_info.commit_message.IsNull()) {
 		query = StringUtil::Replace(query, "{COMMIT_MESSAGE}", "NULL");
 	} else {
-		query = StringUtil::Replace(query, "{COMMIT_MESSAGE}",
-		                            commit_info.commit_message.ToSQLString());
+		query = StringUtil::Replace(query, "{COMMIT_MESSAGE}", commit_info.commit_message.ToSQLString());
 	}
 
 	return Query(std::move(query));
