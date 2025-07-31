@@ -187,6 +187,28 @@ SELECT snapshot_id, author, commit_message FROM ducklake.snapshots() where snaps
 ----
 10	NULL	NULL
 
+# Changing commit message afterwards
+statement ok
+BEGIN;
+
+statement ok
+INSERT INTO ducklake.test VALUES (9, 'Teddy');
+
+statement ok
+CALL ducklake.set_commit_message('Pedro', 'bla');
+
+statement ok
+CALL ducklake.set_commit_message('Mark', 'Inserting Teddy');
+
+statement ok
+COMMIT;
+
+# Last set should survive
+query III
+SELECT snapshot_id, author, commit_message FROM ducklake.snapshots() where snapshot_id = 11
+----
+11	Mark	Inserting Teddy
+
 # Check all data was inserted correctly at the end
 query II
 FROM ducklake.test
@@ -200,3 +222,4 @@ FROM ducklake.test
 6	Hannes
 7	Morgana
 8	Odara
+9	Teddy
