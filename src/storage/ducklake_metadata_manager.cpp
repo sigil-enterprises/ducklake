@@ -2012,14 +2012,15 @@ ORDER BY snapshot_id
 	}
 	auto context = transaction.context.lock();
 	vector<DuckLakeSnapshotInfo> snapshots;
+
 	for (auto &row : *res) {
 		DuckLakeSnapshotInfo snapshot_info;
 		snapshot_info.id = row.GetValue<idx_t>(0);
 		snapshot_info.time = GetTimestampTZFromRow(*context, row, 1);
 		snapshot_info.schema_version = row.GetValue<idx_t>(2);
 		snapshot_info.change_info.changes_made = row.IsNull(3) ? string() : row.GetValue<string>(3);
-		snapshot_info.author = row.IsNull(3) ? string() : row.GetValue<string>(4);
-		snapshot_info.commit_message = row.IsNull(3) ? string() : row.GetValue<string>(5);
+		snapshot_info.author = row.iterator.chunk->GetValue(4, row.row);
+		snapshot_info.commit_message = row.iterator.chunk->GetValue(5, row.row);
 
 		snapshots.push_back(std::move(snapshot_info));
 	}

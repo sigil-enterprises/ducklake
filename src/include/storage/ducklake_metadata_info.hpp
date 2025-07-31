@@ -184,8 +184,8 @@ struct DuckLakeSnapshotInfo {
 	timestamp_tz_t time;
 	idx_t schema_version;
 	SnapshotChangeInfo change_info;
-	string author;
-	string commit_message;
+	Value author;
+	Value commit_message;
 };
 
 struct DuckLakeViewInfo {
