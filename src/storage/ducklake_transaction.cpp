@@ -372,7 +372,7 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeCommitState &commit_state
 		change_info.changes_made += "compacted_table:";
 		change_info.changes_made += to_string(table_id.index);
 	}
-	metadata_manager->WriteSnapshotChanges(commit_state.commit_snapshot, change_info);
+	metadata_manager->WriteSnapshotChanges(commit_state.commit_snapshot, change_info, commit_info);
 }
 
 void DuckLakeTransaction::CleanupFiles() {
