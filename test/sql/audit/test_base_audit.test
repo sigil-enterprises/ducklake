@@ -9,7 +9,6 @@ require parquet
 statement ok
 ATTACH 'ducklake:__TEST_DIR__/ducklake_audit.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_audit')
 
-
 statement ok
 CREATE TABLE ducklake.test(a integer, b varchar);
 
@@ -69,7 +68,7 @@ COMMIT;
 query III
 SELECT snapshot_id, author, commit_message FROM ducklake.snapshots() where snapshot_id = 4
 ----
-4	Pedro	NULL
+4	Pedro	(empty)
 
 # Only the message
 statement ok
@@ -120,7 +119,7 @@ query III
 SELECT snapshot_id, author, commit_message FROM ducklake.snapshots() where snapshot_id > 5
 ----
 6	NULL	NULL
-7	NULL	NULL
+7	(empty)	(empty)
 
 # Test that ROLLBACK doesn't mess things up
 # Empty
@@ -187,3 +186,17 @@ query III
 SELECT snapshot_id, author, commit_message FROM ducklake.snapshots() where snapshot_id = 10
 ----
 10	NULL	NULL
+
+# Check all data was inserted correctly at the end
+query II
+FROM ducklake.test
+----
+0	oogie
+1	pedro
+2	Thijs
+3	Mark
+4	Gabor
+5	Tom
+6	Hannes
+7	Morgana
+8	Odara

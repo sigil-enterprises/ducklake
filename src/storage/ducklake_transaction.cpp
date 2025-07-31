@@ -1427,16 +1427,16 @@ unique_ptr<QueryResult> DuckLakeTransaction::Query(DuckLakeSnapshot snapshot, st
 	query = StringUtil::Replace(query, "{SCHEMA_VERSION}", to_string(snapshot.schema_version));
 	query = StringUtil::Replace(query, "{NEXT_CATALOG_ID}", to_string(snapshot.next_catalog_id));
 	query = StringUtil::Replace(query, "{NEXT_FILE_ID}", to_string(snapshot.next_file_id));
-	if (commit_info.author.empty()) {
+	if (commit_info.author.IsNull()) {
 		query = StringUtil::Replace(query, "{AUTHOR}", "NULL");
 	} else {
-		query = StringUtil::Replace(query, "{AUTHOR}", DuckLakeUtil::SQLLiteralToString(commit_info.author));
+		query = StringUtil::Replace(query, "{AUTHOR}", commit_info.author.ToSQLString());
 	}
-	if (commit_info.commit_message.empty()) {
+	if (commit_info.commit_message.IsNull()) {
 		query = StringUtil::Replace(query, "{COMMIT_MESSAGE}", "NULL");
 	} else {
 		query = StringUtil::Replace(query, "{COMMIT_MESSAGE}",
-		                            DuckLakeUtil::SQLLiteralToString(commit_info.commit_message));
+		                            commit_info.commit_message.ToSQLString());
 	}
 
 	return Query(std::move(query));

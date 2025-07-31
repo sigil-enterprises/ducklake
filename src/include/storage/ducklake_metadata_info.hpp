@@ -337,9 +337,10 @@ struct DuckLakePath {
 
 struct DuckLakeSnapshotCommit {
 	//! Author of the commit
-	string author;
+	Value author;
 	//! The commit message for the snapshot
-	string commit_message;
+	Value commit_message;
+	//! If the user set the commit info for the snapshot
 	bool is_commit_info_set = false;
 };
 

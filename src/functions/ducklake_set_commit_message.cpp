@@ -4,8 +4,8 @@
 #include "storage/ducklake_table_entry.hpp"
 
 namespace duckdb {
-struct DuckLakeSetCommitMessageData : public TableFunctionData {
-	DuckLakeSetCommitMessageData(Catalog &catalog, const string &author, const string &commit_message)
+struct DuckLakeSetCommitMessageData final : public TableFunctionData {
+	DuckLakeSetCommitMessageData(Catalog &catalog, const Value &author, const Value &commit_message)
 	    : catalog(catalog) {
 		snapshot_commit_info.author = author;
 		snapshot_commit_info.commit_message = commit_message;
@@ -15,7 +15,7 @@ struct DuckLakeSetCommitMessageData : public TableFunctionData {
 	DuckLakeSnapshotCommit snapshot_commit_info;
 };
 
-struct DuckLakeSetCommitMessageState : public GlobalTableFunctionState {
+struct DuckLakeSetCommitMessageState final : public GlobalTableFunctionState {
 	DuckLakeSetCommitMessageState() {
 	}
 
@@ -30,17 +30,9 @@ unique_ptr<GlobalTableFunctionState> DuckLakeSetCommitMessageInit(ClientContext 
 static unique_ptr<FunctionData> DuckLakeSetCommitMessageBind(ClientContext &context, TableFunctionBindInput &input,
                                                              vector<LogicalType> &return_types, vector<string> &names) {
 	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
-	string author, commit_message;
-	if (!input.inputs[1].IsNull()) {
-		author = StringValue::Get(input.inputs[1]);
-	}
-	if (!input.inputs[2].IsNull()) {
-		commit_message = StringValue::Get(input.inputs[2]);
-	}
-
 	return_types.push_back(LogicalType::BOOLEAN);
 	names.push_back("Success");
-	return make_uniq<DuckLakeSetCommitMessageData>(catalog, author, commit_message);
+	return make_uniq<DuckLakeSetCommitMessageData>(catalog, input.inputs[1], input.inputs[2]);
 }
 
 void DuckLakeSetCommitMessageExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
