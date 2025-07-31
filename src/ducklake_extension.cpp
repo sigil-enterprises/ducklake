@@ -52,6 +52,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 	DuckLakeOptionsFunction options;
 	loader.RegisterFunction(options);
 
+	DuckLakeSetCommitMessage set_commit_message;
+	loader.RegisterFunction(set_commit_message);
+
 	auto table_changes = DuckLakeTableInsertionsFunction::GetDuckLakeTableChanges();
 	loader.RegisterFunction(*table_changes);
 

@@ -6,9 +6,10 @@ add_library(
   ducklake_expire_snapshots.cpp
   ducklake_flush_inlined_data.cpp
   ducklake_list_files.cpp
-  ducklake_snapshots.cpp
   ducklake_merge_adjacent_files.cpp
+  ducklake_set_commit_message.cpp
   ducklake_set_option.cpp
+  ducklake_snapshots.cpp
   ducklake_options.cpp
   ducklake_table_changes.cpp
   ducklake_table_info.cpp
