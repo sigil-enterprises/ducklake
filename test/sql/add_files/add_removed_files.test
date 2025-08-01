@@ -28,21 +28,7 @@ CREATE TABLE ducklake.test(col1 INTEGER, col2 VARCHAR);
 statement ok
 CALL ducklake_add_data_files('ducklake', 'test', getvariable('parquet_files')[1])
 
-# And we try to insert our beautiful parquet file
-# query I
-# select
-
-# statement ok
-# DROP TABLE ducklake.test(col1 INTEGER, col2 VARCHAR);
-#
-# statement ok
-# CREATE TABLE ducklake.test(col1 INTEGER, col2 VARCHAR);
-#
-# CREATE TABLE my_table AS SELECT * FROM source LIMIT 0;
-# CALL ducklake_add_data_files('catalog', 'my_table', '/path/to/files/*.parquet');
-#
-# # write a parquet file outside of DuckLake
-# statement ok
-# COPY (SELECT 200 col1, 'world' col2) TO '__TEST_DIR__/ducklake_add_files/main/test/my_file.parquet';
-#
-# INSERT INTO my_table SELECT * FROM source;
+query II
+FROM ducklake.test
+----
+100	hello
