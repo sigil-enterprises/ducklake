@@ -1777,6 +1777,20 @@ WHERE snapshot_id = (
 	return snapshot;
 }
 
+bool SamePartitions(const vector<DuckLakePartitionInfo> &old_partitions, const vector<DuckLakePartitionInfo> &new_partitions) {
+	if (new_partitions.size() == old_partitions.size()) {
+		for (idx_t i = 0; i < new_partitions.size(); i++) {
+			if (new_partitions[i] != old_partitions[i]) {
+				return false;
+			}
+		}
+	} else if (old_partitions.empty() && new_partitions.size() == 1) {
+		// This might be a reset in an empty partition, so we can skip it if fields are empty
+		return new_partitions[0].fields.empty();
+	}
+	return true;
+}
+
 void DuckLakeMetadataManager::WriteNewPartitionKeys(DuckLakeSnapshot commit_snapshot,
                                                     const vector<DuckLakePartitionInfo> &new_partitions) {
 	if (new_partitions.empty()) {
@@ -1788,15 +1802,8 @@ void DuckLakeMetadataManager::WriteNewPartitionKeys(DuckLakeSnapshot commit_snap
 	string old_partition_table_ids;
 	string new_partition_values;
 	string insert_partition_cols;
-	bool same_partitions = new_partitions.size() == partitions.size();
-	if (same_partitions) {
-		for (idx_t i = 0; i < new_partitions.size(); i++) {
-			if (new_partitions[i] != partitions[i]) {
-				same_partitions = false;
-			}
-		}
-	}
-	if (same_partitions) {
+
+	if (SamePartitions(partitions, new_partitions)) {
 		// Partition information did not change, this is a nop
 		return;
 	}

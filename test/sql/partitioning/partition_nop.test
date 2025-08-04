@@ -63,3 +63,31 @@ query I
 select count(*) FROM ducklake_metadata.ducklake_partition_info
 ----
 3
+
+# We can return to a previous partition
+statement ok
+ALTER TABLE partitioned_tbl SET PARTITIONED BY (part_key);
+
+query I
+select count(*) FROM ducklake_metadata.ducklake_partition_info
+----
+4
+
+# We can remove all partition of a table
+statement ok
+ALTER TABLE partitioned_tbl RESET PARTITIONED BY;
+
+query I
+select count(*) FROM ducklake_metadata.ducklake_partition_info
+----
+5
+
+# But if it is already empty we nop
+statement ok
+ALTER TABLE partitioned_tbl RESET PARTITIONED BY;
+
+query I
+select count(*) FROM ducklake_metadata.ducklake_partition_info
+----
+5
+
