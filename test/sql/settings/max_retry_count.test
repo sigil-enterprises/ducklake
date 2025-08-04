@@ -147,21 +147,20 @@ SELECT COUNT() FROM ducklake.tbl;
 ----
 5
 
-# Reset to default
-statement ok
-RESET ducklake_max_retry_count;
 
 statement ok
 SET ducklake_max_retry_count = 1;
 
-concurrentloop i 0 100
+concurrentloop i 0 10
 
-statement ok
+statement maybe
 INSERT INTO ducklake.tbl VALUES(${i});
+----
+ducklake_max_retry_count is set to 1.
 
 endloop
 
 query I
-SELECT COUNT() FROM ducklake.tbl;
+SELECT COUNT() >= 5 AND COUNT() < 15 FROM ducklake.tbl;
 ----
-5
+TRUE

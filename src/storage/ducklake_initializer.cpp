@@ -189,7 +189,7 @@ void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction)
 		options.config_options[tag.key] = tag.value;
 	}
 	for (auto &entry : metadata.schema_settings) {
-		options.schema_options[entry.schema_id][entry.tag.key] =  entry.tag.value;
+		options.schema_options[entry.schema_id][entry.tag.key] = entry.tag.value;
 	}
 	for (auto &entry : metadata.table_settings) {
 		options.table_options[entry.table_id][entry.tag.key] = entry.tag.value;
