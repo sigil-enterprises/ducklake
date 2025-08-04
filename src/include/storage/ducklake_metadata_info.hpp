@@ -143,8 +143,7 @@ struct DuckLakePartitionFieldInfo {
 	FieldIndex field_id;
 	string transform;
 	bool operator!=(const DuckLakePartitionFieldInfo &new_field) const {
-		return  field_id != new_field.field_id ||
-		       transform != new_field.transform;
+		return field_id != new_field.field_id || transform != new_field.transform;
 	}
 };
 
@@ -158,7 +157,7 @@ struct DuckLakePartitionInfo {
 		}
 		for (idx_t i = 0; i < fields.size(); i++) {
 			if (fields[i] != new_partition.fields[i]) {
-					return false;
+				return false;
 			}
 		}
 		return true;

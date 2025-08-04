@@ -73,6 +73,34 @@ select count(*) FROM ducklake_metadata.ducklake_partition_info
 ----
 4
 
+# Lets check that multiple tables still works fine
+statement ok
+CREATE TABLE partitioned_tbl_2(part_key INTEGER, values VARCHAR);
+
+statement ok
+ALTER TABLE partitioned_tbl_2 SET PARTITIONED BY (part_key);
+
+query I
+select count(*) FROM ducklake_metadata.ducklake_partition_info
+----
+5
+
+statement ok
+ALTER TABLE partitioned_tbl_2 SET PARTITIONED BY (part_key);
+
+query I
+select count(*) FROM ducklake_metadata.ducklake_partition_info
+----
+5
+
+statement ok
+ALTER TABLE partitioned_tbl_2 SET PARTITIONED BY (values, part_key);
+
+query I
+select count(*) FROM ducklake_metadata.ducklake_partition_info
+----
+6
+
 # We can remove all partition of a table
 statement ok
 ALTER TABLE partitioned_tbl RESET PARTITIONED BY;
@@ -80,7 +108,7 @@ ALTER TABLE partitioned_tbl RESET PARTITIONED BY;
 query I
 select count(*) FROM ducklake_metadata.ducklake_partition_info
 ----
-5
+7
 
 # But if it is already empty we nop
 statement ok
@@ -89,5 +117,5 @@ ALTER TABLE partitioned_tbl RESET PARTITIONED BY;
 query I
 select count(*) FROM ducklake_metadata.ducklake_partition_info
 ----
-5
+7
 
