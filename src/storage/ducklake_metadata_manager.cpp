@@ -1782,31 +1782,46 @@ void DuckLakeMetadataManager::WriteNewPartitionKeys(DuckLakeSnapshot commit_snap
 	if (new_partitions.empty()) {
 		return;
 	}
+	auto catalog = GetCatalogForSnapshot(commit_snapshot);
+	auto &partitions = catalog.partitions;
+
 	string old_partition_table_ids;
 	string new_partition_values;
 	string insert_partition_cols;
-	for (auto &partition : new_partitions) {
+	bool same_partitions = new_partitions.size() == partitions.size();
+	if (same_partitions) {
+		for (idx_t i = 0; i < new_partitions.size(); i++) {
+			if (new_partitions[i] != partitions[i]) {
+				same_partitions = false;
+			}
+		}
+	}
+	if (same_partitions) {
+		// Partition information did not change, this is a nop
+		return;
+	}
+	for (auto &new_partition : new_partitions) {
 		// set old partition data as no longer valid
 		if (!old_partition_table_ids.empty()) {
 			old_partition_table_ids += ", ";
 		}
-		old_partition_table_ids += to_string(partition.table_id.index);
-		if (!partition.id.IsValid()) {
+		old_partition_table_ids += to_string(new_partition.table_id.index);
+		if (!new_partition.id.IsValid()) {
 			// dropping partition data - we don't need to do anything
 			return;
 		}
-		auto partition_id = partition.id.GetIndex();
+		auto partition_id = new_partition.id.GetIndex();
 		if (!new_partition_values.empty()) {
 			new_partition_values += ", ";
 		}
 		new_partition_values +=
-		    StringUtil::Format(R"((%d, %d, {SNAPSHOT_ID}, NULL))", partition_id, partition.table_id.index);
-		for (auto &field : partition.fields) {
+		    StringUtil::Format(R"((%d, %d, {SNAPSHOT_ID}, NULL))", partition_id, new_partition.table_id.index);
+		for (auto &field : new_partition.fields) {
 			if (!insert_partition_cols.empty()) {
 				insert_partition_cols += ", ";
 			}
 			insert_partition_cols +=
-			    StringUtil::Format("(%d, %d, %d, %d, %s)", partition_id, partition.table_id.index,
+			    StringUtil::Format("(%d, %d, %d, %d, %s)", partition_id, new_partition.table_id.index,
 			                       field.partition_key_index, field.field_id.index, SQLString(field.transform));
 		}
 	}

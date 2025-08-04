@@ -142,12 +142,32 @@ struct DuckLakePartitionFieldInfo {
 	idx_t partition_key_index = 0;
 	FieldIndex field_id;
 	string transform;
+	bool operator!=(const DuckLakePartitionFieldInfo &new_field) const {
+		return partition_key_index != new_field.partition_key_index && field_id != new_field.field_id &&
+		       transform != new_field.transform;
+	}
 };
 
 struct DuckLakePartitionInfo {
 	optional_idx id;
 	TableIndex table_id;
 	vector<DuckLakePartitionFieldInfo> fields;
+	bool operator==(const DuckLakePartitionInfo &new_partition) const {
+		if (table_id != new_partition.table_id || fields.size() != new_partition.fields.size()) {
+			return false;
+		}
+		for (const auto &field : fields) {
+			for (const auto &new_field : new_partition.fields) {
+				if (field != new_field) {
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+	bool operator!=(vector<DuckLakePartitionInfo>::const_reference value) const {
+		return !(*this == value);
+	}
 };
 
 struct DuckLakeGlobalColumnStatsInfo {
