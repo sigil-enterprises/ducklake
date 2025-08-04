@@ -1362,7 +1362,7 @@ void DuckLakeTransaction::FlushChanges() {
 				// we abort after the max retry count
 				CleanupFiles();
 				// Add additional information on how to fix it in the raw message
-				error.RawMessage()
+				// error.RawMessage()
 				error.Throw("Failed to commit DuckLake transaction: ");
 			}
 

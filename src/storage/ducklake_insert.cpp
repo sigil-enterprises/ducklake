@@ -661,7 +661,7 @@ PhysicalOperator &DuckLakeCatalog::PlanInsert(ClientContext &context, PhysicalPl
 	if (op.return_chunk) {
 		throw BinderException("RETURNING clause not yet supported for insertion into DuckLake table");
 	}
-	if (op.action_type != OnConflictAction::THROW) {
+	if (op.on_conflict_info.action_type != OnConflictAction::THROW) {
 		throw BinderException("ON CONFLICT clause not yet supported for insertion into DuckLake table");
 	}
 	if (!op.column_index_map.empty()) {
