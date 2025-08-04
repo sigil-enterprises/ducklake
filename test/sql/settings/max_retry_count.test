@@ -150,3 +150,18 @@ SELECT COUNT() FROM ducklake.tbl;
 # Reset to default
 statement ok
 RESET ducklake_max_retry_count;
+
+statement ok
+SET ducklake_max_retry_count = 1;
+
+concurrentloop i 0 100
+
+statement ok
+INSERT INTO ducklake.tbl VALUES(${i});
+
+endloop
+
+query I
+SELECT COUNT() FROM ducklake.tbl;
+----
+5
