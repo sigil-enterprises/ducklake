@@ -308,7 +308,6 @@ FROM parquet_file_metadata(%s)
 		}
 		entry->second->row_count = row.GetValue<idx_t>(1);
 		entry->second->footer_size = row.GetValue<idx_t>(2);
-
 	}
 }
 
