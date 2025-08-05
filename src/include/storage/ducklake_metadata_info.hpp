@@ -186,6 +186,7 @@ struct DuckLakeSnapshotInfo {
 	SnapshotChangeInfo change_info;
 	Value author;
 	Value commit_message;
+	Value commit_extra_info;
 };
 
 struct DuckLakeViewInfo {
@@ -340,6 +341,8 @@ struct DuckLakeSnapshotCommit {
 	Value author;
 	//! The commit message for the snapshot
 	Value commit_message;
+	//! Additional extra info about the commit
+	Value commit_extra_info;
 	//! If the user set the commit info for the snapshot
 	bool is_commit_info_set = false;
 };

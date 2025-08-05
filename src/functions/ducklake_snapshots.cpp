@@ -52,6 +52,9 @@ void DuckLakeSnapshotsFunction::GetSnapshotTypes(vector<LogicalType> &return_typ
 
 	names.emplace_back("commit_message");
 	return_types.emplace_back(LogicalType::VARCHAR);
+
+	names.emplace_back("commit_extra_info");
+	return_types.emplace_back(LogicalType::VARCHAR);
 }
 
 template <class T>
@@ -112,6 +115,7 @@ vector<Value> DuckLakeSnapshotsFunction::GetSnapshotValues(const DuckLakeSnapsho
 	                                std::move(change_keys), std::move(change_values)));
 	row_values.push_back(snapshot.author);
 	row_values.push_back(snapshot.commit_message);
+	row_values.push_back(snapshot.commit_extra_info);
 	return row_values;
 }
 
