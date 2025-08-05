@@ -115,7 +115,12 @@ public:
 
 	bool IsCommitInfoRequired() const {
 		auto require = GetConfigOption<string>("require_commit_message", {}, {}, "false");
-		return require == "true" ? true : false;
+		return require == "true";
+	}
+
+	bool UseHivePartitioning() const {
+		auto use_hive_partitioning = GetConfigOption<string>("use_hive_partitioning", {}, {}, "true");
+		return use_hive_partitioning == "true";
 	}
 
 	void SetEncryption(DuckLakeEncryption encryption);
