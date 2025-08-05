@@ -30,6 +30,12 @@ static unique_ptr<FunctionData> DuckLakeAddDataFilesBind(ClientContext &context,
 		throw InvalidInputException("Table name cannot be NULL");
 	}
 	auto table_name = StringValue::Get(input.inputs[1]);
+	auto table_info = StringUtil::Split(table_name, '.');
+	if (table_info.size() == 2) {
+		// If we have a split on a '.' we have a schema and a table name
+		schema_name = table_info[0];
+		table_name = table_info[1];
+	}
 	auto entry =
 	    catalog.GetEntry<TableCatalogEntry>(context, schema_name, table_name, OnEntryNotFound::THROW_EXCEPTION);
 	auto &table = entry->Cast<DuckLakeTableEntry>();
