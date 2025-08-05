@@ -34,12 +34,12 @@ static unique_ptr<FunctionData> DuckLakeSetCommitMessageBind(ClientContext &cont
 	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
 	return_types.push_back(LogicalType::BOOLEAN);
 	names.push_back("Success");
-	auto params_entry = input.named_parameters.find("params");
-	Value params;
-	if (params_entry != input.named_parameters.end()) {
-		params = params_entry->second;
+	auto extra_info_entry = input.named_parameters.find("extra_info");
+	Value extra_info;
+	if (extra_info_entry != input.named_parameters.end()) {
+		extra_info = extra_info_entry->second;
 	}
-	return make_uniq<DuckLakeSetCommitMessageData>(catalog, input.inputs[1], input.inputs[2], params);
+	return make_uniq<DuckLakeSetCommitMessageData>(catalog, input.inputs[1], input.inputs[2], extra_info);
 }
 
 void DuckLakeSetCommitMessageExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {

@@ -209,6 +209,51 @@ SELECT snapshot_id, author, commit_message FROM ducklake.snapshots() where snaps
 ----
 11	Mark	Inserting Teddy
 
+# Lets check that our previous insertion has a null value for extra info
+query IIII
+SELECT snapshot_id, author, commit_message, commit_extra_info FROM ducklake.snapshots() where snapshot_id = 11
+----
+11	Mark	Inserting Teddy	NULL
+
+# Let's add some extra info to the next commit
+
+statement ok
+BEGIN;
+
+statement ok
+INSERT INTO ducklake.test VALUES (10, 'Ollie');
+
+statement ok
+CALL ducklake.set_commit_message('Pedro', 'Inserting Ollie', extra_info=>'{''barks'':7, ''cuteness'':10}');
+
+statement ok
+COMMIT;
+
+# Lets check ollie is inserted with the correct extra_info
+query IIII
+SELECT snapshot_id, author, commit_message, commit_extra_info FROM ducklake.snapshots() where snapshot_id = 12
+----
+12	Pedro	Inserting Ollie	{'barks':7, 'cuteness':10}
+
+# Empty is also valid
+statement ok
+BEGIN;
+
+statement ok
+INSERT INTO ducklake.test VALUES (11, 'Jack Black');
+
+statement ok
+CALL ducklake.set_commit_message('Pedro', 'Inserting the greatest musician of the world.', extra_info=>'');
+
+statement ok
+COMMIT;
+
+# Lets check ollie is inserted with the correct extra_info
+query IIII
+SELECT snapshot_id, author, commit_message, commit_extra_info FROM ducklake.snapshots() where snapshot_id = 13
+----
+13	Pedro	Inserting the greatest musician of the world.	(empty)
+
 # Check all data was inserted correctly at the end
 query II
 FROM ducklake.test
@@ -223,3 +268,5 @@ FROM ducklake.test
 7	Morgana
 8	Odara
 9	Teddy
+10	Ollie
+11	Jack Black
