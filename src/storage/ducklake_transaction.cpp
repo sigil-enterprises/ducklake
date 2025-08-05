@@ -1364,9 +1364,12 @@ void DuckLakeTransaction::FlushChanges() {
 				// Add additional information on number of retries and suggest to increase it
 				std::ostringstream error_message;
 				error_message << "Failed to commit DuckLake transaction." << '\n';
-				error_message << "* ducklake_max_retry_count is set to " << max_retry_count
-				              << ". Consider increasing the value with: \"SET ducklake_max_retry_count = 100;\""
-				              << '\n';
+				if (finished_retrying) {
+					error_message << "Exceeded the maximum retry count of " << max_retry_count
+					              << " set by the ducklake_max_retry_count setting." << '\n'
+					              << ". Consider increasing the value with: e.g., \"SET ducklake_max_retry_count = "
+					              << max_retry_count * 10 << ";\"" << '\n';
+				}
 				error.Throw(error_message.str());
 			}
 
