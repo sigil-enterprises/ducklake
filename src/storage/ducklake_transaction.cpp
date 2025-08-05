@@ -1429,6 +1429,7 @@ unique_ptr<QueryResult> DuckLakeTransaction::Query(DuckLakeSnapshot snapshot, st
 	query = StringUtil::Replace(query, "{NEXT_FILE_ID}", to_string(snapshot.next_file_id));
 	query = StringUtil::Replace(query, "{AUTHOR}", commit_info.author.ToSQLString());
 	query = StringUtil::Replace(query, "{COMMIT_MESSAGE}", commit_info.commit_message.ToSQLString());
+	query = StringUtil::Replace(query, "{COMMIT_EXTRA_INFO}", commit_info.commit_extra_info.ToSQLString());
 
 	return Query(std::move(query));
 }
