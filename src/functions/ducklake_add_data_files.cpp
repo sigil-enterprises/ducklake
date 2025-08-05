@@ -93,6 +93,7 @@ struct ParquetFileMetadata {
 	unordered_map<idx_t, reference<ParquetColumn>> column_id_map;
 	optional_idx row_count;
 	optional_idx file_size;
+	optional_idx footer_size;
 };
 
 struct DuckLakeFileProcessor {
@@ -291,7 +292,7 @@ FROM read_blob(%s)
 	}
 	// use parquet_file_metadata to get the num rows
 	result = transaction.Query(StringUtil::Format(R"(
-SELECT file_name, num_rows
+SELECT file_name, num_rows, footer_size
 FROM parquet_file_metadata(%s)
 )",
 	                                              SQLString(glob)));
@@ -306,6 +307,8 @@ FROM parquet_file_metadata(%s)
 			                            "parquet_schema - did a Parquet file get added to a glob while processing?");
 		}
 		entry->second->row_count = row.GetValue<idx_t>(1);
+		entry->second->footer_size = row.GetValue<idx_t>(2);
+
 	}
 }
 
@@ -789,6 +792,7 @@ DuckLakeDataFile DuckLakeFileProcessor::AddFileToTable(ParquetFileMetadata &file
 	result.file_name = file.filename;
 	result.row_count = file.row_count.GetIndex();
 	result.file_size_bytes = file.file_size.GetIndex();
+	result.footer_size = file.footer_size.GetIndex();
 
 	// map columns from the file to the table
 	auto &field_data = table.GetFieldData();
