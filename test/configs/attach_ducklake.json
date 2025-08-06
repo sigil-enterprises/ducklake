@@ -9,7 +9,22 @@
     "ducklake"
   ],
   "skip_error_messages": [
-    "MERGE INTO with DuckLake only supports a single UPDATE/DELETE action currently"
+    "MERGE INTO with DuckLake only supports a single UPDATE/DELETE action currently",
+    "dbgen is only supported for DuckDB database files",
+    "PRIMARY KEY/UNIQUE constraints are not supported in DuckLake",
+    "RETURNING is not implemented for DuckLake yet",
+    "SET DEFAULT is not yet supported for updates of a DuckLake table",
+    "DuckLake does not support indexes",
+    "DuckLake does not support generated columns",
+    "RETURNING clause",
+    "DuckLake does not support sequences",
+    "DuckLake does not support functions",
+    "DuckLake does not support user-defined types",
+    "Parquet files do not support negative intervals",
+    "The same row was updated multiple times - this is not (yet) supported in DuckLake",
+    "Failed to convert DuckDB type to DuckLake - unsupported type",
+    "Collations are not supported in DuckLake storage",
+    "Cascade Drop not supported in DuckLake"
   ],
   "skip_tests": [
     {
