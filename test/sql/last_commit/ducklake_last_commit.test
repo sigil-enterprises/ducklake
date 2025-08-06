@@ -9,6 +9,9 @@ require parquet
 statement ok
 ATTACH 'ducklake:__TEST_DIR__/ducklake_list_files.db' AS ducklake;
 
+statement ok
+USE ducklake;
+
 query I
 FROM ducklake_last_committed_snapshot('ducklake')
 ----
@@ -16,7 +19,7 @@ FROM ducklake_last_committed_snapshot('ducklake')
 
 # Snapshot 1
 statement ok
-CREATE TABLE ducklake.integer(i INTEGER);
+CREATE TABLE integer(i INTEGER);
 
 query I
 FROM ducklake_last_committed_snapshot('ducklake')
@@ -52,6 +55,12 @@ FROM ducklake_last_committed_snapshot('ducklake')
 ----
 1
 
+# Check commited snapshot from within a transaction
+query I con1
+FROM ducklake_last_committed_snapshot('ducklake')
+----
+1
+
 statement ok con1
 COMMIT
 
@@ -73,5 +82,11 @@ COMMIT
 
 query I
 FROM ducklake_last_committed_snapshot('ducklake')
+----
+3
+
+# Try out the macro
+query I
+FROM last_committed_snapshot()
 ----
 3
