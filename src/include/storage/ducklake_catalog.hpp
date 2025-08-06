@@ -115,7 +115,12 @@ public:
 
 	bool IsCommitInfoRequired() const {
 		auto require = GetConfigOption<string>("require_commit_message", {}, {}, "false");
-		return require == "true" ? true : false;
+		return require == "true";
+	}
+
+	bool UseHiveFilePattern(bool default_value) const {
+		auto hive_file_pattern = GetConfigOption<string>("hive_file_pattern", {}, {}, default_value ? "true" : "false");
+		return hive_file_pattern == "true";
 	}
 
 	void SetEncryption(DuckLakeEncryption encryption);
