@@ -7,7 +7,7 @@ require ducklake
 require parquet
 
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/ducklake_list_files.db' AS ducklake;
+ATTACH 'ducklake:__TEST_DIR__/ducklake_last_snapshot_commit.db' AS ducklake;
 
 statement ok
 USE ducklake;
