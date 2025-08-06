@@ -76,7 +76,7 @@ SinkResultType DuckLakeUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 		insert_chunk.data[columns[i].index].Reference(chunk.data[i]);
 	}
 	idx_t row_id_index = columns.size();
-	insert_chunk.data[row_id_index].Reference(chunk.data[chunk.ColumnCount() - 1]);
+	insert_chunk.data[row_id_index].Reference(chunk.data[row_id_index]);
 
 	OperatorSinkInput copy_input {*copy_op.sink_state, *lstate.copy_local_state, input.interrupt_state};
 	copy_op.Sink(context, insert_chunk, copy_input);
