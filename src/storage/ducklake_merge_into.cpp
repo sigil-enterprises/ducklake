@@ -163,6 +163,8 @@ unique_ptr<MergeIntoOperator> DuckLakePlanMergeIntoAction(DuckLakeCatalog &catal
 		update.columns = std::move(action.columns);
 		update.update_is_del_and_insert = action.update_is_del_and_insert;
 		result->op = catalog.PlanUpdate(context, planner, update, child_plan);
+		auto &dl_update = result->op->Cast<DuckLakeUpdate>();
+		dl_update.row_id_index = child_plan.types.size() - 1;
 		break;
 	}
 	case MergeActionType::MERGE_DELETE: {
