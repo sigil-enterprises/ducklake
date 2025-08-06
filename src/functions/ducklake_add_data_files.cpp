@@ -24,12 +24,15 @@ struct DuckLakeAddDataFilesData : public TableFunctionData {
 static unique_ptr<FunctionData> DuckLakeAddDataFilesBind(ClientContext &context, TableFunctionBindInput &input,
                                                          vector<LogicalType> &return_types, vector<string> &names) {
 	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
-
 	string schema_name;
 	if (input.inputs[1].IsNull()) {
 		throw InvalidInputException("Table name cannot be NULL");
 	}
-	auto table_name = StringValue::Get(input.inputs[1]);
+	if (input.named_parameters.find("schema") != input.named_parameters.end()) {
+		schema_name = StringValue::Get(input.named_parameters["schema"]);
+	}
+	const auto table_name = StringValue::Get(input.inputs[1]);
+
 	auto entry =
 	    catalog.GetEntry<TableCatalogEntry>(context, schema_name, table_name, OnEntryNotFound::THROW_EXCEPTION);
 	auto &table = entry->Cast<DuckLakeTableEntry>();
@@ -48,7 +51,7 @@ static unique_ptr<FunctionData> DuckLakeAddDataFilesBind(ClientContext &context,
 		} else if (lower == "hive_partitioning") {
 			result->hive_partitioning =
 			    BooleanValue::Get(entry.second) ? HivePartitioningType::YES : HivePartitioningType::NO;
-		} else {
+		}  else if (lower != "schema") {
 			throw InternalException("Unknown named parameter %s for add_files", entry.first);
 		}
 	}
@@ -850,6 +853,7 @@ DuckLakeAddDataFilesFunction::DuckLakeAddDataFilesFunction()
 	named_parameters["allow_missing"] = LogicalType::BOOLEAN;
 	named_parameters["ignore_extra_columns"] = LogicalType::BOOLEAN;
 	named_parameters["hive_partitioning"] = LogicalType::BOOLEAN;
+	named_parameters["schema"] = LogicalType::VARCHAR;
 }
 
 } // namespace duckdb
