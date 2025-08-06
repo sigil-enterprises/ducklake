@@ -621,12 +621,7 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, Phys
 	physical_copy.names = std::move(copy_options.names);
 	physical_copy.expected_types = std::move(copy_options.expected_types);
 	physical_copy.parallel = true;
-	if (is_encrypted) {
-		// if encrypted we never use hive partitioning
-		physical_copy.hive_file_pattern = false;
-	} else {
-		physical_copy.hive_file_pattern = copy_input.catalog.UseHivePartitioning();
-	}
+	physical_copy.hive_file_pattern = copy_input.catalog.UseHiveFilePattern(!is_encrypted);
 	if (plan) {
 		physical_copy.children.push_back(*plan);
 	}

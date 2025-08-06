@@ -118,9 +118,9 @@ public:
 		return require == "true";
 	}
 
-	bool UseHivePartitioning() const {
-		auto use_hive_partitioning = GetConfigOption<string>("use_hive_partitioning", {}, {}, "true");
-		return use_hive_partitioning == "true";
+	bool UseHiveFilePattern(bool default_value) const {
+		auto hive_file_pattern = GetConfigOption<string>("hive_file_pattern", {}, {}, default_value ? "true" : "false");
+		return hive_file_pattern == "true";
 	}
 
 	void SetEncryption(DuckLakeEncryption encryption);

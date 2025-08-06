@@ -22,7 +22,7 @@ static constexpr const ducklake_option_array DUCKLAKE_OPTIONS = {
      {"parquet_compression_level", "Compression level for Parquet files"},
      {"parquet_row_group_size", "Number of rows per row group in Parquet files"},
      {"parquet_row_group_size_bytes", "Number of bytes per row group in Parquet files"},
-     {"use_hive_partitioning", "If data should be partitioned in the hive format"},
+     {"hive_file_pattern", "If partitioned data should be written in a hive-like folder structure"},
      {"target_file_size", "The target data file size for insertion and compaction operations"},
      {"version", "DuckLake format version"},
      {"created_by", "Tool used to write the DuckLake"},
