@@ -1,0 +1,77 @@
+# name: test/sql/last_commit/ducklake_last_commit.test
+# description: test that the ducklake_last_committed_snapshot returns last snapshot id
+# group: [last_commit]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_list_files.db' AS ducklake;
+
+query I
+FROM ducklake_last_committed_snapshot('ducklake')
+----
+0
+
+# Snapshot 1
+statement ok
+CREATE TABLE ducklake.integer(i INTEGER);
+
+query I
+FROM ducklake_last_committed_snapshot('ducklake')
+----
+1
+
+# Start a few transactions
+statement ok con1
+BEGIN TRANSACTION
+
+statement ok con2
+BEGIN TRANSACTION
+
+statement ok con3
+BEGIN TRANSACTION
+
+# Each transaction does somethins
+statement ok con1
+CREATE TABLE ducklake.integers_2(i INTEGER)
+
+statement ok con1
+INSERT into ducklake.integers_2 values (0);
+
+statement ok con2
+INSERT into ducklake.integer values (0);
+
+statement ok con3
+INSERT into ducklake.integer  values (1);
+
+# Snapshot still 1
+query I
+FROM ducklake_last_committed_snapshot('ducklake')
+----
+1
+
+statement ok con1
+COMMIT
+
+query I
+FROM ducklake_last_committed_snapshot('ducklake')
+----
+2
+
+statement ok con2
+ROLLBACK
+
+query I
+FROM ducklake_last_committed_snapshot('ducklake')
+----
+2
+
+statement ok con3
+COMMIT
+
+query I
+FROM ducklake_last_committed_snapshot('ducklake')
+----
+3
