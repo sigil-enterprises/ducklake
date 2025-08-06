@@ -7,14 +7,14 @@
 
 namespace duckdb {
 
-static unique_ptr<FunctionData> DuckLakeLastSnapshotBind(ClientContext &context, TableFunctionBindInput &input,
-                                                         vector<LogicalType> &return_types, vector<string> &names) {
+static unique_ptr<FunctionData> DuckLakeCurrentSnapshotBind(ClientContext &context, TableFunctionBindInput &input,
+                                                            vector<LogicalType> &return_types, vector<string> &names) {
 	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
 	auto &transaction = DuckLakeTransaction::Get(context, catalog);
 
 	names.emplace_back("id");
 	return_types.emplace_back(LogicalType::UBIGINT);
-	auto snapshot = transaction.GetSnapshot();
+	const auto snapshot = transaction.GetSnapshot();
 	// generate the result
 	auto result = make_uniq<MetadataBindData>();
 	vector<Value> row_values;
@@ -23,8 +23,8 @@ static unique_ptr<FunctionData> DuckLakeLastSnapshotBind(ClientContext &context,
 	return std::move(result);
 }
 
-DuckLakeLastCommitedSnapshotFunction::DuckLakeLastCommitedSnapshotFunction()
-    : BaseMetadataFunction("ducklake_last_committed_snapshot", DuckLakeLastSnapshotBind) {
+DuckLakeCurrentSnapshotFunction::DuckLakeCurrentSnapshotFunction()
+    : BaseMetadataFunction("ducklake_current_snapshot", DuckLakeCurrentSnapshotBind) {
 }
 
 } // namespace duckdb

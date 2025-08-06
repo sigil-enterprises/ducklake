@@ -1,19 +1,19 @@
-# name: test/sql/last_commit/ducklake_last_commit.test
-# description: test that the ducklake_last_committed_snapshot returns last snapshot id
-# group: [last_commit]
+# name: test/sql/snapshot_info/ducklake_current_commit.test
+# description: test that the ducklake_current_snapshot returns current snapshot id
+# group: [snapshot_info]
 
 require ducklake
 
 require parquet
 
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/ducklake_last_snapshot_commit.db' AS ducklake;
+ATTACH 'ducklake:__TEST_DIR__/ducklake_current_snapshot_commit.db' AS ducklake;
 
 statement ok
 USE ducklake;
 
 query I
-FROM ducklake_last_committed_snapshot('ducklake')
+FROM ducklake_current_snapshot('ducklake')
 ----
 0
 
@@ -22,7 +22,7 @@ statement ok
 CREATE TABLE integer(i INTEGER);
 
 query I
-FROM ducklake_last_committed_snapshot('ducklake')
+FROM ducklake_current_snapshot('ducklake')
 ----
 1
 
@@ -51,13 +51,13 @@ INSERT into ducklake.integer  values (1);
 
 # Snapshot still 1
 query I
-FROM ducklake_last_committed_snapshot('ducklake')
+FROM ducklake_current_snapshot('ducklake')
 ----
 1
 
 # Check commited snapshot from within a transaction
 query I con1
-FROM ducklake_last_committed_snapshot('ducklake')
+FROM ducklake_current_snapshot('ducklake')
 ----
 1
 
@@ -65,7 +65,7 @@ statement ok con1
 COMMIT
 
 query I
-FROM ducklake_last_committed_snapshot('ducklake')
+FROM ducklake_current_snapshot('ducklake')
 ----
 2
 
@@ -73,7 +73,7 @@ statement ok con2
 ROLLBACK
 
 query I
-FROM ducklake_last_committed_snapshot('ducklake')
+FROM ducklake_current_snapshot('ducklake')
 ----
 2
 
@@ -81,12 +81,12 @@ statement ok con3
 COMMIT
 
 query I
-FROM ducklake_last_committed_snapshot('ducklake')
+FROM ducklake_current_snapshot('ducklake')
 ----
 3
 
 # Try out the macro
 query I
-FROM last_committed_snapshot()
+FROM current_snapshot()
 ----
 3
