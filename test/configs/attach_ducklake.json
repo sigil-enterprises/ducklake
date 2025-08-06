@@ -24,7 +24,8 @@
     "The same row was updated multiple times - this is not (yet) supported in DuckLake",
     "Failed to convert DuckDB type to DuckLake - unsupported type",
     "Collations are not supported in DuckLake storage",
-    "Cascade Drop not supported in DuckLake"
+    "Cascade Drop not supported in DuckLake",
+    "CHECK constraints are not supported in DuckLake"
   ],
   "skip_tests": [
     {
