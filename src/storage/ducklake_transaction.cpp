@@ -1361,7 +1361,7 @@ void DuckLakeTransaction::FlushChanges() {
 			if (!can_retry || !retry_on_error || finished_retrying) {
 				// we abort after the max retry count
 				CleanupFiles();
-				// Add additional information on number of retries and suggest to increase it
+				// Add additional information on the number of retries and suggest to increase it
 				std::ostringstream error_message;
 				error_message << "Failed to commit DuckLake transaction." << '\n';
 				if (finished_retrying) {
@@ -1373,7 +1373,6 @@ void DuckLakeTransaction::FlushChanges() {
 				error.Throw(error_message.str());
 			}
 
-			//
 #ifndef DUCKDB_NO_THREADS
 			RandomEngine random;
 			// random multiplier between 0.5 - 1.0
@@ -1388,6 +1387,8 @@ void DuckLakeTransaction::FlushChanges() {
 			snapshot.reset();
 		}
 	}
+	// If we got here, this snapshot was successful
+	ducklake_catalog.IncreaseCommitedSnapshotId();
 }
 
 void DuckLakeTransaction::SetConfigOption(const DuckLakeConfigOption &option) {

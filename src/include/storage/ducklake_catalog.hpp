@@ -140,6 +140,25 @@ public:
 		return ++last_uncommitted_catalog_version;
 	}
 
+	void IncreaseCommitedSnapshotId() {
+		if (!last_committed_snapshot.IsValid()) {
+			last_committed_snapshot = 0;
+		} else {
+			last_committed_snapshot = last_committed_snapshot.GetIndex() + 1;
+		}
+	}
+
+	void SetCommitedSnapshotId(idx_t value) {
+		last_committed_snapshot = value;
+	}
+
+	Value GetLastCommitedSnapshotId() const {
+		if (last_committed_snapshot.IsValid()) {
+			return Value::UBIGINT(last_committed_snapshot.GetIndex());
+		}
+		return Value();
+	}
+
 	optional_ptr<const DuckLakeNameMap> TryGetMappingById(DuckLakeTransaction &transaction, MappingIndex mapping_id);
 	MappingIndex TryGetCompatibleNameMap(DuckLakeTransaction &transaction, const DuckLakeNameMap &name_map);
 
@@ -176,6 +195,8 @@ private:
 	string metadata_type;
 	//! Whether or not the catalog is initialized
 	bool initialized = false;
+	//! The id of the last committed snapshot, set at FlushChanges on a successful commit
+	optional_idx last_committed_snapshot;
 };
 
 } // namespace duckdb

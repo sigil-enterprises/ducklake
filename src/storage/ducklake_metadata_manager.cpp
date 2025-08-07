@@ -121,7 +121,20 @@ UPDATE {METADATA_CATALOG}.ducklake_metadata SET value = '0.3-dev1' WHERE key = '
 }
 
 DuckLakeMetadata DuckLakeMetadataManager::LoadDuckLake() {
+	// Get last committed snapshot
 	auto result = transaction.Query(R"(
+	SELECT MAX(snapshot_id) FROM {METADATA_CATALOG}.ducklake_snapshot
+	)");
+	auto result_rows = result->Fetch();
+	auto last_committed_snapshot = result_rows->data[0].GetValue(0);
+	if (!last_committed_snapshot.IsNull()) {
+		auto last_committed_value = last_committed_snapshot.GetValue<idx_t>();
+		if (last_committed_value > 0) {
+			auto &catalog = transaction.GetCatalog();
+			catalog.SetCommitedSnapshotId(last_committed_value - 1);
+		}
+	}
+	result = transaction.Query(R"(
 SELECT key, value, scope, scope_id FROM {METADATA_CATALOG}.ducklake_metadata
 )");
 	if (result->HasError()) {
