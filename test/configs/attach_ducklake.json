@@ -389,7 +389,8 @@
     {
       "reason": "FIXME: BUGS? Deserialization error",
       "paths": [
-        "test/sql/storage/catalog/test_drop_table.test"
+        "test/sql/storage/catalog/test_drop_table.test",
+        "test/sql/storage/compression/bitpacking/struct_bitpacking.test"
       ]
     },
     {

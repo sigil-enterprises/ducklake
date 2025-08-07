@@ -1,4 +1,4 @@
-name: Integration Tests
+name: Config Tests
 on: [push, pull_request,repository_dispatch]
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' || github.sha }}
@@ -9,7 +9,7 @@ defaults:
 
 jobs:
   ducklake-config-tests:
-    name: Run DuckLake Config Tests (Linux)
+    name: DuckDB Tests with DuckLake + DuckDB Back-End
     runs-on: ubuntu-latest
     strategy:
       matrix:
