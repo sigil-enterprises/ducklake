@@ -92,7 +92,10 @@ public:
 	                                PhysicalOperator &plan) override;
 	unique_ptr<LogicalOperator> BindCreateIndex(Binder &binder, CreateStatement &stmt, TableCatalogEntry &table,
 	                                            unique_ptr<LogicalOperator> plan) override;
-
+	unique_ptr<LogicalOperator> BindAlterAddIndex(Binder &binder, TableCatalogEntry &table_entry,
+	                                              unique_ptr<LogicalOperator> plan,
+	                                              unique_ptr<CreateIndexInfo> create_info,
+	                                              unique_ptr<AlterTableInfo> alter_info) override;
 	DatabaseSize GetDatabaseSize(ClientContext &context) override;
 	optional_ptr<DuckLakeTableStats> GetTableStats(DuckLakeTransaction &transaction, TableIndex table_id);
 	optional_ptr<DuckLakeTableStats> GetTableStats(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,

@@ -669,4 +669,11 @@ idx_t DuckLakeCatalog::DataInliningRowLimit(SchemaIndex schema_index, TableIndex
 	return GetConfigOption<idx_t>("data_inlining_row_limit", schema_index, table_index, 0);
 }
 
+unique_ptr<LogicalOperator> DuckLakeCatalog::BindAlterAddIndex(Binder &binder, TableCatalogEntry &table_entry,
+                                                               unique_ptr<LogicalOperator> plan,
+                                                               unique_ptr<CreateIndexInfo> create_info,
+                                                               unique_ptr<AlterTableInfo> alter_info) {
+	throw NotImplementedException("Adding indexes or constraints is not supported in DuckLake");
+}
+
 } // namespace duckdb
