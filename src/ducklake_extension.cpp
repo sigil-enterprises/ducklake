@@ -16,11 +16,11 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	config.AddExtensionOption("ducklake_max_retry_count",
 	                          "The maximum amount of retry attempts for a ducklake transaction", LogicalType::UBIGINT,
-	                          Value::UBIGINT(10));
+	                          Value::UBIGINT(10), nullptr, SetScope::GLOBAL);
 	config.AddExtensionOption("ducklake_retry_wait_ms", "Time between retries", LogicalType::UBIGINT,
-	                          Value::UBIGINT(100));
+	                          Value::UBIGINT(100), nullptr, SetScope::GLOBAL);
 	config.AddExtensionOption("ducklake_retry_backoff", "Backoff factor for exponentially increasing retry wait time",
-	                          LogicalType::DOUBLE, Value::DOUBLE(1.5));
+	                          LogicalType::DOUBLE, Value::DOUBLE(1.5), nullptr, SetScope::GLOBAL);
 
 	DuckLakeSnapshotsFunction snapshots;
 	loader.RegisterFunction(snapshots);
@@ -63,6 +63,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	DuckLakeAddDataFilesFunction add_files;
 	loader.RegisterFunction(add_files);
+
+	DuckLakeCurrentSnapshotFunction current_snapshot;
+	loader.RegisterFunction(current_snapshot);
 
 	// secrets
 	auto secret_type = DuckLakeSecret::GetSecretType();

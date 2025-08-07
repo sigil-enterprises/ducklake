@@ -88,9 +88,14 @@ public:
 	                             PhysicalOperator &plan) override;
 	PhysicalOperator &PlanUpdate(ClientContext &context, PhysicalPlanGenerator &planner, LogicalUpdate &op,
 	                             PhysicalOperator &plan) override;
+	PhysicalOperator &PlanMergeInto(ClientContext &context, PhysicalPlanGenerator &planner, LogicalMergeInto &op,
+	                                PhysicalOperator &plan) override;
 	unique_ptr<LogicalOperator> BindCreateIndex(Binder &binder, CreateStatement &stmt, TableCatalogEntry &table,
 	                                            unique_ptr<LogicalOperator> plan) override;
-
+	unique_ptr<LogicalOperator> BindAlterAddIndex(Binder &binder, TableCatalogEntry &table_entry,
+	                                              unique_ptr<LogicalOperator> plan,
+	                                              unique_ptr<CreateIndexInfo> create_info,
+	                                              unique_ptr<AlterTableInfo> alter_info) override;
 	DatabaseSize GetDatabaseSize(ClientContext &context) override;
 	optional_ptr<DuckLakeTableStats> GetTableStats(DuckLakeTransaction &transaction, TableIndex table_id);
 	optional_ptr<DuckLakeTableStats> GetTableStats(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
@@ -115,7 +120,12 @@ public:
 
 	bool IsCommitInfoRequired() const {
 		auto require = GetConfigOption<string>("require_commit_message", {}, {}, "false");
-		return require == "true" ? true : false;
+		return require == "true";
+	}
+
+	bool UseHiveFilePattern(bool default_value) const {
+		auto hive_file_pattern = GetConfigOption<string>("hive_file_pattern", {}, {}, default_value ? "true" : "false");
+		return hive_file_pattern == "true";
 	}
 
 	void SetEncryption(DuckLakeEncryption encryption);

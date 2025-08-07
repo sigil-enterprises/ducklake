@@ -71,6 +71,8 @@ static unique_ptr<FunctionData> DuckLakeSetOptionBind(ClientContext &context, Ta
 		value = to_string(data_inlining_row_limit);
 	} else if (option == "require_commit_message") {
 		value = val.GetValue<bool>() ? "true" : "false";
+	} else if (option == "hive_file_pattern") {
+		value = val.GetValue<bool>() ? "true" : "false";
 	} else {
 		throw NotImplementedException("Unsupported option %s", option);
 	}

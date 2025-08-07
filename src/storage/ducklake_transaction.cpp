@@ -387,7 +387,7 @@ void DuckLakeTransaction::CleanupFiles() {
 			}
 		}
 		for (auto &file : table_changes.new_delete_files) {
-			fs.RemoveFile(file.second.file_name);
+			fs.TryRemoveFile(file.second.file_name);
 		}
 		table_changes.new_data_files.clear();
 		table_changes.new_delete_files.clear();
@@ -1361,7 +1361,16 @@ void DuckLakeTransaction::FlushChanges() {
 			if (!can_retry || !retry_on_error || finished_retrying) {
 				// we abort after the max retry count
 				CleanupFiles();
-				error.Throw("Failed to commit DuckLake transaction: ");
+				// Add additional information on number of retries and suggest to increase it
+				std::ostringstream error_message;
+				error_message << "Failed to commit DuckLake transaction." << '\n';
+				if (finished_retrying) {
+					error_message << "Exceeded the maximum retry count of " << max_retry_count
+					              << " set by the ducklake_max_retry_count setting." << '\n'
+					              << ". Consider increasing the value with: e.g., \"SET ducklake_max_retry_count = "
+					              << max_retry_count * 10 << ";\"" << '\n';
+				}
+				error.Throw(error_message.str());
 			}
 
 			//
@@ -1429,6 +1438,7 @@ unique_ptr<QueryResult> DuckLakeTransaction::Query(DuckLakeSnapshot snapshot, st
 	query = StringUtil::Replace(query, "{NEXT_FILE_ID}", to_string(snapshot.next_file_id));
 	query = StringUtil::Replace(query, "{AUTHOR}", commit_info.author.ToSQLString());
 	query = StringUtil::Replace(query, "{COMMIT_MESSAGE}", commit_info.commit_message.ToSQLString());
+	query = StringUtil::Replace(query, "{COMMIT_EXTRA_INFO}", commit_info.commit_extra_info.ToSQLString());
 
 	return Query(std::move(query));
 }

@@ -142,12 +142,29 @@ struct DuckLakePartitionFieldInfo {
 	idx_t partition_key_index = 0;
 	FieldIndex field_id;
 	string transform;
+	bool operator!=(const DuckLakePartitionFieldInfo &new_field) const {
+		return field_id != new_field.field_id || transform != new_field.transform;
+	}
 };
 
 struct DuckLakePartitionInfo {
 	optional_idx id;
 	TableIndex table_id;
 	vector<DuckLakePartitionFieldInfo> fields;
+	bool operator==(const DuckLakePartitionInfo &new_partition) const {
+		if (table_id != new_partition.table_id || fields.size() != new_partition.fields.size()) {
+			return false;
+		}
+		for (idx_t i = 0; i < fields.size(); i++) {
+			if (fields[i] != new_partition.fields[i]) {
+				return false;
+			}
+		}
+		return true;
+	}
+	bool operator!=(vector<DuckLakePartitionInfo>::const_reference value) const {
+		return !(*this == value);
+	}
 };
 
 struct DuckLakeGlobalColumnStatsInfo {
@@ -186,6 +203,7 @@ struct DuckLakeSnapshotInfo {
 	SnapshotChangeInfo change_info;
 	Value author;
 	Value commit_message;
+	Value commit_extra_info;
 };
 
 struct DuckLakeViewInfo {
@@ -340,6 +358,8 @@ struct DuckLakeSnapshotCommit {
 	Value author;
 	//! The commit message for the snapshot
 	Value commit_message;
+	//! Additional extra info about the commit
+	Value commit_extra_info;
 	//! If the user set the commit info for the snapshot
 	bool is_commit_info_set = false;
 };
