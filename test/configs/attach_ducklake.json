@@ -286,7 +286,8 @@
         "test/sql/insert/test_big_insert.test",
         "test/sql/types/nested/map/test_map_subscript_composite.test",
         "test/sql/json/test_json_macros.test",
-        "test/sql/window/test_window_range.test"
+        "test/sql/window/test_window_range.test",
+        "test/sql/filter/test_transitive_filters.test"
       ]
     },
     {
