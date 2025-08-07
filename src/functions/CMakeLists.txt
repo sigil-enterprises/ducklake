@@ -5,6 +5,7 @@ add_library(
   ducklake_cleanup_old_files.cpp
   ducklake_expire_snapshots.cpp
   ducklake_flush_inlined_data.cpp
+  ducklake_current_snapshot.cpp
   ducklake_list_files.cpp
   ducklake_merge_adjacent_files.cpp
   ducklake_set_commit_message.cpp

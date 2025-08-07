@@ -95,6 +95,11 @@ public:
 	DuckLakeListFilesFunction();
 };
 
+class DuckLakeCurrentSnapshotFunction : public BaseMetadataFunction {
+public:
+	DuckLakeCurrentSnapshotFunction();
+};
+
 class DuckLakeAddDataFilesFunction : public TableFunction {
 public:
 	DuckLakeAddDataFilesFunction();

@@ -64,6 +64,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 	DuckLakeAddDataFilesFunction add_files;
 	loader.RegisterFunction(add_files);
 
+	DuckLakeCurrentSnapshotFunction current_snapshot;
+	loader.RegisterFunction(current_snapshot);
+
 	// secrets
 	auto secret_type = DuckLakeSecret::GetSecretType();
 	loader.RegisterSecretType(secret_type);
