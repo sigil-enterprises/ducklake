@@ -17,6 +17,8 @@
 #include "storage/ducklake_transaction_manager.hpp"
 #include "storage/ducklake_view_entry.hpp"
 #include "duckdb/main/database_path_and_type.hpp"
+#include "duckdb/parser/parsed_data/create_index_info.hpp"
+#include "duckdb/parser/parsed_data/alter_table_info.hpp"
 
 namespace duckdb {
 
@@ -667,6 +669,13 @@ bool DuckLakeCatalog::TryGetConfigOption(const string &option, string &result, D
 
 idx_t DuckLakeCatalog::DataInliningRowLimit(SchemaIndex schema_index, TableIndex table_index) const {
 	return GetConfigOption<idx_t>("data_inlining_row_limit", schema_index, table_index, 0);
+}
+
+unique_ptr<LogicalOperator> DuckLakeCatalog::BindAlterAddIndex(Binder &binder, TableCatalogEntry &table_entry,
+                                                               unique_ptr<LogicalOperator> plan,
+                                                               unique_ptr<CreateIndexInfo> create_info,
+                                                               unique_ptr<AlterTableInfo> alter_info) {
+	throw NotImplementedException("Adding indexes or constraints is not supported in DuckLake");
 }
 
 } // namespace duckdb
