@@ -55,3 +55,74 @@ FROM example
 ----
 foo	bar
 baz	qux
+
+# Add a few schema changes
+statement ok
+INSERT INTO example (key, value) VALUES ('a', 'b');
+
+statement ok
+ALTER TABLE example ADD COLUMN j INTEGER
+
+statement ok
+INSERT INTO example VALUES ('c', 'd', 1);
+
+statement ok
+INSERT INTO example VALUES ('e', 'f', 2);
+
+statement ok
+ALTER TABLE example DROP COLUMN key
+
+statement ok
+INSERT INTO example VALUES ('k', 3);
+
+statement ok
+INSERT INTO example VALUES ('f', 9);
+
+query I
+SELECT count(*) FROM ducklake_list_files('ducklake', 'example');
+----
+6
+
+query II
+SELECT snapshot_id, changes FROM snapshots();
+----
+0	{schemas_created=[main]}
+1	{tables_created=[main.example]}
+3	{tables_inserted_into=[1]}
+4	{}
+5	{tables_inserted_into=[1]}
+6	{tables_altered=[1]}
+7	{tables_inserted_into=[1]}
+8	{tables_inserted_into=[1]}
+9	{tables_altered=[1]}
+10	{tables_inserted_into=[1]}
+11	{tables_inserted_into=[1]}
+
+
+statement ok
+CALL ducklake_expire_snapshots('ducklake', versions => [5,6,7,8]);
+
+query I
+SELECT count(*) FROM ducklake_list_files('ducklake', 'example');
+----
+6
+
+statement ok
+CALL ducklake.merge_adjacent_files();
+
+# Because of the drops we can only merge 9-10
+query I
+SELECT count(*) FROM ducklake_list_files('ducklake', 'example');
+----
+5
+
+query II
+FROM example
+----
+bar	NULL
+qux	NULL
+b	NULL
+d	1
+f	2
+k	3
+f	9
