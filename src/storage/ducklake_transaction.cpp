@@ -1322,8 +1322,9 @@ void DuckLakeTransaction::FlushChanges() {
 
 	auto transaction_snapshot = GetSnapshot();
 	auto transaction_changes = GetTransactionChanges();
+	DuckLakeSnapshot commit_snapshot;
 	for (idx_t i = 0; i < max_retry_count + 1; i++) {
-		auto commit_snapshot = GetSnapshot();
+		commit_snapshot = GetSnapshot();
 		commit_snapshot.snapshot_id++;
 		if (SchemaChangesMade()) {
 			// we changed the schema - need to get a new schema version
@@ -1388,7 +1389,7 @@ void DuckLakeTransaction::FlushChanges() {
 		}
 	}
 	// If we got here, this snapshot was successful
-	ducklake_catalog.SetCommittedSnapshotId(GetSnapshot().snapshot_id);
+	ducklake_catalog.SetCommittedSnapshotId(commit_snapshot.snapshot_id);
 }
 
 void DuckLakeTransaction::SetConfigOption(const DuckLakeConfigOption &option) {
