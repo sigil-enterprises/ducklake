@@ -804,7 +804,6 @@ SELECT %s,
 FROM {METADATA_CATALOG}.ducklake_data_file data
 JOIN snapshot_ranges sr
   ON data.begin_snapshot BETWEEN sr.min_snapshot_id AND sr.max_snapshot_id
-LEFT JOIN {METADATA_CATALOG}.ducklake_snapshot snapshot ON (data.begin_snapshot = snapshot.snapshot_id)
 LEFT JOIN (
 	SELECT *
     FROM {METADATA_CATALOG}.ducklake_delete_file
