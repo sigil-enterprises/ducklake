@@ -49,3 +49,9 @@ query I
 SELECT count(*) FROM ducklake_list_files('ducklake', 'example');
 ----
 1
+
+query II
+FROM example
+----
+foo	bar
+baz	qux
