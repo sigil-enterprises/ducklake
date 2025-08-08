@@ -1388,7 +1388,7 @@ void DuckLakeTransaction::FlushChanges() {
 		}
 	}
 	// If we got here, this snapshot was successful
-	ducklake_catalog.IncreaseCommitedSnapshotId();
+	ducklake_catalog.SetCommittedSnapshotId(GetSnapshot().snapshot_id);
 }
 
 void DuckLakeTransaction::SetConfigOption(const DuckLakeConfigOption &option) {

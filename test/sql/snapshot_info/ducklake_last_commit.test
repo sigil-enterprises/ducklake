@@ -91,14 +91,37 @@ ATTACH 'ducklake:__TEST_DIR__/ducklake_last_snapshot_commit.db' AS ducklake;
 statement ok
 USE ducklake;
 
+# Last snapshot is reset for the transaction
 query I
 FROM ducklake_last_committed_snapshot('ducklake')
 ----
-2
+NULL
 
 # Try out the macro
 query I
 FROM last_committed_snapshot()
 ----
-2
+NULL
 
+statement ok
+SET ducklake_max_retry_count = 100;
+
+
+# Try concurrency
+concurrentloop i 0 50
+
+skipif i>25
+statement ok
+insert into ducklake.integer values (${i});
+
+skipif i<25
+statement ok
+FROM ducklake_last_committed_snapshot('ducklake')
+
+endloop
+
+# 26 + 2
+query I
+FROM last_committed_snapshot()
+----
+28

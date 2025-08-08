@@ -21,7 +21,7 @@ static unique_ptr<FunctionData> DuckLakeLastCommittedSnapshotBind(ClientContext 
 	// generate the result
 	auto result = make_uniq<MetadataBindData>();
 	vector<Value> row_values;
-	row_values.push_back(duck_catalog.GetLastCommitedSnapshotId());
+	row_values.push_back(duck_catalog.GetLastCommittedSnapshotId());
 	result->rows.push_back(std::move(row_values));
 	return std::move(result);
 }
