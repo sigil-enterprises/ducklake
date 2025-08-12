@@ -257,8 +257,9 @@ void DuckLakeCompactor::GenerateCompactions(DuckLakeTableEntry &table,
 				// this file can be compacted along with the neighbors
 				current_file_size += file_size;
 			}
-			idx_t compaction_file_count = compaction_idx - start_idx;
-			if (compaction_file_count > 1) {
+
+			if (start_idx < compaction_idx) {
+				idx_t compaction_file_count = compaction_idx - start_idx;
 				vector<DuckLakeCompactionFileEntry> compaction_files;
 				for (idx_t i = start_idx; i < compaction_idx; i++) {
 					compaction_files.push_back(std::move(files[candidate_list[i]]));
