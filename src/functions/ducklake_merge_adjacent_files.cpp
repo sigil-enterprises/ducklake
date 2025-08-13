@@ -234,7 +234,7 @@ void DuckLakeCompactor::GenerateCompactions(DuckLakeTableEntry &table,
 			// check if we can merge this file with subsequent files
 			idx_t current_file_size = 0;
 			idx_t compaction_idx;
-			for (compaction_idx = 0; compaction_idx < candidate_list.size(); compaction_idx++) {
+			for (compaction_idx = start_idx; compaction_idx < candidate_list.size(); compaction_idx++) {
 				if (current_file_size >= target_file_size) {
 					// we hit the target size already - stop
 					break;

@@ -1,0 +1,43 @@
+# name: test/sql/sqlite/test_sqlite_attach.test
+# description: test that the ducklake_current_snapshot returns current snapshot id
+# group: [sqlite]
+
+require ducklake
+
+require parquet
+
+statement ok
+LOAD '/Users/holanda/Documents/Projects/duckdb-sqlite/build/debug/extension/sqlite_scanner/sqlite_scanner.duckdb_extension'
+
+statement ok
+ATTACH 'ducklake:sqlite:ducklake_current_snapshot_commit.db' AS ducklake (DATA_PATH './tmp/data_files/');
+
+statement ok
+use ducklake
+
+statement ok
+create table T (a integer)
+
+statement ok
+insert into T values (0);
+
+query I
+FROM T;
+----
+0
+
+query I
+FROM ducklake_list_files('ducklake', 'T')
+----
+
+#
+# statement ok
+# DETACH ducklake
+#
+# statement ok
+# ATTACH 'ducklake:sqlite:ducklake_current_snapshot_commit.db' AS ducklake (DATA_PATH '/tmp/data_files/');
+#
+# query I
+# FROM T;
+# ----
+# 0
