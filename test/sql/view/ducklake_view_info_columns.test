@@ -56,3 +56,23 @@ select table_name, column_name from information_schema.columns where table_catal
 ----
 mock_view_name_lake	name
 mock_view_name_lake	fortune
+
+# We can also time travel
+
+statement ok
+use memory;
+
+statement ok
+DETACH ducklake;
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_view_info_columns.db' AS ducklake (SNAPSHOT_VERSION 2);
+
+statement ok
+use ducklake;
+
+query II
+select table_name, column_name from information_schema.columns where table_catalog = current_database();
+----
+v	id
+t	id
