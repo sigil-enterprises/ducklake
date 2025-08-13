@@ -19,20 +19,20 @@ statement ok
 create or replace view v as select * from t;
 
 query II
-select table_name, column_name  from information_schema.columns where table_catalog = current_database();
+select table_name, column_name  from information_schema.columns where table_catalog = current_database() order by all;
 ----
-v	id
 t	id
+v	id
 
 # What if we alter our view?
 statement ok
 ALTER VIEW ducklake.v RENAME TO v2
 
 query II
-select table_name, column_name from information_schema.columns where table_catalog = current_database();
+select table_name, column_name from information_schema.columns where table_catalog = current_database() order by all;
 ----
-v2	id
 t	id
+v2	id
 
 # What if we drop our view
 statement ok
@@ -52,10 +52,10 @@ query I
 create view mock_view_name_lake as select name, salary+dividends as fortune from t inner join t_2 on (t.id = t_2.id);
 
 query II
-select table_name, column_name from information_schema.columns where table_catalog = current_database() and table_name = 'mock_view_name_lake';
+select table_name, column_name from information_schema.columns where table_catalog = current_database() and table_name = 'mock_view_name_lake'  order by all;
 ----
-mock_view_name_lake	name
 mock_view_name_lake	fortune
+mock_view_name_lake	name
 
 # We can also time travel
 
@@ -72,7 +72,7 @@ statement ok
 use ducklake;
 
 query II
-select table_name, column_name from information_schema.columns where table_catalog = current_database();
+select table_name, column_name from information_schema.columns where table_catalog = current_database() order by all;
 ----
-v	id
 t	id
+v	id
