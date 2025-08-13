@@ -1,0 +1,27 @@
+# name: test/sql/view/ducklake_view_info_columns.test
+# description: test ducklake view info columns
+# group: [view]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_view_info_columns.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_view_info_columns')
+
+statement ok
+use ducklake;
+
+statement ok
+create or replace table t as select 1 as id;
+
+statement ok
+create or replace view v as select * from t;
+
+query I
+FROM duckdb_columns
+----
+
+query I
+select table_name from information_schema.columns where table_catalog = current_database();
+----
