@@ -6,40 +6,9 @@ body:
   - type: markdown
     attributes:
       value: >
-        DuckDB has several repositories for different components, please make sure you're raising your issue in the correct one:
-
-          * [Documentation/website](https://github.com/duckdb/ducklake-web/issues/new)
-          * [Core DuckDB](https://github.com/duckdb/duckdb/issues/new)
-          * APIs:
-            * [duckdb-java](https://github.com/duckdb/duckdb-java/issues/new)
-            * [duckdb-node](https://github.com/duckdb/duckdb-node/issues/new)
-            * [duckdb-node-neo](https://github.com/duckdb/duckdb-node-neo/issues/new)
-            * [duckdb-odbc](https://github.com/duckdb/duckdb-odbc/issues/new)
-            * [duckdb-r](https://github.com/duckdb/duckdb-r/issues/new)
-            * [duckdb-rs](https://github.com/duckdb/duckdb-rs/issues/new)
-            * [duckdb-swift](https://github.com/duckdb/duckdb-swift/issues/new)
-            * [duckdb-wasm](https://github.com/duckdb/duckdb-wasm/issues/new)
-            * [go-duckdb](https://github.com/marcboeker/go-duckdb/issues/new)
-          * Extensions:
-            * [AWS extension](https://github.com/duckdb/duckdb-aws/issues/new)
-            * [Azure extension](https://github.com/duckdb/duckdb-azure/issues/new)
-            * [Delta extension](https://github.com/duckdb/duckdb-delta/issues/new)
-            * [Encodings extension](https://github.com/duckdb/duckdb-encodings/issues/new)
-            * [Excel extension](https://github.com/duckdb/duckdb-excel/issues/new)
-            * [fts (full text search) extension](https://github.com/duckdb/duckdb-fts/issues/new)
-            * [httpfs extension](https://github.com/duckdb/duckdb-httpfs/issues/new)
-            * [Iceberg extension](https://github.com/duckdb/duckdb-iceberg/issues/new)
-            * [inet extension](https://github.com/duckdb/duckdb-inet/issues/new)
-            * [MySQL extension](https://github.com/duckdb/duckdb-mysql/issues/new)
-            * [Postgres scanner](https://github.com/duckdb/duckdb-postgres/issues/new)
-            * [Spatial extension](https://github.com/duckdb/duckdb-spatial/issues/new)
-            * [SQLite scanner](https://github.com/duckdb/duckdb-sqlite/issues/new)
-            * [UI](https://github.com/duckdb/duckdb-ui/issues/new)
-            * [VSS extension](https://github.com/duckdb/duckdb-vss/issues/new)
-          * Connectors:
-            * [dbt-duckdb](https://github.com/duckdb/dbt-duckdb)
-
-        If none of the above repositories are applicable, feel free to raise it in this one
+        This repository is purely for DuckLake related issues.
+        If you have found a bug in DuckDB, please refer to the [core DuckDB](https://github.com/duckdb/duckdb/issues/new) repository.
+        For issues regarding the Ducklake documentation, refer to [Documentation/website](https://github.com/duckdb/ducklake-web/issues/new).
 
   - type: textarea
     attributes:
