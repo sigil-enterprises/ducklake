@@ -18,4 +18,4 @@ INSERT INTO ducklake.test FROM range(1000);
 query II
 EXPLAIN SELECT * FROM ducklake.test
 ----
-physical_plan	<REGEX>:.*~1000.*
+physical_plan	<REGEX>:.*~1,000.*
