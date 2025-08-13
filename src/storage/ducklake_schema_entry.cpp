@@ -243,10 +243,15 @@ void DuckLakeSchemaEntry::Scan(ClientContext &context, CatalogType type,
 			continue;
 		}
 		if (entry.second->type == CatalogType::VIEW_ENTRY) {
-		auto view_entry = dynamic_cast<DuckLakeViewEntry *>(entry.second.get());
-		view_entry->sql = view_entry->GetQuerySQL();
-			auto view_info = CreateViewInfo::FromCreateView(context, view_entry->sql);
-	}
+			auto view_entry = dynamic_cast<DuckLakeViewEntry *>(entry.second.get());
+			if (!view_entry->IsBound()) {
+				try {
+					view_entry->Bind(context);
+				} catch (...) {
+					//
+				}
+			}
+		}
 		callback(*entry.second);
 	}
 }
