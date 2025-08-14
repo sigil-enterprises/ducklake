@@ -279,7 +279,7 @@ void DuckLakeFileProcessor::ReadParquetFileMetadata(const string &glob) {
 SELECT file_name, num_rows, footer_size, file_size_bytes
 FROM parquet_file_metadata(%s)
 )",
-	                                              SQLString(glob)));
+	                                                   SQLString(glob)));
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to add data files to DuckLake: ");
 	}
@@ -293,7 +293,6 @@ FROM parquet_file_metadata(%s)
 		entry->second->row_count = row.GetValue<idx_t>(1);
 		entry->second->footer_size = row.GetValue<idx_t>(2);
 		entry->second->file_size_bytes = row.GetValue<idx_t>(3);
-
 	}
 }
 
