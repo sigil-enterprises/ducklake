@@ -1,4 +1,6 @@
 #include "storage/ducklake_field_data.hpp"
+
+#include "duckdb/common/exception/catalog_exception.hpp"
 #include "duckdb/parser/column_list.hpp"
 #include "duckdb/parser/expression/constant_expression.hpp"
 
@@ -207,6 +209,9 @@ unique_ptr<DuckLakeFieldId> DuckLakeFieldId::RemoveField(const vector<string> &c
 	for (idx_t child_idx = 0; child_idx < children.size(); child_idx++) {
 		auto &child = *children[child_idx];
 		if (StringUtil::CIEquals(child.Name(), column_path[depth])) {
+			if (type.id() == LogicalTypeId::MAP && depth == 1 && column_path.size() == 2 && (StringUtil::CIEquals(child.Name(), "key") || StringUtil::CIEquals(child.Name(), "value") ) ) {
+				throw CatalogException("Cannot drop field '%s' from column '%s' - it's not a struct", child.Name(), name);
+			}
 			// found it!
 			found = true;
 			if (depth + 1 >= column_path.size()) {
