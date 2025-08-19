@@ -243,10 +243,10 @@ void DuckLakeSchemaEntry::Scan(ClientContext &context, CatalogType type,
 			continue;
 		}
 		if (entry.second->type == CatalogType::VIEW_ENTRY) {
-			auto view_entry = dynamic_cast<DuckLakeViewEntry *>(entry.second.get());
-			if (!view_entry->IsBound()) {
+			auto &view_entry = entry.second->Cast<DuckLakeViewEntry>();
+			if (!view_entry.IsBound()) {
 				try {
-					view_entry->Bind(context);
+					view_entry.Bind(context);
 				} catch (...) {
 					//
 				}
