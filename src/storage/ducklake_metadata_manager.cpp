@@ -1745,12 +1745,12 @@ unique_ptr<DuckLakeSnapshot> DuckLakeMetadataManager::GetSnapshot() {
 	return snapshot;
 }
 
-unique_ptr<DuckLakeSnapshot> DuckLakeMetadataManager::GetSnapshot(BoundAtClause &at_clause, bool from) {
+unique_ptr<DuckLakeSnapshot> DuckLakeMetadataManager::GetSnapshot(BoundAtClause &at_clause, SnapshotBound bound) {
 	auto &unit = at_clause.Unit();
 	auto &val = at_clause.GetValue();
 	unique_ptr<QueryResult> result;
-	const string timestamp_aggregate = from ? "MIN" : "MAX";
-	const string timestamp_condition = from ? ">" : "<";
+	const string timestamp_aggregate = bound == SnapshotBound::LOWER_BOUND ? "MIN" : "MAX";
+	const string timestamp_condition = bound == SnapshotBound::LOWER_BOUND ? ">" : "<";
 	if (StringUtil::CIEquals(unit, "version")) {
 		result = transaction.Query(StringUtil::Format(R"(
 SELECT snapshot_id, schema_version, next_catalog_id, next_file_id

@@ -24,14 +24,10 @@ insert into repro by name select 2 as foo, '2' as bar, current_timestamp as upda
 statement ok
 insert into repro by name select 3 as foo, '3' as bar, current_timestamp as update_ts;
 
-# statement ok
-# from table_changes('repro', current_timestamp - interval 1 week, current_timestamp);
-
 query I
 SELECT COUNT(*) FROM ducklake.table_changes('repro', 0, 4);
 ----
 3
-
 
 query I
 SELECT COUNT(*) from ducklake.table_changes('repro', date '1970-01-01', now())

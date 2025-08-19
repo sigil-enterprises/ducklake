@@ -31,7 +31,9 @@ class BoundAtClause;
 class QueryResult;
 class FileSystem;
 
-// The DuckLake metadata manger is the communication layer between the system and the metadata catalog
+enum class SnapshotBound { LOWER_BOUND, UPPER_BOUND };
+
+//! The DuckLake metadata manger is the communication layer between the system and the metadata catalog
 class DuckLakeMetadataManager {
 public:
 	explicit DuckLakeMetadataManager(DuckLakeTransaction &transaction);
@@ -95,7 +97,7 @@ public:
 	virtual void UpdateGlobalTableStats(const DuckLakeGlobalStatsInfo &stats);
 	virtual SnapshotChangeInfo GetChangesMadeAfterSnapshot(DuckLakeSnapshot start_snapshot);
 	virtual unique_ptr<DuckLakeSnapshot> GetSnapshot();
-	virtual unique_ptr<DuckLakeSnapshot> GetSnapshot(BoundAtClause &at_clause, bool from = false);
+	virtual unique_ptr<DuckLakeSnapshot> GetSnapshot(BoundAtClause &at_clause, SnapshotBound bound);
 	virtual idx_t GetNextColumnId(TableIndex table_id);
 	virtual shared_ptr<DuckLakeInlinedData> ReadInlinedData(DuckLakeSnapshot snapshot, const string &inlined_table_name,
 	                                                        const vector<string> &columns_to_read);
