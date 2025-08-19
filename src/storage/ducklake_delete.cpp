@@ -56,8 +56,8 @@ public:
 class DuckLakeDeleteGlobalState : public GlobalSinkState {
 public:
 	explicit DuckLakeDeleteGlobalState() {
-		written_columns["file_path"] = WrittenColumnInfo(LogicalType::VARCHAR, MultiFileReader::FILENAME_FIELD_ID);
-		written_columns["pos"] = WrittenColumnInfo(LogicalType::BIGINT, MultiFileReader::ORDINAL_FIELD_ID);
+		written_columns["file_path"] = WrittenColumnInfo(LogicalType::VARCHAR, MultiFileReader::DELETE_FILE_PATH_FIELD_ID);
+		written_columns["pos"] = WrittenColumnInfo(LogicalType::BIGINT, MultiFileReader::DELETE_POS_FIELD_ID);
 	}
 
 	mutex lock;
