@@ -324,7 +324,7 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	auto &columns = table.GetColumns();
 	auto table_path = table.DataPath();
 	string data_path;
-	if (!source_files.empty()) {
+	if (partition_id.IsValid()) {
 		data_path = source_files[0].file.data.path;
 		data_path = StringUtil::Replace(data_path, table_path, "");
 		auto path_result = StringUtil::Split(data_path, "/");
@@ -332,7 +332,7 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 		if (path_result.size() > 1) {
 			// This means we have a hive partition.
 			for (idx_t i = 0; i < path_result.size() - 1; i++) {
-				data_path += "/" + path_result[i];
+				data_path += catalog.Separator() + path_result[i];
 			}
 			// If we do have a hive partition, let's verify all files have the same one.
 			for (idx_t i = 1; i < source_files.size(); i++) {
