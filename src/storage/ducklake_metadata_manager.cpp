@@ -70,6 +70,7 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion(data_file_
 CREATE TABLE {METADATA_CATALOG}.ducklake_inlined_data_tables(table_id BIGINT, table_name VARCHAR, schema_version BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_column_mapping(mapping_id BIGINT, table_id BIGINT, type VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_name_mapping(mapping_id BIGINT, column_id BIGINT, source_name VARCHAR, target_field_id BIGINT, parent_column BIGINT, is_partition BOOLEAN);
+CREATE TABLE {METADATA_CATALOG}.ducklake_schema_versions(begin_snapshot BIGINT, schema_version BIGINT);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot_changes VALUES (0, 'created_schema:"main"',  NULL, NULL, NULL);
 INSERT INTO {METADATA_CATALOG}.ducklake_metadata (key, value) VALUES ('version', '0.3-dev1'), ('created_by', 'DuckDB %s'), ('data_path', %s), ('encrypted', '%s');
@@ -113,6 +114,7 @@ ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot_changes ADD COLUMN author VARCH
 ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot_changes ADD COLUMN commit_message VARCHAR DEFAULT NULL;
 ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot_changes ADD COLUMN commit_extra_info VARCHAR DEFAULT NULL;
 UPDATE {METADATA_CATALOG}.ducklake_metadata SET value = '0.3-dev1' WHERE key = 'version';
+INSERT INTO {METADATA_CATALOG}.ducklake_schema_versions SELECT MIN(snapshot_id), schema_version FROM {METADATA_CATALOG}.ducklake_snapshot GROUP BY schema_version ORDER BY schema_version;
 	)";
 	auto result = transaction.Query(migrate_query);
 	if (result->HasError()) {
@@ -2400,6 +2402,16 @@ void DuckLakeMetadataManager::DeleteInlinedData(const DuckLakeInlinedTableInfo &
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to delete inlined data in DuckLake from table " +
 		                               inlined_table.table_name + ": ");
+	}
+}
+
+void DuckLakeMetadataManager::InsertNewSchema(const DuckLakeSnapshot &snapshot) {
+	const auto insert_schema_change =
+	    StringUtil::Format(R"(INSERT INTO {METADATA_CATALOG}.ducklake_schema_versions VALUES (%llu,%llu);)",
+	                       snapshot.snapshot_id, snapshot.schema_version);
+	const auto result = transaction.Query(insert_schema_change);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to insert new schema version to DuckLake:");
 	}
 }
 
