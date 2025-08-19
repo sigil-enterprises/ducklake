@@ -35,7 +35,7 @@ SELECT count(*) FROM ducklake_list_files('ducklake', 'example');
 2
 
 statement ok
-CALL ducklake_expire_snapshots('ducklake', versions => [2]);
+CALL ducklake_expire_snapshots('ducklake', versions => [1,2]);
 
 query I
 SELECT count(*) FROM ducklake_list_files('ducklake', 'example');
@@ -87,7 +87,6 @@ query II
 SELECT snapshot_id, changes FROM snapshots();
 ----
 0	{schemas_created=[main]}
-1	{tables_created=[main.example]}
 3	{tables_inserted_into=[1]}
 4	{}
 5	{tables_inserted_into=[1]}
@@ -110,19 +109,19 @@ SELECT count(*) FROM ducklake_list_files('ducklake', 'example');
 statement ok
 CALL ducklake.merge_adjacent_files();
 
-# Because of the drops we can only merge 9-10
+# We altered the schema twice, hence we can have 3 files, as there are only 3 different schemas.
 query I
 SELECT count(*) FROM ducklake_list_files('ducklake', 'example');
 ----
-5
+3
 
 query II
-FROM example
+FROM example ORDER BY ALL
 ----
-bar	NULL
-qux	NULL
 b	NULL
+bar	NULL
 d	1
 f	2
-k	3
 f	9
+k	3
+qux	NULL

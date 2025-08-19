@@ -796,16 +796,19 @@ vector<DuckLakeCompactionFileEntry> DuckLakeMetadataManager::GetFilesForCompacti
 	auto query = StringUtil::Format(R"(
 WITH snapshot_ranges AS (
   SELECT
-    MIN(snapshot_id) AS min_snapshot_id,
-    MAX(snapshot_id) AS max_snapshot_id,
-    schema_version
-  FROM {METADATA_CATALOG}.ducklake_snapshot
-  GROUP BY schema_version
+    begin_snapshot,
+    COALESCE(
+      LEAD(begin_snapshot) OVER (ORDER BY begin_snapshot),
+      9223372036854775807
+    ) AS end_snapshot,
+	schema_version
+	FROM {METADATA_CATALOG}.ducklake_schema_versions
+	ORDER BY begin_snapshot
 )
 SELECT %s,
 FROM {METADATA_CATALOG}.ducklake_data_file data
 JOIN snapshot_ranges sr
-  ON data.begin_snapshot BETWEEN sr.min_snapshot_id AND sr.max_snapshot_id
+  ON data.begin_snapshot BETWEEN sr.begin_snapshot AND sr.end_snapshot
 LEFT JOIN (
 	SELECT *
     FROM {METADATA_CATALOG}.ducklake_delete_file
