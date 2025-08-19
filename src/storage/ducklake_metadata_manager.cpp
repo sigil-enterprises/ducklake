@@ -114,6 +114,7 @@ ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot_changes ADD COLUMN author VARCH
 ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot_changes ADD COLUMN commit_message VARCHAR DEFAULT NULL;
 ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot_changes ADD COLUMN commit_extra_info VARCHAR DEFAULT NULL;
 UPDATE {METADATA_CATALOG}.ducklake_metadata SET value = '0.3-dev1' WHERE key = 'version';
+CREATE TABLE {METADATA_CATALOG}.ducklake_schema_versions(begin_snapshot BIGINT, schema_version BIGINT);
 INSERT INTO {METADATA_CATALOG}.ducklake_schema_versions SELECT MIN(snapshot_id), schema_version FROM {METADATA_CATALOG}.ducklake_snapshot GROUP BY schema_version ORDER BY schema_version;
 	)";
 	auto result = transaction.Query(migrate_query);
