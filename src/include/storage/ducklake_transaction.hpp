@@ -133,6 +133,10 @@ public:
 	string GenerateUUID() const;
 	static string GenerateUUIDv7();
 
+	const set<TableIndex> &GetDroppedTables() {
+		return dropped_tables;
+	}
+
 	//! Returns the current version of the catalog:
 	//! If there are no uncommitted changes, this is the schema version of the snapshot.
 	//! Otherwise, it is an id that is incremented whenever the schema changes (not stored between restarts)

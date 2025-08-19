@@ -28,6 +28,7 @@ private:
 	DuckLakeCatalog &ducklake_catalog;
 	mutex transaction_lock;
 	reference_map_t<Transaction, shared_ptr<DuckLakeTransaction>> transactions;
+	bool get_snapshot = true;
 };
 
 } // namespace duckdb
