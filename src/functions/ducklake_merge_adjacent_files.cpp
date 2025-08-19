@@ -327,7 +327,7 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	if (partition_id.IsValid()) {
 		data_path = source_files[0].file.data.path;
 		data_path = StringUtil::Replace(data_path, table_path, "");
-		auto path_result = StringUtil::Split(data_path, "/");
+		auto path_result = StringUtil::Split(data_path, catalog.Separator());
 		data_path = "";
 		if (path_result.size() > 1) {
 			// This means we have a hive partition.
