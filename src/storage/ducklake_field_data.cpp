@@ -209,10 +209,7 @@ unique_ptr<DuckLakeFieldId> DuckLakeFieldId::RemoveField(const vector<string> &c
 	for (idx_t child_idx = 0; child_idx < children.size(); child_idx++) {
 		auto &child = *children[child_idx];
 		if (StringUtil::CIEquals(child.Name(), column_path[depth])) {
-			if (depth == 1 && column_path.size() == 2 &&
-			    ((type.id() == LogicalTypeId::MAP &&
-			      (StringUtil::CIEquals(child.Name(), "key") || StringUtil::CIEquals(child.Name(), "value"))) ||
-			     (type.id() == LogicalTypeId::LIST && StringUtil::CIEquals(child.Name(), "element")))) {
+			if (column_path.size() == 2 && (type.id() == LogicalTypeId::MAP || type.id() == LogicalTypeId::LIST)) {
 				throw CatalogException("Cannot drop field '%s' from column '%s' - it's not a struct", child.Name(),
 				                       name);
 			}
