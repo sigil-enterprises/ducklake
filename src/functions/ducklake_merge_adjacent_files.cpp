@@ -222,7 +222,7 @@ void DuckLakeCompactor::GenerateCompactions(DuckLakeTableEntry &table,
 		candidates[group].candidate_files.push_back(file_idx);
 	}
 
-	// we have gathered all of the candidate files per compaction group
+	// we have gathered all the candidate files per compaction group
 	// iterate over them to generate actual compaction commands
 	for (auto &entry : candidates) {
 		auto &candidate_list = entry.second.candidate_files;
@@ -234,7 +234,7 @@ void DuckLakeCompactor::GenerateCompactions(DuckLakeTableEntry &table,
 			// check if we can merge this file with subsequent files
 			idx_t current_file_size = 0;
 			idx_t compaction_idx;
-			for (compaction_idx = 0; compaction_idx < candidate_list.size(); compaction_idx++) {
+			for (compaction_idx = start_idx; compaction_idx < candidate_list.size(); compaction_idx++) {
 				if (current_file_size >= target_file_size) {
 					// we hit the target size already - stop
 					break;
@@ -257,8 +257,9 @@ void DuckLakeCompactor::GenerateCompactions(DuckLakeTableEntry &table,
 				// this file can be compacted along with the neighbors
 				current_file_size += file_size;
 			}
-			idx_t compaction_file_count = compaction_idx - start_idx;
-			if (compaction_file_count > 1) {
+
+			if (start_idx < compaction_idx) {
+				idx_t compaction_file_count = compaction_idx - start_idx;
 				vector<DuckLakeCompactionFileEntry> compaction_files;
 				for (idx_t i = start_idx; i < compaction_idx; i++) {
 					compaction_files.push_back(std::move(files[candidate_list[i]]));
@@ -322,11 +323,31 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 
 	// generate the LogicalGet
 	auto &columns = table.GetColumns();
+	auto table_path = table.DataPath();
+	string data_path;
+	if (partition_id.IsValid()) {
+		data_path = source_files[0].file.data.path;
+		data_path = StringUtil::Replace(data_path, table_path, "");
+		auto path_result = StringUtil::Split(data_path, catalog.Separator());
+		data_path = "";
+		if (path_result.size() > 1) {
+			// This means we have a hive partition.
+			for (idx_t i = 0; i < path_result.size() - 1; i++) {
+				data_path += catalog.Separator() + path_result[i];
+			}
+			// If we do have a hive partition, let's verify all files have the same one.
+			for (idx_t i = 1; i < source_files.size(); i++) {
+				if (!StringUtil::Contains(source_files[i].file.data.path, data_path)) {
+					throw InternalException("DuckLakeCompactor: Files have different hive partition path");
+				}
+			}
+		}
+	}
 
-	DuckLakeCopyInput copy_input(context, table);
+	DuckLakeCopyInput copy_input(context, table, data_path);
 	// merge_adjacent_files does not use partitioning information - instead we always merge within partitions
 	copy_input.partition_data = nullptr;
-	// if files are adjacent we don't need to write the row-id to the file
+	// if files are adjacent, we don't need to write the row-id to the file
 	if (files_are_adjacent) {
 		copy_input.virtual_columns = InsertVirtualColumns::WRITE_SNAPSHOT_ID;
 	} else {
@@ -410,7 +431,7 @@ unique_ptr<LogicalOperator> MergeAdjacentFilesBind(ClientContext &context, Table
 	}
 	return_names.push_back("Success");
 	if (compactions.empty()) {
-		// nothing to compact - generate empty result
+		// nothing to compact - generate an empty result
 		vector<ColumnBinding> bindings;
 		vector<LogicalType> return_types;
 		bindings.emplace_back(bind_index, 0);

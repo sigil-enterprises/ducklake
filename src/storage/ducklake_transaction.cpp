@@ -1322,8 +1322,9 @@ void DuckLakeTransaction::FlushChanges() {
 
 	auto transaction_snapshot = GetSnapshot();
 	auto transaction_changes = GetTransactionChanges();
+	DuckLakeSnapshot commit_snapshot;
 	for (idx_t i = 0; i < max_retry_count + 1; i++) {
-		auto commit_snapshot = GetSnapshot();
+		commit_snapshot = GetSnapshot();
 		commit_snapshot.snapshot_id++;
 		if (SchemaChangesMade()) {
 			// we changed the schema - need to get a new schema version
@@ -1366,7 +1367,7 @@ void DuckLakeTransaction::FlushChanges() {
 			if (!can_retry || !retry_on_error || finished_retrying) {
 				// we abort after the max retry count
 				CleanupFiles();
-				// Add additional information on number of retries and suggest to increase it
+				// Add additional information on the number of retries and suggest to increase it
 				std::ostringstream error_message;
 				error_message << "Failed to commit DuckLake transaction." << '\n';
 				if (finished_retrying) {
@@ -1378,7 +1379,6 @@ void DuckLakeTransaction::FlushChanges() {
 				error.Throw(error_message.str());
 			}
 
-			//
 #ifndef DUCKDB_NO_THREADS
 			RandomEngine random;
 			// random multiplier between 0.5 - 1.0
@@ -1393,6 +1393,8 @@ void DuckLakeTransaction::FlushChanges() {
 			snapshot.reset();
 		}
 	}
+	// If we got here, this snapshot was successful
+	ducklake_catalog.SetCommittedSnapshotId(commit_snapshot.snapshot_id);
 }
 
 void DuckLakeTransaction::SetConfigOption(const DuckLakeConfigOption &option) {
@@ -1469,7 +1471,7 @@ DuckLakeSnapshot DuckLakeTransaction::GetSnapshot() {
 	return *snapshot;
 }
 
-DuckLakeSnapshot DuckLakeTransaction::GetSnapshot(optional_ptr<BoundAtClause> at_clause) {
+DuckLakeSnapshot DuckLakeTransaction::GetSnapshot(optional_ptr<BoundAtClause> at_clause, SnapshotBound bound) {
 	if (!at_clause) {
 		// no AT-clause - get the latest snapshot
 		return GetSnapshot();
@@ -1487,7 +1489,7 @@ DuckLakeSnapshot DuckLakeTransaction::GetSnapshot(optional_ptr<BoundAtClause> at
 		return entry->second;
 	}
 	// find the snapshot and cache it
-	auto result_snapshot = *metadata_manager->GetSnapshot(*at_clause);
+	auto result_snapshot = *metadata_manager->GetSnapshot(*at_clause, bound);
 	snapshot_cache.insert(make_pair(std::move(snapshot_value), result_snapshot));
 	return result_snapshot;
 }
