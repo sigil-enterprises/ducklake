@@ -60,6 +60,12 @@ public:
 	DuckLakeMergeAdjacentFilesFunction();
 };
 
+class DuckLakeRewriteDataFilesFunction : public TableFunction {
+public:
+	DuckLakeRewriteDataFilesFunction();
+};
+
+
 class DuckLakeCleanupOldFilesFunction : public TableFunction {
 public:
 	DuckLakeCleanupOldFilesFunction();
