@@ -42,7 +42,7 @@ struct LocalTableDataChanges {
 	unordered_map<string, DuckLakeDeleteFile> new_delete_files;
 	unordered_map<string, unique_ptr<DuckLakeInlinedDataDeletes>> new_inlined_data_deletes;
 	vector<DuckLakeCompactionEntry> compactions;
-
+	vector<DuckLakeRewriteEntry> rewrite;
 	bool IsEmpty() const;
 };
 
@@ -93,6 +93,7 @@ public:
 	void AppendFiles(TableIndex table_id, vector<DuckLakeDataFile> files);
 	void AddDeletes(TableIndex table_id, vector<DuckLakeDeleteFile> files);
 	void AddCompaction(TableIndex table_id, DuckLakeCompactionEntry entry);
+	void AddRewrite(TableIndex table_id, DuckLakeRewriteEntry entry);
 
 	MappingIndex AddNameMap(unique_ptr<DuckLakeNameMap> name_map);
 	const DuckLakeNameMap &GetMappingById(MappingIndex mapping_id);

@@ -74,13 +74,13 @@ SinkFinalizeType DuckLakeRewrite::Finalize(Pipeline &pipeline, Event &event, Cli
 		}
 	}
 
-	// DuckLakeCompactionEntry compaction_entry;
-	// compaction_entry.row_id_start = row_id_start;
-	// compaction_entry.source_files = source_files;
-	// compaction_entry.written_file = global_state.written_files[0];
-	//
-	// auto &transaction = DuckLakeTransaction::Get(context, global_state.table.catalog);
-	// transaction.AddCompaction(global_state.table.GetTableId(), std::move(compaction_entry));
+	DuckLakeRewriteEntry compaction_entry;
+	compaction_entry.row_id_start = row_id_start;
+	compaction_entry.source_files = source_files;
+	compaction_entry.written_file = global_state.written_files[0];
+
+	auto &transaction = DuckLakeTransaction::Get(context, global_state.table.catalog);
+	transaction.AddCompaction(global_state.table.GetTableId(), std::move(compaction_entry));
 	return SinkFinalizeType::READY;
 }
 

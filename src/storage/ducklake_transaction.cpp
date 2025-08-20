@@ -1705,6 +1705,12 @@ void DuckLakeTransaction::AddCompaction(TableIndex table_id, DuckLakeCompactionE
 	table_changes.compactions.push_back(std::move(entry));
 }
 
+void DuckLakeTransaction::AddRewrite(TableIndex table_id, DuckLakeRewriteEntry entry) {
+	lock_guard<mutex> guard(table_data_changes_lock);
+	auto &table_changes = table_data_changes[table_id];
+	table_changes.rewrite.push_back(std::move(entry));
+}
+
 bool DuckLakeTransaction::HasLocalDeletes(TableIndex table_id) {
 	auto entry = table_data_changes.find(table_id);
 	if (entry == table_data_changes.end()) {
