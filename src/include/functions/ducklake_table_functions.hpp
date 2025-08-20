@@ -65,7 +65,6 @@ public:
 	DuckLakeRewriteDataFilesFunction();
 };
 
-
 class DuckLakeCleanupOldFilesFunction : public TableFunction {
 public:
 	DuckLakeCleanupOldFilesFunction();

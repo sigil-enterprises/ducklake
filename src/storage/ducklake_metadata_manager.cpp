@@ -802,7 +802,7 @@ LEFT JOIN (
           AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
     ) del USING (data_file_id)
 WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_ID} < data.end_snapshot OR data.end_snapshot IS NULL)
-      AND (del.delete_count * 100)/data.record_count >= %f
+      AND del.delete_count /data.record_count >= %f
 		)",
 	                                select_list, table_id.index, table_id.index, delete_threshold);
 	auto result = transaction.Query(*snapshot, query);

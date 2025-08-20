@@ -33,9 +33,26 @@ statement ok
 DELETE FROM test
 WHERE key > 5000;
 
+query I
+SELECT delete_file is not null FROM ducklake_list_files('ducklake', 'test')
+----
+True
+
 statement ok
 CALL ducklake_rewrite_data_files('ducklake', 'test', delete_threshold => 0.95);
 
+query I
+SELECT delete_file is not null FROM ducklake_list_files('ducklake', 'test')
+----
+True
+
+statement ok
+CALL ducklake_rewrite_data_files('ducklake', 'test', delete_threshold => 0.10);
+
+query I
+FROM ducklake_list_files('ducklake', 'test')
+----
+True
 
 # What if we have multiple files?
 # Let's do partitions
