@@ -1346,8 +1346,13 @@ void DuckLakeTransaction::FlushChanges() {
 			metadata_manager->InsertSnapshot(commit_snapshot);
 
 			WriteSnapshotChanges(commit_state, transaction_changes);
+			if (SchemaChangesMade()) {
+				// Insert our new schema in our table that tracks schema changes
+				metadata_manager->InsertNewSchema(commit_snapshot);
+			}
 			connection->Commit();
 			catalog_version = commit_snapshot.schema_version;
+
 			// finished writing
 			break;
 		} catch (std::exception &ex) {
