@@ -325,6 +325,13 @@ struct DuckLakeCompactionFileEntry {
 	idx_t schema_version;
 };
 
+struct DuckLakeRewriteFileEntry {
+	DuckLakeCompactionFileData file;
+	vector<DuckLakeCompactionDeleteFileData> delete_files;
+	vector<DuckLakePartialFileInfo> partial_files;
+	idx_t schema_version;
+};
+
 struct DuckLakeCompactionEntry {
 	vector<DuckLakeCompactionFileEntry> source_files;
 	DuckLakeDataFile written_file;

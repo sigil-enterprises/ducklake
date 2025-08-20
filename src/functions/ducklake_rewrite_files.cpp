@@ -27,8 +27,8 @@ public:
 	DuckLakeRewriter(ClientContext &context, DuckLakeCatalog &catalog, DuckLakeTransaction &transaction,
 	                  Binder &binder, TableIndex table_id);
 
-	unique_ptr<LogicalOperator>  GenerateRewriter(DuckLakeTableEntry &table);
-	unique_ptr<LogicalOperator> GenerateRewriterCommand(vector<DuckLakeRewriterFileEntry> source_files);
+	unique_ptr<LogicalOperator>  GenerateRewriter(DuckLakeTableEntry &table, double delete_threshold);
+	// unique_ptr<LogicalOperator> GenerateRewriterCommand(vector<DuckLakeRewriterFileEntry> source_files);
 
 private:
 	ClientContext &context;
@@ -43,6 +43,11 @@ DuckLakeRewriter::DuckLakeRewriter(ClientContext &context, DuckLakeCatalog &cata
     : context(context), catalog(catalog), transaction(transaction), binder(binder), table_id(table_id) {
 }
 
+unique_ptr<LogicalOperator> DuckLakeRewriter::GenerateRewriter(DuckLakeTableEntry &table, double delete_threshold) {
+	auto &metadata_manager = transaction.GetMetadataManager();
+	auto files = metadata_manager.GetFilesForRewrite(table, delete_threshold);
+	return nullptr;
+}
 
 unique_ptr<LogicalOperator> RewriteFilesBind(ClientContext &context, TableFunctionBindInput &input,
                                                    idx_t bind_index, vector<string> &return_names) {
@@ -72,7 +77,7 @@ unique_ptr<LogicalOperator> RewriteFilesBind(ClientContext &context, TableFuncti
 
 	// Now we try to rewrite the ducklake table
 	DuckLakeRewriter rewriter(context, ducklake_catalog, transaction, *input.binder, table.GetTableId());
-	auto op = rewriter.GenerateRewriter(table);
+	auto op = rewriter.GenerateRewriter(table, delete_threshold);
 	return_names.push_back("Success");
 	if (!op) {
 		// nothing to rewrite - generate an empty result
@@ -83,7 +88,7 @@ unique_ptr<LogicalOperator> RewriteFilesBind(ClientContext &context, TableFuncti
 		return make_uniq<LogicalEmptyResult>(std::move(return_types), std::move(bindings));
 	}
 
-	op->Cast<DuckLakeLogicalCompaction>().table_index = bind_index;
+	// op->Cast<DuckLakeLogicalCompaction>().table_index = bind_index;
 	return std::move(op);
 
 }
