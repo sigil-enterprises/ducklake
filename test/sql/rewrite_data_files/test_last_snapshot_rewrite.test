@@ -54,10 +54,22 @@ SELECT delete_file_id FROM ducklake_metadata.ducklake_delete_file
 2
 3
 
+# This won't do much, since our default threshold is too high
 statement ok
-CALL ducklake_rewrite_data_files('ducklake', 'test', delete_threshold => 0.95);
+CALL ducklake_rewrite_data_files('ducklake', 'test');
+
+query I
+SELECT delete_file_id FROM ducklake_metadata.ducklake_delete_file
+----
+1
+2
+3
+
+statement ok
+CALL ducklake_rewrite_data_files('ducklake', 'test', delete_threshold => 0.5);
 
 
+# We are deleting more than one file, so we can get it out
 query I
 SELECT delete_file_id FROM ducklake_metadata.ducklake_delete_file
 ----
@@ -69,5 +81,39 @@ SELECT COUNT(*) from test
 ----
 4001
 
+# Let's do one more deletion to test the global setting
+statement ok
+CALL ducklake.set_option('compaction_delete_threshold_rewrite', 0.1)
+
+statement ok
+DELETE FROM test
+WHERE key > 4000;
+
+query I
+SELECT delete_file_id FROM ducklake_metadata.ducklake_delete_file
+----
+1
+2
+5
+
+statement ok
+CALL ducklake_rewrite_data_files('ducklake', 'test');
+
+query I
+SELECT delete_file_id FROM ducklake_metadata.ducklake_delete_file
+----
+1
+2
+
+query I
+SELECT COUNT(*) from test
+----
+3001
+
 # What if we have multiple files?
+
+# Test cleanups
+
 # Let's do partitions
+
+# Many snapshots

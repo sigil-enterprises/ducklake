@@ -237,7 +237,9 @@ void DuckLakeCompactor::GenerateCompactions(DuckLakeTableEntry &table,
 		candidates[group].candidate_files.push_back(file_idx);
 	}
 	if (type == REWRITE_DELETES) {
-		compactions.push_back(GenerateCompactionCommand(std::move(files)));
+		if (!files.empty()) {
+			compactions.push_back(GenerateCompactionCommand(std::move(files)));
+		}
 		return;
 	}
 	// we have gathered all the candidate files per compaction group
@@ -313,6 +315,7 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	optional_idx prev_row_id;
 	// set the files to scan as only the files we are trying to compact
 	vector<DuckLakeFileListEntry> files_to_scan;
+	vector<DuckLakeCompactionFileEntry> actionable_source_files;
 	for (auto &source : source_files) {
 		DuckLakeFileListEntry result;
 		result.file = source.file.data;
@@ -322,7 +325,9 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 		switch (type) {
 		case REWRITE_DELETES: {
 			if (!source.delete_files.empty()) {
-				D_ASSERT(!source.delete_files.back().end_snapshot.IsValid());
+				if (source.delete_files.back().end_snapshot.IsValid()) {
+					continue;
+				}
 				result.delete_file = source.delete_files.back().data;
 			}
 			break;
@@ -337,6 +342,7 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 		default:
 			throw InternalException("Invalid Compaction Type");
 		}
+		actionable_source_files.push_back(source);
 		// check if this file is adjacent (row-id wise) to the previous file
 		if (!source.file.row_id_start.IsValid()) {
 			// the file does not have a row_id_start defined - it cannot be adjacent
@@ -359,7 +365,7 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	auto table_path = table.DataPath();
 	string data_path;
 	if (partition_id.IsValid()) {
-		data_path = source_files[0].file.data.path;
+		data_path = actionable_source_files[0].file.data.path;
 		data_path = StringUtil::Replace(data_path, table_path, "");
 		auto path_result = StringUtil::Split(data_path, catalog.Separator());
 		data_path = "";
@@ -369,8 +375,8 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 				data_path += catalog.Separator() + path_result[i];
 			}
 			// If we do have a hive partition, let's verify all files have the same one.
-			for (idx_t i = 1; i < source_files.size(); i++) {
-				if (!StringUtil::Contains(source_files[i].file.data.path, data_path)) {
+			for (idx_t i = 1; i < actionable_source_files.size(); i++) {
+				if (!StringUtil::Contains(actionable_source_files[i].file.data.path, data_path)) {
 					throw InternalException("DuckLakeCompactor: Files have different hive partition path");
 				}
 			}
@@ -435,9 +441,9 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	}
 
 	// followed by the compaction operator (that writes the results back to the
-	auto compaction = make_uniq<DuckLakeLogicalCompaction>(binder.GenerateTableIndex(), table, std::move(source_files),
-	                                                       std::move(copy_input.encryption_key), partition_id,
-	                                                       std::move(partition_values), target_row_id_start, type);
+	auto compaction = make_uniq<DuckLakeLogicalCompaction>(
+	    binder.GenerateTableIndex(), table, std::move(actionable_source_files), std::move(copy_input.encryption_key),
+	    partition_id, std::move(partition_values), target_row_id_start, type);
 	compaction->children.push_back(std::move(copy));
 	return std::move(compaction);
 }
@@ -501,10 +507,12 @@ unique_ptr<LogicalOperator> RewriteFilesBind(ClientContext &context, TableFuncti
 
 	return_names.push_back("Success");
 
-	// By default, our delete threshold is 0.95 unless specified otherwise
-	double delete_threshold = 0.95;
+	// By default, our delete threshold is 0.95 unless it was set in the global compaction_delete_threshold_rewrite
+	double delete_threshold =
+	    ducklake_catalog.GetConfigOption<double>("compaction_delete_threshold_rewrite", {}, {}, 0.95);
 	auto delete_threshold_entry = input.named_parameters.find("delete_threshold");
 	if (delete_threshold_entry != input.named_parameters.end()) {
+		// If the user manually sets the parameter, this has priority
 		delete_threshold = DoubleValue::Get(delete_threshold_entry->second);
 	}
 

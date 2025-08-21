@@ -71,6 +71,8 @@ static unique_ptr<FunctionData> DuckLakeSetOptionBind(ClientContext &context, Ta
 		value = to_string(data_inlining_row_limit);
 	} else if (option == "require_commit_message") {
 		value = val.GetValue<bool>() ? "true" : "false";
+	} else if (option == "compaction_delete_threshold_rewrite") {
+		value = to_string(val.GetValue<double>());
 	} else if (option == "hive_file_pattern") {
 		value = val.GetValue<bool>() ? "true" : "false";
 	} else {

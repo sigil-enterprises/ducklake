@@ -845,6 +845,11 @@ vector<DuckLakeCompactionFileEntry> DuckLakeMetadataManager::GetFilesForCompacti
 	    "del.data_file_id,del.delete_file_id, del.delete_count, del.begin_snapshot, del.end_snapshot, " +
 	    GetFileSelectList("del");
 	string select_list = data_select_list + ", " + delete_select_list;
+	string deletion_threshold_clause;
+	if (type == REWRITE_DELETES) {
+		deletion_threshold_clause =
+		    StringUtil::Format(" AND del.delete_count/data.record_count >= %f", deletion_threshold);
+	}
 	auto query = StringUtil::Format(R"(
 WITH snapshot_ranges AS (
   SELECT
@@ -871,10 +876,10 @@ LEFT JOIN (
    FROM {METADATA_CATALOG}.ducklake_file_partition_value
    GROUP BY data_file_id
 ) partition_info USING (data_file_id)
-WHERE data.table_id=%d
+WHERE data.table_id=%d %s
 ORDER BY data.begin_snapshot, data.row_id_start, data.data_file_id, del.begin_snapshot
 		)",
-	                                select_list, table_id.index, table_id.index);
+	                                select_list, table_id.index, table_id.index, deletion_threshold_clause);
 	auto result = transaction.Query(query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to get compaction file list from DuckLake: ");
@@ -2299,8 +2304,7 @@ WHERE delete_file_id IN (%s);
 		result->GetErrorObject().Throw("Failed to insert files scheduled for deletions in DuckLake: ");
 	}
 
-	// If we had a deletion in a mid-snapshot, we must include the file back to the new files
-	idx_t i = 0;
+	// FIXME: If we had a deletion in a mid-snapshot, we must include the file back to the new files
 }
 
 void DuckLakeMetadataManager::WriteCompactions(const vector<DuckLakeCompactedFileInfo> &compactions,
