@@ -1237,18 +1237,26 @@ void DuckLakeTransaction::CommitChanges(DuckLakeCommitState &commit_state,
 		metadata_manager->WriteNewInlinedDeletes(commit_snapshot, inlined_deletes);
 
 		// write compactions
-		auto compaction_changes = GetCompactionChanges(commit_snapshot);
-		metadata_manager->WriteCompactions(compaction_changes.compacted_files);
-		metadata_manager->WriteNewDataFiles(commit_snapshot, compaction_changes.new_files);
+		auto compaction_merge_adjacent_changes = GetCompactionChanges(commit_snapshot, MERGE_ADJACENT_TABLES);
+		metadata_manager->WriteCompactions(compaction_merge_adjacent_changes.compacted_files, MERGE_ADJACENT_TABLES);
+		metadata_manager->WriteNewDataFiles(commit_snapshot, compaction_merge_adjacent_changes.new_files);
+
+		auto compaction_rewrite_delete_changes = GetCompactionChanges(commit_snapshot, REWRITE_DELETES);
+		metadata_manager->WriteCompactions(compaction_rewrite_delete_changes.compacted_files, REWRITE_DELETES);
+		metadata_manager->WriteNewDataFiles(commit_snapshot, compaction_rewrite_delete_changes.new_files);
 	}
 }
 
-CompactionInformation DuckLakeTransaction::GetCompactionChanges(DuckLakeSnapshot &commit_snapshot) {
+CompactionInformation DuckLakeTransaction::GetCompactionChanges(DuckLakeSnapshot &commit_snapshot,
+                                                                CompactionType type) {
 	CompactionInformation result;
 	for (auto &entry : table_data_changes) {
 		auto table_id = entry.first;
 		auto &table_changes = entry.second;
 		for (auto &compaction : table_changes.compactions) {
+			if (type != compaction.type) {
+				continue;
+			}
 			auto new_file = GetNewDataFile(compaction.written_file, commit_snapshot, table_id, compaction.row_id_start);
 			new_file.begin_snapshot = compaction.source_files[0].file.begin_snapshot;
 
@@ -1274,6 +1282,10 @@ CompactionInformation DuckLakeTransaction::GetCompactionChanges(DuckLakeSnapshot
 				file_info.path = compacted_file.file.data.path;
 				file_info.source_id = compacted_file.file.id;
 				file_info.new_id = new_file.id;
+				if (!compacted_file.delete_files.empty()) {
+					file_info.delete_file_path = compacted_file.delete_files.back().data.path;
+					file_info.delete_file_id = compacted_file.delete_files.back().delete_file_id;
+				}
 				if (row_id_limit > new_file.row_count) {
 					throw InternalException("Compaction error - row id limit is larger than the row count of the file");
 				}

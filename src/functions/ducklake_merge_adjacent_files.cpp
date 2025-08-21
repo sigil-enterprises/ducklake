@@ -76,6 +76,7 @@ SinkFinalizeType DuckLakeCompaction::Finalize(Pipeline &pipeline, Event &event, 
 	compaction_entry.row_id_start = row_id_start;
 	compaction_entry.source_files = source_files;
 	compaction_entry.written_file = global_state.written_files[0];
+	compaction_entry.type = type;
 
 	auto &transaction = DuckLakeTransaction::Get(context, global_state.table.catalog);
 	transaction.AddCompaction(global_state.table.GetTableId(), std::move(compaction_entry));
@@ -324,6 +325,7 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 				D_ASSERT(!source.delete_files.back().end_snapshot.IsValid());
 				result.delete_file = source.delete_files.back().data;
 			}
+			break;
 		}
 		case MERGE_ADJACENT_TABLES: {
 			if (!source.delete_files.empty() && type == MERGE_ADJACENT_TABLES) {
@@ -331,6 +333,8 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 				throw InternalException("FIXME: compact deletions");
 			}
 		}
+		default:
+			throw InternalException("Invalid Compaction Type");
 		}
 		// check if this file is adjacent (row-id wise) to the previous file
 		if (!source.file.row_id_start.IsValid()) {
