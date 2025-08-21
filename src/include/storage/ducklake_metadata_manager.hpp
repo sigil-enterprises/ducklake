@@ -57,7 +57,8 @@ public:
 	GetTableDeletions(DuckLakeTableEntry &table, DuckLakeSnapshot start_snapshot, DuckLakeSnapshot snapshot);
 	virtual vector<DuckLakeFileListExtendedEntry>
 	GetExtendedFilesForTable(DuckLakeTableEntry &table, DuckLakeSnapshot snapshot, const string &filter);
-	virtual vector<DuckLakeCompactionFileEntry> GetFilesForCompaction(DuckLakeTableEntry &table);
+	virtual vector<DuckLakeCompactionFileEntry> GetFilesForCompaction(DuckLakeTableEntry &table, CompactionType type,
+	                                                                  double deletion_threshold);
 	virtual vector<DuckLakeFileListEntry> GetFilesForRewrite(DuckLakeTableEntry &table, double delete_threshold);
 
 	virtual vector<DuckLakeFileScheduledForCleanup> GetFilesScheduledForCleanup(const string &filter);

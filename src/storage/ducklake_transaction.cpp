@@ -1258,7 +1258,16 @@ CompactionInformation DuckLakeTransaction::GetCompactionChanges(DuckLakeSnapshot
 				continue;
 			}
 			auto new_file = GetNewDataFile(compaction.written_file, commit_snapshot, table_id, compaction.row_id_start);
-			new_file.begin_snapshot = compaction.source_files[0].file.begin_snapshot;
+			switch (type) {
+			case REWRITE_DELETES:
+				new_file.begin_snapshot = compaction.source_files[0].delete_files.back().begin_snapshot;
+				break;
+			case MERGE_ADJACENT_TABLES:
+				new_file.begin_snapshot = compaction.source_files[0].file.begin_snapshot;
+				break;
+			default:
+				throw InternalException("DuckLakeTransaction::GetCompactionChanges Compaction type is invalid");
+			}
 
 			idx_t row_id_limit = 0;
 			for (auto &compacted_file : compaction.source_files) {
@@ -1282,9 +1291,12 @@ CompactionInformation DuckLakeTransaction::GetCompactionChanges(DuckLakeSnapshot
 				file_info.path = compacted_file.file.data.path;
 				file_info.source_id = compacted_file.file.id;
 				file_info.new_id = new_file.id;
+
 				if (!compacted_file.delete_files.empty()) {
 					file_info.delete_file_path = compacted_file.delete_files.back().data.path;
 					file_info.delete_file_id = compacted_file.delete_files.back().delete_file_id;
+					file_info.start_snapshot_id = compacted_file.file.begin_snapshot;
+					file_info.end_snapshot_id = compacted_file.delete_files.back().begin_snapshot;
 				}
 				if (row_id_limit > new_file.row_count) {
 					throw InternalException("Compaction error - row id limit is larger than the row count of the file");

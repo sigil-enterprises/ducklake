@@ -833,7 +833,9 @@ WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_I
 	}
 	return files;
 }
-vector<DuckLakeCompactionFileEntry> DuckLakeMetadataManager::GetFilesForCompaction(DuckLakeTableEntry &table) {
+vector<DuckLakeCompactionFileEntry> DuckLakeMetadataManager::GetFilesForCompaction(DuckLakeTableEntry &table,
+                                                                                   CompactionType type,
+                                                                                   double deletion_threshold) {
 	auto table_id = table.GetTableId();
 	string data_select_list = "data.data_file_id, data.record_count, data.row_id_start, data.begin_snapshot, "
 	                          "data.end_snapshot, data.mapping_id, sr.schema_version , data.partial_file_info, "
@@ -2245,7 +2247,7 @@ WHERE data_file_id IN (%s);
 	}
 }
 void DuckLakeMetadataManager::WriteDeleteRewrites(const vector<DuckLakeCompactedFileInfo> &compactions) {
-	if (compactions.empty() || true) {
+	if (compactions.empty()) {
 		return;
 	}
 	// Delete Rewrites only deletes the deletion files.
@@ -2267,6 +2269,17 @@ void DuckLakeMetadataManager::WriteDeleteRewrites(const vector<DuckLakeCompacted
 		auto path = GetRelativePath(compaction.delete_file_path);
 		scheduled_deletions += StringUtil::Format("(%d, %s, %s, NOW())", compaction.delete_file_id.index,
 		                                          SQLString(path.path), path.path_is_relative ? "true" : "false");
+		// We must update the data file table
+		auto result =
+		    transaction.Query(StringUtil::Format(R"(
+		UPDATE {METADATA_CATALOG}.ducklake_data_file SET end_snapshot = %llu
+		WHERE begin_snapshot = %llu AND data_file_id = %llu;
+		)",
+		                                         compaction.end_snapshot_id.GetIndex(),
+		                                         compaction.start_snapshot_id.GetIndex(), compaction.source_id.index));
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to delete old data file information in DuckLake: ");
+		}
 	}
 	// for each file that has been rewritten - we also delete it from the ducklake_delete_file table
 	auto result = transaction.Query(StringUtil::Format(R"(
