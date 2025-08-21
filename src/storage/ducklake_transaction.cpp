@@ -1255,7 +1255,9 @@ CompactionInformation DuckLakeTransaction::GetCompactionChanges(DuckLakeSnapshot
 			idx_t row_id_limit = 0;
 			for (auto &compacted_file : compaction.source_files) {
 				row_id_limit += compacted_file.file.row_count;
-
+				if (!compacted_file.delete_files.empty()) {
+					row_id_limit -= compacted_file.delete_files.back().row_count;
+				}
 				if (!compacted_file.partial_files.empty()) {
 					// first process any partial file info that already existed for this file
 					if (!new_file.partial_file_info.empty()) {

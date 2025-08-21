@@ -320,6 +320,7 @@ struct DuckLakeCompactionDeleteFileData : public DuckLakeCompactionBaseFileData 
 
 struct DuckLakeCompactionFileEntry {
 	DuckLakeCompactionFileData file;
+	// optional_idx
 	vector<DuckLakeCompactionDeleteFileData> delete_files;
 	vector<DuckLakePartialFileInfo> partial_files;
 	idx_t schema_version;

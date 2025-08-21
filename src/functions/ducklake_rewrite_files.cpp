@@ -80,7 +80,7 @@ SinkFinalizeType DuckLakeRewrite::Finalize(Pipeline &pipeline, Event &event, Cli
 	compaction_entry.written_file = global_state.written_files[0];
 
 	auto &transaction = DuckLakeTransaction::Get(context, global_state.table.catalog);
-	transaction.AddCompaction(global_state.table.GetTableId(), std::move(compaction_entry));
+	// transaction.AddCompaction(global_state.table.GetTableId(), std::move(compaction_entry));
 	return SinkFinalizeType::READY;
 }
 
@@ -239,57 +239,6 @@ unique_ptr<LogicalOperator> DuckLakeRewriter::GenerateRewriterCommand(DuckLakeTa
 	                                                    std::move(partition_values), target_row_id_start);
 	compaction->children.push_back(std::move(copy));
 	return std::move(compaction);
-}
-
-unique_ptr<LogicalOperator> RewriteFilesBind(ClientContext &context, TableFunctionBindInput &input, idx_t bind_index,
-                                             vector<string> &return_names) {
-
-	// gather a list of files to compact
-	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
-	auto &ducklake_catalog = catalog.Cast<DuckLakeCatalog>();
-	auto &transaction = DuckLakeTransaction::Get(context, ducklake_catalog);
-
-	// By default, our delete threshold is 0.95 unless specified otherwise
-	double delete_threshold = 0.95;
-	auto delete_threshold_entry = input.named_parameters.find("delete_threshold");
-	if (delete_threshold_entry != input.named_parameters.end()) {
-		delete_threshold = DoubleValue::Get(delete_threshold_entry->second);
-	}
-
-	string schema;
-	auto schema_entry = input.named_parameters.find("schema");
-	if (schema_entry != input.named_parameters.end()) {
-		schema = StringValue::Get(schema_entry->second);
-	}
-
-	auto table_name = StringValue::Get(input.inputs[1]);
-	EntryLookupInfo table_lookup(CatalogType::TABLE_ENTRY, table_name, nullptr, QueryErrorContext());
-	auto table_entry = catalog.GetEntry(context, schema, table_lookup, OnEntryNotFound::THROW_EXCEPTION);
-	auto &table = table_entry->Cast<DuckLakeTableEntry>();
-
-	// Now we try to rewrite the ducklake table
-	DuckLakeRewriter rewriter(context, ducklake_catalog, transaction, *input.binder, table.GetTableId());
-	auto op = rewriter.GenerateRewriter(table, delete_threshold);
-	return_names.push_back("Success");
-	if (!op) {
-		// nothing to rewrite - generate an empty result
-		vector<ColumnBinding> bindings;
-		vector<LogicalType> return_types;
-		bindings.emplace_back(bind_index, 0);
-		return_types.emplace_back(LogicalType::BOOLEAN);
-		return make_uniq<LogicalEmptyResult>(std::move(return_types), std::move(bindings));
-	}
-
-	op->Cast<DuckLakeLogicalRewrite>().table_index = bind_index;
-	return op;
-}
-
-DuckLakeRewriteDataFilesFunction::DuckLakeRewriteDataFilesFunction()
-    : TableFunction("ducklake_rewrite_data_files", {LogicalType::VARCHAR, LogicalType::VARCHAR}, nullptr, nullptr,
-                    nullptr) {
-	bind_operator = RewriteFilesBind;
-	named_parameters["delete_threshold"] = LogicalType::DOUBLE;
-	named_parameters["schema"] = LogicalType::VARCHAR;
 }
 
 } // namespace duckdb

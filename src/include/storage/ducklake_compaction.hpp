@@ -18,12 +18,20 @@
 namespace duckdb {
 class DuckLakeTableEntry;
 
+//===--------------------------------------------------------------------===//
+// Compaction Type
+//===--------------------------------------------------------------------===//
+
+enum CompactionType {
+	MERGE_ADJACENT_TABLES, // Merge adjacent tables
+	REWRITE_DELETES        // Rewrite deletes that delete more than a % of the table, might also do merge of files.
+};
 class DuckLakeCompaction : public PhysicalOperator {
 public:
 	DuckLakeCompaction(PhysicalPlan &physical_plan, const vector<LogicalType> &types, DuckLakeTableEntry &table,
 	                   vector<DuckLakeCompactionFileEntry> source_files_p, string encryption_key,
 	                   optional_idx partition_id, vector<string> partition_values, optional_idx row_id_start,
-	                   PhysicalOperator &child);
+	                   PhysicalOperator &child, CompactionType type);
 
 	DuckLakeTableEntry &table;
 	vector<DuckLakeCompactionFileEntry> source_files;
@@ -31,6 +39,7 @@ public:
 	optional_idx partition_id;
 	vector<string> partition_values;
 	optional_idx row_id_start;
+	CompactionType type;
 
 public:
 	// // Source interface
