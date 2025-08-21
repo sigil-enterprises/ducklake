@@ -238,7 +238,10 @@ void DuckLakeCompactor::GenerateCompactions(DuckLakeTableEntry &table,
 	}
 	if (type == REWRITE_DELETES) {
 		if (!files.empty()) {
-			compactions.push_back(GenerateCompactionCommand(std::move(files)));
+			auto compaction_command = GenerateCompactionCommand(std::move(files));
+			if (compaction_command) {
+				compactions.push_back(std::move(compaction_command));
+			}
 		}
 		return;
 	}
@@ -355,6 +358,9 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 			prev_row_id = source.file.row_id_start.GetIndex() + source.file.row_count;
 		}
 		files_to_scan.push_back(std::move(result));
+	}
+	if (actionable_source_files.empty()) {
+		return nullptr;
 	}
 	auto &multi_file_bind_data = bind_data->Cast<MultiFileBindData>();
 	auto &read_info = scan_function.function_info->Cast<DuckLakeFunctionInfo>();
@@ -514,6 +520,9 @@ unique_ptr<LogicalOperator> RewriteFilesBind(ClientContext &context, TableFuncti
 	if (delete_threshold_entry != input.named_parameters.end()) {
 		// If the user manually sets the parameter, this has priority
 		delete_threshold = DoubleValue::Get(delete_threshold_entry->second);
+	}
+	if (delete_threshold > 1 || delete_threshold < 0) {
+		throw BinderException("The delete_threshold option must be between 0 and 1");
 	}
 
 	string schema;
