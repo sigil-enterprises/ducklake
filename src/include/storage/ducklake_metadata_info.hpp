@@ -351,12 +351,6 @@ struct DuckLakeCompactionEntry {
 	CompactionType type;
 };
 
-struct DuckLakeRewriteEntry {
-	vector<DuckLakeFileListEntry> source_files;
-	DuckLakeDataFile written_file;
-	optional_idx row_id_start;
-};
-
 struct DuckLakeCompactedFileInfo {
 	string path;
 	DataFileIndex source_id;

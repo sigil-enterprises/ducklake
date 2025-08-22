@@ -785,54 +785,6 @@ WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_I
 	return files;
 }
 
-vector<DuckLakeFileListEntry> DuckLakeMetadataManager::GetFilesForRewrite(DuckLakeTableEntry &table,
-                                                                          const double delete_threshold) {
-	auto snapshot = GetSnapshot();
-	auto table_id = table.GetTableId();
-	string select_list = GetFileSelectList("data") +
-	                     ", data.row_id_start, data.begin_snapshot, data.partial_file_info, data.mapping_id, " +
-	                     GetFileSelectList("del");
-	auto query = StringUtil::Format(R"(
-SELECT %s
-FROM {METADATA_CATALOG}.ducklake_data_file data
-LEFT JOIN (
-    SELECT *
-    FROM {METADATA_CATALOG}.ducklake_delete_file
-    WHERE table_id=%d  AND {SNAPSHOT_ID} >= begin_snapshot
-          AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
-    ) del USING (data_file_id)
-WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_ID} < data.end_snapshot OR data.end_snapshot IS NULL)
-      AND del.delete_count /data.record_count >= %f
-		)",
-	                                select_list, table_id.index, table_id.index, delete_threshold);
-	auto result = transaction.Query(*snapshot, query);
-	if (result->HasError()) {
-		result->GetErrorObject().Throw("Failed to get data file list from DuckLake: ");
-	}
-	vector<DuckLakeFileListEntry> files;
-	for (auto &row : *result) {
-		DuckLakeFileListEntry file_entry;
-		idx_t col_idx = 0;
-		file_entry.file = ReadDataFile(table, row, col_idx, IsEncrypted());
-		if (!row.IsNull(col_idx)) {
-			file_entry.row_id_start = row.GetValue<idx_t>(col_idx);
-		}
-		col_idx++;
-		file_entry.snapshot_id = row.GetValue<idx_t>(col_idx++);
-		if (!row.IsNull(col_idx)) {
-			auto partial_file_info = row.GetValue<string>(col_idx);
-			ParsePartialFileInfo(*snapshot, partial_file_info, file_entry);
-		}
-		col_idx++;
-		if (!row.IsNull(col_idx)) {
-			file_entry.mapping_id = MappingIndex(row.GetValue<idx_t>(col_idx));
-		}
-		col_idx++;
-		file_entry.delete_file = ReadDataFile(table, row, col_idx, IsEncrypted());
-		files.push_back(std::move(file_entry));
-	}
-	return files;
-}
 vector<DuckLakeCompactionFileEntry> DuckLakeMetadataManager::GetFilesForCompaction(DuckLakeTableEntry &table,
                                                                                    CompactionType type,
                                                                                    double deletion_threshold) {
