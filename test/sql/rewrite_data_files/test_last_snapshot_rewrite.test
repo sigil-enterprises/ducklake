@@ -145,9 +145,80 @@ CALL ducklake.set_option('compaction_delete_threshold_rewrite', -1)
 ----
 The compaction_delete_threshold_rewrite must be between 0 and 1
 
-# What if we have multiple files?
+# Test cleanup
+query I
+SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_rewrite_data/**/*')
+----
+9
 
-# Test cleanups
+# delete the old files
+statement ok
+CALL ducklake_cleanup_old_files('ducklake', cleanup_all => true);
+
+# all files have been compacted into one file
+query I
+SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_rewrite_data/**/*')
+----
+6
+
+# Let's check every snapshot has the right answer
+#FIXME what should be the changes?
+query II
+SELECT snapshot_id, changes FROM snapshots();
+----
+0	{schemas_created=[main]}
+1	{tables_created=[main.test]}
+2	{tables_inserted_into=[1]}
+3	{tables_deleted_from=[1]}
+4	{tables_deleted_from=[1]}
+5	{tables_deleted_from=[1]}
+6	{}
+7	{tables_deleted_from=[1]}
+8	{}
+9	{tables_deleted_from=[1]}
+10	{}
+
+query I
+select count(*) from test AT (VERSION => 3);
+----
+9000
+
+query I
+select count(*) from test AT (VERSION => 4);
+----
+8001
+
+query I
+select count(*) from test AT (VERSION => 5);
+----
+4001
+
+query I
+select count(*) from test AT (VERSION => 6);
+----
+4001
+
+query I
+select count(*) from test AT (VERSION => 7);
+----
+3001
+
+query I
+select count(*) from test AT (VERSION => 8);
+----
+3001
+
+query I
+select count(*) from test AT (VERSION => 9);
+----
+3000
+
+query I
+select count(*) from test AT (VERSION => 10);
+----
+3000
+
+# What if we have multiple files?
 
 # Let's do partitions
 
