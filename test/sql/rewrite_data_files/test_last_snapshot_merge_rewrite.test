@@ -1,4 +1,4 @@
-# name: test/sql/rewrite_data_files/test_last_snapshoy_merge_rewrite.test
+# name: test/sql/rewrite_data_files/test_last_snapshot_merge_rewrite.test
 # description: Test deletion works in combination with merge
 # group: [rewrite_data_files]
 
