@@ -847,8 +847,8 @@ vector<DuckLakeCompactionFileEntry> DuckLakeMetadataManager::GetFilesForCompacti
 	string select_list = data_select_list + ", " + delete_select_list;
 	string deletion_threshold_clause;
 	if (type == REWRITE_DELETES) {
-		deletion_threshold_clause =
-		    StringUtil::Format(" AND del.delete_count/data.record_count >= %f", deletion_threshold);
+		deletion_threshold_clause = StringUtil::Format(
+		    " AND del.delete_count/data.record_count >= %f and data.end_snapshot is null", deletion_threshold);
 	}
 	auto query = StringUtil::Format(R"(
 WITH snapshot_ranges AS (

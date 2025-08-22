@@ -1,5 +1,5 @@
 # name: test/sql/rewrite_data_files/test_last_snapshot_rewrite.test
-# description: Test ducklake_rewrite_data_files
+# description: Test calling the delete rewrite function multiple times, over a series of deletes, test the threshold parameter behaves well
 # group: [rewrite_data_files]
 
 require ducklake

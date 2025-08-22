@@ -1,5 +1,5 @@
 # name: test/sql/rewrite_data_files/last_snapshot_multiple_inserts.test
-# description: Test ducklake_rewrite_data_files
+# description: Test deletion works over a series of insertions and deletions
 # group: [rewrite_data_files]
 
 require ducklake
