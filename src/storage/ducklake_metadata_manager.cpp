@@ -2235,6 +2235,17 @@ void DuckLakeMetadataManager::WriteDeleteRewrites(const vector<DuckLakeCompacted
 			scheduled_deletions += ", ";
 			deleted_file_ids += to_string(compaction.delete_file_id.index);
 			deleted_file_ids += ", ";
+		} else if (!compaction.delete_file_end_snapshot.IsValid()) {
+			// if the deletion file was not removed, we still update its end_snapshot if null
+			auto result = transaction.Query(StringUtil::Format(R"(
+			UPDATE {METADATA_CATALOG}.ducklake_delete_file SET end_snapshot = %llu
+			WHERE delete_file_id = %llu;
+			)",
+			                                                   table_idx_last_snapshot[compaction.table_index.index],
+			                                                   compaction.delete_file_id.index));
+			if (result->HasError()) {
+				result->GetErrorObject().Throw("Failed to update ducklake delete file end_snapshot.");
+			}
 		}
 		// We must update the data file table
 		auto result = transaction.Query(StringUtil::Format(R"(
