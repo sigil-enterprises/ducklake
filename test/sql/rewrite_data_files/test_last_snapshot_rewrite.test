@@ -68,7 +68,6 @@ SELECT delete_file_id FROM ducklake_metadata.ducklake_delete_file
 statement ok
 CALL ducklake_rewrite_data_files('ducklake', 'test', delete_threshold => 0.5);
 
-
 # We are deleting more than one file, so we can get it out
 query I
 SELECT delete_file_id FROM ducklake_metadata.ducklake_delete_file

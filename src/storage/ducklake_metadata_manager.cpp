@@ -2213,7 +2213,7 @@ void DuckLakeMetadataManager::WriteDeleteRewrites(const vector<DuckLakeCompacted
 	set<idx_t> files_to_remove;
 	unordered_map<idx_t, idx_t> table_idx_last_snapshot;
 	// We can start by figuring out the files we can actually remove
-	for (int64_t i = static_cast<int64_t>(compactions.size()) - 1; i > 0; i--) {
+	for (int64_t i = static_cast<int64_t>(compactions.size()) - 1; i >= 0; i--) {
 		auto &compaction = compactions[i];
 		if (table_idx_last_snapshot.find(compaction.table_index.index) == table_idx_last_snapshot.end()) {
 			// This is the last delete file of a table

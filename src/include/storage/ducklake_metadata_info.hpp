@@ -359,7 +359,6 @@ struct DuckLakeCompactedFileInfo {
 	string delete_file_path;
 	DataFileIndex delete_file_id;
 	optional_idx start_snapshot;
-	optional_idx end_snapshot;
 	TableIndex table_index;
 	optional_idx delete_file_start_snapshot;
 	optional_idx delete_file_end_snapshot;
