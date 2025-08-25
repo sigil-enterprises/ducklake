@@ -532,7 +532,8 @@ unique_ptr<LogicalOperator> RewriteFilesBind(ClientContext &context, TableFuncti
 		for (auto &schema : schemas) {
 			schema.get().Scan(context, CatalogType::TABLE_ENTRY, [&](CatalogEntry &entry) {
 				auto &table = entry.Cast<DuckLakeTableEntry>();
-				DuckLakeCompactor compactor(context, ducklake_catalog, transaction, *input.binder, table.GetTableId());
+				DuckLakeCompactor compactor(context, ducklake_catalog, transaction, *input.binder, table.GetTableId(),
+				                            delete_threshold);
 				compactor.GenerateCompactions(table, compactions);
 			});
 		}

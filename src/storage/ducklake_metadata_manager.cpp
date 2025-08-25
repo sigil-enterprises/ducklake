@@ -2210,11 +2210,24 @@ void DuckLakeMetadataManager::WriteDeleteRewrites(const vector<DuckLakeCompacted
 	// Delete Rewrites only deletes the deletion files.
 	string deleted_file_ids;
 	string scheduled_deletions;
+	set<idx_t> files_to_remove;
+	unordered_map<idx_t, idx_t> table_idx_last_snapshot;
+	// We can start by figuring out the files we can actually remove
+	for (int64_t i = static_cast<int64_t>(compactions.size()) - 1; i > 0; i--) {
+		auto &compaction = compactions[i];
+		if (table_idx_last_snapshot.find(compaction.table_index.index) == table_idx_last_snapshot.end()) {
+			// This is the last delete file of a table
+			table_idx_last_snapshot[compaction.table_index.index] = compaction.delete_file_start_snapshot.GetIndex();
+			files_to_remove.insert(i);
+			D_ASSERT(!compaction.delete_file_end_snapshot.IsValid());
+		}
+	}
+
 	for (idx_t i = 0; i < compactions.size(); ++i) {
 		auto &compaction = compactions[i];
 		D_ASSERT(!compaction.path.empty());
 		auto path = GetRelativePath(compaction.delete_file_path);
-		if (compaction.delete_file_start_snapshot.GetIndex() == transaction.GetSnapshot().snapshot_id) {
+		if (files_to_remove.find(i) != files_to_remove.end()) {
 			// We only delete deletion files if they are part of the last snapshot, as they won't be required for
 			// time travel
 			scheduled_deletions += StringUtil::Format("(%d, %s, %s, NOW())", compaction.delete_file_id.index,
@@ -2228,8 +2241,20 @@ void DuckLakeMetadataManager::WriteDeleteRewrites(const vector<DuckLakeCompacted
 		UPDATE {METADATA_CATALOG}.ducklake_data_file SET end_snapshot = %llu
 		WHERE data_file_id = %llu;
 		)",
-		                                                   compactions.back().delete_file_start_snapshot.GetIndex(),
+		                                                   table_idx_last_snapshot[compaction.table_index.index],
 		                                                   compaction.source_id.index));
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to update snapshot end file information in DuckLake: ");
+		}
+
+		// update the snapshot of our newly added file
+		result = transaction.Query(StringUtil::Format(R"(
+			UPDATE {METADATA_CATALOG}.ducklake_data_file SET begin_snapshot = %llu
+			WHERE data_file_id = %llu;
+			)",
+		                                              table_idx_last_snapshot[compaction.table_index.index],
+		                                              compaction.new_id.index));
+
 		if (result->HasError()) {
 			result->GetErrorObject().Throw("Failed to update snapshot end file information in DuckLake: ");
 		}
@@ -2258,17 +2283,6 @@ void DuckLakeMetadataManager::WriteDeleteRewrites(const vector<DuckLakeCompacted
 		if (result->HasError()) {
 			result->GetErrorObject().Throw("Failed to insert files scheduled for deletions in DuckLake: ");
 		}
-	}
-
-	// update the snapshot of our newly added file
-	auto result = transaction.Query(StringUtil::Format(R"(
-		UPDATE {METADATA_CATALOG}.ducklake_data_file SET begin_snapshot = %llu
-		WHERE data_file_id = %llu;
-		)",
-	                                                   compactions.back().delete_file_start_snapshot.GetIndex(),
-	                                                   compactions.back().new_id.index));
-	if (result->HasError()) {
-		result->GetErrorObject().Throw("Failed to update snapshot end file information in DuckLake: ");
 	}
 }
 

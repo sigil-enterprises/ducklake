@@ -12,6 +12,7 @@ ATTACH 'ducklake:__TEST_DIR__/rewrite_db.db' AS ducklake (DATA_PATH '__TEST_DIR_
 statement ok
 USE ducklake
 
+# Lets create multiple tables, and do insertions and deletions
 loop i 0 2
 
 statement ok
@@ -43,11 +44,102 @@ WHERE key  = 120;
 
 endloop
 
-statement ok
-CALL ducklake_rewrite_data_files(delete_threshold => 0);
+# Check ze files before rewrite
+query IIII
+SELECT data_file_id, delete_file_id, begin_snapshot, end_snapshot FROM ducklake_metadata.ducklake_delete_file
+----
+0	1	3	5
+0	3	5	NULL
+2	4	6	NULL
+5	6	9	11
+5	8	11	NULL
+7	9	12	NULL
+
 
 query III
 SELECT data_file_id, begin_snapshot, end_snapshot FROM ducklake_metadata.ducklake_data_file
 ----
-0	2	5
-4	5	NULL
+0	2	NULL
+2	4	NULL
+5	8	NULL
+7	10	NULL
+
+# Now lets call the rewrite function in the whole DB
+statement ok
+CALL ducklake_rewrite_data_files('ducklake', delete_threshold => 0);
+
+# Check ze files after rewrite, we should have removed the last file of each table (i.e., id 4 and 9)
+query IIII
+SELECT data_file_id, delete_file_id, begin_snapshot, end_snapshot FROM ducklake_metadata.ducklake_delete_file
+----
+0	1	3	5
+0	3	5	NULL
+5	6	9	11
+5	8	11	NULL
+
+query III
+SELECT data_file_id, begin_snapshot, end_snapshot FROM ducklake_metadata.ducklake_data_file
+----
+0	2	6
+2	4	6
+5	8	12
+7	10	12
+10	6	NULL
+11	12	NULL
+
+# Validate some results
+query I
+select count(*) from test_0 AT (VERSION => 3);
+----
+50
+
+query I
+select count(*) from test_0 AT (VERSION => 4);
+----
+150
+
+query I
+select count(*) from test_0 AT (VERSION => 5);
+----
+120
+
+query I
+select count(*) from test_0 AT (VERSION => 6);
+----
+119
+
+# Check other table
+query I
+select count(*) from test_1 AT (VERSION => 8);
+----
+100
+
+query I
+select count(*) from test_1 AT (VERSION => 9);
+----
+50
+
+query I
+select count(*) from test_1 AT (VERSION => 10);
+----
+150
+
+query I
+select count(*) from test_1 AT (VERSION => 11);
+----
+120
+
+query I
+select count(*) from test_1 AT (VERSION => 12);
+----
+119
+
+query I
+select count(*) from test_0;
+----
+119
+
+query I
+select count(*) from test_1;
+----
+119
