@@ -55,7 +55,6 @@ void DuckLakeTransaction::Commit() {
 	} else if (connection) {
 		connection->Commit();
 	}
-	// connection->Query("");
 	connection.reset();
 }
 
