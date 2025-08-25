@@ -37,7 +37,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	DuckLakeMergeAdjacentFilesFunction merge_adjacent_files;
 	loader.RegisterFunction(merge_adjacent_files);
 
-	DuckLakeRewriteDataFilesFunction rewrite_files;
+	auto rewrite_files = DuckLakeRewriteDataFilesFunction::GetFunctions();
 	loader.RegisterFunction(rewrite_files);
 
 	DuckLakeCleanupOldFilesFunction cleanup_old_files;

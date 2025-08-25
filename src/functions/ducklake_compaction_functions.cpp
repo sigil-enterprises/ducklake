@@ -525,31 +525,51 @@ unique_ptr<LogicalOperator> RewriteFilesBind(ClientContext &context, TableFuncti
 		throw BinderException("The delete_threshold option must be between 0 and 1");
 	}
 
-	string schema;
-	auto schema_entry = input.named_parameters.find("schema");
-	if (schema_entry != input.named_parameters.end()) {
-		schema = StringValue::Get(schema_entry->second);
-	}
-
-	auto table_name = StringValue::Get(input.inputs[1]);
-	EntryLookupInfo table_lookup(CatalogType::TABLE_ENTRY, table_name, nullptr, QueryErrorContext());
-	auto table_entry = catalog.GetEntry(context, schema, table_lookup, OnEntryNotFound::THROW_EXCEPTION);
-	auto &table = table_entry->Cast<DuckLakeTableEntry>();
-
 	vector<unique_ptr<LogicalOperator>> compactions;
-	DuckLakeCompactor compactor(context, ducklake_catalog, transaction, *input.binder, table.GetTableId(),
-	                            delete_threshold);
-	compactor.GenerateCompactions(table, compactions);
+	if (input.inputs.size() == 1) {
+		// We will perform rewrites on deletes in the whole database
+		auto schemas = ducklake_catalog.GetSchemas(context);
+		for (auto &schema : schemas) {
+			schema.get().Scan(context, CatalogType::TABLE_ENTRY, [&](CatalogEntry &entry) {
+				auto &table = entry.Cast<DuckLakeTableEntry>();
+				DuckLakeCompactor compactor(context, ducklake_catalog, transaction, *input.binder, table.GetTableId());
+				compactor.GenerateCompactions(table, compactions);
+			});
+		}
+	} else {
+		// A table name is provided, so we only compact that
+		string schema;
+		auto schema_entry = input.named_parameters.find("schema");
+		if (schema_entry != input.named_parameters.end()) {
+			schema = StringValue::Get(schema_entry->second);
+		}
+
+		auto table_name = StringValue::Get(input.inputs[1]);
+		EntryLookupInfo table_lookup(CatalogType::TABLE_ENTRY, table_name, nullptr, QueryErrorContext());
+		auto table_entry = catalog.GetEntry(context, schema, table_lookup, OnEntryNotFound::THROW_EXCEPTION);
+		auto &table = table_entry->Cast<DuckLakeTableEntry>();
+
+		DuckLakeCompactor compactor(context, ducklake_catalog, transaction, *input.binder, table.GetTableId(),
+		                            delete_threshold);
+		compactor.GenerateCompactions(table, compactions);
+	}
 
 	return GenerateCompactionOperator(input, bind_index, compactions);
 }
 
-DuckLakeRewriteDataFilesFunction::DuckLakeRewriteDataFilesFunction()
-    : TableFunction("ducklake_rewrite_data_files", {LogicalType::VARCHAR, LogicalType::VARCHAR}, nullptr, nullptr,
-                    nullptr) {
-	bind_operator = RewriteFilesBind;
-	named_parameters["delete_threshold"] = LogicalType::DOUBLE;
-	named_parameters["schema"] = LogicalType::VARCHAR;
+TableFunctionSet DuckLakeRewriteDataFilesFunction::GetFunctions() {
+	TableFunctionSet set("ducklake_rewrite_data_files");
+	vector<vector<LogicalType>> at_types {{LogicalType::VARCHAR, LogicalType::VARCHAR}, {LogicalType::VARCHAR}};
+	for (auto &type : at_types) {
+		TableFunction function("ducklake_rewrite_data_files", type, nullptr, nullptr, nullptr);
+		function.bind_operator = RewriteFilesBind;
+		function.named_parameters["delete_threshold"] = LogicalType::DOUBLE;
+		if (type.size() == 2) {
+			function.named_parameters["schema"] = LogicalType::VARCHAR;
+		}
+		set.AddFunction(function);
+	}
+	return set;
 }
 
 } // namespace duckdb

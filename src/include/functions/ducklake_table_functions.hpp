@@ -62,7 +62,7 @@ public:
 
 class DuckLakeRewriteDataFilesFunction : public TableFunction {
 public:
-	DuckLakeRewriteDataFilesFunction();
+	static TableFunctionSet GetFunctions();
 };
 
 class DuckLakeCleanupOldFilesFunction : public TableFunction {
