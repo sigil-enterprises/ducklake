@@ -1237,13 +1237,16 @@ void DuckLakeTransaction::CommitChanges(DuckLakeCommitState &commit_state,
 		metadata_manager->WriteNewInlinedDeletes(commit_snapshot, inlined_deletes);
 
 		// write compactions
-		auto compaction_merge_adjacent_changes = GetCompactionChanges(commit_snapshot, MERGE_ADJACENT_TABLES);
-		metadata_manager->WriteCompactions(compaction_merge_adjacent_changes.compacted_files, MERGE_ADJACENT_TABLES);
+		auto compaction_merge_adjacent_changes =
+		    GetCompactionChanges(commit_snapshot, CompactionType::MERGE_ADJACENT_TABLES);
+		metadata_manager->WriteCompactions(compaction_merge_adjacent_changes.compacted_files,
+		                                   CompactionType::MERGE_ADJACENT_TABLES);
 		metadata_manager->WriteNewDataFiles(commit_snapshot, compaction_merge_adjacent_changes.new_files);
 
-		auto compaction_rewrite_delete_changes = GetCompactionChanges(commit_snapshot, REWRITE_DELETES);
+		auto compaction_rewrite_delete_changes = GetCompactionChanges(commit_snapshot, CompactionType::REWRITE_DELETES);
 		metadata_manager->WriteNewDataFiles(commit_snapshot, compaction_rewrite_delete_changes.new_files);
-		metadata_manager->WriteCompactions(compaction_rewrite_delete_changes.compacted_files, REWRITE_DELETES);
+		metadata_manager->WriteCompactions(compaction_rewrite_delete_changes.compacted_files,
+		                                   CompactionType::REWRITE_DELETES);
 	}
 }
 
@@ -1259,10 +1262,10 @@ CompactionInformation DuckLakeTransaction::GetCompactionChanges(DuckLakeSnapshot
 			}
 			auto new_file = GetNewDataFile(compaction.written_file, commit_snapshot, table_id, compaction.row_id_start);
 			switch (type) {
-			case REWRITE_DELETES:
+			case CompactionType::REWRITE_DELETES:
 				new_file.begin_snapshot = compaction.source_files[0].delete_files.back().begin_snapshot;
 				break;
-			case MERGE_ADJACENT_TABLES:
+			case CompactionType::MERGE_ADJACENT_TABLES:
 				new_file.begin_snapshot = compaction.source_files[0].file.begin_snapshot;
 				break;
 			default:

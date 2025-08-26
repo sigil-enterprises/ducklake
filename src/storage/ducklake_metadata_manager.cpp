@@ -798,7 +798,7 @@ vector<DuckLakeCompactionFileEntry> DuckLakeMetadataManager::GetFilesForCompacti
 	    GetFileSelectList("del");
 	string select_list = data_select_list + ", " + delete_select_list;
 	string deletion_threshold_clause;
-	if (type == REWRITE_DELETES) {
+	if (type == CompactionType::REWRITE_DELETES) {
 		deletion_threshold_clause = StringUtil::Format(
 		    " AND del.delete_count/data.record_count >= %f and data.end_snapshot is null", deletion_threshold);
 	}
@@ -2213,12 +2213,12 @@ void DuckLakeMetadataManager::WriteDeleteRewrites(const vector<DuckLakeCompacted
 	set<idx_t> files_to_remove;
 	unordered_map<idx_t, idx_t> table_idx_last_snapshot;
 	// We can start by figuring out the files we can actually remove
-	for (int64_t i = static_cast<int64_t>(compactions.size()) - 1; i >= 0; i--) {
-		auto &compaction = compactions[i];
+	for (idx_t i = compactions.size(); i > 0; i--) {
+		auto &compaction = compactions[i - 1];
 		if (table_idx_last_snapshot.find(compaction.table_index.index) == table_idx_last_snapshot.end()) {
 			// This is the last delete file of a table
 			table_idx_last_snapshot[compaction.table_index.index] = compaction.delete_file_start_snapshot.GetIndex();
-			files_to_remove.insert(i);
+			files_to_remove.insert(i - 1);
 			D_ASSERT(!compaction.delete_file_end_snapshot.IsValid());
 		}
 	}
@@ -2230,11 +2230,15 @@ void DuckLakeMetadataManager::WriteDeleteRewrites(const vector<DuckLakeCompacted
 		if (files_to_remove.find(i) != files_to_remove.end()) {
 			// We only delete deletion files if they are part of the last snapshot, as they won't be required for
 			// time travel
+			if (!scheduled_deletions.empty()) {
+				scheduled_deletions += ", ";
+			}
 			scheduled_deletions += StringUtil::Format("(%d, %s, %s, NOW())", compaction.delete_file_id.index,
 			                                          SQLString(path.path), path.path_is_relative ? "true" : "false");
-			scheduled_deletions += ", ";
+			if (!deleted_file_ids.empty()) {
+				deleted_file_ids += ", ";
+			}
 			deleted_file_ids += to_string(compaction.delete_file_id.index);
-			deleted_file_ids += ", ";
 		} else if (!compaction.delete_file_end_snapshot.IsValid()) {
 			// if the deletion file was not removed, we still update its end_snapshot if null
 			auto result = transaction.Query(StringUtil::Format(R"(
@@ -2270,12 +2274,6 @@ void DuckLakeMetadataManager::WriteDeleteRewrites(const vector<DuckLakeCompacted
 			result->GetErrorObject().Throw("Failed to update snapshot end file information in DuckLake: ");
 		}
 	}
-	if (StringUtil::EndsWith(scheduled_deletions, ", ")) {
-		for (idx_t i = 0; i < 2; ++i) {
-			scheduled_deletions.pop_back();
-			deleted_file_ids.pop_back();
-		}
-	}
 	if (!deleted_file_ids.empty()) {
 		// for each file that has been rewritten - we also delete it from the ducklake_delete_file table
 		auto result = transaction.Query(StringUtil::Format(R"(
@@ -2300,10 +2298,10 @@ void DuckLakeMetadataManager::WriteDeleteRewrites(const vector<DuckLakeCompacted
 void DuckLakeMetadataManager::WriteCompactions(const vector<DuckLakeCompactedFileInfo> &compactions,
                                                CompactionType type) {
 	switch (type) {
-	case MERGE_ADJACENT_TABLES:
+	case CompactionType::MERGE_ADJACENT_TABLES:
 		WriteMergeAdjacent(compactions);
 		return;
-	case REWRITE_DELETES:
+	case CompactionType::REWRITE_DELETES:
 		WriteDeleteRewrites(compactions);
 		return;
 	default:

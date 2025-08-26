@@ -82,7 +82,7 @@ SELECT COUNT(*) from test
 
 # Let's do one more deletion to test the global setting
 statement ok
-CALL ducklake.set_option('compaction_delete_threshold_rewrite', 0.1)
+CALL ducklake.set_option('rewrite_delete_threshold', 0.1)
 
 statement ok
 DELETE FROM test
@@ -140,9 +140,9 @@ CALL ducklake_rewrite_data_files('ducklake', 'test', delete_threshold => -1);
 The delete_threshold option must be between 0 and 1
 
 statement error
-CALL ducklake.set_option('compaction_delete_threshold_rewrite', -1)
+CALL ducklake.set_option('rewrite_delete_threshold', -1)
 ----
-The compaction_delete_threshold_rewrite must be between 0 and 1
+The rewrite_delete_threshold must be between 0 and 1
 
 # Test cleanup
 query I

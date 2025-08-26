@@ -160,13 +160,13 @@ private:
 DuckLakeCompactor::DuckLakeCompactor(ClientContext &context, DuckLakeCatalog &catalog, DuckLakeTransaction &transaction,
                                      Binder &binder, TableIndex table_id)
     : context(context), catalog(catalog), transaction(transaction), binder(binder), table_id(table_id),
-      type(MERGE_ADJACENT_TABLES) {
+      type(CompactionType::MERGE_ADJACENT_TABLES) {
 }
 
 DuckLakeCompactor::DuckLakeCompactor(ClientContext &context, DuckLakeCatalog &catalog, DuckLakeTransaction &transaction,
                                      Binder &binder, TableIndex table_id, double delete_threshold_p)
     : context(context), catalog(catalog), transaction(transaction), binder(binder), table_id(table_id),
-      delete_threshold(delete_threshold_p), type(REWRITE_DELETES) {
+      delete_threshold(delete_threshold_p), type(CompactionType::REWRITE_DELETES) {
 }
 
 struct DuckLakeCompactionCandidates {
@@ -223,7 +223,7 @@ void DuckLakeCompactor::GenerateCompactions(DuckLakeTableEntry &table,
 			// this file by itself exceeds the threshold - skip merging
 			continue;
 		}
-		if ((!candidate.delete_files.empty() && type == MERGE_ADJACENT_TABLES) ||
+		if ((!candidate.delete_files.empty() && type == CompactionType::MERGE_ADJACENT_TABLES) ||
 		    candidate.file.end_snapshot.IsValid()) {
 			// Merge Adjacent Tables doesn't perform the merge if delete files are present
 			continue;
@@ -236,7 +236,7 @@ void DuckLakeCompactor::GenerateCompactions(DuckLakeTableEntry &table,
 
 		candidates[group].candidate_files.push_back(file_idx);
 	}
-	if (type == REWRITE_DELETES) {
+	if (type == CompactionType::REWRITE_DELETES) {
 		if (!files.empty()) {
 			auto compaction_command = GenerateCompactionCommand(std::move(files));
 			if (compaction_command) {
@@ -326,7 +326,7 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 		result.snapshot_id = source.file.begin_snapshot;
 		result.mapping_id = source.file.mapping_id;
 		switch (type) {
-		case REWRITE_DELETES: {
+		case CompactionType::REWRITE_DELETES: {
 			if (!source.delete_files.empty()) {
 				if (source.delete_files.back().end_snapshot.IsValid()) {
 					continue;
@@ -335,10 +335,10 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 			}
 			break;
 		}
-		case MERGE_ADJACENT_TABLES: {
-			if (!source.delete_files.empty() && type == MERGE_ADJACENT_TABLES) {
+		case CompactionType::MERGE_ADJACENT_TABLES: {
+			if (!source.delete_files.empty() && type == CompactionType::MERGE_ADJACENT_TABLES) {
 				// Merge Adjacent Tables does not support compaction
-				throw InternalException("FIXME: compact deletions");
+				throw InternalException("merge_adjacent_files should not be used to rewrite files with deletes");
 			}
 			break;
 		}
@@ -513,9 +513,8 @@ unique_ptr<LogicalOperator> RewriteFilesBind(ClientContext &context, TableFuncti
 
 	return_names.push_back("Success");
 
-	// By default, our delete threshold is 0.95 unless it was set in the global compaction_delete_threshold_rewrite
-	double delete_threshold =
-	    ducklake_catalog.GetConfigOption<double>("compaction_delete_threshold_rewrite", {}, {}, 0.95);
+	// By default, our delete threshold is 0.95 unless it was set in the global rewrite_delete_threshold
+	double delete_threshold = ducklake_catalog.GetConfigOption<double>("rewrite_delete_threshold", {}, {}, 0.95);
 	auto delete_threshold_entry = input.named_parameters.find("delete_threshold");
 	if (delete_threshold_entry != input.named_parameters.end()) {
 		// If the user manually sets the parameter, this has priority

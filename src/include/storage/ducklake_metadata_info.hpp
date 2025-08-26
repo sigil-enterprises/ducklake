@@ -25,7 +25,7 @@ namespace duckdb {
 // Compaction Type
 //===--------------------------------------------------------------------===//
 
-enum CompactionType {
+enum class CompactionType {
 	MERGE_ADJACENT_TABLES, // Merge adjacent tables
 	REWRITE_DELETES        // Rewrite deletes that delete more than a % of the table, might also do merge of files.
 };
