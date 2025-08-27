@@ -312,7 +312,7 @@ struct DuckLakeCompactionBaseFileData {
 	optional_idx max_row_count;
 };
 
-struct DuckLakeFileScheduledForCleanup {
+struct DuckLakeFileForCleanup {
 	DataFileIndex id;
 	string path;
 	timestamp_tz_t time;
