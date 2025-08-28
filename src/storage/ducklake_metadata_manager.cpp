@@ -2124,7 +2124,7 @@ vector<DuckLakeFileForCleanup> DuckLakeMetadataManager::GetOrphanFilesForCleanup
                                                                                  const string &data_path) {
 	auto query = R"(SELECT filename
 FROM read_blob('{DATA_PATH}**')
-WHERE filename NOT IN (
+UNION ALL (
 SELECT CASE
            WHEN NOT file_relative THEN file_path
            ELSE CASE
