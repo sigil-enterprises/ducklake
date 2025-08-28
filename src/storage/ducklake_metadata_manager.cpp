@@ -2097,64 +2097,77 @@ ORDER BY snapshot_id
 	return snapshots;
 }
 
-vector<DuckLakeFileForCleanup> DuckLakeMetadataManager::GetFilesScheduledForCleanup(const string &filter) {
-	auto res = transaction.Query(R"(
-SELECT data_file_id, path, path_is_relative, schedule_start
-FROM {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion
-)" + filter);
-	if (res->HasError()) {
-		res->GetErrorObject().Throw("Failed to get files scheduled for deletion from DuckLake: ");
-	}
-	auto context = transaction.context.lock();
-	vector<DuckLakeFileForCleanup> result;
-	for (auto &row : *res) {
-		DuckLakeFileForCleanup info;
-		info.id = DataFileIndex(row.GetValue<idx_t>(0));
-		DuckLakePath path;
-		path.path = row.GetValue<string>(1);
-		path.path_is_relative = row.GetValue<bool>(2);
-		info.path = FromRelativePath(path);
-		info.time = GetTimestampTZFromRow(*context, row, 3);
-
-		result.push_back(std::move(info));
-	}
-	return result;
-}
-
-vector<DuckLakeFileForCleanup> DuckLakeMetadataManager::GetOrphanedFiles(const string &filter) {
-	// Get the path
-	auto res = transaction.Query(R"(
-SELECT data_file_id, path, path_is_relative, schedule_start
-FROM {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion
-)" + filter);
-	if (res->HasError()) {
-		res->GetErrorObject().Throw("Failed to get files scheduled for deletion from DuckLake: ");
-	}
-	auto context = transaction.context.lock();
-	vector<DuckLakeFileForCleanup> result;
-	for (auto &row : *res) {
-		DuckLakeFileForCleanup info;
-		info.id = DataFileIndex(row.GetValue<idx_t>(0));
-		DuckLakePath path;
-		path.path = row.GetValue<string>(1);
-		path.path_is_relative = row.GetValue<bool>(2);
-		info.path = FromRelativePath(path);
-		info.time = GetTimestampTZFromRow(*context, row, 3);
-
-		result.push_back(std::move(info));
-	}
-	return result;
-}
-
-vector<DuckLakeFileForCleanup> DuckLakeMetadataManager::GetFilesForCleanup(const string &filter, CleanupType type) {
+vector<DuckLakeFileForCleanup> DuckLakeMetadataManager::GetFilesForCleanup(const string &filter, CleanupType type,
+                                                                           const string &data_path) {
+	string query;
 	switch (type) {
 	case CleanupType::OLD_FILES:
-		return GetFilesScheduledForCleanup(filter);
+		query = R"(
+SELECT data_file_id, path, path_is_relative, schedule_start
+FROM {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion
+)" + filter;
+		break;
 	case CleanupType::ORPHANED_FILES:
-		return GetOrphanedFiles(filter);
+		query = R"(SELECT filename
+FROM read_blob('{DATA_PATH}**')
+WHERE filename NOT IN (
+SELECT
+    CASE
+        WHEN NOT f.path_is_relative THEN f.path
+        ELSE
+            CASE
+                WHEN NOT t.path_is_relative THEN t.path || f.path
+                ELSE '{DATA_PATH}' || s.path || t.path || f.path
+            END
+    END AS full_path
+FROM ducklake_data_file f
+JOIN ducklake_table t ON f.table_id = t.table_id
+JOIN ducklake_schema s ON t.schema_id = s.schema_id
+UNION ALL
+SELECT
+    CASE
+        WHEN NOT f.path_is_relative THEN f.path
+        ELSE
+            CASE
+                WHEN NOT t.path_is_relative THEN t.path || f.path
+                ELSE '{DATA_PATH}' || s.path || t.path || f.path
+            END
+    END AS full_path
+FROM ducklake_delete_file f
+JOIN ducklake_table t ON f.table_id = t.table_id
+JOIN ducklake_schema s ON t.schema_id = s.schema_id
+UNION ALL
+SELECT
+    CASE
+        WHEN NOT f.path_is_relative THEN f.path
+        ELSE '{DATA_PATH}' || f.path
+    END AS full_path
+FROM ducklake_files_scheduled_for_deletion f
+)
+)" + filter;
+		query = StringUtil::Replace(query, "{DATA_PATH}", data_path);
+		break;
 	default:
 		throw InternalException("CleanupType in DuckLakeMetadataManager::GetFilesForCleanup is not valid");
 	}
+	auto res = transaction.Query(query);
+	if (res->HasError()) {
+		res->GetErrorObject().Throw("Failed to get files scheduled for deletion from DuckLake: ");
+	}
+	auto context = transaction.context.lock();
+	vector<DuckLakeFileForCleanup> result;
+	for (auto &row : *res) {
+		DuckLakeFileForCleanup info;
+		info.id = DataFileIndex(row.GetValue<idx_t>(0));
+		DuckLakePath path;
+		path.path = row.GetValue<string>(1);
+		path.path_is_relative = row.GetValue<bool>(2);
+		info.path = FromRelativePath(path);
+		info.time = GetTimestampTZFromRow(*context, row, 3);
+
+		result.push_back(std::move(info));
+	}
+	return result;
 }
 
 void DuckLakeMetadataManager::RemoveFilesScheduledForCleanup(const vector<DuckLakeFileForCleanup> &cleaned_up_files) {

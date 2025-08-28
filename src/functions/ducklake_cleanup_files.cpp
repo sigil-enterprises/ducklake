@@ -1,6 +1,7 @@
 #include "functions/ducklake_table_functions.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/database_manager.hpp"
+#include "storage/ducklake_catalog.hpp"
 #include "storage/ducklake_transaction.hpp"
 
 namespace duckdb {
@@ -18,7 +19,7 @@ struct CleanupBindData : public TableFunctionData {
 		case CleanupType::OLD_FILES:
 			return StringUtil::Format("WHERE schedule_start < '%s'", timestamp_filter);
 		case CleanupType::ORPHANED_FILES:
-			return timestamp_filter;
+			return StringUtil::Format(" AND last_modified < '%s'", timestamp_filter);
 		default:
 			throw InternalException("Unknown Cleanup type for GetFilter()");
 		}
@@ -75,7 +76,8 @@ static unique_ptr<FunctionData> CleanupBind(ClientContext &context, TableFunctio
 
 	auto &transaction = DuckLakeTransaction::Get(context, catalog);
 	auto &metadata_manager = transaction.GetMetadataManager();
-	result->files = metadata_manager.GetFilesForCleanup(result->GetFilter(), type);
+	auto &ducklake_catalog = reinterpret_cast<DuckLakeCatalog &>(catalog);
+	result->files = metadata_manager.GetFilesForCleanup(result->GetFilter(), type, ducklake_catalog.GetDataPath());
 
 	return_types.emplace_back(LogicalType::VARCHAR);
 	names.emplace_back("path");

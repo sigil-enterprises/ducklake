@@ -20,6 +20,7 @@
 #include "duckdb/common/types/timestamp.hpp"
 #include "storage/ducklake_metadata_info.hpp"
 #include "common/ducklake_encryption.hpp"
+#include "common/ducklake_options.hpp"
 #include "common/index.hpp"
 
 namespace duckdb {
@@ -32,8 +33,6 @@ class QueryResult;
 class FileSystem;
 
 enum class SnapshotBound { LOWER_BOUND, UPPER_BOUND };
-
-enum class CleanupType { OLD_FILES, ORPHANED_FILES };
 
 //! The DuckLake metadata manger is the communication layer between the system and the metadata catalog
 class DuckLakeMetadataManager {
@@ -61,10 +60,8 @@ public:
 	GetExtendedFilesForTable(DuckLakeTableEntry &table, DuckLakeSnapshot snapshot, const string &filter);
 	virtual vector<DuckLakeCompactionFileEntry> GetFilesForCompaction(DuckLakeTableEntry &table, CompactionType type,
 	                                                                  double deletion_threshold);
-	virtual vector<DuckLakeFileForCleanup> GetFilesScheduledForCleanup(const string &filter);
-	virtual vector<DuckLakeFileForCleanup> GetOrphanedFiles(const string &filter);
-
-	virtual vector<DuckLakeFileForCleanup> GetFilesForCleanup(const string &filter, CleanupType type);
+	virtual vector<DuckLakeFileForCleanup> GetFilesForCleanup(const string &filter, CleanupType type,
+	                                                          const string &data_path);
 
 	virtual void RemoveFilesScheduledForCleanup(const vector<DuckLakeFileForCleanup> &cleaned_up_files);
 	virtual void DropSchemas(DuckLakeSnapshot commit_snapshot, const set<SchemaIndex> &ids);
