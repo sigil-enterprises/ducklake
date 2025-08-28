@@ -40,10 +40,12 @@ SELECT COUNT(*) FROM GLOB('__TEST_DIR__/remove_orphaned_files/main/test/*')
 statement ok
 CALL ducklake.set_option('orphan_file_delete_older_than', '1 week')
 
+# Check preference of manually set option
 query I
-SELECT count(*) FROM ducklake_delete_orphaned_files('ducklake', dry_run => true);
+SELECT count(*) FROM ducklake_delete_orphaned_files('ducklake', cleanup_all => true, dry_run => true);
 ----
-0
+1
+
 
 statement ok
 CALL ducklake.set_option('orphan_file_delete_older_than', '1 millisecond')
@@ -81,6 +83,3 @@ query I
 SELECT count(*) FROM ducklake_delete_orphaned_files('ducklake', cleanup_all => true, dry_run => true);
 ----
 0
-
-
-

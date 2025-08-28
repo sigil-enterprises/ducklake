@@ -11,7 +11,7 @@ struct CleanupBindData : public TableFunctionData {
 	explicit CleanupBindData(Catalog &catalog, CleanupType type) : catalog(catalog), type(type) {
 	}
 
-	string GetFilter() {
+	string GetFilter() const {
 		if (timestamp_filter.empty()) {
 			return "";
 		}
