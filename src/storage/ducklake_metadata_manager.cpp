@@ -2116,7 +2116,6 @@ FROM {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion
 		path.path_is_relative = row.GetValue<bool>(2);
 		info.path = FromRelativePath(path);
 		info.time = GetTimestampTZFromRow(*context, row, 3);
-		info.type = CleanupType::OLD_FILES;
 		result.push_back(std::move(info));
 	}
 	return result;
@@ -2170,7 +2169,6 @@ FROM ducklake_files_scheduled_for_deletion f
 	for (auto &row : *res) {
 		DuckLakeFileForCleanup info;
 		info.path = row.GetValue<string>(0);
-		info.type = CleanupType::ORPHANED_FILES;
 		result.push_back(std::move(info));
 	}
 	return result;

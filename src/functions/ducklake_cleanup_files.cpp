@@ -15,11 +15,16 @@ struct CleanupBindData : public TableFunctionData {
 		if (timestamp_filter.empty()) {
 			return "";
 		}
+		string quote;
+		if (!default_interval) {
+			// If our filter doesn't come from a default interval we must apply single-quotes
+			quote = "'";
+		}
 		switch (type) {
 		case CleanupType::OLD_FILES:
 			return StringUtil::Format("WHERE schedule_start < '%s'", timestamp_filter);
 		case CleanupType::ORPHANED_FILES:
-			return StringUtil::Format(" AND last_modified < '%s'", timestamp_filter);
+			return StringUtil::Format(" AND last_modified < %s%s%s", quote, timestamp_filter, quote);
 		default:
 			throw InternalException("Unknown Cleanup type for GetFilter()");
 		}
@@ -40,14 +45,15 @@ struct CleanupBindData : public TableFunctionData {
 	vector<DuckLakeFileForCleanup> files;
 	//! If we are going to delete the files for real or not
 	bool dry_run = false;
+	bool default_interval = false;
 
 	CleanupType type;
 	string timestamp_filter;
 };
 
 static unique_ptr<FunctionData> CleanupBind(ClientContext &context, TableFunctionBindInput &input,
-                                            vector<LogicalType> &return_types, vector<string> &names,
-                                            CleanupType type) {
+                                            vector<LogicalType> &return_types, vector<string> &names, CleanupType type,
+                                            string older_than_default = "") {
 	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
 	auto result = make_uniq<CleanupBindData>(catalog, type);
 
@@ -66,12 +72,16 @@ static unique_ptr<FunctionData> CleanupBind(ClientContext &context, TableFunctio
 			throw InternalException("Unsupported named parameter for %s", result->GetFunctionName());
 		}
 	}
-	if (cleanup_all == has_timestamp) {
+	if ((cleanup_all == has_timestamp && cleanup_all == true) ||
+	    (cleanup_all == has_timestamp && cleanup_all == false && older_than_default.empty())) {
 		throw InvalidInputException("%s: either cleanup_all OR older_than must be specified",
 		                            result->GetFunctionName());
 	}
 	if (has_timestamp) {
 		result->timestamp_filter = Timestamp::ToString(timestamp_t(from_timestamp.value));
+	} else if (!cleanup_all && !older_than_default.empty()) {
+		result->timestamp_filter = "NOW() - INTERVAL '" + older_than_default + "'";
+		result->default_interval = true;
 	}
 
 	auto &transaction = DuckLakeTransaction::Get(context, catalog);
@@ -92,7 +102,10 @@ static unique_ptr<FunctionData> DuckLakeCleanupOldFilesBind(ClientContext &conte
 static unique_ptr<FunctionData> DuckLakeCleanupOrphanedFilesBind(ClientContext &context, TableFunctionBindInput &input,
                                                                  vector<LogicalType> &return_types,
                                                                  vector<string> &names) {
-	return CleanupBind(context, input, return_types, names, CleanupType::ORPHANED_FILES);
+	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
+	auto &ducklake_catalog = reinterpret_cast<DuckLakeCatalog &>(catalog);
+	string older_than = ducklake_catalog.GetConfigOption<string>("orphan_file_delete_older_than", {}, {}, "");
+	return CleanupBind(context, input, return_types, names, CleanupType::ORPHANED_FILES, older_than);
 }
 
 struct DuckLakeCleanupData : public GlobalTableFunctionState {
@@ -120,10 +133,12 @@ void DuckLakeCleanupExecute(ClientContext &context, TableFunctionInput &data_p, 
 		for (auto &file : data.files) {
 			fs.TryRemoveFile(file.path);
 		}
-		// remove the files that are scheduled for cleanup
-		auto &transaction = DuckLakeTransaction::Get(context, data.catalog);
-		auto &metadata_manager = transaction.GetMetadataManager();
-		metadata_manager.RemoveFilesScheduledForCleanup(data.files);
+		if (data.type == CleanupType::OLD_FILES) {
+			// If we are removing old files, we need to remove them from the catalog
+			auto &transaction = DuckLakeTransaction::Get(context, data.catalog);
+			auto &metadata_manager = transaction.GetMetadataManager();
+			metadata_manager.RemoveFilesScheduledForCleanup(data.files);
+		}
 		state.executed = true;
 	}
 	idx_t count = 0;

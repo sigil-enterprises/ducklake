@@ -321,7 +321,6 @@ struct DuckLakeFileForCleanup {
 	DataFileIndex id;
 	string path;
 	timestamp_tz_t time;
-	CleanupType type;
 };
 
 struct DuckLakeCompactionFileData : public DuckLakeCompactionBaseFileData {
