@@ -1,0 +1,33 @@
+# name: test/sql/checkpoint/checkpoint_ducklake.test
+# description: Test checkpoint in ducklake
+# group: [cleanup]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/checkpoint_ducklake.db' AS ducklake (DATA_PATH '__TEST_DIR__/checkpoint_ducklake')
+
+statement ok
+use ducklake
+
+statement ok
+create table t (a integer )
+
+statement ok
+insert into t values (1)
+
+statement ok
+insert into t values (2)
+
+statement ok
+CHECKPOINT
+
+
+# ducklake_flush_inlined_data
+# ducklake_expire_snapshots
+# ducklake_merge_adjacent_files
+# ducklake_rewrite_data_files
+# ducklake_cleanup_old_files
+# ducklake_delete_orphaned_files
