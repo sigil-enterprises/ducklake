@@ -2125,31 +2125,26 @@ vector<DuckLakeFileForCleanup> DuckLakeMetadataManager::GetOrphanFilesForCleanup
 	auto query = R"(SELECT filename
 FROM read_blob('{DATA_PATH}**')
 WHERE filename NOT IN (
-SELECT
-    CASE
-        WHEN NOT f.path_is_relative THEN f.path
-        ELSE
-            CASE
-                WHEN NOT t.path_is_relative THEN t.path || f.path
-                ELSE '{DATA_PATH}' || s.path || t.path || f.path
-            END
-    END AS full_path
-FROM ducklake_data_file f
-JOIN ducklake_table t ON f.table_id = t.table_id
-JOIN ducklake_schema s ON t.schema_id = s.schema_id
-UNION ALL
-SELECT
-    CASE
-        WHEN NOT f.path_is_relative THEN f.path
-        ELSE
-            CASE
-                WHEN NOT t.path_is_relative THEN t.path || f.path
-                ELSE '{DATA_PATH}' || s.path || t.path || f.path
-            END
-    END AS full_path
-FROM ducklake_delete_file f
-JOIN ducklake_table t ON f.table_id = t.table_id
-JOIN ducklake_schema s ON t.schema_id = s.schema_id
+SELECT CASE
+           WHEN NOT file_relative THEN file_path
+           ELSE CASE
+                    WHEN NOT table_relative THEN table_path || file_path
+                    ELSE CASE
+                             WHEN NOT schema_relative THEN schema_path || table_path || file_path
+                             ELSE '{DATA_PATH}' || schema_path || table_path || file_path
+                         END
+                END
+       END AS full_path
+FROM
+  (SELECT s.path AS schema_path, t.path AS table_path, f.path AS file_path, s.path_is_relative AS schema_relative, t.path_is_relative AS table_relative, f.path_is_relative AS file_relative
+   FROM ducklake_data_file f
+   JOIN ducklake_table t ON f.table_id = t.table_id
+   JOIN ducklake_schema s ON t.schema_id = s.schema_id
+   UNION ALL
+   SELECT s.path AS schema_path, t.path AS table_path, f.path AS file_path, s.path_is_relative AS schema_relative, t.path_is_relative AS table_relative, f.path_is_relative AS file_relative
+   FROM ducklake_delete_file f
+   JOIN ducklake_table t ON f.table_id = t.table_id
+   JOIN ducklake_schema s ON t.schema_id = s.schema_id) AS r
 UNION ALL
 SELECT
     CASE
@@ -2176,7 +2171,6 @@ FROM ducklake_files_scheduled_for_deletion f
 
 vector<DuckLakeFileForCleanup> DuckLakeMetadataManager::GetFilesForCleanup(const string &filter, CleanupType type,
                                                                            const string &data_path) {
-	string query;
 	switch (type) {
 	case CleanupType::OLD_FILES:
 		return GetOldFilesForCleanup(filter);
