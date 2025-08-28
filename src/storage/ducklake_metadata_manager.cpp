@@ -2121,20 +2121,25 @@ FROM {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion
 	return result;
 }
 vector<DuckLakeFileForCleanup> DuckLakeMetadataManager::GetOrphanFilesForCleanup(const string &filter,
-                                                                                 const string &data_path) {
+                                                                                 const string &data_path,
+                                                                                 const string &separator) {
 	auto query = R"(SELECT filename
 FROM read_blob('{DATA_PATH}**')
-UNION ALL (
-SELECT CASE
-           WHEN NOT file_relative THEN file_path
-           ELSE CASE
-                    WHEN NOT table_relative THEN table_path || file_path
-                    ELSE CASE
-                             WHEN NOT schema_relative THEN schema_path || table_path || file_path
-                             ELSE '{DATA_PATH}' || schema_path || table_path || file_path
-                         END
-                END
-       END AS full_path
+WHERE filename NOT IN (
+SELECT REPLACE(
+           CASE
+               WHEN NOT file_relative THEN file_path
+               ELSE CASE
+                        WHEN NOT table_relative THEN table_path || file_path
+                        ELSE CASE
+                                 WHEN NOT schema_relative THEN schema_path || table_path || file_path
+                                 ELSE '{DATA_PATH}' || schema_path || table_path || file_path
+                             END
+                   END
+           END,
+           '/',
+           '{SEPARATOR}'
+       ) AS full_path
 FROM
   (SELECT s.path AS schema_path, t.path AS table_path, f.path AS file_path, s.path_is_relative AS schema_relative, t.path_is_relative AS table_relative, f.path_is_relative AS file_relative
    FROM ducklake_data_file f
@@ -2155,6 +2160,7 @@ FROM ducklake_files_scheduled_for_deletion f
 )
 )" + filter;
 	query = StringUtil::Replace(query, "{DATA_PATH}", data_path);
+	query = StringUtil::Replace(query, "{SEPARATOR}", separator);
 	auto res = transaction.Query(query);
 	if (res->HasError()) {
 		res->GetErrorObject().Throw("Failed to get files scheduled for deletion from DuckLake: ");
@@ -2170,12 +2176,13 @@ FROM ducklake_files_scheduled_for_deletion f
 }
 
 vector<DuckLakeFileForCleanup> DuckLakeMetadataManager::GetFilesForCleanup(const string &filter, CleanupType type,
-                                                                           const string &data_path) {
+                                                                           const string &data_path,
+                                                                           const string &separator) {
 	switch (type) {
 	case CleanupType::OLD_FILES:
 		return GetOldFilesForCleanup(filter);
 	case CleanupType::ORPHANED_FILES:
-		return GetOrphanFilesForCleanup(filter, data_path);
+		return GetOrphanFilesForCleanup(filter, data_path, separator);
 	default:
 		throw InternalException("CleanupType in DuckLakeMetadataManager::GetFilesForCleanup is not valid");
 	}

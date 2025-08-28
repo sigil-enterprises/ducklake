@@ -42,7 +42,7 @@ CALL ducklake.set_option('orphan_file_delete_older_than', '1 week')
 
 # Check preference of manually set option
 query I
-FROM ducklake_delete_orphaned_files('ducklake', cleanup_all => true, dry_run => true);
+SELECT count(*) FROM ducklake_delete_orphaned_files('ducklake', cleanup_all => true, dry_run => true);
 ----
 1
 

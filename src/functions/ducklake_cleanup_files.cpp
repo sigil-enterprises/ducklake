@@ -87,7 +87,8 @@ static unique_ptr<FunctionData> CleanupBind(ClientContext &context, TableFunctio
 	auto &transaction = DuckLakeTransaction::Get(context, catalog);
 	auto &metadata_manager = transaction.GetMetadataManager();
 	auto &ducklake_catalog = reinterpret_cast<DuckLakeCatalog &>(catalog);
-	result->files = metadata_manager.GetFilesForCleanup(result->GetFilter(), type, ducklake_catalog.GetDataPath());
+	result->files = metadata_manager.GetFilesForCleanup(result->GetFilter(), type, ducklake_catalog.GetDataPath(),
+	                                                    ducklake_catalog.Separator());
 
 	return_types.emplace_back(LogicalType::VARCHAR);
 	names.emplace_back("path");
