@@ -2125,7 +2125,7 @@ vector<DuckLakeFileForCleanup> DuckLakeMetadataManager::GetOrphanFilesForCleanup
                                                                                  const string &separator) {
 	auto query = R"(SELECT filename
 FROM read_blob('{DATA_PATH}**')
-UNION ALL (
+WHERE filename NOT IN (
 SELECT REPLACE(
            CASE
                WHEN NOT file_relative THEN file_path
@@ -2151,11 +2151,14 @@ FROM
    JOIN ducklake_table t ON f.table_id = t.table_id
    JOIN ducklake_schema s ON t.schema_id = s.schema_id) AS r
 UNION ALL
-SELECT
+SELECT REPLACE(
     CASE
         WHEN NOT f.path_is_relative THEN f.path
         ELSE '{DATA_PATH}' || f.path
-    END AS full_path
+    END ,
+           '/',
+           '{SEPARATOR}'
+) AS full_path
 FROM ducklake_files_scheduled_for_deletion f
 )
 )" + filter;
