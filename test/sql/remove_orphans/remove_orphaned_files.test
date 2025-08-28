@@ -35,8 +35,10 @@ SELECT COUNT(*) FROM GLOB('__TEST_DIR__/remove_orphaned_files/main/test/*')
 ----
 4
 
-statement ok
-CALL ducklake_delete_orphaned_files('ducklake', cleanup_all => true, dry_run => true);
+query I
+SELECT ends_with(path,'bla.parquet') FROM ducklake_delete_orphaned_files('ducklake', cleanup_all => true, dry_run => true);
+----
+True
 
 
 
