@@ -1,13 +1,13 @@
 # name: test/sql/checkpoint/checkpoint_ducklake.test
 # description: Test checkpoint in ducklake
-# group: [cleanup]
+# group: [checkpoint]
 
 require ducklake
 
 require parquet
 
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/checkpoint_ducklake.db' AS ducklake (DATA_PATH '__TEST_DIR__/checkpoint_ducklake')
+ATTACH 'ducklake:__TEST_DIR__/checkpoint_ducklake.db' AS ducklake (DATA_PATH '__TEST_DIR__/checkpoint_ducklake', DATA_INLINING_ROW_LIMIT 1)
 
 statement ok
 use ducklake
@@ -16,13 +16,30 @@ statement ok
 create table t (a integer )
 
 statement ok
-insert into t values (1)
+insert into t values (1), (2)
 
 statement ok
-insert into t values (2)
+insert into t values (2),(3)
 
 statement ok
-CHECKPOINT
+insert into t values (4)
+
+# query III
+# SELECT filename, file_row_number, file_index FROM ducklake.t
+# ----
+# duckdb_unittest_tempdir/91522/checkpoint_ducklake/main/t/ducklake-0198f501-b957-7e36-ac9a-316764699ba7.parquet	0	0
+# duckdb_unittest_tempdir/91522/checkpoint_ducklake/main/t/ducklake-0198f501-b957-7e36-ac9a-316764699ba7.parquet	1	0
+# ducklake_inlined_data_1_1	0	1
+# ducklake_inlined_data_1_1	3	1
+
+statement ok
+CALL ducklake_checkpoint();
+
+query III
+SELECT filename, file_row_number, file_index FROM ducklake.t
+----
+__ducklake_inlined_transaction_local_data	0	1
+__ducklake_inlined_transaction_local_data	1	1
 
 
 # ducklake_flush_inlined_data
