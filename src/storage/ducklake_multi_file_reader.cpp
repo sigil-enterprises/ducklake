@@ -50,7 +50,7 @@ unique_ptr<MultiFileReader> DuckLakeMultiFileReader::CreateInstance(const TableF
 }
 
 shared_ptr<MultiFileList> DuckLakeMultiFileReader::CreateFileList(ClientContext &context, const vector<string> &paths,
-                                                                  FileGlobOptions options) {
+                                                                  const FileGlobInput &glob_input) {
 	auto &transaction = DuckLakeTransaction::Get(context, read_info.table.ParentCatalog());
 	auto transaction_local_files = transaction.GetTransactionLocalFiles(read_info.table_id);
 	transaction_local_data = transaction.GetTransactionLocalInlinedData(read_info.table_id);

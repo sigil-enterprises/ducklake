@@ -79,6 +79,8 @@ static unique_ptr<FunctionData> DuckLakeSetOptionBind(ClientContext &context, Ta
 		value = to_string(val.GetValue<double>());
 	} else if (option == "hive_file_pattern") {
 		value = val.GetValue<bool>() ? "true" : "false";
+	} else if (option == "per_thread_output") {
+		value = val.CastAs(context, LogicalType::BOOLEAN).GetValue<bool>() ? "true" : "false";
 	} else {
 		throw NotImplementedException("Unsupported option %s", option);
 	}
