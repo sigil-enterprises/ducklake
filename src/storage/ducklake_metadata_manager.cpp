@@ -1688,9 +1688,9 @@ void DuckLakeMetadataManager::WriteNewColumnMappings(DuckLakeSnapshot commit_sna
 	}
 }
 
-void DuckLakeMetadataManager::InsertSnapshot(DuckLakeSnapshot commit_snapshot) {
+void DuckLakeMetadataManager::InsertSnapshot(const DuckLakeSnapshot commit_snapshot) {
 	auto result = transaction.Query(
-	    std::move(commit_snapshot),
+	    commit_snapshot,
 	    R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES ({SNAPSHOT_ID}, NOW(), {SCHEMA_VERSION}, {NEXT_CATALOG_ID}, {NEXT_FILE_ID});)");
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write new snapshot to DuckLake: ");

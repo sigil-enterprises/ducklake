@@ -120,7 +120,7 @@ private:
 	                                                    const vector<unique_ptr<DuckLakeFieldId>> &field_ids,
 	                                                    DuckLakeDataFile &result, const string &prefix = string());
 	unique_ptr<DuckLakeNameMapEntry> MapHiveColumn(ParquetFileMetadata &file_metadata, const DuckLakeFieldId &field_id,
-	                                               DuckLakeDataFile &result, Value hive_value);
+	                                               DuckLakeDataFile &result, const Value &hive_value);
 
 	Value GetStatsValue(string name, Value val);
 	void CheckMatchingType(const LogicalType &type, ParquetColumn &column);
@@ -693,7 +693,7 @@ bool SupportsHivePartitioning(const LogicalType &type) {
 
 unique_ptr<DuckLakeNameMapEntry> DuckLakeFileProcessor::MapHiveColumn(ParquetFileMetadata &file_metadata,
                                                                       const DuckLakeFieldId &field_id,
-                                                                      DuckLakeDataFile &file, Value hive_value) {
+                                                                      DuckLakeDataFile &file, const Value &hive_value) {
 	auto &target_type = field_id.Type();
 	auto target_field_id = field_id.GetFieldIndex();
 
