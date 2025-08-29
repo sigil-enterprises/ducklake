@@ -2140,13 +2140,13 @@ SELECT REPLACE(
            '{SEPARATOR}'
        ) AS full_path
 FROM
-  (SELECT s.path AS schema_path, t.path AS table_path, f.path AS file_path, s.path_is_relative AS schema_relative, t.path_is_relative AS table_relative, f.path_is_relative AS file_relative
-   FROM ducklake_data_file f
-   JOIN ducklake_table t ON f.table_id = t.table_id
-   JOIN ducklake_schema s ON t.schema_id = s.schema_id
-   UNION ALL
-   SELECT s.path AS schema_path, t.path AS table_path, f.path AS file_path, s.path_is_relative AS schema_relative, t.path_is_relative AS table_relative, f.path_is_relative AS file_relative
-   FROM ducklake_delete_file f
+  (SELECT s.path AS schema_path, t.path AS table_path, file_path, s.path_is_relative AS schema_relative, t.path_is_relative AS table_relative, file_relative FROM (
+    SELECT f.path AS file_path, f.path_is_relative AS file_relative, table_id
+    FROM ducklake_data_file f
+    UNION ALL
+    SELECT f.path AS file_path, f.path_is_relative AS file_relative, table_id
+    FROM ducklake_delete_file f
+  ) AS f
    JOIN ducklake_table t ON f.table_id = t.table_id
    JOIN ducklake_schema s ON t.schema_id = s.schema_id) AS r
 UNION ALL
