@@ -12,7 +12,7 @@ struct DuckLakeOptionMetadata {
 	const char *description;
 };
 
-using ducklake_option_array = std::array<DuckLakeOptionMetadata, 15>;
+using ducklake_option_array = std::array<DuckLakeOptionMetadata, 16>;
 
 static constexpr const ducklake_option_array DUCKLAKE_OPTIONS = {
     {{"data_inlining_row_limit", "Maximum amount of rows to inline in a single insert"},
@@ -32,7 +32,8 @@ static constexpr const ducklake_option_array DUCKLAKE_OPTIONS = {
                                   "removed from a file before a rewrite is warranted. From 0 - 1."},
      {"orphan_file_delete_older_than",
       "How old orphan files must be to be removed by the 'ducklake_delete_orphaned_files' cleanup function."},
-     {"encrypted", "Whether or not to encrypt Parquet files written to the data path"}}};
+     {"encrypted", "Whether or not to encrypt Parquet files written to the data path"},
+     {"per_thread_output", "Whether to create separate output files per thread during parallel insertion"}}};
 
 struct DuckLakeOptionsData : public TableFunctionData {
 	explicit DuckLakeOptionsData(Catalog &catalog) : catalog(catalog) {
