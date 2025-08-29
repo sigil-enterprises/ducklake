@@ -485,22 +485,48 @@ unique_ptr<LogicalOperator> MergeAdjacentFilesBind(ClientContext &context, Table
 
 	// try to compact all tables
 	vector<unique_ptr<LogicalOperator>> compactions;
-	auto schemas = ducklake_catalog.GetSchemas(context);
-	for (auto &schema : schemas) {
-		schema.get().Scan(context, CatalogType::TABLE_ENTRY, [&](CatalogEntry &entry) {
-			auto &table = entry.Cast<DuckLakeTableEntry>();
-			DuckLakeCompactor compactor(context, ducklake_catalog, transaction, *input.binder, table.GetTableId());
-			compactor.GenerateCompactions(table, compactions);
-		});
+	if (input.inputs.size() == 1) {
+		// We will perform rewrites on deletes in the whole database
+		auto schemas = ducklake_catalog.GetSchemas(context);
+		for (auto &schema : schemas) {
+			schema.get().Scan(context, CatalogType::TABLE_ENTRY, [&](CatalogEntry &entry) {
+				auto &table = entry.Cast<DuckLakeTableEntry>();
+				DuckLakeCompactor compactor(context, ducklake_catalog, transaction, *input.binder, table.GetTableId());
+				compactor.GenerateCompactions(table, compactions);
+			});
+		}
+	} else {
+		// A table name is provided, so we only compact that
+		string schema;
+		auto schema_entry = input.named_parameters.find("schema");
+		if (schema_entry != input.named_parameters.end()) {
+			schema = StringValue::Get(schema_entry->second);
+		}
+		auto table_name = StringValue::Get(input.inputs[1]);
+		EntryLookupInfo table_lookup(CatalogType::TABLE_ENTRY, table_name, nullptr, QueryErrorContext());
+		auto table_entry = catalog.GetEntry(context, schema, table_lookup, OnEntryNotFound::THROW_EXCEPTION);
+		auto &table = table_entry->Cast<DuckLakeTableEntry>();
+
+		DuckLakeCompactor compactor(context, ducklake_catalog, transaction, *input.binder, table.GetTableId());
+		compactor.GenerateCompactions(table, compactions);
 	}
 	return_names.push_back("Success");
 
 	return GenerateCompactionOperator(input, bind_index, compactions);
 }
 
-DuckLakeMergeAdjacentFilesFunction::DuckLakeMergeAdjacentFilesFunction()
-    : TableFunction("ducklake_merge_adjacent_files", {LogicalType::VARCHAR}, nullptr, nullptr, nullptr) {
-	bind_operator = MergeAdjacentFilesBind;
+TableFunctionSet DuckLakeMergeAdjacentFilesFunction::GetFunctions() {
+	TableFunctionSet set("ducklake_merge_adjacent_files");
+	const vector<vector<LogicalType>> at_types {{LogicalType::VARCHAR, LogicalType::VARCHAR}, {LogicalType::VARCHAR}};
+	for (auto &type : at_types) {
+		TableFunction function("ducklake_merge_adjacent_files", type, nullptr, nullptr, nullptr);
+		function.bind_operator = MergeAdjacentFilesBind;
+		if (type.size() == 2) {
+			function.named_parameters["schema"] = LogicalType::VARCHAR;
+		}
+		set.AddFunction(function);
+	}
+	return set;
 }
 
 unique_ptr<LogicalOperator> RewriteFilesBind(ClientContext &context, TableFunctionBindInput &input, idx_t bind_index,
