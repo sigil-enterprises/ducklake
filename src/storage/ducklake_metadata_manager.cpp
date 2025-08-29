@@ -2121,10 +2121,9 @@ FROM {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion
 	return result;
 }
 vector<DuckLakeFileForCleanup> DuckLakeMetadataManager::GetOrphanFilesForCleanup(const string &filter,
-                                                                                 const string &data_path,
                                                                                  const string &separator) {
 	auto query = R"(SELECT filename
-FROM read_blob('{DATA_PATH}**')
+FROM read_blob({DATA_PATH} || '**')
 WHERE filename NOT IN (
 SELECT REPLACE(
            CASE
@@ -2133,7 +2132,7 @@ SELECT REPLACE(
                         WHEN NOT table_relative THEN table_path || file_path
                         ELSE CASE
                                  WHEN NOT schema_relative THEN schema_path || table_path || file_path
-                                 ELSE '{DATA_PATH}' || schema_path || table_path || file_path
+                                 ELSE {DATA_PATH} || schema_path || table_path || file_path
                              END
                    END
            END,
@@ -2154,7 +2153,7 @@ UNION ALL
 SELECT REPLACE(
     CASE
         WHEN NOT f.path_is_relative THEN f.path
-        ELSE '{DATA_PATH}' || f.path
+        ELSE {DATA_PATH} || f.path
     END ,
            '/',
            '{SEPARATOR}'
@@ -2162,7 +2161,6 @@ SELECT REPLACE(
 FROM ducklake_files_scheduled_for_deletion f
 )
 )" + filter;
-	query = StringUtil::Replace(query, "{DATA_PATH}", data_path);
 	query = StringUtil::Replace(query, "{SEPARATOR}", separator);
 	auto res = transaction.Query(query);
 	if (res->HasError()) {
@@ -2179,13 +2177,12 @@ FROM ducklake_files_scheduled_for_deletion f
 }
 
 vector<DuckLakeFileForCleanup> DuckLakeMetadataManager::GetFilesForCleanup(const string &filter, CleanupType type,
-                                                                           const string &data_path,
                                                                            const string &separator) {
 	switch (type) {
 	case CleanupType::OLD_FILES:
 		return GetOldFilesForCleanup(filter);
 	case CleanupType::ORPHANED_FILES:
-		return GetOrphanFilesForCleanup(filter, data_path, separator);
+		return GetOrphanFilesForCleanup(filter, separator);
 	default:
 		throw InternalException("CleanupType in DuckLakeMetadataManager::GetFilesForCleanup is not valid");
 	}
