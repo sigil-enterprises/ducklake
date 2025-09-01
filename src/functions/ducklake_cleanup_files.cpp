@@ -77,8 +77,10 @@ static unique_ptr<FunctionData> CleanupBind(ClientContext &context, TableFunctio
 	}
 	if ((cleanup_all == has_timestamp && cleanup_all == true) ||
 	    (cleanup_all == has_timestamp && cleanup_all == false && older_than_default.empty())) {
-		throw InvalidInputException("%s: either cleanup_all OR older_than must be specified.\nYou can also set a default value for file deletion via e.g., CALL ducklake.set_option('delete_older_than', '1 week');",
-		                            result->GetFunctionName());
+		throw InvalidInputException(
+		    "%s: either cleanup_all OR older_than must be specified.\nYou can also set a default value for file "
+		    "deletion via e.g., CALL ducklake.set_option('delete_older_than', '1 week');",
+		    result->GetFunctionName());
 	}
 	if (has_timestamp) {
 		result->timestamp_filter = Timestamp::ToString(timestamp_t(from_timestamp.value));
