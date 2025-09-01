@@ -110,6 +110,8 @@ public:
 	bool InMemory() override;
 	string GetDBPath() override;
 
+	string GetDataPath();
+
 	bool SupportsTimeTravel() const override {
 		return true;
 	}
