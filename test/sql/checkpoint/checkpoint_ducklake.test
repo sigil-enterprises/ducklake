@@ -91,9 +91,6 @@ statement ok
 CALL ducklake.set_option('delete_older_than', '1 millisecond');
 
 statement ok
-PRAGMA disable_optimizer;
-
-statement ok
 CALL ducklake_checkpoint();
 
 query II

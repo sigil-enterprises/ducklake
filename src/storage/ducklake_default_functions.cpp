@@ -22,7 +22,7 @@ static const DefaultTableMacro ducklake_table_macros[] = {
 	//  ducklake_rewrite_data_files
 	//  ducklake_cleanup_old_files
 	//  ducklake_delete_orphaned_files
-	{DEFAULT_SCHEMA, "ducklake_checkpoint", { nullptr}, {{nullptr, nullptr}},  "FROM ducklake_flush_inlined_data({CATALOG}) WHERE TRUE IN (SELECT TRUE FROM ducklake_expire_snapshots({CATALOG}) WHERE TRUE IN (SELECT TRUE FROM ducklake_merge_adjacent_files({CATALOG}) WHERE TRUE IN (SELECT TRUE FROM ducklake_rewrite_data_files({CATALOG}) WHERE TRUE IN (SELECT TRUE FROM ducklake_cleanup_old_files({CATALOG}) WHERE TRUE IN (SELECT TRUE FROM ducklake_delete_orphaned_files({CATALOG}))))));"},
+	{DEFAULT_SCHEMA, "ducklake_checkpoint", { nullptr}, {{nullptr, nullptr}},  "WITH flush AS (SELECT * FROM ducklake_flush_inlined_data({CATALOG})), expire AS (SELECT * FROM ducklake_expire_snapshots({CATALOG})), merge AS (SELECT * FROM ducklake_merge_adjacent_files({CATALOG})), rewrite AS (SELECT * FROM ducklake_rewrite_data_files({CATALOG})), cleanup AS (SELECT * FROM ducklake_cleanup_old_files({CATALOG})), orphans AS (SELECT * FROM ducklake_delete_orphaned_files({CATALOG})) SELECT #1 FROM flush UNION ALL SELECT #1 FROM expire UNION ALL SELECT #1 FROM merge UNION ALL SELECT #1 FROM rewrite UNION ALL SELECT #1 FROM cleanup UNION ALL SELECT #1 FROM orphans;"},
 
 	{nullptr, nullptr, {nullptr}, {{nullptr, nullptr}}, nullptr}
 };
