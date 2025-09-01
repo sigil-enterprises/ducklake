@@ -1,6 +1,7 @@
 #include "functions/ducklake_table_functions.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/database_manager.hpp"
+#include "storage/ducklake_catalog.hpp"
 #include "storage/ducklake_transaction.hpp"
 
 namespace duckdb {
@@ -22,6 +23,10 @@ static unique_ptr<FunctionData> DuckLakeExpireSnapshotsBind(ClientContext &conte
 	string snapshot_list;
 	bool has_timestamp = false;
 	bool has_versions = false;
+	auto &ducklake_catalog = reinterpret_cast<DuckLakeCatalog &>(catalog);
+
+	const auto older_than_default = ducklake_catalog.GetConfigOption<string>("expire_older_than", {}, {}, "");
+
 	for (auto &entry : input.named_parameters) {
 		if (StringUtil::CIEquals(entry.first, "dry_run")) {
 			result->dry_run = BooleanValue::Get(entry.second);
@@ -40,15 +45,19 @@ static unique_ptr<FunctionData> DuckLakeExpireSnapshotsBind(ClientContext &conte
 			throw InternalException("Unsupported named parameter for ducklake_expire_snapshots");
 		}
 	}
-	if (has_versions == has_timestamp) {
+	if ((has_versions == has_timestamp && has_versions == true) ||
+	    (has_versions == has_timestamp && has_versions == false && older_than_default.empty())) {
 		throw InvalidInputException("ducklake_expire_snapshots: either versions OR older_than must be specified");
 	}
+
 	string filter;
 	// we can never delete the most recent snapshot
 	filter = "snapshot_id != (SELECT MAX(snapshot_id) FROM {METADATA_CATALOG}.ducklake_snapshot) AND ";
 	if (has_timestamp) {
 		auto ts = Timestamp::ToString(timestamp_t(from_timestamp.value));
 		filter += StringUtil::Format("snapshot_time < '%s'", ts);
+	} else if (!has_versions && !older_than_default.empty()) {
+		filter += StringUtil::Format("snapshot_time < NOW() - INTERVAL '%s'", older_than_default);
 	} else {
 		filter += StringUtil::Format("snapshot_id IN (%s)", snapshot_list);
 	}

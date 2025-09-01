@@ -531,8 +531,7 @@ unique_ptr<LogicalOperator> BindCompaction(ClientContext &context, TableFunction
 			return GenerateCompactionOperator(input, bind_index, compactions);
 		} else if (!schema.empty() && table.empty()) {
 			// There is a default schema but not a default table, we will use that
-			EntryLookupInfo schema_lookup(CatalogType::SCHEMA_ENTRY, schema, nullptr, QueryErrorContext());
-			auto schema_entry = catalog.GetEntry(context, schema, schema_lookup, OnEntryNotFound::THROW_EXCEPTION);
+			auto schema_entry = catalog.GetSchema(context, catalog.GetName(), schema, OnEntryNotFound::THROW_EXCEPTION);
 			auto &ducklake_schema = schema_entry->Cast<DuckLakeSchemaEntry>();
 			ducklake_schema.Scan(context, CatalogType::TABLE_ENTRY, [&](CatalogEntry &entry) {
 				auto &cur_table = entry.Cast<DuckLakeTableEntry>();
