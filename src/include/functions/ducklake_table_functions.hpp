@@ -70,6 +70,11 @@ public:
 	DuckLakeCleanupOldFilesFunction();
 };
 
+class DuckLakeCleanupOrphanedFilesFunction : public TableFunction {
+public:
+	DuckLakeCleanupOrphanedFilesFunction();
+};
+
 class DuckLakeExpireSnapshotsFunction : public TableFunction {
 public:
 	DuckLakeExpireSnapshotsFunction();

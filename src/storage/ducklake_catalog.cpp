@@ -592,6 +592,10 @@ string DuckLakeCatalog::GetDBPath() {
 	return options.metadata_path;
 }
 
+string DuckLakeCatalog::GetDataPath() {
+	return options.data_path;
+}
+
 optional_ptr<BoundAtClause> DuckLakeCatalog::CatalogSnapshot() const {
 	return options.at_clause.get();
 }
