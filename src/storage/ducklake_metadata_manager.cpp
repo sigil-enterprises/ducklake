@@ -49,32 +49,32 @@ void DuckLakeMetadataManager::InitializeDuckLake(bool has_explicit_schema, DuckL
 	string data_path = StorePath(base_data_path);
 	string encryption_str = encryption == DuckLakeEncryption::ENCRYPTED ? "true" : "false";
 	initialize_query += StringUtil::Format(R"(
-CREATE TABLE {METADATA_CATALOG}.ducklake_metadata(key VARCHAR NOT NULL, value VARCHAR NOT NULL, scope VARCHAR, scope_id BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot(snapshot_id BIGINT PRIMARY KEY, snapshot_time TIMESTAMPTZ, schema_version BIGINT, next_catalog_id BIGINT, next_file_id BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot_changes(snapshot_id BIGINT PRIMARY KEY, changes_made VARCHAR, author VARCHAR, commit_message VARCHAR, commit_extra_info VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_schema(schema_id BIGINT PRIMARY KEY, schema_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_name VARCHAR, path VARCHAR, path_is_relative BOOLEAN);
-CREATE TABLE {METADATA_CATALOG}.ducklake_table(table_id BIGINT, table_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, table_name VARCHAR, path VARCHAR, path_is_relative BOOLEAN);
-CREATE TABLE {METADATA_CATALOG}.ducklake_view(view_id BIGINT, view_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, view_name VARCHAR, dialect VARCHAR, sql VARCHAR, column_aliases VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_tag(object_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, key VARCHAR, value VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_column_tag(table_id BIGINT, column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, key VARCHAR, value VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_data_file(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, file_order BIGINT, path VARCHAR, path_is_relative BOOLEAN, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, row_id_start BIGINT, partition_id BIGINT, encryption_key VARCHAR, partial_file_info VARCHAR, mapping_id BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_file_column_statistics(data_file_id BIGINT, table_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, value_count BIGINT, null_count BIGINT, min_value VARCHAR, max_value VARCHAR, contains_nan BOOLEAN);
-CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file(delete_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, data_file_id BIGINT, path VARCHAR, path_is_relative BOOLEAN, format VARCHAR, delete_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, encryption_key VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_column(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, column_order BIGINT, column_name VARCHAR, column_type VARCHAR, initial_default VARCHAR, default_value VARCHAR, nulls_allowed BOOLEAN, parent_column BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_table_stats(table_id BIGINT, record_count BIGINT, next_row_id BIGINT, file_size_bytes BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_table_column_stats(table_id BIGINT, column_id BIGINT, contains_null BOOLEAN, contains_nan BOOLEAN, min_value VARCHAR, max_value VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_partition_info(partition_id BIGINT, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_partition_column(partition_id BIGINT, table_id BIGINT, partition_key_index BIGINT, column_id BIGINT, transform VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_file_partition_value(data_file_id BIGINT, table_id BIGINT, partition_key_index BIGINT, partition_value VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion(data_file_id BIGINT, path VARCHAR, path_is_relative BOOLEAN, schedule_start TIMESTAMPTZ);
-CREATE TABLE {METADATA_CATALOG}.ducklake_inlined_data_tables(table_id BIGINT, table_name VARCHAR, schema_version BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_column_mapping(mapping_id BIGINT, table_id BIGINT, type VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_name_mapping(mapping_id BIGINT, column_id BIGINT, source_name VARCHAR, target_field_id BIGINT, parent_column BIGINT, is_partition BOOLEAN);
-CREATE TABLE {METADATA_CATALOG}.ducklake_schema_versions(begin_snapshot BIGINT, schema_version BIGINT);
-INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
-INSERT INTO {METADATA_CATALOG}.ducklake_snapshot_changes VALUES (0, 'created_schema:"main"',  NULL, NULL, NULL);
-INSERT INTO {METADATA_CATALOG}.ducklake_metadata (key, value) VALUES ('version', '0.3-dev1'), ('created_by', 'DuckDB %s'), ('data_path', %s), ('encrypted', '%s');
-INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main', 'main/', true);
+CREATE TABLE ducklake_metadata(key VARCHAR NOT NULL, value VARCHAR NOT NULL, scope VARCHAR, scope_id BIGINT);
+CREATE TABLE ducklake_snapshot(snapshot_id BIGINT PRIMARY KEY, snapshot_time TIMESTAMPTZ, schema_version BIGINT, next_catalog_id BIGINT, next_file_id BIGINT);
+CREATE TABLE ducklake_snapshot_changes(snapshot_id BIGINT PRIMARY KEY, changes_made VARCHAR, author VARCHAR, commit_message VARCHAR, commit_extra_info VARCHAR);
+CREATE TABLE ducklake_schema(schema_id BIGINT PRIMARY KEY, schema_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_name VARCHAR, path VARCHAR, path_is_relative BOOLEAN);
+CREATE TABLE ducklake_table(table_id BIGINT, table_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, table_name VARCHAR, path VARCHAR, path_is_relative BOOLEAN);
+CREATE TABLE ducklake_view(view_id BIGINT, view_uuid UUID, begin_snapshot BIGINT, end_snapshot BIGINT, schema_id BIGINT, view_name VARCHAR, dialect VARCHAR, sql VARCHAR, column_aliases VARCHAR);
+CREATE TABLE ducklake_tag(object_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, key VARCHAR, value VARCHAR);
+CREATE TABLE ducklake_column_tag(table_id BIGINT, column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, key VARCHAR, value VARCHAR);
+CREATE TABLE ducklake_data_file(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, file_order BIGINT, path VARCHAR, path_is_relative BOOLEAN, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, row_id_start BIGINT, partition_id BIGINT, encryption_key VARCHAR, partial_file_info VARCHAR, mapping_id BIGINT);
+CREATE TABLE ducklake_file_column_statistics(data_file_id BIGINT, table_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, value_count BIGINT, null_count BIGINT, min_value VARCHAR, max_value VARCHAR, contains_nan BOOLEAN);
+CREATE TABLE ducklake_delete_file(delete_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, data_file_id BIGINT, path VARCHAR, path_is_relative BOOLEAN, format VARCHAR, delete_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, encryption_key VARCHAR);
+CREATE TABLE ducklake_column(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, column_order BIGINT, column_name VARCHAR, column_type VARCHAR, initial_default VARCHAR, default_value VARCHAR, nulls_allowed BOOLEAN, parent_column BIGINT);
+CREATE TABLE ducklake_table_stats(table_id BIGINT, record_count BIGINT, next_row_id BIGINT, file_size_bytes BIGINT);
+CREATE TABLE ducklake_table_column_stats(table_id BIGINT, column_id BIGINT, contains_null BOOLEAN, contains_nan BOOLEAN, min_value VARCHAR, max_value VARCHAR);
+CREATE TABLE ducklake_partition_info(partition_id BIGINT, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT);
+CREATE TABLE ducklake_partition_column(partition_id BIGINT, table_id BIGINT, partition_key_index BIGINT, column_id BIGINT, transform VARCHAR);
+CREATE TABLE ducklake_file_partition_value(data_file_id BIGINT, table_id BIGINT, partition_key_index BIGINT, partition_value VARCHAR);
+CREATE TABLE ducklake_files_scheduled_for_deletion(data_file_id BIGINT, path VARCHAR, path_is_relative BOOLEAN, schedule_start TIMESTAMPTZ);
+CREATE TABLE ducklake_inlined_data_tables(table_id BIGINT, table_name VARCHAR, schema_version BIGINT);
+CREATE TABLE ducklake_column_mapping(mapping_id BIGINT, table_id BIGINT, type VARCHAR);
+CREATE TABLE ducklake_name_mapping(mapping_id BIGINT, column_id BIGINT, source_name VARCHAR, target_field_id BIGINT, parent_column BIGINT, is_partition BOOLEAN);
+CREATE TABLE ducklake_schema_versions(begin_snapshot BIGINT, schema_version BIGINT);
+INSERT INTO ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
+INSERT INTO ducklake_snapshot_changes VALUES (0, 'created_schema:"main"',  NULL, NULL, NULL);
+INSERT INTO ducklake_metadata (key, value) VALUES ('version', '0.3-dev1'), ('created_by', 'DuckDB %s'), ('data_path', %s), ('encrypted', '%s');
+INSERT INTO ducklake_schema VALUES (0, UUID(), 0, NULL, 'main', 'main/', true);
 	)",
 	                                       DuckDB::SourceID(), SQLString(data_path), encryption_str);
 	// TODO: add
@@ -89,17 +89,17 @@ INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main
 
 void DuckLakeMetadataManager::MigrateV01() {
 	string migrate_query = R"(
-ALTER TABLE {METADATA_CATALOG}.ducklake_schema ADD COLUMN path VARCHAR DEFAULT '';
-ALTER TABLE {METADATA_CATALOG}.ducklake_schema ADD COLUMN path_is_relative BOOLEAN DEFAULT TRUE;
-ALTER TABLE {METADATA_CATALOG}.ducklake_table ADD COLUMN path VARCHAR DEFAULT '';
-ALTER TABLE {METADATA_CATALOG}.ducklake_table ADD COLUMN path_is_relative BOOLEAN DEFAULT TRUE;
-ALTER TABLE {METADATA_CATALOG}.ducklake_metadata ADD COLUMN scope VARCHAR;
-ALTER TABLE {METADATA_CATALOG}.ducklake_metadata ADD COLUMN scope_id BIGINT;
-ALTER TABLE {METADATA_CATALOG}.ducklake_data_file ADD COLUMN mapping_id BIGINT;
-CREATE TABLE {METADATA_CATALOG}.ducklake_column_mapping(mapping_id BIGINT, table_id BIGINT, type VARCHAR);
-CREATE TABLE {METADATA_CATALOG}.ducklake_name_mapping(mapping_id BIGINT, column_id BIGINT, source_name VARCHAR, target_field_id BIGINT, parent_column BIGINT);
-UPDATE {METADATA_CATALOG}.ducklake_partition_column SET column_id = (SELECT LIST(column_id ORDER BY column_order) FROM {METADATA_CATALOG}.ducklake_column WHERE table_id = ducklake_partition_column.table_id AND parent_column IS NULL AND end_snapshot IS NULL)[ducklake_partition_column.column_id + 1];
-UPDATE {METADATA_CATALOG}.ducklake_metadata SET value = '0.2' WHERE key = 'version';
+ALTER TABLE ducklake_schema ADD COLUMN path VARCHAR DEFAULT '';
+ALTER TABLE ducklake_schema ADD COLUMN path_is_relative BOOLEAN DEFAULT TRUE;
+ALTER TABLE ducklake_table ADD COLUMN path VARCHAR DEFAULT '';
+ALTER TABLE ducklake_table ADD COLUMN path_is_relative BOOLEAN DEFAULT TRUE;
+ALTER TABLE ducklake_metadata ADD COLUMN scope VARCHAR;
+ALTER TABLE ducklake_metadata ADD COLUMN scope_id BIGINT;
+ALTER TABLE ducklake_data_file ADD COLUMN mapping_id BIGINT;
+CREATE TABLE ducklake_column_mapping(mapping_id BIGINT, table_id BIGINT, type VARCHAR);
+CREATE TABLE ducklake_name_mapping(mapping_id BIGINT, column_id BIGINT, source_name VARCHAR, target_field_id BIGINT, parent_column BIGINT);
+UPDATE ducklake_partition_column SET column_id = (SELECT LIST(column_id ORDER BY column_order) FROM ducklake_column WHERE table_id = ducklake_partition_column.table_id AND parent_column IS NULL AND end_snapshot IS NULL)[ducklake_partition_column.column_id + 1];
+UPDATE ducklake_metadata SET value = '0.2' WHERE key = 'version';
 	)";
 	auto result = transaction.Query(migrate_query);
 	if (result->HasError()) {
@@ -109,13 +109,13 @@ UPDATE {METADATA_CATALOG}.ducklake_metadata SET value = '0.2' WHERE key = 'versi
 
 void DuckLakeMetadataManager::MigrateV02() {
 	string migrate_query = R"(
-ALTER TABLE {METADATA_CATALOG}.ducklake_name_mapping ADD COLUMN is_partition BOOLEAN DEFAULT false;
-ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot_changes ADD COLUMN author VARCHAR DEFAULT NULL;
-ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot_changes ADD COLUMN commit_message VARCHAR DEFAULT NULL;
-ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot_changes ADD COLUMN commit_extra_info VARCHAR DEFAULT NULL;
-UPDATE {METADATA_CATALOG}.ducklake_metadata SET value = '0.3-dev1' WHERE key = 'version';
-CREATE TABLE {METADATA_CATALOG}.ducklake_schema_versions(begin_snapshot BIGINT, schema_version BIGINT);
-INSERT INTO {METADATA_CATALOG}.ducklake_schema_versions SELECT MIN(snapshot_id), schema_version FROM {METADATA_CATALOG}.ducklake_snapshot GROUP BY schema_version ORDER BY schema_version;
+ALTER TABLE ducklake_name_mapping ADD COLUMN is_partition BOOLEAN DEFAULT false;
+ALTER TABLE ducklake_snapshot_changes ADD COLUMN author VARCHAR DEFAULT NULL;
+ALTER TABLE ducklake_snapshot_changes ADD COLUMN commit_message VARCHAR DEFAULT NULL;
+ALTER TABLE ducklake_snapshot_changes ADD COLUMN commit_extra_info VARCHAR DEFAULT NULL;
+UPDATE ducklake_metadata SET value = '0.3-dev1' WHERE key = 'version';
+CREATE TABLE ducklake_schema_versions(begin_snapshot BIGINT, schema_version BIGINT);
+INSERT INTO ducklake_schema_versions SELECT MIN(snapshot_id), schema_version FROM ducklake_snapshot GROUP BY schema_version ORDER BY schema_version;
 	)";
 	auto result = transaction.Query(migrate_query);
 	if (result->HasError()) {
@@ -125,12 +125,12 @@ INSERT INTO {METADATA_CATALOG}.ducklake_schema_versions SELECT MIN(snapshot_id),
 
 DuckLakeMetadata DuckLakeMetadataManager::LoadDuckLake() {
 	auto result = transaction.Query(R"(
-SELECT key, value, scope, scope_id FROM {METADATA_CATALOG}.ducklake_metadata
+SELECT key, value, scope, scope_id FROM ducklake_metadata
 )");
 	if (result->HasError()) {
 		// we might be loading from a v0.1 database - if so we don't have scope yet
 		result = transaction.Query(R"(
-SELECT key, value FROM {METADATA_CATALOG}.ducklake_metadata
+SELECT key, value FROM ducklake_metadata
 )");
 		if (result->HasError()) {
 			auto &error_obj = result->GetErrorObject();
@@ -217,7 +217,7 @@ DuckLakeCatalogInfo DuckLakeMetadataManager::GetCatalogForSnapshot(DuckLakeSnaps
 	// load the schema information
 	auto result = transaction.Query(snapshot, R"(
 SELECT schema_id, schema_uuid::VARCHAR, schema_name, path, path_is_relative
-FROM {METADATA_CATALOG}.ducklake_schema
+FROM ducklake_schema
 WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
 )");
 	if (result->HasError()) {
@@ -249,25 +249,25 @@ WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_s
 SELECT schema_id, tbl.table_id, table_uuid::VARCHAR, table_name,
 	(
 		SELECT LIST({'key': key, 'value': value})
-		FROM {METADATA_CATALOG}.ducklake_tag tag
+		FROM ducklake_tag tag
 		WHERE object_id=table_id AND
 		      {SNAPSHOT_ID} >= tag.begin_snapshot AND ({SNAPSHOT_ID} < tag.end_snapshot OR tag.end_snapshot IS NULL)
 	) AS tag,
 	(
 		SELECT LIST({'name': table_name, 'schema_version': schema_version})
-		FROM {METADATA_CATALOG}.ducklake_inlined_data_tables inlined_data_tables
+		FROM ducklake_inlined_data_tables inlined_data_tables
 		WHERE inlined_data_tables.table_id = tbl.table_id
 	) AS inlined_data_tables,
 	path, path_is_relative,
 	col.column_id, column_name, column_type, initial_default, default_value, nulls_allowed, parent_column,
 	(
 		SELECT LIST({'key': key, 'value': value})
-		FROM {METADATA_CATALOG}.ducklake_column_tag col_tag
+		FROM ducklake_column_tag col_tag
 		WHERE col_tag.table_id=tbl.table_id AND col_tag.column_id=col.column_id AND
 		      {SNAPSHOT_ID} >= col_tag.begin_snapshot AND ({SNAPSHOT_ID} < col_tag.end_snapshot OR col_tag.end_snapshot IS NULL)
 	) AS column_tags
-FROM {METADATA_CATALOG}.ducklake_table tbl
-LEFT JOIN {METADATA_CATALOG}.ducklake_column col USING (table_id)
+FROM ducklake_table tbl
+LEFT JOIN ducklake_column col USING (table_id)
 WHERE {SNAPSHOT_ID} >= tbl.begin_snapshot AND ({SNAPSHOT_ID} < tbl.end_snapshot OR tbl.end_snapshot IS NULL)
   AND (({SNAPSHOT_ID} >= col.begin_snapshot AND ({SNAPSHOT_ID} < col.end_snapshot OR col.end_snapshot IS NULL)) OR column_id IS NULL)
 ORDER BY table_id, parent_column NULLS FIRST, column_order
@@ -354,11 +354,11 @@ ORDER BY table_id, parent_column NULLS FIRST, column_order
 SELECT view_id, view_uuid, schema_id, view_name, dialect, sql, column_aliases,
 	(
 		SELECT LIST({'key': key, 'value': value})
-		FROM {METADATA_CATALOG}.ducklake_tag tag
+		FROM ducklake_tag tag
 		WHERE object_id=view_id AND
 		      {SNAPSHOT_ID} >= tag.begin_snapshot AND ({SNAPSHOT_ID} < tag.end_snapshot OR tag.end_snapshot IS NULL)
 	) AS tag
-FROM {METADATA_CATALOG}.ducklake_view view
+FROM ducklake_view view
 WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < view.end_snapshot OR view.end_snapshot IS NULL)
 )");
 	if (result->HasError()) {
@@ -384,8 +384,8 @@ WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < view.end_snapshot OR 
 	// load partition information
 	result = transaction.Query(snapshot, R"(
 SELECT partition_id, part.table_id, partition_key_index, column_id, transform
-FROM {METADATA_CATALOG}.ducklake_partition_info part
-JOIN {METADATA_CATALOG}.ducklake_partition_column part_col USING (partition_id)
+FROM ducklake_partition_info part
+JOIN ducklake_partition_column part_col USING (partition_id)
 WHERE {SNAPSHOT_ID} >= part.begin_snapshot AND ({SNAPSHOT_ID} < part.end_snapshot OR part.end_snapshot IS NULL)
 ORDER BY part.table_id, partition_id, partition_key_index
 )");
@@ -418,8 +418,8 @@ vector<DuckLakeGlobalStatsInfo> DuckLakeMetadataManager::GetGlobalTableStats(Duc
 	// query the most recent stats
 	auto result = transaction.Query(snapshot, R"(
 SELECT table_id, column_id, record_count, next_row_id, file_size_bytes, contains_null, contains_nan, min_value, max_value
-FROM {METADATA_CATALOG}.ducklake_table_stats
-LEFT JOIN {METADATA_CATALOG}.ducklake_table_column_stats USING (table_id)
+FROM ducklake_table_stats
+LEFT JOIN ducklake_table_column_stats USING (table_id)
 WHERE record_count IS NOT NULL AND file_size_bytes IS NOT NULL
 ORDER BY table_id;
 )");
@@ -576,10 +576,10 @@ DuckLakeMetadataManager::GetFilesForTable(DuckLakeTableEntry &table, DuckLakeSna
 	                     GetFileSelectList("del");
 	auto query = StringUtil::Format(R"(
 SELECT %s
-FROM {METADATA_CATALOG}.ducklake_data_file data
+FROM ducklake_data_file data
 LEFT JOIN (
     SELECT *
-    FROM {METADATA_CATALOG}.ducklake_delete_file
+    FROM ducklake_delete_file
     WHERE table_id=%d  AND {SNAPSHOT_ID} >= begin_snapshot
           AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
     ) del USING (data_file_id)
@@ -627,7 +627,7 @@ vector<DuckLakeFileListEntry> DuckLakeMetadataManager::GetTableInsertions(DuckLa
 	                     GetFileSelectList("del");
 	auto query = StringUtil::Format(R"(
 SELECT %s
-FROM {METADATA_CATALOG}.ducklake_data_file data, (
+FROM ducklake_data_file data, (
 	SELECT NULL path, NULL path_is_relative, NULL file_size_bytes, NULL footer_size, NULL encryption_key
 ) del
 WHERE data.table_id=%d AND data.begin_snapshot >= %d AND data.begin_snapshot <= {SNAPSHOT_ID};
@@ -680,18 +680,18 @@ vector<DuckLakeDeleteScanEntry> DuckLakeMetadataManager::GetTableDeletions(DuckL
 	    StringUtil::Format(R"(
 SELECT %s, current_delete.begin_snapshot FROM (
 	SELECT data_file_id, begin_snapshot, path, path_is_relative, file_size_bytes, footer_size, encryption_key
-	FROM {METADATA_CATALOG}.ducklake_delete_file
+	FROM ducklake_delete_file
 	WHERE table_id = %d AND begin_snapshot >= %d AND begin_snapshot <= {SNAPSHOT_ID}
 ) AS current_delete
 LEFT JOIN (
 	SELECT data_file_id, MAX_BY(COLUMNS(['path', 'path_is_relative', 'file_size_bytes', 'footer_size', 'encryption_key']), begin_snapshot) AS '\0'
-	FROM {METADATA_CATALOG}.ducklake_delete_file
+	FROM ducklake_delete_file
 	WHERE table_id = %d AND begin_snapshot < current_delete.begin_snapshot
 	GROUP BY data_file_id
 ) AS previous_delete
 USING (data_file_id)
 JOIN (
-	FROM {METADATA_CATALOG}.ducklake_data_file data
+	FROM ducklake_data_file data
 	WHERE table_id = %d
 ) AS data
 USING (data_file_id)
@@ -699,12 +699,12 @@ USING (data_file_id)
 UNION ALL
 
 SELECT %s, data.end_snapshot FROM (
-	FROM {METADATA_CATALOG}.ducklake_data_file
+	FROM ducklake_data_file
 	WHERE table_id = %d AND end_snapshot >= %d AND end_snapshot <= {SNAPSHOT_ID}
 ) AS data
 LEFT JOIN (
 	SELECT data_file_id, MAX_BY(COLUMNS(['path', 'path_is_relative', 'file_size_bytes', 'footer_size', 'encryption_key']), begin_snapshot) AS '\0'
-	FROM {METADATA_CATALOG}.ducklake_delete_file
+	FROM ducklake_delete_file
 	WHERE table_id = %d AND begin_snapshot < data.end_snapshot
 	GROUP BY data_file_id
 ) AS previous_delete
@@ -747,10 +747,10 @@ vector<DuckLakeFileListExtendedEntry> DuckLakeMetadataManager::GetExtendedFilesF
 	string select_list = GetFileSelectList("data") + ", data.row_id_start, " + GetFileSelectList("del");
 	auto query = StringUtil::Format(R"(
 SELECT data.data_file_id, del.delete_file_id, data.record_count, %s
-FROM {METADATA_CATALOG}.ducklake_data_file data
+FROM ducklake_data_file data
 LEFT JOIN (
 	SELECT *
-    FROM {METADATA_CATALOG}.ducklake_delete_file
+    FROM ducklake_delete_file
     WHERE table_id=%d  AND {SNAPSHOT_ID} >= begin_snapshot
           AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
     ) del USING (data_file_id)
@@ -811,21 +811,21 @@ WITH snapshot_ranges AS (
       9223372036854775807
     ) AS end_snapshot,
 	schema_version
-	FROM {METADATA_CATALOG}.ducklake_schema_versions
+	FROM ducklake_schema_versions
 	ORDER BY begin_snapshot
 )
 SELECT %s,
-FROM {METADATA_CATALOG}.ducklake_data_file data
+FROM ducklake_data_file data
 JOIN snapshot_ranges sr
   ON data.begin_snapshot BETWEEN sr.begin_snapshot AND sr.end_snapshot
 LEFT JOIN (
 	SELECT *
-    FROM {METADATA_CATALOG}.ducklake_delete_file
+    FROM ducklake_delete_file
     WHERE table_id=%d
 ) del USING (data_file_id)
 LEFT JOIN (
    SELECT data_file_id, LIST(partition_value ORDER BY partition_key_index) keys
-   FROM {METADATA_CATALOG}.ducklake_file_partition_value
+   FROM ducklake_file_partition_value
    GROUP BY data_file_id
 ) partition_info USING (data_file_id)
 WHERE data.table_id=%d %s
@@ -907,9 +907,9 @@ void DuckLakeMetadataManager::FlushDrop(DuckLakeSnapshot commit_snapshot, const 
 		}
 		dropped_id_list += to_string(dropped_id.index);
 	}
-	auto dropped_id_query = StringUtil::Format(
-	    R"(UPDATE {METADATA_CATALOG}.%s SET end_snapshot = {SNAPSHOT_ID} WHERE end_snapshot IS NULL AND %s IN (%s);)",
-	    metadata_table_name, id_name, dropped_id_list);
+	auto dropped_id_query =
+	    StringUtil::Format(R"(UPDATE %s SET end_snapshot = {SNAPSHOT_ID} WHERE end_snapshot IS NULL AND %s IN (%s);)",
+	                       metadata_table_name, id_name, dropped_id_list);
 	auto result = transaction.Query(commit_snapshot, dropped_id_query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write drop information to DuckLake:");
@@ -952,7 +952,7 @@ void DuckLakeMetadataManager::WriteNewSchemas(DuckLakeSnapshot commit_snapshot,
 		                                        new_schema.uuid, SQLString(new_schema.name), SQLString(path.path),
 		                                        path.path_is_relative ? "true" : "false");
 	}
-	schema_insert_sql = "INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES " + schema_insert_sql;
+	schema_insert_sql = "INSERT INTO ducklake_schema VALUES " + schema_insert_sql;
 	auto result = transaction.Query(commit_snapshot, schema_insert_sql);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write new schemas to DuckLake: ");
@@ -1010,7 +1010,7 @@ string DuckLakeMetadataManager::GetInlinedTableQuery(const DuckLakeTableInfo &ta
 		}
 		columns += StringUtil::Format("%s %s", SQLIdentifier(col.name), GetColumnType(col));
 	}
-	return StringUtil::Format("CREATE TABLE IF NOT EXISTS {METADATA_CATALOG}.%s(row_id BIGINT, begin_snapshot BIGINT, "
+	return StringUtil::Format("CREATE TABLE IF NOT EXISTS %s(row_id BIGINT, begin_snapshot BIGINT, "
 	                          "end_snapshot BIGINT, %s);",
 	                          SQLIdentifier(table_name), columns);
 }
@@ -1034,7 +1034,7 @@ void DuckLakeMetadataManager::WriteNewTables(DuckLakeSnapshot commit_snapshot,
 	}
 	if (!table_insert_sql.empty()) {
 		// insert table entries
-		table_insert_sql = "INSERT INTO {METADATA_CATALOG}.ducklake_table VALUES " + table_insert_sql;
+		table_insert_sql = "INSERT INTO ducklake_table VALUES " + table_insert_sql;
 		auto result = transaction.Query(commit_snapshot, table_insert_sql);
 		if (result->HasError()) {
 			result->GetErrorObject().Throw("Failed to write new table to DuckLake: ");
@@ -1042,7 +1042,7 @@ void DuckLakeMetadataManager::WriteNewTables(DuckLakeSnapshot commit_snapshot,
 	}
 	if (!column_insert_sql.empty()) {
 		// insert column entries
-		column_insert_sql = "INSERT INTO {METADATA_CATALOG}.ducklake_column VALUES " + column_insert_sql;
+		column_insert_sql = "INSERT INTO ducklake_column VALUES " + column_insert_sql;
 		auto result = transaction.Query(commit_snapshot, column_insert_sql);
 		if (result->HasError()) {
 			result->GetErrorObject().Throw("Failed to write column information to DuckLake: ");
@@ -1076,7 +1076,7 @@ void DuckLakeMetadataManager::ExecuteInlinedTableQueries(DuckLakeSnapshot commit
 	if (inlined_tables.empty()) {
 		return;
 	}
-	inlined_tables = "INSERT INTO {METADATA_CATALOG}.ducklake_inlined_data_tables VALUES " + inlined_tables;
+	inlined_tables = "INSERT INTO ducklake_inlined_data_tables VALUES " + inlined_tables;
 	auto result = transaction.Query(commit_snapshot, inlined_tables);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write new inlined tables table to DuckLake: ");
@@ -1119,7 +1119,7 @@ void DuckLakeMetadataManager::WriteDroppedColumns(DuckLakeSnapshot commit_snapsh
 WITH dropped_cols(tid, cid) AS (
 VALUES %s
 )
-UPDATE {METADATA_CATALOG}.ducklake_column
+UPDATE ducklake_column
 SET end_snapshot = {SNAPSHOT_ID}
 FROM dropped_cols
 WHERE table_id=tid AND column_id=cid
@@ -1141,7 +1141,7 @@ void DuckLakeMetadataManager::WriteNewColumns(DuckLakeSnapshot commit_snapshot,
 	}
 
 	// insert column entries
-	column_insert_sql = "INSERT INTO {METADATA_CATALOG}.ducklake_column VALUES " + column_insert_sql;
+	column_insert_sql = "INSERT INTO ducklake_column VALUES " + column_insert_sql;
 	auto result = transaction.Query(commit_snapshot, column_insert_sql);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write column information to DuckLake: ");
@@ -1163,7 +1163,7 @@ void DuckLakeMetadataManager::WriteNewViews(DuckLakeSnapshot commit_snapshot,
 	}
 	if (!view_insert_sql.empty()) {
 		// insert table entries
-		view_insert_sql = "INSERT INTO {METADATA_CATALOG}.ducklake_view VALUES " + view_insert_sql;
+		view_insert_sql = "INSERT INTO ducklake_view VALUES " + view_insert_sql;
 		auto result = transaction.Query(commit_snapshot, view_insert_sql);
 		if (result->HasError()) {
 			result->GetErrorObject().Throw("Failed to write new view to DuckLake: ");
@@ -1182,10 +1182,10 @@ void DuckLakeMetadataManager::WriteNewInlinedData(DuckLakeSnapshot &commit_snaps
 		string inlined_table_name;
 		auto query = StringUtil::Format(R"(
 SELECT table_name
-FROM {METADATA_CATALOG}.ducklake_inlined_data_tables
+FROM ducklake_inlined_data_tables
 WHERE table_id = %d AND schema_version=(
     SELECT MAX(schema_version)
-    FROM {METADATA_CATALOG}.ducklake_inlined_data_tables
+    FROM ducklake_inlined_data_tables
     WHERE table_id=%d
 );)",
 		                                entry.table_id.index, entry.table_id.index);
@@ -1238,8 +1238,7 @@ WHERE table_id = %d AND schema_version=(
 				row_id++;
 			}
 		}
-		string append_query = StringUtil::Format("INSERT INTO {METADATA_CATALOG}.%s VALUES %s",
-		                                         SQLIdentifier(inlined_table_name), values);
+		string append_query = StringUtil::Format("INSERT INTO %s VALUES %s", SQLIdentifier(inlined_table_name), values);
 		result = transaction.Query(commit_snapshot, append_query);
 		if (result->HasError()) {
 			result->GetErrorObject().Throw("Failed to write inlined data to DuckLake: ");
@@ -1266,7 +1265,7 @@ void DuckLakeMetadataManager::WriteNewInlinedDeletes(DuckLakeSnapshot commit_sna
 WITH deleted_row_list(deleted_row_id) AS (
 VALUES %s
 )
-UPDATE {METADATA_CATALOG}.%s
+UPDATE %s
 SET end_snapshot = {SNAPSHOT_ID}
 FROM deleted_row_list
 WHERE row_id=deleted_row_id
@@ -1314,7 +1313,7 @@ shared_ptr<DuckLakeInlinedData> DuckLakeMetadataManager::ReadInlinedData(DuckLak
 	auto projection = GetProjection(columns_to_read);
 	auto result = transaction.Query(snapshot, StringUtil::Format(R"(
 SELECT %s
-FROM {METADATA_CATALOG}.%s inlined_data
+FROM %s inlined_data
 WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL);)",
 	                                                             projection, inlined_table_name));
 	return TransformInlinedData(*result);
@@ -1328,7 +1327,7 @@ DuckLakeMetadataManager::ReadInlinedDataInsertions(DuckLakeSnapshot start_snapsh
 	auto result =
 	    transaction.Query(end_snapshot, StringUtil::Format(R"(
 SELECT %s
-FROM {METADATA_CATALOG}.%s inlined_data
+FROM %s inlined_data
 WHERE inlined_data.begin_snapshot >= %d AND inlined_data.begin_snapshot <= {SNAPSHOT_ID};)",
 	                                                       projection, inlined_table_name, start_snapshot.snapshot_id));
 	return TransformInlinedData(*result);
@@ -1342,7 +1341,7 @@ DuckLakeMetadataManager::ReadInlinedDataDeletions(DuckLakeSnapshot start_snapsho
 	auto result =
 	    transaction.Query(end_snapshot, StringUtil::Format(R"(
 SELECT %s
-FROM {METADATA_CATALOG}.%s inlined_data
+FROM %s inlined_data
 WHERE inlined_data.end_snapshot >= %d AND inlined_data.end_snapshot <= {SNAPSHOT_ID};)",
 	                                                       projection, inlined_table_name, start_snapshot.snapshot_id));
 	return TransformInlinedData(*result);
@@ -1351,7 +1350,7 @@ WHERE inlined_data.end_snapshot >= %d AND inlined_data.end_snapshot <= {SNAPSHOT
 string DuckLakeMetadataManager::GetPathForSchema(SchemaIndex schema_id) {
 	auto result = transaction.Query(StringUtil::Format(R"(
 SELECT path, path_is_relative
-FROM {METADATA_CATALOG}.ducklake_schema
+FROM ducklake_schema
 WHERE schema_id = %d;)",
 	                                                   schema_id.index));
 	for (auto &row : *result) {
@@ -1367,8 +1366,8 @@ WHERE schema_id = %d;)",
 string DuckLakeMetadataManager::GetPathForTable(TableIndex table_id) {
 	auto result = transaction.Query(StringUtil::Format(R"(
 SELECT s.path, s.path_is_relative, t.path, t.path_is_relative
-FROM {METADATA_CATALOG}.ducklake_schema s
-JOIN {METADATA_CATALOG}.ducklake_table t
+FROM ducklake_schema s
+JOIN ducklake_table t
 USING (schema_id)
 WHERE table_id = %d;)",
 	                                                   table_id.index));
@@ -1550,23 +1549,22 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
 		throw InternalException("No files found!?");
 	}
 	// insert the data files
-	data_file_insert_query =
-	    StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_data_file VALUES %s", data_file_insert_query);
+	data_file_insert_query = StringUtil::Format("INSERT INTO ducklake_data_file VALUES %s", data_file_insert_query);
 	auto result = transaction.Query(commit_snapshot, data_file_insert_query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write data file information to DuckLake: ");
 	}
 	// insert the column stats
-	column_stats_insert_query = StringUtil::Format(
-	    "INSERT INTO {METADATA_CATALOG}.ducklake_file_column_statistics VALUES %s", column_stats_insert_query);
+	column_stats_insert_query =
+	    StringUtil::Format("INSERT INTO ducklake_file_column_statistics VALUES %s", column_stats_insert_query);
 	result = transaction.Query(commit_snapshot, column_stats_insert_query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write column stats information to DuckLake: ");
 	}
 	if (!partition_insert_query.empty()) {
 		// insert the partition values
-		partition_insert_query = StringUtil::Format(
-		    "INSERT INTO {METADATA_CATALOG}.ducklake_file_partition_value VALUES %s", partition_insert_query);
+		partition_insert_query =
+		    StringUtil::Format("INSERT INTO ducklake_file_partition_value VALUES %s", partition_insert_query);
 		result = transaction.Query(commit_snapshot, partition_insert_query);
 		if (result->HasError()) {
 			result->GetErrorObject().Throw("Failed to write partition value information to DuckLake: ");
@@ -1607,7 +1605,7 @@ void DuckLakeMetadataManager::WriteNewDeleteFiles(DuckLakeSnapshot commit_snapsh
 
 	// insert the data files
 	delete_file_insert_query =
-	    StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_delete_file VALUES %s", delete_file_insert_query);
+	    StringUtil::Format("INSERT INTO ducklake_delete_file VALUES %s", delete_file_insert_query);
 	auto result = transaction.Query(commit_snapshot, delete_file_insert_query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write delete file information to DuckLake: ");
@@ -1621,8 +1619,8 @@ vector<DuckLakeColumnMappingInfo> DuckLakeMetadataManager::GetColumnMappings(opt
 	}
 	auto result = transaction.Query(StringUtil::Format(R"(
 SELECT mapping_id, table_id, type, column_id, source_name, target_field_id, parent_column, is_partition
-FROM {METADATA_CATALOG}.ducklake_column_mapping
-JOIN {METADATA_CATALOG}.ducklake_name_mapping USING (mapping_id)
+FROM ducklake_column_mapping
+JOIN ducklake_name_mapping USING (mapping_id)
 %s
 ORDER BY mapping_id, parent_column NULLS FIRST
 )",
@@ -1675,13 +1673,12 @@ void DuckLakeMetadataManager::WriteNewColumnMappings(DuckLakeSnapshot commit_sna
 			                       name_map_column.target_field_id.index, parent_column, is_partition);
 		}
 	}
-	column_mapping_insert_query =
-	    "INSERT INTO {METADATA_CATALOG}.ducklake_column_mapping VALUES " + column_mapping_insert_query;
+	column_mapping_insert_query = "INSERT INTO ducklake_column_mapping VALUES " + column_mapping_insert_query;
 	auto result = transaction.Query(commit_snapshot, column_mapping_insert_query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write new column mapping information to DuckLake: ");
 	}
-	name_map_insert_query = "INSERT INTO {METADATA_CATALOG}.ducklake_name_mapping VALUES " + name_map_insert_query;
+	name_map_insert_query = "INSERT INTO ducklake_name_mapping VALUES " + name_map_insert_query;
 	result = transaction.Query(commit_snapshot, name_map_insert_query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write new column mapping information to DuckLake: ");
@@ -1691,7 +1688,7 @@ void DuckLakeMetadataManager::WriteNewColumnMappings(DuckLakeSnapshot commit_sna
 void DuckLakeMetadataManager::InsertSnapshot(const DuckLakeSnapshot commit_snapshot) {
 	auto result = transaction.Query(
 	    commit_snapshot,
-	    R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES ({SNAPSHOT_ID}, NOW(), {SCHEMA_VERSION}, {NEXT_CATALOG_ID}, {NEXT_FILE_ID});)");
+	    R"(INSERT INTO ducklake_snapshot VALUES ({SNAPSHOT_ID}, NOW(), {SCHEMA_VERSION}, {NEXT_CATALOG_ID}, {NEXT_FILE_ID});)");
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write new snapshot to DuckLake: ");
 	}
@@ -1708,10 +1705,10 @@ void DuckLakeMetadataManager::WriteSnapshotChanges(DuckLakeSnapshot commit_snaps
                                                    const SnapshotChangeInfo &change_info,
                                                    const DuckLakeSnapshotCommit &commit_info) {
 	// insert the snapshot changes
-	auto query = StringUtil::Format(
-	    R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot_changes VALUES ({SNAPSHOT_ID}, %s, %s, %s, %s);)",
-	    SQLStringOrNull(change_info.changes_made), commit_info.author.ToSQLString(),
-	    commit_info.commit_message.ToSQLString(), commit_info.commit_extra_info.ToSQLString());
+	auto query =
+	    StringUtil::Format(R"(INSERT INTO ducklake_snapshot_changes VALUES ({SNAPSHOT_ID}, %s, %s, %s, %s);)",
+	                       SQLStringOrNull(change_info.changes_made), commit_info.author.ToSQLString(),
+	                       commit_info.commit_message.ToSQLString(), commit_info.commit_extra_info.ToSQLString());
 	auto result = transaction.Query(commit_snapshot, query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write new snapshot to DuckLake:");
@@ -1722,7 +1719,7 @@ SnapshotChangeInfo DuckLakeMetadataManager::GetChangesMadeAfterSnapshot(DuckLake
 	// get all changes made to the system after the snapshot was started
 	auto result = transaction.Query(start_snapshot, R"(
 	SELECT COALESCE(STRING_AGG(changes_made), '')
-	FROM {METADATA_CATALOG}.ducklake_snapshot_changes
+	FROM ducklake_snapshot_changes
 	WHERE snapshot_id > {SNAPSHOT_ID}
 	)");
 	if (result->HasError()) {
@@ -1753,7 +1750,7 @@ unique_ptr<DuckLakeSnapshot> TryGetSnapshotInternal(QueryResult &result) {
 }
 
 string DuckLakeMetadataManager::GetLatestSnapshotQuery() const {
-	return R"(SELECT snapshot_id, schema_version, next_catalog_id, next_file_id FROM {METADATA_CATALOG}.ducklake_snapshot WHERE snapshot_id = (SELECT MAX(snapshot_id) FROM {METADATA_CATALOG}.ducklake_snapshot);)";
+	return R"(SELECT snapshot_id, schema_version, next_catalog_id, next_file_id FROM ducklake_snapshot WHERE snapshot_id = (SELECT MAX(snapshot_id) FROM ducklake_snapshot);)";
 }
 
 unique_ptr<DuckLakeSnapshot> DuckLakeMetadataManager::GetSnapshot() {
@@ -1777,16 +1774,16 @@ unique_ptr<DuckLakeSnapshot> DuckLakeMetadataManager::GetSnapshot(BoundAtClause 
 	if (StringUtil::CIEquals(unit, "version")) {
 		result = transaction.Query(StringUtil::Format(R"(
 SELECT snapshot_id, schema_version, next_catalog_id, next_file_id
-FROM {METADATA_CATALOG}.ducklake_snapshot
+FROM ducklake_snapshot
 WHERE snapshot_id = %llu;)",
 		                                              val.DefaultCastAs(LogicalType::UBIGINT).GetValue<idx_t>()));
 	} else if (StringUtil::CIEquals(unit, "timestamp")) {
 		result = transaction.Query(StringUtil::Format(R"(
 SELECT snapshot_id, schema_version, next_catalog_id, next_file_id
-FROM {METADATA_CATALOG}.ducklake_snapshot
+FROM ducklake_snapshot
 WHERE snapshot_id = (
 	SELECT %s_BY(snapshot_id, snapshot_time)
-	FROM {METADATA_CATALOG}.ducklake_snapshot
+	FROM ducklake_snapshot
 	WHERE snapshot_time %s= %s);)",
 		                                              timestamp_aggregate, timestamp_condition,
 		                                              val.DefaultCastAs(LogicalType::VARCHAR).ToSQLString()));
@@ -1880,7 +1877,7 @@ void DuckLakeMetadataManager::WriteNewPartitionKeys(DuckLakeSnapshot commit_snap
 	}
 	// update old partition information for any tables that have been altered
 	auto update_partition_query = StringUtil::Format(R"(
-UPDATE {METADATA_CATALOG}.ducklake_partition_info
+UPDATE ducklake_partition_info
 SET end_snapshot = {SNAPSHOT_ID}
 WHERE table_id IN (%s) AND end_snapshot IS NULL)",
 	                                                 old_partition_table_ids);
@@ -1889,15 +1886,14 @@ WHERE table_id IN (%s) AND end_snapshot IS NULL)",
 		result->GetErrorObject().Throw("Failed to update old partition information in DuckLake: ");
 	}
 	if (!new_partition_values.empty()) {
-		new_partition_values = "INSERT INTO {METADATA_CATALOG}.ducklake_partition_info VALUES " + new_partition_values;
+		new_partition_values = "INSERT INTO ducklake_partition_info VALUES " + new_partition_values;
 		auto result = transaction.Query(commit_snapshot, new_partition_values);
 		if (result->HasError()) {
 			result->GetErrorObject().Throw("Failed to insert new partition information in DuckLake: ");
 		}
 	}
 	if (!insert_partition_cols.empty()) {
-		insert_partition_cols =
-		    "INSERT INTO {METADATA_CATALOG}.ducklake_partition_column VALUES " + insert_partition_cols;
+		insert_partition_cols = "INSERT INTO ducklake_partition_column VALUES " + insert_partition_cols;
 
 		auto result = transaction.Query(commit_snapshot, insert_partition_cols);
 		if (result->HasError()) {
@@ -1924,7 +1920,7 @@ void DuckLakeMetadataManager::WriteNewTags(DuckLakeSnapshot commit_snapshot, con
 WITH overwritten_tags(tid, key) AS (
 VALUES %s
 )
-UPDATE {METADATA_CATALOG}.ducklake_tag
+UPDATE ducklake_tag
 SET end_snapshot = {SNAPSHOT_ID}
 FROM overwritten_tags
 WHERE object_id=tid
@@ -1943,7 +1939,7 @@ WHERE object_id=tid
 		                                    tag.value.ToSQLString());
 	}
 
-	new_tag_query = "INSERT INTO {METADATA_CATALOG}.ducklake_tag VALUES " + new_tag_query;
+	new_tag_query = "INSERT INTO ducklake_tag VALUES " + new_tag_query;
 
 	result = transaction.Query(commit_snapshot, new_tag_query);
 	if (result->HasError()) {
@@ -1970,7 +1966,7 @@ void DuckLakeMetadataManager::WriteNewColumnTags(DuckLakeSnapshot commit_snapsho
 WITH overwritten_tags(tid, cid, key) AS (
 VALUES %s
 )
-UPDATE {METADATA_CATALOG}.ducklake_column_tag
+UPDATE ducklake_column_tag
 SET end_snapshot = {SNAPSHOT_ID}
 FROM overwritten_tags
 WHERE table_id=tid AND column_id=cid
@@ -1989,7 +1985,7 @@ WHERE table_id=tid AND column_id=cid
 		                                    tag.field_index.index, SQLString(tag.key), tag.value.ToSQLString());
 	}
 
-	new_tag_query = "INSERT INTO {METADATA_CATALOG}.ducklake_column_tag VALUES " + new_tag_query;
+	new_tag_query = "INSERT INTO ducklake_column_tag VALUES " + new_tag_query;
 
 	result = transaction.Query(commit_snapshot, new_tag_query);
 	if (result->HasError()) {
@@ -2024,15 +2020,15 @@ void DuckLakeMetadataManager::UpdateGlobalTableStats(const DuckLakeGlobalStatsIn
 
 	if (!stats.initialized) {
 		// stats have not been initialized yet - insert them
-		auto result = transaction.Query(
-		    StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_table_stats VALUES (%d, %d, %d, %d);",
-		                       stats.table_id.index, stats.record_count, stats.next_row_id, stats.table_size_bytes));
+		auto result = transaction.Query(StringUtil::Format("INSERT INTO ducklake_table_stats VALUES (%d, %d, %d, %d);",
+		                                                   stats.table_id.index, stats.record_count, stats.next_row_id,
+		                                                   stats.table_size_bytes));
 		if (result->HasError()) {
 			result->GetErrorObject().Throw("Failed to insert stats information in DuckLake: ");
 		}
 
-		result = transaction.Query(StringUtil::Format(
-		    "INSERT INTO {METADATA_CATALOG}.ducklake_table_column_stats VALUES %s;", column_stats_values));
+		result = transaction.Query(
+		    StringUtil::Format("INSERT INTO ducklake_table_column_stats VALUES %s;", column_stats_values));
 		if (result->HasError()) {
 			result->GetErrorObject().Throw("Failed to insert stats information in DuckLake: ");
 		}
@@ -2040,7 +2036,7 @@ void DuckLakeMetadataManager::UpdateGlobalTableStats(const DuckLakeGlobalStatsIn
 	}
 	// stats have been initialized - update them
 	auto result = transaction.Query(
-	    StringUtil::Format("UPDATE {METADATA_CATALOG}.ducklake_table_stats SET record_count=%d, file_size_bytes=%d, "
+	    StringUtil::Format("UPDATE ducklake_table_stats SET record_count=%d, file_size_bytes=%d, "
 	                       "next_row_id=%d WHERE table_id=%d;",
 	                       stats.record_count, stats.table_size_bytes, stats.next_row_id, stats.table_id.index));
 	if (result->HasError()) {
@@ -2050,7 +2046,7 @@ void DuckLakeMetadataManager::UpdateGlobalTableStats(const DuckLakeGlobalStatsIn
 WITH new_values(tid, cid, new_contains_null, new_contains_nan, new_min, new_max) AS (
 VALUES %s
 )
-UPDATE {METADATA_CATALOG}.ducklake_table_column_stats
+UPDATE ducklake_table_column_stats
 SET contains_null=new_contains_null, contains_nan=new_contains_nan, min_value=new_min, max_value=new_max
 FROM new_values
 WHERE table_id=tid AND column_id=cid
@@ -2071,8 +2067,8 @@ vector<DuckLakeSnapshotInfo> DuckLakeMetadataManager::GetAllSnapshots(const stri
 
 	auto res = transaction.Query(StringUtil::Format(R"(
 SELECT snapshot_id, snapshot_time, schema_version, changes_made, author, commit_message, commit_extra_info
-FROM {METADATA_CATALOG}.ducklake_snapshot
-LEFT JOIN {METADATA_CATALOG}.ducklake_snapshot_changes USING (snapshot_id)
+FROM ducklake_snapshot
+LEFT JOIN ducklake_snapshot_changes USING (snapshot_id)
 %s %s
 ORDER BY snapshot_id
 )",
@@ -2100,7 +2096,7 @@ ORDER BY snapshot_id
 vector<DuckLakeFileForCleanup> DuckLakeMetadataManager::GetOldFilesForCleanup(const string &filter) {
 	auto query = R"(
 SELECT data_file_id, path, path_is_relative, schedule_start
-FROM {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion
+FROM ducklake_files_scheduled_for_deletion
 )" + filter;
 	auto res = transaction.Query(query);
 	if (res->HasError()) {
@@ -2197,7 +2193,7 @@ void DuckLakeMetadataManager::RemoveFilesScheduledForCleanup(const vector<DuckLa
 		deleted_file_ids += to_string(file.id.index);
 	}
 	auto result = transaction.Query(StringUtil::Format(R"(
-DELETE FROM {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion
+DELETE FROM ducklake_files_scheduled_for_deletion
 WHERE data_file_id IN (%s);
 )",
 	                                                   deleted_file_ids));
@@ -2209,7 +2205,7 @@ WHERE data_file_id IN (%s);
 idx_t DuckLakeMetadataManager::GetNextColumnId(TableIndex table_id) {
 	auto result = transaction.Query(StringUtil::Format(R"(
 	SELECT MAX(column_id)
-	FROM {METADATA_CATALOG}.ducklake_column
+	FROM ducklake_column
 	WHERE table_id=%d
 )",
 	                                                   table_id.index));
@@ -2253,7 +2249,7 @@ void DuckLakeMetadataManager::WriteMergeAdjacent(const vector<DuckLakeCompactedF
 	                                      "ducklake_delete_file", "ducklake_file_partition_value"};
 	for (auto &delete_from_tbl : tables_to_delete_from) {
 		auto result = transaction.Query(StringUtil::Format(R"(
-DELETE FROM {METADATA_CATALOG}.%s
+DELETE FROM %s
 WHERE data_file_id IN (%s);
 )",
 		                                                   delete_from_tbl, deleted_file_ids));
@@ -2262,8 +2258,7 @@ WHERE data_file_id IN (%s);
 		}
 	}
 	// add the files we cleared to the deletion schedule
-	scheduled_deletions =
-	    "INSERT INTO {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion VALUES " + scheduled_deletions;
+	scheduled_deletions = "INSERT INTO ducklake_files_scheduled_for_deletion VALUES " + scheduled_deletions;
 	auto result = transaction.Query(scheduled_deletions);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to insert files scheduled for deletions in DuckLake: ");
@@ -2308,7 +2303,7 @@ void DuckLakeMetadataManager::WriteDeleteRewrites(const vector<DuckLakeCompacted
 		} else if (!compaction.delete_file_end_snapshot.IsValid()) {
 			// if the deletion file was not removed, we still update its end_snapshot if null
 			auto result = transaction.Query(StringUtil::Format(R"(
-			UPDATE {METADATA_CATALOG}.ducklake_delete_file SET end_snapshot = %llu
+			UPDATE ducklake_delete_file SET end_snapshot = %llu
 			WHERE delete_file_id = %llu;
 			)",
 			                                                   table_idx_last_snapshot[compaction.table_index.index],
@@ -2319,7 +2314,7 @@ void DuckLakeMetadataManager::WriteDeleteRewrites(const vector<DuckLakeCompacted
 		}
 		// We must update the data file table
 		auto result = transaction.Query(StringUtil::Format(R"(
-		UPDATE {METADATA_CATALOG}.ducklake_data_file SET end_snapshot = %llu
+		UPDATE ducklake_data_file SET end_snapshot = %llu
 		WHERE data_file_id = %llu;
 		)",
 		                                                   table_idx_last_snapshot[compaction.table_index.index],
@@ -2330,7 +2325,7 @@ void DuckLakeMetadataManager::WriteDeleteRewrites(const vector<DuckLakeCompacted
 
 		// update the snapshot of our newly added file
 		result = transaction.Query(StringUtil::Format(R"(
-			UPDATE {METADATA_CATALOG}.ducklake_data_file SET begin_snapshot = %llu
+			UPDATE ducklake_data_file SET begin_snapshot = %llu
 			WHERE data_file_id = %llu;
 			)",
 		                                              table_idx_last_snapshot[compaction.table_index.index],
@@ -2343,7 +2338,7 @@ void DuckLakeMetadataManager::WriteDeleteRewrites(const vector<DuckLakeCompacted
 	if (!deleted_file_ids.empty()) {
 		// for each file that has been rewritten - we also delete it from the ducklake_delete_file table
 		auto result = transaction.Query(StringUtil::Format(R"(
-	DELETE FROM {METADATA_CATALOG}.ducklake_delete_file
+	DELETE FROM ducklake_delete_file
 	WHERE delete_file_id IN (%s);
 	)",
 		                                                   deleted_file_ids));
@@ -2352,8 +2347,7 @@ void DuckLakeMetadataManager::WriteDeleteRewrites(const vector<DuckLakeCompacted
 		}
 
 		// add the files we cleared to the deletion schedule
-		scheduled_deletions =
-		    "INSERT INTO {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion VALUES " + scheduled_deletions;
+		scheduled_deletions = "INSERT INTO ducklake_files_scheduled_for_deletion VALUES " + scheduled_deletions;
 		result = transaction.Query(scheduled_deletions);
 		if (result->HasError()) {
 			result->GetErrorObject().Throw("Failed to insert files scheduled for deletions in DuckLake: ");
@@ -2388,7 +2382,7 @@ void DuckLakeMetadataManager::DeleteSnapshots(const vector<DuckLakeSnapshotInfo>
 	vector<string> tables_to_delete_from {"ducklake_snapshot", "ducklake_snapshot_changes"};
 	for (auto &delete_tbl : tables_to_delete_from) {
 		result = transaction.Query(StringUtil::Format(R"(
-DELETE FROM {METADATA_CATALOG}.%s
+DELETE FROM %s
 WHERE snapshot_id IN (%s);
 )",
 		                                              delete_tbl, snapshot_ids));
@@ -2399,10 +2393,10 @@ WHERE snapshot_id IN (%s);
 	// get a list of tables that are no longer required after these deletions
 	result = transaction.Query(R"(
 SELECT table_id
-FROM {METADATA_CATALOG}.ducklake_table
+FROM ducklake_table
 WHERE end_snapshot IS NOT NULL AND NOT EXISTS(
     SELECT snapshot_id
-    FROM {METADATA_CATALOG}.ducklake_snapshot
+    FROM ducklake_snapshot
     WHERE snapshot_id >= begin_snapshot AND snapshot_id < end_snapshot
 );)");
 	vector<TableIndex> cleanup_tables;
@@ -2425,10 +2419,10 @@ WHERE end_snapshot IS NOT NULL AND NOT EXISTS(
 
 	result = transaction.Query(StringUtil::Format(R"(
 SELECT data_file_id, table_id, path, path_is_relative
-FROM {METADATA_CATALOG}.ducklake_data_file
+FROM ducklake_data_file
 WHERE %s (end_snapshot IS NOT NULL AND NOT EXISTS(
     SELECT snapshot_id
-    FROM {METADATA_CATALOG}.ducklake_snapshot
+    FROM ducklake_snapshot
     WHERE snapshot_id >= begin_snapshot AND snapshot_id < end_snapshot
 ));)",
 	                                              table_id_filter));
@@ -2465,7 +2459,7 @@ WHERE %s (end_snapshot IS NOT NULL AND NOT EXISTS(
 		tables_to_delete_from = {"ducklake_data_file", "ducklake_file_column_statistics"};
 		for (auto &delete_tbl : tables_to_delete_from) {
 			result = transaction.Query(StringUtil::Format(R"(
-DELETE FROM {METADATA_CATALOG}.%s
+DELETE FROM %s
 WHERE data_file_id IN (%s);
 )",
 			                                              delete_tbl, deleted_file_ids));
@@ -2475,7 +2469,7 @@ WHERE data_file_id IN (%s);
 		}
 		// insert the to-be-cleaned-up files
 		result = transaction.Query(StringUtil::Format(R"(
-INSERT INTO {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion
+INSERT INTO ducklake_files_scheduled_for_deletion
 VALUES %s;
 )",
 		                                              files_scheduled_for_cleanup));
@@ -2492,10 +2486,10 @@ VALUES %s;
 
 	result = transaction.Query(StringUtil::Format(R"(
 SELECT delete_file_id, table_id, path, path_is_relative
-FROM {METADATA_CATALOG}.ducklake_delete_file
+FROM ducklake_delete_file
 WHERE %s %s (end_snapshot IS NOT NULL AND NOT EXISTS(
     SELECT snapshot_id
-    FROM {METADATA_CATALOG}.ducklake_snapshot
+    FROM ducklake_snapshot
     WHERE snapshot_id >= begin_snapshot AND snapshot_id < end_snapshot
 ));)",
 	                                              table_id_filter, file_id_filter));
@@ -2530,7 +2524,7 @@ WHERE %s %s (end_snapshot IS NOT NULL AND NOT EXISTS(
 		}
 		// delete the delete files
 		result = transaction.Query(StringUtil::Format(R"(
-DELETE FROM {METADATA_CATALOG}.ducklake_delete_file
+DELETE FROM ducklake_delete_file
 WHERE delete_file_id IN (%s);
 )",
 		                                              deleted_delete_ids));
@@ -2539,7 +2533,7 @@ WHERE delete_file_id IN (%s);
 		}
 		// insert the to-be-cleaned-up files
 		result = transaction.Query(StringUtil::Format(R"(
-INSERT INTO {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion
+INSERT INTO ducklake_files_scheduled_for_deletion
 VALUES %s;
 )",
 		                                              files_scheduled_for_cleanup));
@@ -2555,7 +2549,7 @@ VALUES %s;
 		                         "ducklake_column_tag"};
 		for (auto &delete_tbl : tables_to_delete_from) {
 			auto result = transaction.Query(StringUtil::Format(R"(
-DELETE FROM {METADATA_CATALOG}.%s
+DELETE FROM %s
 WHERE table_id IN (%s);)",
 			                                                   delete_tbl, deleted_table_ids));
 			if (result->HasError()) {
@@ -2568,10 +2562,10 @@ WHERE table_id IN (%s);)",
 	tables_to_delete_from = {"ducklake_schema", "ducklake_view", "ducklake_tag"};
 	for (auto &delete_tbl : tables_to_delete_from) {
 		auto result = transaction.Query(StringUtil::Format(R"(
-DELETE FROM {METADATA_CATALOG}.%s
+DELETE FROM %s
 WHERE end_snapshot IS NOT NULL AND NOT EXISTS(
     SELECT snapshot_id
-    FROM {METADATA_CATALOG}.ducklake_snapshot
+    FROM ducklake_snapshot
     WHERE snapshot_id >= begin_snapshot AND snapshot_id < end_snapshot
 );)",
 		                                                   delete_tbl));
@@ -2583,7 +2577,7 @@ WHERE end_snapshot IS NOT NULL AND NOT EXISTS(
 
 void DuckLakeMetadataManager::DeleteInlinedData(const DuckLakeInlinedTableInfo &inlined_table) {
 	auto result = transaction.Query(StringUtil::Format(R"(
-		DELETE FROM {METADATA_CATALOG}.%s
+		DELETE FROM %s
 )",
 	                                                   SQLIdentifier(inlined_table.table_name)));
 	if (result->HasError()) {
@@ -2593,9 +2587,8 @@ void DuckLakeMetadataManager::DeleteInlinedData(const DuckLakeInlinedTableInfo &
 }
 
 void DuckLakeMetadataManager::InsertNewSchema(const DuckLakeSnapshot &snapshot) {
-	const auto insert_schema_change =
-	    StringUtil::Format(R"(INSERT INTO {METADATA_CATALOG}.ducklake_schema_versions VALUES (%llu,%llu);)",
-	                       snapshot.snapshot_id, snapshot.schema_version);
+	const auto insert_schema_change = StringUtil::Format(R"(INSERT INTO ducklake_schema_versions VALUES (%llu,%llu);)",
+	                                                     snapshot.snapshot_id, snapshot.schema_version);
 	const auto result = transaction.Query(insert_schema_change);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to insert new schema version to DuckLake:");
@@ -2606,13 +2599,13 @@ vector<DuckLakeTableSizeInfo> DuckLakeMetadataManager::GetTableSizes(DuckLakeSna
 	vector<DuckLakeTableSizeInfo> table_sizes;
 	auto result = transaction.Query(snapshot, R"(
 SELECT schema_id, table_id, table_name, table_uuid, data_file_info.file_count, data_file_info.total_file_size, delete_file_info.file_count, delete_file_info.total_file_size
-FROM {METADATA_CATALOG}.ducklake_table tbl, LATERAL (
+FROM ducklake_table tbl, LATERAL (
 	SELECT COUNT(*) file_count, SUM(file_size_bytes) total_file_size
-	FROM {METADATA_CATALOG}.ducklake_data_file df
+	FROM ducklake_data_file df
 	WHERE df.table_id = tbl.table_id AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
 ) data_file_info, LATERAL (
 	SELECT COUNT(*) file_count, SUM(file_size_bytes) total_file_size
-	FROM {METADATA_CATALOG}.ducklake_delete_file df
+	FROM ducklake_delete_file df
 	WHERE df.table_id = tbl.table_id AND {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
 ) delete_file_info
 WHERE {SNAPSHOT_ID} >= begin_snapshot AND ({SNAPSHOT_ID} < end_snapshot OR end_snapshot IS NULL)
@@ -2662,7 +2655,7 @@ void DuckLakeMetadataManager::SetConfigOption(const DuckLakeConfigOption &option
 	}
 	auto result = transaction.Query(StringUtil::Format(R"(
 SELECT COUNT(*)
-FROM {METADATA_CATALOG}.ducklake_metadata
+FROM ducklake_metadata
 WHERE key = %s AND %s
 )",
 	                                                   SQLString(option_key), scope_filter));
@@ -2671,13 +2664,13 @@ WHERE key = %s AND %s
 	if (count == 0) {
 		// option does not yet exist - insert the value
 		result = transaction.Query(StringUtil::Format(R"(
-INSERT INTO {METADATA_CATALOG}.ducklake_metadata VALUES (%s, %s, %s, %s)
+INSERT INTO ducklake_metadata VALUES (%s, %s, %s, %s)
 )",
 		                                              SQLString(option_key), SQLString(option_value), scope, scope_id));
 	} else {
 		// option already exists - update it
 		result = transaction.Query(StringUtil::Format(R"(
-UPDATE {METADATA_CATALOG}.ducklake_metadata SET value=%s WHERE key=%s AND %s
+UPDATE ducklake_metadata SET value=%s WHERE key=%s AND %s
 )",
 		                                              SQLString(option_value), SQLString(option_key), scope_filter));
 	}
