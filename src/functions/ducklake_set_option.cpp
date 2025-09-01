@@ -85,13 +85,13 @@ static unique_ptr<FunctionData> DuckLakeSetOptionBind(ClientContext &context, Ta
 			throw BinderException("The rewrite_delete_threshold must be between 0 and 1");
 		}
 		value = to_string(val.GetValue<double>());
-	} else if (option == "orphan_file_delete_older_than") {
+	} else if (option == "delete_older_than") {
 		auto interval_value = val.ToString();
 		if (!interval_value.empty()) {
 			// Let's verify this is actually an interval
 			interval_t result;
 			if (!Interval::FromString(val.ToString(), result)) {
-				throw BinderException("orphan_file_delete_older_than is not a valid interval value.");
+				throw BinderException("delete_older_than is not a valid interval value.");
 			}
 		}
 		value = val.ToString();

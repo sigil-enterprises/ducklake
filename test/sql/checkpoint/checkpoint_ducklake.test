@@ -47,9 +47,9 @@ FROM __ducklake_metadata_ducklake.ducklake_data_file
 3
 4
 
-# ducklake_flush_inlined_data
-# ducklake_expire_snapshots
-# ducklake_merge_adjacent_files
-# ducklake_rewrite_data_files
-# ducklake_cleanup_old_files
-# ducklake_delete_orphaned_files
+# ducklake_flush_inlined_data (schema,table)
+# ducklake_expire_snapshots (older_than)
+# ducklake_merge_adjacent_files (schema,table)
+# ducklake_rewrite_data_files (schema,table)
+# ducklake_cleanup_old_files (older_than)
+# ducklake_delete_orphaned_files (schema,table)

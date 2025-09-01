@@ -17,12 +17,12 @@ struct CleanupBindData : public TableFunctionData {
 		}
 		string quote;
 		if (!default_interval) {
-			// If our filter doesn't come from a default interval we must apply single-quotes
+			// If our filter doesn't come from a default interval, we must apply single-quotes
 			quote = "'";
 		}
 		switch (type) {
 		case CleanupType::OLD_FILES:
-			return StringUtil::Format("WHERE schedule_start < '%s'", timestamp_filter);
+			return StringUtil::Format("WHERE schedule_start < %s%s%s", quote, timestamp_filter, quote);
 		case CleanupType::ORPHANED_FILES:
 			return StringUtil::Format(" AND last_modified < %s%s%s", quote, timestamp_filter, quote);
 		default:
@@ -52,10 +52,13 @@ struct CleanupBindData : public TableFunctionData {
 };
 
 static unique_ptr<FunctionData> CleanupBind(ClientContext &context, TableFunctionBindInput &input,
-                                            vector<LogicalType> &return_types, vector<string> &names, CleanupType type,
-                                            string older_than_default = "") {
+                                            vector<LogicalType> &return_types, vector<string> &names,
+                                            CleanupType type) {
 	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
 	auto result = make_uniq<CleanupBindData>(catalog, type);
+
+	auto &ducklake_catalog = reinterpret_cast<DuckLakeCatalog &>(catalog);
+	const auto older_than_default = ducklake_catalog.GetConfigOption<string>("delete_older_than", {}, {}, "");
 
 	timestamp_tz_t from_timestamp;
 	bool has_timestamp = false;
@@ -86,7 +89,6 @@ static unique_ptr<FunctionData> CleanupBind(ClientContext &context, TableFunctio
 
 	auto &transaction = DuckLakeTransaction::Get(context, catalog);
 	auto &metadata_manager = transaction.GetMetadataManager();
-	auto &ducklake_catalog = reinterpret_cast<DuckLakeCatalog &>(catalog);
 	result->files = metadata_manager.GetFilesForCleanup(result->GetFilter(), type, ducklake_catalog.GetDataPath(),
 	                                                    ducklake_catalog.Separator());
 
@@ -103,10 +105,7 @@ static unique_ptr<FunctionData> DuckLakeCleanupOldFilesBind(ClientContext &conte
 static unique_ptr<FunctionData> DuckLakeCleanupOrphanedFilesBind(ClientContext &context, TableFunctionBindInput &input,
                                                                  vector<LogicalType> &return_types,
                                                                  vector<string> &names) {
-	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
-	auto &ducklake_catalog = reinterpret_cast<DuckLakeCatalog &>(catalog);
-	string older_than = ducklake_catalog.GetConfigOption<string>("orphan_file_delete_older_than", {}, {}, "");
-	return CleanupBind(context, input, return_types, names, CleanupType::ORPHANED_FILES, older_than);
+	return CleanupBind(context, input, return_types, names, CleanupType::ORPHANED_FILES);
 }
 
 struct DuckLakeCleanupData : public GlobalTableFunctionState {
