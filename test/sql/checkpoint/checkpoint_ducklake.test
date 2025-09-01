@@ -6,12 +6,31 @@ require ducklake
 
 require parquet
 
+require icu
+
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/checkpoint_ducklake.db' AS ducklake (DATA_PATH '__TEST_DIR__/checkpoint_ducklake', DATA_INLINING_ROW_LIMIT 1)
+ATTACH 'ducklake:__TEST_DIR__/checkpoint_ducklake.db' AS ducklake (DATA_PATH '__TEST_DIR__/checkpoint_ducklake', DATA_INLINING_ROW_LIMIT 5)
 
 statement ok
 use ducklake
 
+# Create table with expire_snapshot/delete old_file
+statement ok
+CREATE TABLE test(i INTEGER)
+
+statement ok
+INSERT INTO test FROM range(1000)
+
+statement ok
+DELETE FROM test
+
+statement ok
+DROP TABLE test
+
+statement ok
+CALL ducklake_expire_snapshots('ducklake', dry_run => false, versions => [2])
+
+# Create table with inlined and merge adjacent possibility
 statement ok
 create table t (a integer )
 
@@ -24,27 +43,70 @@ insert into t values (2),(3)
 statement ok
 insert into t values (4)
 
-# query III
-# SELECT filename, file_row_number, file_index FROM ducklake.t
-# ----
-# duckdb_unittest_tempdir/91522/checkpoint_ducklake/main/t/ducklake-0198f501-b957-7e36-ac9a-316764699ba7.parquet	0	0
-# duckdb_unittest_tempdir/91522/checkpoint_ducklake/main/t/ducklake-0198f501-b957-7e36-ac9a-316764699ba7.parquet	1	0
-# ducklake_inlined_data_1_1	0	1
-# ducklake_inlined_data_1_1	3	1
+# Create table with data rewrite
+statement ok
+create table t_2 (a integer )
 
-query I
-SELECT data_file_id FROM __ducklake_metadata_ducklake.ducklake_data_file
+statement ok
+INSERT INTO t_2  SELECT i FROM range(100) t(i)
+
+statement ok
+DELETE FROM t_2
+WHERE a < 98;
+
+# Create orphan file
+statement ok
+COPY t_2 to '__TEST_DIR__/checkpoint_ducklake/main/t/bla.parquet';
+
+query II
+SELECT data_file_id, table_id FROM __ducklake_metadata_ducklake.ducklake_data_file
 ----
-0
-1
+4	3
+
+query II
+SELECT delete_file_id, table_id FROM __ducklake_metadata_ducklake.ducklake_delete_file
+----
+5	3
+
+# t has the orphan, all data is inlined, t_2 has the data, and deletion, test has the data, we have 4 files in total.
+query I
+SELECT COUNT(*) FROM GLOB('__TEST_DIR__/checkpoint_ducklake/main/**')
+----
+4
+
+statement error
+CALL ducklake_checkpoint();
+----
+You can also set a default value for snapshot expiration via e.g., CALL ducklake.set_option('expire_older_than', '1 week');
+
+statement ok
+CALL ducklake.set_option('expire_older_than', '1 week');
+
+statement error
+CALL ducklake_checkpoint();
+----
+You can also set a default value for file deletion via e.g., CALL ducklake.set_option('delete_older_than', '1 week');
+
+statement ok
+CALL ducklake.set_option('delete_older_than', '1 millisecond');
 
 statement ok
 CALL ducklake_checkpoint();
 
-query I
-FROM __ducklake_metadata_ducklake.ducklake_data_file
+query II
+SELECT data_file_id, table_id FROM __ducklake_metadata_ducklake.ducklake_data_file
 ----
-3
+4	3
+
+query II
+SELECT delete_file_id, table_id FROM __ducklake_metadata_ducklake.ducklake_delete_file
+----
+5	3
+
+# t has the orphan, all data is inlined, t_2 has the data, and deletion, test has the data, we have 4 files in total.
+query I
+SELECT COUNT(*) FROM GLOB('__TEST_DIR__/checkpoint_ducklake/main/**')
+----
 4
 
 # ducklake_flush_inlined_data (schema,table)

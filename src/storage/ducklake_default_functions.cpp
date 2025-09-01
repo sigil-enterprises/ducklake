@@ -22,7 +22,7 @@ static const DefaultTableMacro ducklake_table_macros[] = {
 	//  ducklake_rewrite_data_files
 	//  ducklake_cleanup_old_files
 	//  ducklake_delete_orphaned_files
-	{DEFAULT_SCHEMA, "ducklake_checkpoint", { nullptr}, {{nullptr, nullptr}},  "FROM ducklake_merge_adjacent_files({CATALOG}) WHERE TRUE IN (SELECT TRUE FROM ducklake_flush_inlined_data({CATALOG}));"},
+	{DEFAULT_SCHEMA, "ducklake_checkpoint", { nullptr}, {{nullptr, nullptr}},  "FROM ducklake_flush_inlined_data({CATALOG}) WHERE TRUE IN (SELECT TRUE FROM ducklake_expire_snapshots({CATALOG}) WHERE TRUE IN (SELECT TRUE FROM ducklake_merge_adjacent_files({CATALOG}) WHERE TRUE IN (SELECT TRUE FROM ducklake_rewrite_data_files({CATALOG}) WHERE TRUE IN (SELECT TRUE FROM ducklake_cleanup_old_files({CATALOG}) WHERE TRUE IN (SELECT TRUE FROM ducklake_delete_orphaned_files({CATALOG}))))));"},
 
 	{nullptr, nullptr, {nullptr}, {{nullptr, nullptr}}, nullptr}
 };

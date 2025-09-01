@@ -47,7 +47,7 @@ static unique_ptr<FunctionData> DuckLakeExpireSnapshotsBind(ClientContext &conte
 	}
 	if ((has_versions == has_timestamp && has_versions == true) ||
 	    (has_versions == has_timestamp && has_versions == false && older_than_default.empty())) {
-		throw InvalidInputException("ducklake_expire_snapshots: either versions OR older_than must be specified");
+		throw InvalidInputException("ducklake_expire_snapshots: either versions OR older_than must be specified.\nYou can also set a default value for snapshot expiration via e.g., CALL ducklake.set_option('expire_older_than', '1 week');");
 	}
 
 	string filter;
