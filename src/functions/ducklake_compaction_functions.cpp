@@ -14,6 +14,7 @@
 #include "storage/ducklake_multi_file_list.hpp"
 #include "duckdb/planner/tableref/bound_at_clause.hpp"
 #include "duckdb/planner/operator/logical_empty_result.hpp"
+#include "fmt/format.h"
 
 namespace duckdb {
 
@@ -476,43 +477,92 @@ unique_ptr<LogicalOperator> GenerateCompactionOperator(TableFunctionBindInput &i
 	return union_op;
 }
 
-unique_ptr<LogicalOperator> MergeAdjacentFilesBind(ClientContext &context, TableFunctionBindInput &input,
-                                                   idx_t bind_index, vector<string> &return_names) {
-	// gather a list of files to compact
+void GenerateCompaction(ClientContext &context, DuckLakeTransaction &transaction, DuckLakeCatalog &ducklake_catalog,
+                        TableFunctionBindInput &input, DuckLakeTableEntry &cur_table, CompactionType type,
+                        double delete_threshold, vector<unique_ptr<LogicalOperator>> &compactions) {
+	switch (type) {
+	case CompactionType::MERGE_ADJACENT_TABLES: {
+		DuckLakeCompactor compactor(context, ducklake_catalog, transaction, *input.binder, cur_table.GetTableId());
+		compactor.GenerateCompactions(cur_table, compactions);
+		break;
+	}
+	case CompactionType::REWRITE_DELETES: {
+		DuckLakeCompactor compactor(context, ducklake_catalog, transaction, *input.binder, cur_table.GetTableId(),
+		                            delete_threshold);
+		compactor.GenerateCompactions(cur_table, compactions);
+		break;
+	}
+	default:
+		throw InternalException("Compaction type not recognized");
+	}
+}
+unique_ptr<LogicalOperator> BindCompaction(ClientContext &context, TableFunctionBindInput &input, idx_t bind_index,
+                                           CompactionType type) {
 	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
 	auto &ducklake_catalog = catalog.Cast<DuckLakeCatalog>();
 	auto &transaction = DuckLakeTransaction::Get(context, ducklake_catalog);
 
-	// try to compact all tables
+	auto schema = ducklake_catalog.GetConfigOption<string>("compaction_schema", {}, {}, "");
+	auto table = ducklake_catalog.GetConfigOption<string>("compaction_table", {}, {}, "");
+
+	// By default, our delete threshold is 0.95 unless it was set in the global rewrite_delete_threshold
+	double delete_threshold = ducklake_catalog.GetConfigOption<double>("rewrite_delete_threshold", {}, {}, 0.95);
+	auto delete_threshold_entry = input.named_parameters.find("delete_threshold");
+	if (delete_threshold_entry != input.named_parameters.end()) {
+		// If the user manually sets the parameter, this has priority
+		delete_threshold = DoubleValue::Get(delete_threshold_entry->second);
+	}
+	if (delete_threshold > 1 || delete_threshold < 0) {
+		throw BinderException("The delete_threshold option must be between 0 and 1");
+	}
+
 	vector<unique_ptr<LogicalOperator>> compactions;
 	if (input.inputs.size() == 1) {
-		// We will perform rewrites on deletes in the whole database
-		auto schemas = ducklake_catalog.GetSchemas(context);
-		for (auto &schema : schemas) {
-			schema.get().Scan(context, CatalogType::TABLE_ENTRY, [&](CatalogEntry &entry) {
-				auto &table = entry.Cast<DuckLakeTableEntry>();
-				DuckLakeCompactor compactor(context, ducklake_catalog, transaction, *input.binder, table.GetTableId());
-				compactor.GenerateCompactions(table, compactions);
+		if (schema.empty() && table.empty()) {
+			// No default schema/table, we will perform rewrites on deletes in the whole database
+			auto schemas = ducklake_catalog.GetSchemas(context);
+			for (auto &cur_schema : schemas) {
+				cur_schema.get().Scan(context, CatalogType::TABLE_ENTRY, [&](CatalogEntry &entry) {
+					auto &cur_table = entry.Cast<DuckLakeTableEntry>();
+					GenerateCompaction(context, transaction, ducklake_catalog, input, cur_table, type, delete_threshold,
+					                   compactions);
+				});
+			}
+			return GenerateCompactionOperator(input, bind_index, compactions);
+		} else if (!schema.empty() && table.empty()) {
+			// There is a default schema but not a default table, we will use that
+			EntryLookupInfo schema_lookup(CatalogType::SCHEMA_ENTRY, schema, nullptr, QueryErrorContext());
+			auto schema_entry = catalog.GetEntry(context, schema, schema_lookup, OnEntryNotFound::THROW_EXCEPTION);
+			auto &ducklake_schema = schema_entry->Cast<DuckLakeSchemaEntry>();
+			ducklake_schema.Scan(context, CatalogType::TABLE_ENTRY, [&](CatalogEntry &entry) {
+				auto &cur_table = entry.Cast<DuckLakeTableEntry>();
+				GenerateCompaction(context, transaction, ducklake_catalog, input, cur_table, type, delete_threshold,
+				                   compactions);
 			});
+			return GenerateCompactionOperator(input, bind_index, compactions);
 		}
-	} else {
-		// A table name is provided, so we only compact that
-		string schema;
-		auto schema_entry = input.named_parameters.find("schema");
-		if (schema_entry != input.named_parameters.end()) {
-			schema = StringValue::Get(schema_entry->second);
-		}
-		auto table_name = StringValue::Get(input.inputs[1]);
-		EntryLookupInfo table_lookup(CatalogType::TABLE_ENTRY, table_name, nullptr, QueryErrorContext());
-		auto table_entry = catalog.GetEntry(context, schema, table_lookup, OnEntryNotFound::THROW_EXCEPTION);
-		auto &table = table_entry->Cast<DuckLakeTableEntry>();
-
-		DuckLakeCompactor compactor(context, ducklake_catalog, transaction, *input.binder, table.GetTableId());
-		compactor.GenerateCompactions(table, compactions);
+	} else if (input.inputs.size() == 2) {
+		// We have the table_name defined in our input
+		table = StringValue::Get(input.inputs[1]);
 	}
-	return_names.push_back("Success");
+	// A table name is provided, so we only compact that
+	auto schema_entry = input.named_parameters.find("schema");
+	if (schema_entry != input.named_parameters.end()) {
+		schema = StringValue::Get(schema_entry->second);
+	}
+	EntryLookupInfo table_lookup(CatalogType::TABLE_ENTRY, table, nullptr, QueryErrorContext());
+	auto table_entry = catalog.GetEntry(context, schema, table_lookup, OnEntryNotFound::THROW_EXCEPTION);
+	auto &ducklake_table = table_entry->Cast<DuckLakeTableEntry>();
+	GenerateCompaction(context, transaction, ducklake_catalog, input, ducklake_table, type, delete_threshold,
+	                   compactions);
 
 	return GenerateCompactionOperator(input, bind_index, compactions);
+}
+
+unique_ptr<LogicalOperator> MergeAdjacentFilesBind(ClientContext &context, TableFunctionBindInput &input,
+                                                   idx_t bind_index, vector<string> &return_names) {
+	return_names.push_back("Success");
+	return BindCompaction(context, input, bind_index, CompactionType::MERGE_ADJACENT_TABLES);
 }
 
 TableFunctionSet DuckLakeMergeAdjacentFilesFunction::GetFunctions() {
@@ -532,55 +582,8 @@ TableFunctionSet DuckLakeMergeAdjacentFilesFunction::GetFunctions() {
 unique_ptr<LogicalOperator> RewriteFilesBind(ClientContext &context, TableFunctionBindInput &input, idx_t bind_index,
                                              vector<string> &return_names) {
 
-	// gather a list of files to compact
-	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
-	auto &ducklake_catalog = catalog.Cast<DuckLakeCatalog>();
-	auto &transaction = DuckLakeTransaction::Get(context, ducklake_catalog);
-
 	return_names.push_back("Success");
-
-	// By default, our delete threshold is 0.95 unless it was set in the global rewrite_delete_threshold
-	double delete_threshold = ducklake_catalog.GetConfigOption<double>("rewrite_delete_threshold", {}, {}, 0.95);
-	auto delete_threshold_entry = input.named_parameters.find("delete_threshold");
-	if (delete_threshold_entry != input.named_parameters.end()) {
-		// If the user manually sets the parameter, this has priority
-		delete_threshold = DoubleValue::Get(delete_threshold_entry->second);
-	}
-	if (delete_threshold > 1 || delete_threshold < 0) {
-		throw BinderException("The delete_threshold option must be between 0 and 1");
-	}
-
-	vector<unique_ptr<LogicalOperator>> compactions;
-	if (input.inputs.size() == 1) {
-		// We will perform rewrites on deletes in the whole database
-		auto schemas = ducklake_catalog.GetSchemas(context);
-		for (auto &schema : schemas) {
-			schema.get().Scan(context, CatalogType::TABLE_ENTRY, [&](CatalogEntry &entry) {
-				auto &table = entry.Cast<DuckLakeTableEntry>();
-				DuckLakeCompactor compactor(context, ducklake_catalog, transaction, *input.binder, table.GetTableId(),
-				                            delete_threshold);
-				compactor.GenerateCompactions(table, compactions);
-			});
-		}
-	} else {
-		// A table name is provided, so we only compact that
-		string schema;
-		auto schema_entry = input.named_parameters.find("schema");
-		if (schema_entry != input.named_parameters.end()) {
-			schema = StringValue::Get(schema_entry->second);
-		}
-
-		auto table_name = StringValue::Get(input.inputs[1]);
-		EntryLookupInfo table_lookup(CatalogType::TABLE_ENTRY, table_name, nullptr, QueryErrorContext());
-		auto table_entry = catalog.GetEntry(context, schema, table_lookup, OnEntryNotFound::THROW_EXCEPTION);
-		auto &table = table_entry->Cast<DuckLakeTableEntry>();
-
-		DuckLakeCompactor compactor(context, ducklake_catalog, transaction, *input.binder, table.GetTableId(),
-		                            delete_threshold);
-		compactor.GenerateCompactions(table, compactions);
-	}
-
-	return GenerateCompactionOperator(input, bind_index, compactions);
+	return BindCompaction(context, input, bind_index, CompactionType::REWRITE_DELETES);
 }
 
 TableFunctionSet DuckLakeRewriteDataFilesFunction::GetFunctions() {

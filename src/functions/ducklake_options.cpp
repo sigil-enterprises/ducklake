@@ -12,7 +12,7 @@ struct DuckLakeOptionMetadata {
 	const char *description;
 };
 
-using ducklake_option_array = std::array<DuckLakeOptionMetadata, 16>;
+using ducklake_option_array = std::array<DuckLakeOptionMetadata, 18>;
 
 static constexpr const ducklake_option_array DUCKLAKE_OPTIONS = {
     {{"data_inlining_row_limit", "Maximum amount of rows to inline in a single insert"},
@@ -32,6 +32,12 @@ static constexpr const ducklake_option_array DUCKLAKE_OPTIONS = {
                                   "removed from a file before a rewrite is warranted. From 0 - 1."},
      {"delete_older_than", "How old unused files must be to be removed by the 'ducklake_delete_orphaned_files' and "
                            "'ducklake_cleanup_old_files' cleanup functions."},
+     {"compaction_schema", "Pre-defined schema used as a default value for the following compaction functions "
+                           "'ducklake_flush_inlined_data','ducklake_merge_adjacent_files', "
+                           "'ducklake_rewrite_data_files', 'ducklake_delete_orphaned_files'"},
+     {"compaction_table", "Pre-defined table used as a default value for the following compaction functions "
+                          "'ducklake_flush_inlined_data','ducklake_merge_adjacent_files', "
+                          "'ducklake_rewrite_data_files', 'ducklake_delete_orphaned_files'"},
      {"encrypted", "Whether or not to encrypt Parquet files written to the data path"},
      {"per_thread_output", "Whether to create separate output files per thread during parallel insertion"}}};
 

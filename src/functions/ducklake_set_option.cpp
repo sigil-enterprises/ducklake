@@ -95,6 +95,11 @@ static unique_ptr<FunctionData> DuckLakeSetOptionBind(ClientContext &context, Ta
 			}
 		}
 		value = val.ToString();
+	} else if (option == "compaction_schema" || option == "compaction_table") {
+		if (val.IsNull()) {
+			throw BinderException("The %s option can't be null.", option.c_str());
+		}
+		value = val.ToString();
 	} else if (option == "per_thread_output") {
 		value = val.CastAs(context, LogicalType::BOOLEAN).GetValue<bool>() ? "true" : "false";
 	} else {
