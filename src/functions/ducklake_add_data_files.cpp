@@ -187,14 +187,14 @@ FROM parquet_schema(%s)
 		if (!row.IsNull(8)) {
 			column->logical_type = row.GetValue<string>(8);
 		}
-		
+
 		// Only assign column_id to leaf columns (those without children)
 		if (child_count == 0) {
 			column->column_id = column_id++;
 		} else {
 			column->column_id = DConstants::INVALID_INDEX; // Mark as non-leaf
 		}
-		
+
 		auto &column_ref = *column;
 
 		if (current_column.empty()) {
@@ -204,7 +204,7 @@ FROM parquet_schema(%s)
 			// add as child to last column
 			current_column.back().get().child_columns.push_back(std::move(column));
 		}
-		
+
 		// Only add leaf columns to column_id_map (those that will have statistics)
 		if (column_ref.column_id != DConstants::INVALID_INDEX) {
 			file->column_id_map.emplace(column_ref.column_id, column_ref);
