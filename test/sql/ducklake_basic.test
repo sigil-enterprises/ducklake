@@ -6,6 +6,9 @@ require ducklake
 
 require parquet
 
+# Not implemented Error: Unsupported catalog type for duckdb_columns
+require notsqlite
+
 statement ok
 ATTACH 'ducklake:__TEST_DIR__/ducklake.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_files', METADATA_CATALOG 'ducklake_meta')
 

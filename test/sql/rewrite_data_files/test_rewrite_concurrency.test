@@ -8,6 +8,9 @@ require parquet
 
 require notwindows
 
+# Failed to execute query "COMMIT": database is locked
+require notsqlite
+
 statement ok
 ATTACH 'ducklake:__TEST_DIR__/ducklake_concurrent_rewrite.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_concurrent_rewrite', METADATA_CATALOG 'ducklake_metadata')
 

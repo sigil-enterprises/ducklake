@@ -6,6 +6,9 @@ require ducklake
 
 require parquet
 
+# Binder Error: Failed to initialize DuckLake:SQLite databases do not support creating new schemas
+require notsqlite
+
 # store multiple DuckLake catalogs in the same metadata store (with different schemas)
 statement ok
 ATTACH 'ducklake:__TEST_DIR__/ducklake_schema.db' AS ducklake_1 (DATA_PATH '__TEST_DIR__/ducklake_files_s1', METADATA_SCHEMA 'metadata_s1')
