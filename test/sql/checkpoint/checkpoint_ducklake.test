@@ -8,8 +8,10 @@ require parquet
 
 require icu
 
+loop i 0 2
+
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/checkpoint_ducklake.db' AS ducklake (DATA_PATH '__TEST_DIR__/checkpoint_ducklake', DATA_INLINING_ROW_LIMIT 5)
+ATTACH 'ducklake:__TEST_DIR__/checkpoint_ducklake_{i}.db' AS ducklake (DATA_PATH '__TEST_DIR__/checkpoint_ducklake_{i}', DATA_INLINING_ROW_LIMIT 5)
 
 statement ok
 use ducklake
@@ -56,7 +58,7 @@ WHERE a < 98;
 
 # Create orphan file
 statement ok
-COPY t_2 to '__TEST_DIR__/checkpoint_ducklake/main/t/bla.parquet';
+COPY t_2 to '__TEST_DIR__/checkpoint_ducklake_{i}/main/t/bla.parquet';
 
 query II
 SELECT data_file_id, table_id FROM __ducklake_metadata_ducklake.ducklake_data_file
@@ -70,10 +72,18 @@ SELECT delete_file_id, table_id FROM __ducklake_metadata_ducklake.ducklake_delet
 
 # t has the orphan, all data is inlined, t_2 has the data, and deletion, test has the data, we have 4 files in total.
 query I
-SELECT COUNT(*) FROM GLOB('__TEST_DIR__/checkpoint_ducklake/main/**')
+SELECT COUNT(*) FROM GLOB('__TEST_DIR__/checkpoint_ducklake_{i}/main/**')
 ----
 4
 
+skipif threadid=0
+statement error
+CHECKPOINT;
+----
+You can also set a default value for snapshot expiration via e.g., CALL ducklake.set_option('expire_older_than', '1 week');
+
+
+skipif threadid=1
 statement error
 CALL ducklake_checkpoint();
 ----
@@ -82,6 +92,13 @@ You can also set a default value for snapshot expiration via e.g., CALL ducklake
 statement ok
 CALL ducklake.set_option('expire_older_than', '1 week');
 
+skipif threadid=0
+statement error
+CHECKPOINT;
+----
+You can also set a default value for file deletion via e.g., CALL ducklake.set_option('delete_older_than', '1 week');
+
+skipif threadid=1
 statement error
 CALL ducklake_checkpoint();
 ----
@@ -90,6 +107,11 @@ You can also set a default value for file deletion via e.g., CALL ducklake.set_o
 statement ok
 CALL ducklake.set_option('delete_older_than', '1 millisecond');
 
+skipif threadid=0
+statement ok
+CHECKPOINT;
+
+skipif threadid=1
 statement ok
 CALL ducklake_checkpoint();
 
@@ -106,8 +128,9 @@ SELECT delete_file_id, table_id FROM __ducklake_metadata_ducklake.ducklake_delet
 
 query I
 SELECT COUNT(*)
-FROM GLOB('__TEST_DIR__/checkpoint_ducklake/main/**')
+FROM GLOB('__TEST_DIR__/checkpoint_ducklake_{i}/main/**')
 WHERE file LIKE '%bla%';
 ----
 0
 
+endloop

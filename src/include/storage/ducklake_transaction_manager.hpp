@@ -24,6 +24,21 @@ public:
 
 	void Checkpoint(ClientContext &context, bool force = false) override;
 
+	static constexpr const char *DUCKLAKE_CHECKPOINT_QUERY = R"(
+    WITH flush AS (SELECT * FROM ducklake_flush_inlined_data({CATALOG})),
+         expire AS (SELECT * FROM ducklake_expire_snapshots({CATALOG})),
+         merge AS (SELECT * FROM ducklake_merge_adjacent_files({CATALOG})),
+         rewrite AS (SELECT * FROM ducklake_rewrite_data_files({CATALOG})),
+         cleanup AS (SELECT * FROM ducklake_cleanup_old_files({CATALOG})),
+         orphans AS (SELECT * FROM ducklake_delete_orphaned_files({CATALOG}))
+    SELECT #1 FROM flush
+    UNION ALL SELECT #1 FROM expire
+    UNION ALL SELECT #1 FROM merge
+    UNION ALL SELECT #1 FROM rewrite
+    UNION ALL SELECT #1 FROM cleanup
+    UNION ALL SELECT #1 FROM orphans;
+)";
+
 private:
 	DuckLakeCatalog &ducklake_catalog;
 	mutex transaction_lock;
