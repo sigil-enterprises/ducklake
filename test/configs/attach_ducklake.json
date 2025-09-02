@@ -102,7 +102,8 @@
         "test/sql/logging/logging_context_ids.test",
         "test/sql/logging/test_logging_function.test",
         "test/sql/logging/logging_types.test",
-        "test/sql/logging/logging.test"
+        "test/sql/logging/logging.test",
+        "test/sql/logging/logging_csv.test"
       ]
     },
     {
@@ -122,7 +123,8 @@
         "test/optimizer/test_sum_rewrite.test",
         "test/optimizer/prefer_final_projected_columns_on_probe_side.test",
         "test/optimizer/sampling_pushdown.test",
-        "test/sql/explain/explain_execute.test"
+        "test/sql/explain/explain_execute.test",
+        "test/optimizer/pushdown/pushdown_filter_on_coalesced_equal_outer_join_keys"
       ]
     },
     {
@@ -205,7 +207,8 @@
         "test/sql/storage/wal/wal_view_storage.test",
         "test/sql/storage/catalog/test_view_explicit_aliases.test",
         "test/sql/storage/catalog/test_view_storage_no_view_dependencies.test",
-        "test/sql/storage/catalog/test_view_storage.test"
+        "test/sql/storage/catalog/test_view_storage.test",
+        "test/sql/catalog/view/test_view_sql.test"
       ]
     },
     {
@@ -246,7 +249,8 @@
         "test/sql/storage/temp_directory/max_swap_space_error.test",
         "test/sql/copy/parquet/writer/parquet_write_memory_usage.test",
         "test/fuzzer/sqlsmith/nullif_map_with_config.test",
-        "test/sql/storage/buffer_manager_temp_dir.test"
+        "test/sql/storage/buffer_manager_temp_dir.test",
+        "test/issues/internal/test_5457.test"
       ]
     },
     {
@@ -428,7 +432,8 @@
     {
       "reason": "FIXME: Bugs? Cannot commit transaction local files",
       "paths": [
-        "test/sql/transactions/conflict_rename_append.test"
+        "test/sql/transactions/conflict_rename_append.test",
+        "test/sql/logging/file_system_logging_attach_deadlock.test"
       ]
     },
     {
