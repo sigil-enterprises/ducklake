@@ -60,6 +60,11 @@ public:
 	DuckLakeMergeAdjacentFilesFunction();
 };
 
+class DuckLakeRewriteDataFilesFunction : public TableFunction {
+public:
+	static TableFunctionSet GetFunctions();
+};
+
 class DuckLakeCleanupOldFilesFunction : public TableFunction {
 public:
 	DuckLakeCleanupOldFilesFunction();
@@ -90,9 +95,19 @@ public:
 	DuckLakeOptionsFunction();
 };
 
+class DuckLakeLastCommittedSnapshotFunction : public BaseMetadataFunction {
+public:
+	DuckLakeLastCommittedSnapshotFunction();
+};
+
 class DuckLakeListFilesFunction : public BaseMetadataFunction {
 public:
 	DuckLakeListFilesFunction();
+};
+
+class DuckLakeCurrentSnapshotFunction : public BaseMetadataFunction {
+public:
+	DuckLakeCurrentSnapshotFunction();
 };
 
 class DuckLakeAddDataFilesFunction : public TableFunction {

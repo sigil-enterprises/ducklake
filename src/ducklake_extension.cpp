@@ -37,6 +37,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 	DuckLakeMergeAdjacentFilesFunction merge_adjacent_files;
 	loader.RegisterFunction(merge_adjacent_files);
 
+	auto rewrite_files = DuckLakeRewriteDataFilesFunction::GetFunctions();
+	loader.RegisterFunction(rewrite_files);
+
 	DuckLakeCleanupOldFilesFunction cleanup_old_files;
 	loader.RegisterFunction(cleanup_old_files);
 
@@ -63,6 +66,12 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	DuckLakeAddDataFilesFunction add_files;
 	loader.RegisterFunction(add_files);
+
+	DuckLakeCurrentSnapshotFunction current_snapshot;
+	loader.RegisterFunction(current_snapshot);
+
+	DuckLakeLastCommittedSnapshotFunction last_committed;
+	loader.RegisterFunction(last_committed);
 
 	// secrets
 	auto secret_type = DuckLakeSecret::GetSecretType();

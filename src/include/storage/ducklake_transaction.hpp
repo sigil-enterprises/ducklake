@@ -42,7 +42,6 @@ struct LocalTableDataChanges {
 	unordered_map<string, DuckLakeDeleteFile> new_delete_files;
 	unordered_map<string, unique_ptr<DuckLakeInlinedDataDeletes>> new_inlined_data_deletes;
 	vector<DuckLakeCompactionEntry> compactions;
-
 	bool IsEmpty() const;
 };
 
@@ -67,7 +66,8 @@ public:
 	Connection &GetConnection();
 
 	DuckLakeSnapshot GetSnapshot();
-	DuckLakeSnapshot GetSnapshot(optional_ptr<BoundAtClause> at_clause);
+	DuckLakeSnapshot GetSnapshot(optional_ptr<BoundAtClause> at_clause,
+	                             SnapshotBound bound = SnapshotBound::UPPER_BOUND);
 
 	static DuckLakeTransaction &Get(ClientContext &context, Catalog &catalog);
 
@@ -133,6 +133,10 @@ public:
 	string GenerateUUID() const;
 	static string GenerateUUIDv7();
 
+	const set<TableIndex> &GetDroppedTables() {
+		return dropped_tables;
+	}
+
 	//! Returns the current version of the catalog:
 	//! If there are no uncommitted changes, this is the schema version of the snapshot.
 	//! Otherwise, it is an id that is incremented whenever the schema changes (not stored between restarts)
@@ -174,7 +178,7 @@ private:
 	void GetNewViewInfo(DuckLakeCommitState &commit_state, DuckLakeCatalogSet &catalog_set,
 	                    reference<CatalogEntry> table_entry, NewTableInfo &result,
 	                    TransactionChangeInformation &transaction_changes);
-	CompactionInformation GetCompactionChanges(DuckLakeSnapshot &commit_snapshot);
+	CompactionInformation GetCompactionChanges(DuckLakeSnapshot &commit_snapshot, CompactionType type);
 
 	void AlterEntryInternal(DuckLakeTableEntry &old_entry, unique_ptr<CatalogEntry> new_entry);
 	void AlterEntryInternal(DuckLakeViewEntry &old_entry, unique_ptr<CatalogEntry> new_entry);

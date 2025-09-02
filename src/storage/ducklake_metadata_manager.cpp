@@ -70,6 +70,7 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion(data_file_
 CREATE TABLE {METADATA_CATALOG}.ducklake_inlined_data_tables(table_id BIGINT, table_name VARCHAR, schema_version BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_column_mapping(mapping_id BIGINT, table_id BIGINT, type VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_name_mapping(mapping_id BIGINT, column_id BIGINT, source_name VARCHAR, target_field_id BIGINT, parent_column BIGINT, is_partition BOOLEAN);
+CREATE TABLE {METADATA_CATALOG}.ducklake_schema_versions(begin_snapshot BIGINT, schema_version BIGINT);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot_changes VALUES (0, 'created_schema:"main"',  NULL, NULL, NULL);
 INSERT INTO {METADATA_CATALOG}.ducklake_metadata (key, value) VALUES ('version', '0.3-dev1'), ('created_by', 'DuckDB %s'), ('data_path', %s), ('encrypted', '%s');
@@ -113,6 +114,8 @@ ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot_changes ADD COLUMN author VARCH
 ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot_changes ADD COLUMN commit_message VARCHAR DEFAULT NULL;
 ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot_changes ADD COLUMN commit_extra_info VARCHAR DEFAULT NULL;
 UPDATE {METADATA_CATALOG}.ducklake_metadata SET value = '0.3-dev1' WHERE key = 'version';
+CREATE TABLE {METADATA_CATALOG}.ducklake_schema_versions(begin_snapshot BIGINT, schema_version BIGINT);
+INSERT INTO {METADATA_CATALOG}.ducklake_schema_versions SELECT MIN(snapshot_id), schema_version FROM {METADATA_CATALOG}.ducklake_snapshot GROUP BY schema_version ORDER BY schema_version;
 	)";
 	auto result = transaction.Query(migrate_query);
 	if (result->HasError()) {
@@ -586,7 +589,6 @@ WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_I
 	if (!filter.empty()) {
 		query += "\nAND " + filter;
 	}
-
 	auto result = transaction.Query(snapshot, query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to get data file list from DuckLake: ");
@@ -783,19 +785,39 @@ WHERE data.table_id=%d AND {SNAPSHOT_ID} >= data.begin_snapshot AND ({SNAPSHOT_I
 	return files;
 }
 
-vector<DuckLakeCompactionFileEntry> DuckLakeMetadataManager::GetFilesForCompaction(DuckLakeTableEntry &table) {
+vector<DuckLakeCompactionFileEntry> DuckLakeMetadataManager::GetFilesForCompaction(DuckLakeTableEntry &table,
+                                                                                   CompactionType type,
+                                                                                   double deletion_threshold) {
 	auto table_id = table.GetTableId();
 	string data_select_list = "data.data_file_id, data.record_count, data.row_id_start, data.begin_snapshot, "
-	                          "data.end_snapshot, data.mapping_id, snapshot.schema_version, data.partial_file_info, "
+	                          "data.end_snapshot, data.mapping_id, sr.schema_version , data.partial_file_info, "
 	                          "data.partition_id, partition_info.keys, " +
 	                          GetFileSelectList("data");
 	string delete_select_list =
-	    "del.data_file_id, del.delete_count, del.begin_snapshot, del.end_snapshot, " + GetFileSelectList("del");
+	    "del.data_file_id,del.delete_file_id, del.delete_count, del.begin_snapshot, del.end_snapshot, " +
+	    GetFileSelectList("del");
 	string select_list = data_select_list + ", " + delete_select_list;
+	string deletion_threshold_clause;
+	if (type == CompactionType::REWRITE_DELETES) {
+		deletion_threshold_clause = StringUtil::Format(
+		    " AND del.delete_count/data.record_count >= %f and data.end_snapshot is null", deletion_threshold);
+	}
 	auto query = StringUtil::Format(R"(
+WITH snapshot_ranges AS (
+  SELECT
+    begin_snapshot,
+    COALESCE(
+      LEAD(begin_snapshot) OVER (ORDER BY begin_snapshot),
+      9223372036854775807
+    ) AS end_snapshot,
+	schema_version
+	FROM {METADATA_CATALOG}.ducklake_schema_versions
+	ORDER BY begin_snapshot
+)
 SELECT %s,
 FROM {METADATA_CATALOG}.ducklake_data_file data
-JOIN {METADATA_CATALOG}.ducklake_snapshot snapshot ON (data.begin_snapshot = snapshot.snapshot_id)
+JOIN snapshot_ranges sr
+  ON data.begin_snapshot BETWEEN sr.begin_snapshot AND sr.end_snapshot
 LEFT JOIN (
 	SELECT *
     FROM {METADATA_CATALOG}.ducklake_delete_file
@@ -806,13 +828,13 @@ LEFT JOIN (
    FROM {METADATA_CATALOG}.ducklake_file_partition_value
    GROUP BY data_file_id
 ) partition_info USING (data_file_id)
-WHERE data.table_id=%d
+WHERE data.table_id=%d %s
 ORDER BY data.begin_snapshot, data.row_id_start, data.data_file_id, del.begin_snapshot
 		)",
-	                                select_list, table_id.index, table_id.index);
+	                                select_list, table_id.index, table_id.index, deletion_threshold_clause);
 	auto result = transaction.Query(query);
 	if (result->HasError()) {
-		result->GetErrorObject().Throw("Failed to get compation file list from DuckLake: ");
+		result->GetErrorObject().Throw("Failed to get compaction file list from DuckLake: ");
 	}
 	vector<DuckLakeCompactionFileEntry> files;
 	for (auto &row : *result) {
@@ -861,6 +883,7 @@ ORDER BY data.begin_snapshot, data.row_id_start, data.data_file_id, del.begin_sn
 		}
 		DuckLakeCompactionDeleteFileData delete_file;
 		delete_file.id = DataFileIndex(row.GetValue<idx_t>(col_idx++));
+		delete_file.delete_file_id = DataFileIndex(row.GetValue<idx_t>(col_idx++));
 		delete_file.row_count = row.GetValue<idx_t>(col_idx++);
 		delete_file.begin_snapshot = row.GetValue<idx_t>(col_idx++);
 		delete_file.end_snapshot = row.IsNull(col_idx) ? optional_idx() : row.GetValue<idx_t>(col_idx);
@@ -1745,10 +1768,12 @@ unique_ptr<DuckLakeSnapshot> DuckLakeMetadataManager::GetSnapshot() {
 	return snapshot;
 }
 
-unique_ptr<DuckLakeSnapshot> DuckLakeMetadataManager::GetSnapshot(BoundAtClause &at_clause) {
+unique_ptr<DuckLakeSnapshot> DuckLakeMetadataManager::GetSnapshot(BoundAtClause &at_clause, SnapshotBound bound) {
 	auto &unit = at_clause.Unit();
 	auto &val = at_clause.GetValue();
 	unique_ptr<QueryResult> result;
+	const string timestamp_aggregate = bound == SnapshotBound::LOWER_BOUND ? "MIN" : "MAX";
+	const string timestamp_condition = bound == SnapshotBound::LOWER_BOUND ? ">" : "<";
 	if (StringUtil::CIEquals(unit, "version")) {
 		result = transaction.Query(StringUtil::Format(R"(
 SELECT snapshot_id, schema_version, next_catalog_id, next_file_id
@@ -1760,9 +1785,10 @@ WHERE snapshot_id = %llu;)",
 SELECT snapshot_id, schema_version, next_catalog_id, next_file_id
 FROM {METADATA_CATALOG}.ducklake_snapshot
 WHERE snapshot_id = (
-	SELECT MAX_BY(snapshot_id, snapshot_time)
+	SELECT %s_BY(snapshot_id, snapshot_time)
 	FROM {METADATA_CATALOG}.ducklake_snapshot
-	WHERE snapshot_time <= %s);)",
+	WHERE snapshot_time %s= %s);)",
+		                                              timestamp_aggregate, timestamp_condition,
 		                                              val.DefaultCastAs(LogicalType::VARCHAR).ToSQLString()));
 	} else {
 		throw InvalidInputException("Unsupported AT clause unit - %s", unit);
@@ -2133,7 +2159,7 @@ idx_t DuckLakeMetadataManager::GetNextColumnId(TableIndex table_id) {
 	throw InternalException("Invalid result for GetNextColumnId");
 }
 
-void DuckLakeMetadataManager::WriteCompactions(const vector<DuckLakeCompactedFileInfo> &compactions) {
+void DuckLakeMetadataManager::WriteMergeAdjacent(const vector<DuckLakeCompactedFileInfo> &compactions) {
 	if (compactions.empty()) {
 		return;
 	}
@@ -2175,6 +2201,111 @@ WHERE data_file_id IN (%s);
 	auto result = transaction.Query(scheduled_deletions);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to insert files scheduled for deletions in DuckLake: ");
+	}
+}
+void DuckLakeMetadataManager::WriteDeleteRewrites(const vector<DuckLakeCompactedFileInfo> &compactions) {
+	if (compactions.empty()) {
+		return;
+	}
+	// Delete Rewrites only deletes the deletion files.
+	string deleted_file_ids;
+	string scheduled_deletions;
+	set<idx_t> files_to_remove;
+	unordered_map<idx_t, idx_t> table_idx_last_snapshot;
+	// We can start by figuring out the files we can actually remove
+	for (idx_t i = compactions.size(); i > 0; i--) {
+		auto &compaction = compactions[i - 1];
+		if (table_idx_last_snapshot.find(compaction.table_index.index) == table_idx_last_snapshot.end()) {
+			// This is the last delete file of a table
+			table_idx_last_snapshot[compaction.table_index.index] = compaction.delete_file_start_snapshot.GetIndex();
+			files_to_remove.insert(i - 1);
+			D_ASSERT(!compaction.delete_file_end_snapshot.IsValid());
+		}
+	}
+
+	for (idx_t i = 0; i < compactions.size(); ++i) {
+		auto &compaction = compactions[i];
+		D_ASSERT(!compaction.path.empty());
+		auto path = GetRelativePath(compaction.delete_file_path);
+		if (files_to_remove.find(i) != files_to_remove.end()) {
+			// We only delete deletion files if they are part of the last snapshot, as they won't be required for
+			// time travel
+			if (!scheduled_deletions.empty()) {
+				scheduled_deletions += ", ";
+			}
+			scheduled_deletions += StringUtil::Format("(%d, %s, %s, NOW())", compaction.delete_file_id.index,
+			                                          SQLString(path.path), path.path_is_relative ? "true" : "false");
+			if (!deleted_file_ids.empty()) {
+				deleted_file_ids += ", ";
+			}
+			deleted_file_ids += to_string(compaction.delete_file_id.index);
+		} else if (!compaction.delete_file_end_snapshot.IsValid()) {
+			// if the deletion file was not removed, we still update its end_snapshot if null
+			auto result = transaction.Query(StringUtil::Format(R"(
+			UPDATE {METADATA_CATALOG}.ducklake_delete_file SET end_snapshot = %llu
+			WHERE delete_file_id = %llu;
+			)",
+			                                                   table_idx_last_snapshot[compaction.table_index.index],
+			                                                   compaction.delete_file_id.index));
+			if (result->HasError()) {
+				result->GetErrorObject().Throw("Failed to update ducklake delete file end_snapshot.");
+			}
+		}
+		// We must update the data file table
+		auto result = transaction.Query(StringUtil::Format(R"(
+		UPDATE {METADATA_CATALOG}.ducklake_data_file SET end_snapshot = %llu
+		WHERE data_file_id = %llu;
+		)",
+		                                                   table_idx_last_snapshot[compaction.table_index.index],
+		                                                   compaction.source_id.index));
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to update snapshot end file information in DuckLake: ");
+		}
+
+		// update the snapshot of our newly added file
+		result = transaction.Query(StringUtil::Format(R"(
+			UPDATE {METADATA_CATALOG}.ducklake_data_file SET begin_snapshot = %llu
+			WHERE data_file_id = %llu;
+			)",
+		                                              table_idx_last_snapshot[compaction.table_index.index],
+		                                              compaction.new_id.index));
+
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to update snapshot end file information in DuckLake: ");
+		}
+	}
+	if (!deleted_file_ids.empty()) {
+		// for each file that has been rewritten - we also delete it from the ducklake_delete_file table
+		auto result = transaction.Query(StringUtil::Format(R"(
+	DELETE FROM {METADATA_CATALOG}.ducklake_delete_file
+	WHERE delete_file_id IN (%s);
+	)",
+		                                                   deleted_file_ids));
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to delete old data file information in DuckLake: ");
+		}
+
+		// add the files we cleared to the deletion schedule
+		scheduled_deletions =
+		    "INSERT INTO {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion VALUES " + scheduled_deletions;
+		result = transaction.Query(scheduled_deletions);
+		if (result->HasError()) {
+			result->GetErrorObject().Throw("Failed to insert files scheduled for deletions in DuckLake: ");
+		}
+	}
+}
+
+void DuckLakeMetadataManager::WriteCompactions(const vector<DuckLakeCompactedFileInfo> &compactions,
+                                               CompactionType type) {
+	switch (type) {
+	case CompactionType::MERGE_ADJACENT_TABLES:
+		WriteMergeAdjacent(compactions);
+		return;
+	case CompactionType::REWRITE_DELETES:
+		WriteDeleteRewrites(compactions);
+		return;
+	default:
+		throw InternalException("DuckLakeMetadataManager::WriteCompactions: CompactionType is not accepted");
 	}
 }
 
@@ -2392,6 +2523,16 @@ void DuckLakeMetadataManager::DeleteInlinedData(const DuckLakeInlinedTableInfo &
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to delete inlined data in DuckLake from table " +
 		                               inlined_table.table_name + ": ");
+	}
+}
+
+void DuckLakeMetadataManager::InsertNewSchema(const DuckLakeSnapshot &snapshot) {
+	const auto insert_schema_change =
+	    StringUtil::Format(R"(INSERT INTO {METADATA_CATALOG}.ducklake_schema_versions VALUES (%llu,%llu);)",
+	                       snapshot.snapshot_id, snapshot.schema_version);
+	const auto result = transaction.Query(insert_schema_change);
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to insert new schema version to DuckLake:");
 	}
 }
 

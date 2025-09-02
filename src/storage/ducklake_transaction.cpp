@@ -1237,25 +1237,47 @@ void DuckLakeTransaction::CommitChanges(DuckLakeCommitState &commit_state,
 		metadata_manager->WriteNewInlinedDeletes(commit_snapshot, inlined_deletes);
 
 		// write compactions
-		auto compaction_changes = GetCompactionChanges(commit_snapshot);
-		metadata_manager->WriteCompactions(compaction_changes.compacted_files);
-		metadata_manager->WriteNewDataFiles(commit_snapshot, compaction_changes.new_files);
+		auto compaction_merge_adjacent_changes =
+		    GetCompactionChanges(commit_snapshot, CompactionType::MERGE_ADJACENT_TABLES);
+		metadata_manager->WriteCompactions(compaction_merge_adjacent_changes.compacted_files,
+		                                   CompactionType::MERGE_ADJACENT_TABLES);
+		metadata_manager->WriteNewDataFiles(commit_snapshot, compaction_merge_adjacent_changes.new_files);
+
+		auto compaction_rewrite_delete_changes = GetCompactionChanges(commit_snapshot, CompactionType::REWRITE_DELETES);
+		metadata_manager->WriteNewDataFiles(commit_snapshot, compaction_rewrite_delete_changes.new_files);
+		metadata_manager->WriteCompactions(compaction_rewrite_delete_changes.compacted_files,
+		                                   CompactionType::REWRITE_DELETES);
 	}
 }
 
-CompactionInformation DuckLakeTransaction::GetCompactionChanges(DuckLakeSnapshot &commit_snapshot) {
+CompactionInformation DuckLakeTransaction::GetCompactionChanges(DuckLakeSnapshot &commit_snapshot,
+                                                                CompactionType type) {
 	CompactionInformation result;
 	for (auto &entry : table_data_changes) {
 		auto table_id = entry.first;
 		auto &table_changes = entry.second;
 		for (auto &compaction : table_changes.compactions) {
+			if (type != compaction.type) {
+				continue;
+			}
 			auto new_file = GetNewDataFile(compaction.written_file, commit_snapshot, table_id, compaction.row_id_start);
-			new_file.begin_snapshot = compaction.source_files[0].file.begin_snapshot;
+			switch (type) {
+			case CompactionType::REWRITE_DELETES:
+				new_file.begin_snapshot = compaction.source_files[0].delete_files.back().begin_snapshot;
+				break;
+			case CompactionType::MERGE_ADJACENT_TABLES:
+				new_file.begin_snapshot = compaction.source_files[0].file.begin_snapshot;
+				break;
+			default:
+				throw InternalException("DuckLakeTransaction::GetCompactionChanges Compaction type is invalid");
+			}
 
 			idx_t row_id_limit = 0;
 			for (auto &compacted_file : compaction.source_files) {
 				row_id_limit += compacted_file.file.row_count;
-
+				if (!compacted_file.delete_files.empty()) {
+					row_id_limit -= compacted_file.delete_files.back().row_count;
+				}
 				if (!compacted_file.partial_files.empty()) {
 					// first process any partial file info that already existed for this file
 					if (!new_file.partial_file_info.empty()) {
@@ -1272,6 +1294,15 @@ CompactionInformation DuckLakeTransaction::GetCompactionChanges(DuckLakeSnapshot
 				file_info.path = compacted_file.file.data.path;
 				file_info.source_id = compacted_file.file.id;
 				file_info.new_id = new_file.id;
+
+				if (!compacted_file.delete_files.empty()) {
+					file_info.delete_file_path = compacted_file.delete_files.back().data.path;
+					file_info.delete_file_id = compacted_file.delete_files.back().delete_file_id;
+					file_info.start_snapshot = compacted_file.file.begin_snapshot;
+					file_info.table_index = entry.first;
+					file_info.delete_file_start_snapshot = compacted_file.delete_files.back().begin_snapshot;
+					file_info.delete_file_end_snapshot = compacted_file.delete_files.back().end_snapshot;
+				}
 				if (row_id_limit > new_file.row_count) {
 					throw InternalException("Compaction error - row id limit is larger than the row count of the file");
 				}
@@ -1322,8 +1353,9 @@ void DuckLakeTransaction::FlushChanges() {
 
 	auto transaction_snapshot = GetSnapshot();
 	auto transaction_changes = GetTransactionChanges();
+	DuckLakeSnapshot commit_snapshot;
 	for (idx_t i = 0; i < max_retry_count + 1; i++) {
-		auto commit_snapshot = GetSnapshot();
+		commit_snapshot = GetSnapshot();
 		commit_snapshot.snapshot_id++;
 		if (SchemaChangesMade()) {
 			// we changed the schema - need to get a new schema version
@@ -1345,8 +1377,13 @@ void DuckLakeTransaction::FlushChanges() {
 			metadata_manager->InsertSnapshot(commit_snapshot);
 
 			WriteSnapshotChanges(commit_state, transaction_changes);
+			if (SchemaChangesMade()) {
+				// Insert our new schema in our table that tracks schema changes
+				metadata_manager->InsertNewSchema(commit_snapshot);
+			}
 			connection->Commit();
 			catalog_version = commit_snapshot.schema_version;
+
 			// finished writing
 			break;
 		} catch (std::exception &ex) {
@@ -1361,7 +1398,7 @@ void DuckLakeTransaction::FlushChanges() {
 			if (!can_retry || !retry_on_error || finished_retrying) {
 				// we abort after the max retry count
 				CleanupFiles();
-				// Add additional information on number of retries and suggest to increase it
+				// Add additional information on the number of retries and suggest to increase it
 				std::ostringstream error_message;
 				error_message << "Failed to commit DuckLake transaction." << '\n';
 				if (finished_retrying) {
@@ -1373,7 +1410,6 @@ void DuckLakeTransaction::FlushChanges() {
 				error.Throw(error_message.str());
 			}
 
-			//
 #ifndef DUCKDB_NO_THREADS
 			RandomEngine random;
 			// random multiplier between 0.5 - 1.0
@@ -1388,6 +1424,8 @@ void DuckLakeTransaction::FlushChanges() {
 			snapshot.reset();
 		}
 	}
+	// If we got here, this snapshot was successful
+	ducklake_catalog.SetCommittedSnapshotId(commit_snapshot.snapshot_id);
 }
 
 void DuckLakeTransaction::SetConfigOption(const DuckLakeConfigOption &option) {
@@ -1464,7 +1502,7 @@ DuckLakeSnapshot DuckLakeTransaction::GetSnapshot() {
 	return *snapshot;
 }
 
-DuckLakeSnapshot DuckLakeTransaction::GetSnapshot(optional_ptr<BoundAtClause> at_clause) {
+DuckLakeSnapshot DuckLakeTransaction::GetSnapshot(optional_ptr<BoundAtClause> at_clause, SnapshotBound bound) {
 	if (!at_clause) {
 		// no AT-clause - get the latest snapshot
 		return GetSnapshot();
@@ -1482,7 +1520,7 @@ DuckLakeSnapshot DuckLakeTransaction::GetSnapshot(optional_ptr<BoundAtClause> at
 		return entry->second;
 	}
 	// find the snapshot and cache it
-	auto result_snapshot = *metadata_manager->GetSnapshot(*at_clause);
+	auto result_snapshot = *metadata_manager->GetSnapshot(*at_clause, bound);
 	snapshot_cache.insert(make_pair(std::move(snapshot_value), result_snapshot));
 	return result_snapshot;
 }
