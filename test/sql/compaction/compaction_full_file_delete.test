@@ -7,7 +7,7 @@ require ducklake
 require parquet
 
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/ducklake_compaction_full_file_delete.db' AS ducklake
+ATTACH 'ducklake:__TEST_DIR__/ducklake_compaction_full_file_delete.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_compaction_full_file_delete')
 
 statement ok
 use ducklake;

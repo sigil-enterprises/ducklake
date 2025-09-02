@@ -9,7 +9,7 @@ require parquet
 require json
 
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/ducklake_add_files_string_blob.db' AS ducklake
+ATTACH 'ducklake:__TEST_DIR__/ducklake_add_files_string_blob.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_add_files_string_blob')
 
 statement ok
 COPY (SELECT 'hello world' AS col1) TO '__TEST_DIR__/string.parquet';
