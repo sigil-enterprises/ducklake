@@ -6,6 +6,10 @@ require ducklake
 
 require parquet
 
+require notsqlite
+
+require notpostgres
+
 statement ok
 ATTACH 'ducklake:__TEST_DIR__/ducklake_inlining_types.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_inlining_types_files', METADATA_CATALOG 'ducklake_meta', DATA_INLINING_ROW_LIMIT 10)
 

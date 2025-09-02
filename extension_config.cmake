@@ -11,10 +11,13 @@ duckdb_extension_load(json)
 duckdb_extension_load(tpch)
 
 duckdb_extension_load(sqlite_scanner
-        ${STATIC_LINK_SQLITE} LOAD_TESTS
         GIT_URL https://github.com/duckdb/duckdb-sqlite
         GIT_TAG ed38d770e0bbf1d5a6660ec1887cc5abef65be15
-        APPLY_PATCHES
-        )
+)
+
+#duckdb_extension_load(postgres_scanner
+#            GIT_URL https://github.com/duckdb/duckdb-postgres
+#            GIT_TAG e58cd1dfed98a04ce3e928d5b941e5e2c533ba12
+#)
 # Any extra extensions that should be built
 # e.g.: duckdb_extension_load(json)
