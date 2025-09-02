@@ -159,7 +159,6 @@
       "reason": "Different Error Message",
       "paths": [
         "test/fuzzer/pedro/alter_table_rowid.test",
-        "test/sql/catalog/test_schema.test",
         "test/sql/catalog/dependencies/test_schema_dependency.test",
         "test/sql/catalog/view/test_view.test",
         "test/sql/parser/table_at_clause.test",
@@ -399,16 +398,6 @@
       "paths": [
         "test/issues/general/test_5072.test",
         "test/sql/types/struct/struct_different_names.test"
-      ]
-    },
-    {
-      "reason": "FIXME: BUGS? Internal error",
-      "paths": [
-        "test/sql/catalog/test_schema.test",
-        "test/sql/catalog/case_insensitive_caps.test",
-        "test/sql/catalog/case_insensitive_operations.test",
-        "test/sql/alter/map/drop_column_in_struct.test",
-        "test/sql/alter/list/drop_column_in_struct.test"
       ]
     },
     {
