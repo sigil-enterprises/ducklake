@@ -3,6 +3,7 @@
   "on_init": "ATTACH 'ducklake:{TEST_DIR}/{BASE_TEST_NAME}__ducklake.db' AS dl;",
   "on_new_connection": "USE dl;",
   "skip_compiled": "true",
+  "sort_style": "rowsort",
   "statically_loaded_extensions": [
     "core_functions",
     "parquet",
