@@ -6,10 +6,6 @@ require ducklake
 
 require parquet
 
-require notsqlite
-
-require notpostgres
-
 # partitioning based on a column
 statement ok
 ATTACH 'ducklake:__TEST_DIR__/ducklake_inlining_partitions.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_inlining_partitions', METADATA_CATALOG 'ducklake_metadata', DATA_INLINING_ROW_LIMIT 1000)

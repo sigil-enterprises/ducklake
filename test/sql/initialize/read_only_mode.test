@@ -6,9 +6,6 @@ require ducklake
 
 require parquet
 
-# Invalid Error: Failed to load DuckLake table dataFailed to prepare query "SELECT name FROM sqlite_master WHERE length(sql) > 0 AND type='table'": file is not a database
-require notsqlite
-
 statement ok
 ATTACH '__TEST_DIR__/ducklake_read_only_mode.db' AS db1
 

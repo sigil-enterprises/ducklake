@@ -1,0 +1,11 @@
+{
+  "description": "Run DuckLake tests using Postgres as a catalog DBMS.",
+  "on_init": "SET extension_directory = 'build/release/repository';",
+  "statically_loaded_extensions": [
+    "core_functions",
+    "parquet",
+    "ducklake",
+    "postgres_scanner"
+  ],
+  "ducklake_dbms_catalog": "postgres"
+}

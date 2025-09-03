@@ -10,7 +10,7 @@ require parquet
 require notwindows
 
 # SQLite databases do not support creating new schemas
-require notsqlite
+
 
 
 statement ok

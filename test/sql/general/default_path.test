@@ -6,7 +6,7 @@ require ducklake
 
 require parquet
 
-require notsqlite
+
 
 require notpostres
 

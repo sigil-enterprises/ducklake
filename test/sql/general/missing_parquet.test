@@ -4,10 +4,6 @@
 
 require ducklake
 
-require notsqlite
-
-require notpostgres
-
 require no_extension_autoloading "EXPECTED This is meant to test missing parquet extension"
 
 statement ok
