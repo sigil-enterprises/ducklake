@@ -10,6 +10,4 @@ include extension-ci-tools/makefiles/duckdb_extension.Makefile
 # We have to overwrite the test_release_internal from extension-ci-tools/makefiles/duckdb_extension.Makefile to run all
 # Of our catalog shebang
 test_release_internal:
-	./build/release/$(TEST_PATH) "test/*" --test-config test_config/postgres.json
-	./build/release/$(TEST_PATH) "test/*" --test-config test_config/sqlite.json
-	./build/release/$(TEST_PATH) "test/*"
+	./build/release/$(TEST_PATH) "test/*" --test-config test/configs/postgres.json

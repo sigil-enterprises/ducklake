@@ -7,7 +7,14 @@
     "ducklake",
     "postgres_scanner"
   ],
-  "ducklake_dbms_catalog": "postgres",
+    "test_env": [{
+      "env_name":  "DUCKLAKE_CONNECTION",
+      "env_value": "postgres:"
+   },
+    {
+      "env_name":  "DUCKLAKE_CATALOG_DB",
+      "env_value": "dbname=ducklakedb"
+   }],
   "skip_tests": [
    {
       "reason": "Data Inlining Not Supported",
