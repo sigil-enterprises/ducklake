@@ -90,7 +90,6 @@
     {
       "reason": "Wrong query result",
       "paths": [
-        "test/sql/insert/insert_file_size.test",
         "test/sql/time_travel/basic_time_travel.test"
       ]
     },

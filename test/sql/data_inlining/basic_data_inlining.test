@@ -6,8 +6,6 @@ require ducklake
 
 require parquet
 
-require 
-
 statement ok
 ATTACH 'ducklake:__TEST_DIR__/ducklake_inlining.db' AS ducklake (DATA_PATH '__TEST_DIR__/basic_ducklake_inlining_files', METADATA_CATALOG 'ducklake_meta', DATA_INLINING_ROW_LIMIT 10)
 
