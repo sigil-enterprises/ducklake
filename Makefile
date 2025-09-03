@@ -11,3 +11,5 @@ include extension-ci-tools/makefiles/duckdb_extension.Makefile
 # Of our catalog shebang
 test_release_internal:
 	./build/release/$(TEST_PATH) "test/*" --test-config test/configs/postgres.json
+	./build/release/$(TEST_PATH) "test/*" --test-config test/configs/sqlite.json
+	./build/release/$(TEST_PATH) "test/*"
