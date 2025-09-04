@@ -3,6 +3,7 @@
   "on_init": "ATTACH 'ducklake:{TEST_DIR}/{BASE_TEST_NAME}__ducklake.db' AS dl;",
   "on_new_connection": "USE dl;",
   "skip_compiled": "true",
+  "sort_style": "rowsort",
   "statically_loaded_extensions": [
     "core_functions",
     "parquet",
@@ -102,7 +103,8 @@
         "test/sql/logging/logging_context_ids.test",
         "test/sql/logging/test_logging_function.test",
         "test/sql/logging/logging_types.test",
-        "test/sql/logging/logging.test"
+        "test/sql/logging/logging.test",
+        "test/sql/logging/logging_csv.test"
       ]
     },
     {
@@ -122,7 +124,8 @@
         "test/optimizer/test_sum_rewrite.test",
         "test/optimizer/prefer_final_projected_columns_on_probe_side.test",
         "test/optimizer/sampling_pushdown.test",
-        "test/sql/explain/explain_execute.test"
+        "test/sql/explain/explain_execute.test",
+        "test/optimizer/pushdown/pushdown_filter_on_coalesced_equal_outer_join_keys.test"
       ]
     },
     {
@@ -159,7 +162,6 @@
       "reason": "Different Error Message",
       "paths": [
         "test/fuzzer/pedro/alter_table_rowid.test",
-        "test/sql/catalog/test_schema.test",
         "test/sql/catalog/dependencies/test_schema_dependency.test",
         "test/sql/catalog/view/test_view.test",
         "test/sql/parser/table_at_clause.test",
@@ -206,7 +208,8 @@
         "test/sql/storage/wal/wal_view_storage.test",
         "test/sql/storage/catalog/test_view_explicit_aliases.test",
         "test/sql/storage/catalog/test_view_storage_no_view_dependencies.test",
-        "test/sql/storage/catalog/test_view_storage.test"
+        "test/sql/storage/catalog/test_view_storage.test",
+        "test/sql/catalog/view/test_view_sql.test"
       ]
     },
     {
@@ -247,7 +250,8 @@
         "test/sql/storage/temp_directory/max_swap_space_error.test",
         "test/sql/copy/parquet/writer/parquet_write_memory_usage.test",
         "test/fuzzer/sqlsmith/nullif_map_with_config.test",
-        "test/sql/storage/buffer_manager_temp_dir.test"
+        "test/sql/storage/buffer_manager_temp_dir.test",
+        "test/issues/internal/test_5457.test"
       ]
     },
     {
@@ -286,7 +290,8 @@
         "test/sql/insert/test_big_insert.test",
         "test/sql/types/nested/map/test_map_subscript_composite.test",
         "test/sql/json/test_json_macros.test",
-        "test/sql/window/test_window_range.test"
+        "test/sql/window/test_window_range.test",
+        "test/sql/filter/test_transitive_filters.test"
       ]
     },
     {
@@ -389,7 +394,8 @@
     {
       "reason": "FIXME: BUGS? Deserialization error",
       "paths": [
-        "test/sql/storage/catalog/test_drop_table.test"
+        "test/sql/storage/catalog/test_drop_table.test",
+        "test/sql/storage/compression/bitpacking/struct_bitpacking.test"
       ]
     },
     {
@@ -397,16 +403,6 @@
       "paths": [
         "test/issues/general/test_5072.test",
         "test/sql/types/struct/struct_different_names.test"
-      ]
-    },
-    {
-      "reason": "FIXME: BUGS? Internal error",
-      "paths": [
-        "test/sql/catalog/test_schema.test",
-        "test/sql/catalog/case_insensitive_caps.test",
-        "test/sql/catalog/case_insensitive_operations.test",
-        "test/sql/alter/map/drop_column_in_struct.test",
-        "test/sql/alter/list/drop_column_in_struct.test"
       ]
     },
     {
@@ -437,7 +433,8 @@
     {
       "reason": "FIXME: Bugs? Cannot commit transaction local files",
       "paths": [
-        "test/sql/transactions/conflict_rename_append.test"
+        "test/sql/transactions/conflict_rename_append.test",
+        "test/sql/logging/file_system_logging_attach_deadlock.test"
       ]
     },
     {
