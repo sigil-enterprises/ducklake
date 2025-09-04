@@ -828,7 +828,7 @@ LEFT JOIN (
    FROM ducklake_file_partition_value
    GROUP BY data_file_id
 ) partition_info USING (data_file_id)
-WHERE data.table_id=%d %s
+WHERE data.table_id=%d AND (data.partial_file_info NOT LIKE '%%partial_max%%' OR data.partial_file_info IS NULL) %s
 ORDER BY data.begin_snapshot, data.row_id_start, data.data_file_id, del.begin_snapshot
 		)",
 	                                select_list, table_id.index, table_id.index, deletion_threshold_clause);

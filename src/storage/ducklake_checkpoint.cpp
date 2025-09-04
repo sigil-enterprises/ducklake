@@ -9,6 +9,9 @@
 namespace duckdb {
 
 void DuckLakeTransactionManager::Checkpoint(ClientContext &context, bool force) {
+	if (!context.transaction.IsAutoCommit()) {
+		throw InvalidConfigurationException("CHECKPOINT; is only allowed with auto_commit = true");
+	}
 	// We start a new connection
 	auto conn = make_uniq<Connection>(ducklake_catalog.GetDatabase());
 	auto checkpoint_query = StringUtil::Replace(DUCKLAKE_CHECKPOINT_QUERY, "{CATALOG}",

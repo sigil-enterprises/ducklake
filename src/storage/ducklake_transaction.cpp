@@ -361,9 +361,6 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeCommitState &commit_state
 	AddChangeInfo(commit_state, change_info, changes.tables_inserted_inlined, "inlined_insert");
 	AddChangeInfo(commit_state, change_info, changes.tables_deleted_inlined, "inlined_delete");
 	AddChangeInfo(commit_state, change_info, changes.tables_flushed_inlined, "flushed_inlined");
-	// if (!changes.tables_compacted.empty() && !change_info.changes_made.empty()) {
-	// 	throw InvalidInputException("Transactions can either make changes OR perform compaction - not both");
-	// }
 	for (auto &entry : changes.tables_compacted) {
 		auto table_id = entry;
 		if (!change_info.changes_made.empty()) {
