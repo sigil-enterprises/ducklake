@@ -9,33 +9,23 @@
 namespace duckdb {
 
 void DuckLakeTransactionManager::Checkpoint(ClientContext &context, bool force) {
-	auto &crazy = DuckLakeTransaction::Get(context,ducklake_catalog);
-	if (crazy.ChangesMade()) {
-		throw InternalException("bla");
-	}
-	// auto &conn = crazy.GetConnection();
-	// if (context.transaction.ActiveTransaction().) {
-	// 	throw InvalidConfigurationException("CHECKPOINT can't be called in a begin transaction.");
-	// }
-	// ducklake_catalog.db
-	// auto &duck_transaction = context.transaction.ActiveTransaction().GetTransaction()
-	// 		if (duck_transaction.ChangesMade()) {
-	// 			throw TransactionException("Cannot CHECKPOINT: the current transaction has transaction local changes");
-	// 		}
-	// We start a new connection
 	auto conn = make_uniq<Connection>(ducklake_catalog.GetDatabase());
-	auto checkpoint_query = StringUtil::Replace(DUCKLAKE_CHECKPOINT_MODIFICATIONS, "{CATALOG}",
-	                                            KeywordHelper::WriteQuoted(ducklake_catalog.GetName(), '\''));
-	auto res = conn->Query(checkpoint_query);
-	if (res->HasError()) {
-		res->GetErrorObject().Throw("Failed to perform CHECKPOINT; in DuckLake:  ");
-	}
+	// 1. We first flush inlined data, since these can generate many files, which would be important for compaction
+	// 2. We expire snapshots since these can create more compaction opportunities.
+	// 3. We call the compaction functions, merge_adjacent and rewrite, unclear what is the best order here.
+	// 4. We call the functions that delete files last, since these mostly result from compaction or expired snapshots.
+	const vector<string> checkpoint_queries {
+	    "CALL ducklake_flush_inlined_data({CATALOG})",   "CALL ducklake_expire_snapshots({CATALOG})",
+	    "CALL ducklake_merge_adjacent_files({CATALOG})", "CALL ducklake_rewrite_data_files({CATALOG})",
+	    "CALL ducklake_cleanup_old_files({CATALOG})",    "CALL ducklake_delete_orphaned_files({CATALOG})"};
 
-	checkpoint_query = StringUtil::Replace(DUCKLAKE_CHECKPOINT_COMPACTION, "{CATALOG}",
-	                                            KeywordHelper::WriteQuoted(ducklake_catalog.GetName(), '\''));
-	res = conn->Query(checkpoint_query);
-	if (res->HasError()) {
-		res->GetErrorObject().Throw("Failed to perform CHECKPOINT; in DuckLake:  ");
+	for (const auto &query : checkpoint_queries) {
+		auto checkpoint_query =
+		    StringUtil::Replace(query, "{CATALOG}", KeywordHelper::WriteQuoted(ducklake_catalog.GetName(), '\''));
+		auto res = conn->Query(checkpoint_query);
+		if (res->HasError()) {
+			res->GetErrorObject().Throw("Failed to perform CHECKPOINT; in DuckLake:  ");
+		}
 	}
 }
 

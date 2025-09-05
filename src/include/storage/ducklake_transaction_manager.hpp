@@ -24,27 +24,6 @@ public:
 
 	void Checkpoint(ClientContext &context, bool force = false) override;
 
-	//! Our checkpoint query does two transactions, one that does all functions that perform table modifications
-	//! And one that does compaction (i.e., functions that rewrite 2 or more files into one file).
-		static constexpr const char *DUCKLAKE_CHECKPOINT_MODIFICATIONS = R"(
-    WITH flush AS (SELECT * FROM ducklake_flush_inlined_data({CATALOG})),
-         expire AS (SELECT * FROM ducklake_expire_snapshots({CATALOG})),
-         cleanup AS (SELECT * FROM ducklake_cleanup_old_files({CATALOG})),
-         orphans AS (SELECT * FROM ducklake_delete_orphaned_files({CATALOG}))
-    SELECT #1 FROM flush
-    UNION ALL SELECT #1 FROM expire
-    UNION ALL SELECT #1 FROM cleanup
-    UNION ALL SELECT #1 FROM orphans;
-)";
-
-static constexpr const char *DUCKLAKE_CHECKPOINT_COMPACTION = R"(
-	 WITH merge AS (SELECT * FROM ducklake_merge_adjacent_files({CATALOG})),
-	      rewrite AS (SELECT * FROM ducklake_rewrite_data_files({CATALOG}))
-	    SELECT #1 FROM merge
-	    UNION ALL SELECT #1 FROM rewrite;
-)";
-
-
 private:
 	DuckLakeCatalog &ducklake_catalog;
 	mutex transaction_lock;

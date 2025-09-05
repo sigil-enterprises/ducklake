@@ -27,30 +27,13 @@ statement ok
 INSERT INTO test FROM range(10)
 
 statement ok
-CHECKPOINT;
-
-# Lets not allow this
-statement ok
-BEGIN;
-
-statement ok
-CHECKPOINT;
-
-statement ok
-COMMIT;
-
-statement ok
 BEGIN;
 
 statement ok
 INSERT INTO test FROM range(10,13)
 
 statement ok
-CALL ducklake_cleanup();
-
-statement ok
-CALL ducklake_compact();
-
+CHECKPOINT;
 
 statement ok
 COMMIT;
@@ -76,19 +59,13 @@ statement ok
 BEGIN;
 
 statement ok
-CALL ducklake_cleanup();
-
-statement ok
-CALL ducklake_compact();
+CHECKPOINT;
 
 statement ok
 INSERT INTO test FROM range(13,16)
 
 statement ok
-CALL ducklake_cleanup();
-
-statement ok
-CALL ducklake_compact();
+CHECKPOINT;
 
 statement ok
 INSERT INTO test FROM range(17,25)
@@ -131,22 +108,15 @@ statement ok
 delete from test where i < 15;
 
 statement ok
-CALL ducklake_cleanup();
-
-statement ok
-CALL ducklake_compact();
+CHECKPOINT;
 
 statement ok
 INSERT INTO test FROM range(1,3)
 
 statement ok
-CALL ducklake_cleanup();
-
-statement ok
-CALL ducklake_compact();
+CHECKPOINT;
 
 statement error
 COMMIT;
 ----
-Transactions can either make changes OR perform compaction - not both
 

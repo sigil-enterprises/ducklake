@@ -208,7 +208,8 @@ using compaction_map_t =
 void DuckLakeCompactor::GenerateCompactions(DuckLakeTableEntry &table,
                                             vector<unique_ptr<LogicalOperator>> &compactions) {
 	auto &metadata_manager = transaction.GetMetadataManager();
-	auto files = metadata_manager.GetFilesForCompaction(table, type, delete_threshold);
+	auto snapshot = transaction.GetSnapshot();
+	auto files = metadata_manager.GetFilesForCompaction(table, type, delete_threshold, snapshot);
 
 	idx_t target_file_size = DuckLakeCatalog::DEFAULT_TARGET_FILE_SIZE;
 	string target_file_size_str;

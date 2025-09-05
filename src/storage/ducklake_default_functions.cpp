@@ -16,16 +16,6 @@ static const DefaultTableMacro ducklake_table_macros[] = {
 	{DEFAULT_SCHEMA, "snapshots", {nullptr}, {{nullptr, nullptr}},  "FROM ducklake_snapshots({CATALOG})"},
 	{DEFAULT_SCHEMA, "table_info", {nullptr}, {{nullptr, nullptr}},  "FROM ducklake_table_info({CATALOG})"},
 	{DEFAULT_SCHEMA, "table_changes", {"table_name", "start_snapshot", "end_snapshot", nullptr}, {{nullptr, nullptr}},  "FROM ducklake_table_changes({CATALOG}, {SCHEMA}, table_name, start_snapshot, end_snapshot)"},
-	// The ducklake_cleanup function is a combination of all our cleanup functions in a given order
-	//  ducklake_flush_inlined_data
-	//  ducklake_expire_snapshots
-	//  ducklake_cleanup_old_files
-	//  ducklake_delete_orphaned_files
-	{DEFAULT_SCHEMA, "ducklake_cleanup", { nullptr}, {{nullptr, nullptr}}, DuckLakeTransactionManager::DUCKLAKE_CHECKPOINT_MODIFICATIONS},
-	//		The ducklake_compact function is a combination of all our cleanup functions in a given order
-	//  ducklake_merge_adjacent_files
-	//  ducklake_rewrite_data_files
-	{DEFAULT_SCHEMA, "ducklake_compact", { nullptr}, {{nullptr, nullptr}}, DuckLakeTransactionManager::DUCKLAKE_CHECKPOINT_COMPACTION},
 	{nullptr, nullptr, {nullptr}, {{nullptr, nullptr}}, nullptr}
 };
 // clang-format on
