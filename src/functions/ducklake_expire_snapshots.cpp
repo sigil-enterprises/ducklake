@@ -13,6 +13,7 @@ struct ExpireSnapshotsBindData : public TableFunctionData {
 	Catalog &catalog;
 	vector<DuckLakeSnapshotInfo> snapshots;
 	bool dry_run = false;
+	bool valid = true;
 };
 
 static unique_ptr<FunctionData> DuckLakeExpireSnapshotsBind(ClientContext &context, TableFunctionBindInput &input,
@@ -24,8 +25,9 @@ static unique_ptr<FunctionData> DuckLakeExpireSnapshotsBind(ClientContext &conte
 	bool has_timestamp = false;
 	bool has_versions = false;
 	auto &ducklake_catalog = reinterpret_cast<DuckLakeCatalog &>(catalog);
+	DuckLakeSnapshotsFunction::GetSnapshotTypes(return_types, names);
 
-	const auto older_than_default = ducklake_catalog.GetConfigOption<string>("expire_older_than", {}, {}, "40 years");
+	const auto older_than_default = ducklake_catalog.GetConfigOption<string>("expire_older_than", {}, {}, "");
 
 	for (auto &entry : input.named_parameters) {
 		if (StringUtil::CIEquals(entry.first, "dry_run")) {
@@ -47,9 +49,8 @@ static unique_ptr<FunctionData> DuckLakeExpireSnapshotsBind(ClientContext &conte
 	}
 	if ((has_versions == has_timestamp && has_versions == true) ||
 	    (has_versions == has_timestamp && has_versions == false && older_than_default.empty())) {
-		throw InvalidInputException(
-		    "ducklake_expire_snapshots: either versions OR older_than must be specified.\nYou can also set a default "
-		    "value for snapshot expiration via e.g., CALL ducklake.set_option('expire_older_than', '1 week');");
+		result->valid = false;
+		return std::move(result);
 	}
 
 	string filter;
@@ -67,7 +68,6 @@ static unique_ptr<FunctionData> DuckLakeExpireSnapshotsBind(ClientContext &conte
 	auto &metadata_manager = transaction.GetMetadataManager();
 	result->snapshots = metadata_manager.GetAllSnapshots(filter);
 
-	DuckLakeSnapshotsFunction::GetSnapshotTypes(return_types, names);
 	return std::move(result);
 }
 
@@ -87,6 +87,9 @@ unique_ptr<GlobalTableFunctionState> DuckLakeExpireSnapshotsInit(ClientContext &
 
 void DuckLakeExpireSnapshotsExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
 	auto &data = data_p.bind_data->Cast<ExpireSnapshotsBindData>();
+	if (!data.valid) {
+		return;
+	}
 	auto &state = data_p.global_state->Cast<DuckLakeExpireSnapshotsData>();
 	if (state.offset >= data.snapshots.size()) {
 		return;
