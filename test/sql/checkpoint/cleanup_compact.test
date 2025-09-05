@@ -1,5 +1,5 @@
-# name: test/sql/checkpoint/checkpoint_ducklake.test
-# description: Test checkpoint in ducklake
+# name: test/sql/checkpoint/cleanup_compact.test
+# description: Test cleanup/compact macros in ducklake
 # group: [checkpoint]
 
 require ducklake
@@ -76,7 +76,7 @@ SELECT COUNT(*) FROM GLOB('__TEST_DIR__/checkpoint_ducklake/main/**')
 
 # skipif threadid=0
 statement error
-CHECKPOINT;
+CALL ducklake_cleanup();
 ----
 You can also set a default value for snapshot expiration via e.g., CALL ducklake.set_option('expire_older_than', '1 week');
 
@@ -84,7 +84,7 @@ statement ok
 CALL ducklake.set_option('expire_older_than', '1 week');
 
 statement error
-CHECKPOINT;
+CALL ducklake_cleanup();
 ----
 You can also set a default value for file deletion via e.g., CALL ducklake.set_option('delete_older_than', '1 week');
 
@@ -93,7 +93,10 @@ statement ok
 CALL ducklake.set_option('delete_older_than', '1 millisecond');
 
 statement ok
-CHECKPOINT;
+CALL ducklake_cleanup();
+
+statement ok
+CALL ducklake_compact();
 
 
 query II
