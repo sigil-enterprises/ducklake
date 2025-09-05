@@ -74,21 +74,6 @@ SELECT COUNT(*) FROM GLOB('__TEST_DIR__/checkpoint_ducklake/main/**')
 ----
 4
 
-# skipif threadid=0
-statement error
-CHECKPOINT;
-----
-You can also set a default value for snapshot expiration via e.g., CALL ducklake.set_option('expire_older_than', '1 week');
-
-statement ok
-CALL ducklake.set_option('expire_older_than', '1 week');
-
-statement error
-CHECKPOINT;
-----
-You can also set a default value for file deletion via e.g., CALL ducklake.set_option('delete_older_than', '1 week');
-
-
 statement ok
 CALL ducklake.set_option('delete_older_than', '1 millisecond');
 

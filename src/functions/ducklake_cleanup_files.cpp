@@ -58,7 +58,7 @@ static unique_ptr<FunctionData> CleanupBind(ClientContext &context, TableFunctio
 	auto result = make_uniq<CleanupBindData>(catalog, type);
 
 	auto &ducklake_catalog = reinterpret_cast<DuckLakeCatalog &>(catalog);
-	const auto older_than_default = ducklake_catalog.GetConfigOption<string>("delete_older_than", {}, {}, "");
+	const auto older_than_default = ducklake_catalog.GetConfigOption<string>("delete_older_than", {}, {}, "2 days");
 
 	timestamp_tz_t from_timestamp;
 	bool has_timestamp = false;

@@ -25,7 +25,7 @@ static unique_ptr<FunctionData> DuckLakeExpireSnapshotsBind(ClientContext &conte
 	bool has_versions = false;
 	auto &ducklake_catalog = reinterpret_cast<DuckLakeCatalog &>(catalog);
 
-	const auto older_than_default = ducklake_catalog.GetConfigOption<string>("expire_older_than", {}, {}, "");
+	const auto older_than_default = ducklake_catalog.GetConfigOption<string>("expire_older_than", {}, {}, "40 years");
 
 	for (auto &entry : input.named_parameters) {
 		if (StringUtil::CIEquals(entry.first, "dry_run")) {
