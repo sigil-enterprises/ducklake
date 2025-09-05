@@ -128,7 +128,7 @@ struct DuckLakeCopyOptions {
 };
 
 struct DuckLakeCopyInput {
-	explicit DuckLakeCopyInput(ClientContext &context, DuckLakeTableEntry &table, string hive_partition = "");
+	explicit DuckLakeCopyInput(ClientContext &context, DuckLakeTableEntry &table, const string &hive_partition = "");
 	DuckLakeCopyInput(ClientContext &context, DuckLakeSchemaEntry &schema, const ColumnList &columns,
 	                  const string &data_path_p);
 

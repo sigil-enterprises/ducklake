@@ -4,6 +4,7 @@
 #include "storage/ducklake_transaction_changes.hpp"
 #include "storage/ducklake_table_entry.hpp"
 #include "storage/ducklake_insert.hpp"
+#include "duckdb/common/constants.hpp"
 
 namespace duckdb {
 
@@ -120,7 +121,7 @@ private:
 	                                                    const vector<unique_ptr<DuckLakeFieldId>> &field_ids,
 	                                                    DuckLakeDataFile &result, const string &prefix = string());
 	unique_ptr<DuckLakeNameMapEntry> MapHiveColumn(ParquetFileMetadata &file_metadata, const DuckLakeFieldId &field_id,
-	                                               DuckLakeDataFile &result, Value hive_value);
+	                                               DuckLakeDataFile &result, const Value &hive_value);
 
 	Value GetStatsValue(string name, Value val);
 	void CheckMatchingType(const LogicalType &type, ParquetColumn &column);
@@ -169,7 +170,6 @@ FROM parquet_schema(%s)
 			throw InvalidInputException("child_counts provided by parquet_schema are unaligned");
 		}
 		auto column = make_uniq<ParquetColumn>();
-		column->column_id = column_id++;
 		column->name = row.GetValue<string>(1);
 		column->type = row.GetValue<string>(2);
 		if (!row.IsNull(4)) {
@@ -187,6 +187,14 @@ FROM parquet_schema(%s)
 		if (!row.IsNull(8)) {
 			column->logical_type = row.GetValue<string>(8);
 		}
+
+		// Only assign column_id to leaf columns (those without children)
+		if (child_count == 0) {
+			column->column_id = column_id++;
+		} else {
+			column->column_id = DConstants::INVALID_INDEX; // Mark as non-leaf
+		}
+
 		auto &column_ref = *column;
 
 		if (current_column.empty()) {
@@ -196,8 +204,11 @@ FROM parquet_schema(%s)
 			// add as child to last column
 			current_column.back().get().child_columns.push_back(std::move(column));
 		}
-		// add to column id map
-		file->column_id_map.emplace(column_ref.column_id, column_ref);
+
+		// Only add leaf columns to column_id_map (those that will have statistics)
+		if (column_ref.column_id != DConstants::INVALID_INDEX) {
+			file->column_id_map.emplace(column_ref.column_id, column_ref);
+		}
 
 		// reduce the child count by one
 		child_counts.back()--;
@@ -693,7 +704,7 @@ bool SupportsHivePartitioning(const LogicalType &type) {
 
 unique_ptr<DuckLakeNameMapEntry> DuckLakeFileProcessor::MapHiveColumn(ParquetFileMetadata &file_metadata,
                                                                       const DuckLakeFieldId &field_id,
-                                                                      DuckLakeDataFile &file, Value hive_value) {
+                                                                      DuckLakeDataFile &file, const Value &hive_value) {
 	auto &target_type = field_id.Type();
 	auto target_field_id = field_id.GetFieldIndex();
 
