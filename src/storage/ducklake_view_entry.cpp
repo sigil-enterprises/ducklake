@@ -101,7 +101,6 @@ void DuckLakeViewEntry::Bind(ClientContext &context) {
 	const auto create_view_sql = "CREATE VIEW mock_view_name_lake as " + query_sql;
 	const auto view_info = CreateViewInfo::FromCreateView(context, schema, create_view_sql);
 	// Fill aliases, types and names
-	aliases = view_info->aliases;
 	types = view_info->types;
 	names = view_info->names;
 }
