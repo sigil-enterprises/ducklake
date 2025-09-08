@@ -13,13 +13,11 @@ DuckLakeInlineData::DuckLakeInlineData(PhysicalPlan &physical_plan, PhysicalOper
       inline_row_limit(inline_row_limit) {
 	children.push_back(child);
 
-
 	for (const auto &type : types) {
 		if (TypeVisitor::Contains(type, [&](const LogicalType &typ) {
-			return type.id() == LogicalTypeId::BLOB && type.HasAlias() && type.GetAlias() == "GEOMETRY";
-		})) {
-			throw NotImplementedException(
-			    "DuckLake does not yet support data-inlining of GEOMETRY columns");
+			    return type.id() == LogicalTypeId::BLOB && type.HasAlias() && type.GetAlias() == "GEOMETRY";
+		    })) {
+			throw NotImplementedException("DuckLake does not yet support data-inlining of GEOMETRY columns");
 		};
 	}
 }
