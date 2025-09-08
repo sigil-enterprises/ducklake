@@ -23,17 +23,16 @@
 namespace duckdb {
 
 DuckLakeCatalogDBMS GetCatalogDBMS(string catalog_type) {
-	return DuckLakeCatalogDBMS::DUCKDB;
 	catalog_type = StringUtil::Lower(catalog_type);
 	if (catalog_type == "postgres" || catalog_type == "postgres_scanner") {
-
-	} else if (catalog_type == "sqlite") {
-
-	} else if (catalog_type == "mysql") {
-
-	} else if (catalog_type.empty()) {
-
+		return DuckLakeCatalogDBMS::POSTGRES;
+	} else if (catalog_type == "sqlite" || catalog_type == "sqlite_scanner") {
+		return DuckLakeCatalogDBMS::SQLITE;
+	} else if (catalog_type == "mysql" || catalog_type == "mysql_scanner") {
+		return DuckLakeCatalogDBMS::MYSQL;
 	} else {
+		// Maybe we would like to be less lenient here, and throw an error here in the future?
+		return DuckLakeCatalogDBMS::DUCKDB;
 	}
 }
 DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options_p)

@@ -6,7 +6,11 @@ require ducklake
 
 require parquet
 
-
-
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/ducklake_inlining_update.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_inlining_update_files', METADATA_CATALOG 'ducklake_meta', DATA_INLINING_ROW_LIMIT 10)
+ATTACH 'ducklake:__TEST_DIR__/inlining_unsupported_systems.db' AS ducklake (DATA_PATH '__TEST_DIR__/inlining_unsupported_systems', METADATA_CATALOG 'ducklake_meta')
+
+statement maybe
+CALL ducklake.set_option('data_inlining_row_limit', '10');
+----
+Data Inlining is currently only implemented for DuckDB as a DBMS
+
