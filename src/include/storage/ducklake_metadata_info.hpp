@@ -30,6 +30,11 @@ enum class CompactionType {
 	REWRITE_DELETES        // Rewrite deletes that delete more than a % of the table, might also do merge of files.
 };
 
+enum class CleanupType {
+	OLD_FILES,     // If the files are old, e.g., from an expired snapshot and can now be removed.
+	ORPHANED_FILES // If the file is an orphan e.g., the file was generated but never committed to the catalog
+};
+
 struct DuckLakeTag {
 	string key;
 	string value;
@@ -312,7 +317,7 @@ struct DuckLakeCompactionBaseFileData {
 	optional_idx max_row_count;
 };
 
-struct DuckLakeFileScheduledForCleanup {
+struct DuckLakeFileForCleanup {
 	DataFileIndex id;
 	string path;
 	timestamp_tz_t time;

@@ -58,7 +58,7 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_view(view_id BIGINT, view_uuid UUID, be
 CREATE TABLE {METADATA_CATALOG}.ducklake_tag(object_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, key VARCHAR, value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_column_tag(table_id BIGINT, column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, key VARCHAR, value VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_data_file(data_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, file_order BIGINT, path VARCHAR, path_is_relative BOOLEAN, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, row_id_start BIGINT, partition_id BIGINT, encryption_key VARCHAR, partial_file_info VARCHAR, mapping_id BIGINT);
-CREATE TABLE {METADATA_CATALOG}.ducklake_file_column_statistics(data_file_id BIGINT, table_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, value_count BIGINT, null_count BIGINT, min_value VARCHAR, max_value VARCHAR, contains_nan BOOLEAN);
+CREATE TABLE {METADATA_CATALOG}.ducklake_file_column_stats(data_file_id BIGINT, table_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, value_count BIGINT, null_count BIGINT, min_value VARCHAR, max_value VARCHAR, contains_nan BOOLEAN);
 CREATE TABLE {METADATA_CATALOG}.ducklake_delete_file(delete_file_id BIGINT PRIMARY KEY, table_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, data_file_id BIGINT, path VARCHAR, path_is_relative BOOLEAN, format VARCHAR, delete_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, encryption_key VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_column(column_id BIGINT, begin_snapshot BIGINT, end_snapshot BIGINT, table_id BIGINT, column_order BIGINT, column_name VARCHAR, column_type VARCHAR, initial_default VARCHAR, default_value VARCHAR, nulls_allowed BOOLEAN, parent_column BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_table_stats(table_id BIGINT, record_count BIGINT, next_row_id BIGINT, file_size_bytes BIGINT);
@@ -116,6 +116,8 @@ ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot_changes ADD COLUMN commit_extra
 UPDATE {METADATA_CATALOG}.ducklake_metadata SET value = '0.3-dev1' WHERE key = 'version';
 CREATE TABLE {METADATA_CATALOG}.ducklake_schema_versions(begin_snapshot BIGINT, schema_version BIGINT);
 INSERT INTO {METADATA_CATALOG}.ducklake_schema_versions SELECT MIN(snapshot_id), schema_version FROM {METADATA_CATALOG}.ducklake_snapshot GROUP BY schema_version ORDER BY schema_version;
+ALTER TABLE {METADATA_CATALOG}.ducklake_file_column_statistics RENAME TO ducklake_file_column_stats;
+
 	)";
 	auto result = transaction.Query(migrate_query);
 	if (result->HasError()) {
@@ -1558,7 +1560,7 @@ void DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot commit_snapshot
 	}
 	// insert the column stats
 	column_stats_insert_query = StringUtil::Format(
-	    "INSERT INTO {METADATA_CATALOG}.ducklake_file_column_statistics VALUES %s", column_stats_insert_query);
+	    "INSERT INTO {METADATA_CATALOG}.ducklake_file_column_stats VALUES %s", column_stats_insert_query);
 	result = transaction.Query(commit_snapshot, column_stats_insert_query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write column stats information to DuckLake: ");
@@ -1688,9 +1690,9 @@ void DuckLakeMetadataManager::WriteNewColumnMappings(DuckLakeSnapshot commit_sna
 	}
 }
 
-void DuckLakeMetadataManager::InsertSnapshot(DuckLakeSnapshot commit_snapshot) {
+void DuckLakeMetadataManager::InsertSnapshot(const DuckLakeSnapshot commit_snapshot) {
 	auto result = transaction.Query(
-	    std::move(commit_snapshot),
+	    commit_snapshot,
 	    R"(INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES ({SNAPSHOT_ID}, NOW(), {SCHEMA_VERSION}, {NEXT_CATALOG_ID}, {NEXT_FILE_ID});)");
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to write new snapshot to DuckLake: ");
@@ -2097,32 +2099,98 @@ ORDER BY snapshot_id
 	return snapshots;
 }
 
-vector<DuckLakeFileScheduledForCleanup> DuckLakeMetadataManager::GetFilesScheduledForCleanup(const string &filter) {
-	auto res = transaction.Query(R"(
+vector<DuckLakeFileForCleanup> DuckLakeMetadataManager::GetOldFilesForCleanup(const string &filter) {
+	auto query = R"(
 SELECT data_file_id, path, path_is_relative, schedule_start
 FROM {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion
-)" + filter);
+)" + filter;
+	auto res = transaction.Query(query);
 	if (res->HasError()) {
 		res->GetErrorObject().Throw("Failed to get files scheduled for deletion from DuckLake: ");
 	}
 	auto context = transaction.context.lock();
-	vector<DuckLakeFileScheduledForCleanup> result;
+	vector<DuckLakeFileForCleanup> result;
 	for (auto &row : *res) {
-		DuckLakeFileScheduledForCleanup info;
+		DuckLakeFileForCleanup info;
 		info.id = DataFileIndex(row.GetValue<idx_t>(0));
 		DuckLakePath path;
 		path.path = row.GetValue<string>(1);
 		path.path_is_relative = row.GetValue<bool>(2);
 		info.path = FromRelativePath(path);
 		info.time = GetTimestampTZFromRow(*context, row, 3);
-
+		result.push_back(std::move(info));
+	}
+	return result;
+}
+vector<DuckLakeFileForCleanup> DuckLakeMetadataManager::GetOrphanFilesForCleanup(const string &filter,
+                                                                                 const string &separator) {
+	auto query = R"(SELECT filename
+FROM read_blob({DATA_PATH} || '**')
+WHERE filename NOT IN (
+SELECT REPLACE(
+           CASE
+               WHEN NOT file_relative THEN file_path
+               ELSE CASE
+                        WHEN NOT table_relative THEN table_path || file_path
+                        ELSE CASE
+                                 WHEN NOT schema_relative THEN schema_path || table_path || file_path
+                                 ELSE {DATA_PATH} || schema_path || table_path || file_path
+                             END
+                   END
+           END,
+           '/',
+           '{SEPARATOR}'
+       ) AS full_path
+FROM
+  (SELECT s.path AS schema_path, t.path AS table_path, file_path, s.path_is_relative AS schema_relative, t.path_is_relative AS table_relative, file_relative FROM (
+    SELECT f.path AS file_path, f.path_is_relative AS file_relative, table_id
+    FROM ducklake_data_file f
+    UNION ALL
+    SELECT f.path AS file_path, f.path_is_relative AS file_relative, table_id
+    FROM ducklake_delete_file f
+  ) AS f
+   JOIN ducklake_table t ON f.table_id = t.table_id
+   JOIN ducklake_schema s ON t.schema_id = s.schema_id) AS r
+UNION ALL
+SELECT REPLACE(
+    CASE
+        WHEN NOT f.path_is_relative THEN f.path
+        ELSE {DATA_PATH} || f.path
+    END ,
+           '/',
+           '{SEPARATOR}'
+) AS full_path
+FROM ducklake_files_scheduled_for_deletion f
+)
+)" + filter;
+	query = StringUtil::Replace(query, "{SEPARATOR}", separator);
+	auto res = transaction.Query(query);
+	if (res->HasError()) {
+		res->GetErrorObject().Throw("Failed to get files scheduled for deletion from DuckLake: ");
+	}
+	auto context = transaction.context.lock();
+	vector<DuckLakeFileForCleanup> result;
+	for (auto &row : *res) {
+		DuckLakeFileForCleanup info;
+		info.path = row.GetValue<string>(0);
 		result.push_back(std::move(info));
 	}
 	return result;
 }
 
-void DuckLakeMetadataManager::RemoveFilesScheduledForCleanup(
-    const vector<DuckLakeFileScheduledForCleanup> &cleaned_up_files) {
+vector<DuckLakeFileForCleanup> DuckLakeMetadataManager::GetFilesForCleanup(const string &filter, CleanupType type,
+                                                                           const string &separator) {
+	switch (type) {
+	case CleanupType::OLD_FILES:
+		return GetOldFilesForCleanup(filter);
+	case CleanupType::ORPHANED_FILES:
+		return GetOrphanFilesForCleanup(filter, separator);
+	default:
+		throw InternalException("CleanupType in DuckLakeMetadataManager::GetFilesForCleanup is not valid");
+	}
+}
+
+void DuckLakeMetadataManager::RemoveFilesScheduledForCleanup(const vector<DuckLakeFileForCleanup> &cleaned_up_files) {
 	string deleted_file_ids;
 	for (auto &file : cleaned_up_files) {
 		if (!deleted_file_ids.empty()) {
@@ -2183,8 +2251,8 @@ void DuckLakeMetadataManager::WriteMergeAdjacent(const vector<DuckLakeCompactedF
 	}
 	// for each file that has been compacted - delete it from the list of data files entirely
 	// including all other info (stats, delete files, partition values, etc)
-	vector<string> tables_to_delete_from {"ducklake_data_file", "ducklake_file_column_statistics",
-	                                      "ducklake_delete_file", "ducklake_file_partition_value"};
+	vector<string> tables_to_delete_from {"ducklake_data_file", "ducklake_file_column_stats", "ducklake_delete_file",
+	                                      "ducklake_file_partition_value"};
 	for (auto &delete_from_tbl : tables_to_delete_from) {
 		auto result = transaction.Query(StringUtil::Format(R"(
 DELETE FROM {METADATA_CATALOG}.%s
@@ -2366,9 +2434,9 @@ WHERE %s (end_snapshot IS NOT NULL AND NOT EXISTS(
     WHERE snapshot_id >= begin_snapshot AND snapshot_id < end_snapshot
 ));)",
 	                                              table_id_filter));
-	vector<DuckLakeFileScheduledForCleanup> cleanup_files;
+	vector<DuckLakeFileForCleanup> cleanup_files;
 	for (auto &row : *result) {
-		DuckLakeFileScheduledForCleanup info;
+		DuckLakeFileForCleanup info;
 		info.id = DataFileIndex(row.GetValue<idx_t>(0));
 		TableIndex table_id(row.GetValue<idx_t>(1));
 		DuckLakePath path;
@@ -2396,7 +2464,7 @@ WHERE %s (end_snapshot IS NOT NULL AND NOT EXISTS(
 		}
 
 		// delete the data files
-		tables_to_delete_from = {"ducklake_data_file", "ducklake_file_column_statistics"};
+		tables_to_delete_from = {"ducklake_data_file", "ducklake_file_column_stats"};
 		for (auto &delete_tbl : tables_to_delete_from) {
 			result = transaction.Query(StringUtil::Format(R"(
 DELETE FROM {METADATA_CATALOG}.%s
@@ -2433,9 +2501,9 @@ WHERE %s %s (end_snapshot IS NOT NULL AND NOT EXISTS(
     WHERE snapshot_id >= begin_snapshot AND snapshot_id < end_snapshot
 ));)",
 	                                              table_id_filter, file_id_filter));
-	vector<DuckLakeFileScheduledForCleanup> cleanup_deletes;
+	vector<DuckLakeFileForCleanup> cleanup_deletes;
 	for (auto &row : *result) {
-		DuckLakeFileScheduledForCleanup info;
+		DuckLakeFileForCleanup info;
 		info.id = DataFileIndex(row.GetValue<idx_t>(0));
 		TableIndex table_id(row.GetValue<idx_t>(1));
 

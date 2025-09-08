@@ -268,7 +268,7 @@ DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const Multi
 			filter += " AND ";
 		}
 		filter += StringUtil::Format(
-		    "data_file_id IN (SELECT data_file_id FROM {METADATA_CATALOG}.ducklake_file_column_statistics WHERE %s)",
+		    "data_file_id IN (SELECT data_file_id FROM {METADATA_CATALOG}.ducklake_file_column_stats WHERE %s)",
 		    final_filter);
 	}
 	if (!filter.empty()) {
