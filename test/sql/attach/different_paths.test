@@ -29,8 +29,7 @@ does not match existing data path in the catalog
 statement ok
 ATTACH 'ducklake:__TEST_DIR__/some.db' AS other_ducklake (DATA_PATH '__TEST_DIR__/other_path/', OVERRIDE_DATA_PATH TRUE);
 
-# This will obviously not work
+# This will obviously not work, different OSs have different error messages saying file not found
 statement error
 FROM other_ducklake.t;
 ----
-No such file or directory
