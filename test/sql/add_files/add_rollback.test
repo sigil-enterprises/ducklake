@@ -1,0 +1,34 @@
+# name: test/sql/add_files/add_rollback.test
+# description: test ducklake does not desintegrate the OG file if ducklake_add_data_file rolls-back
+# group: [add_files]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/add_rollback.db' AS ducklake (DATA_PATH '__TEST_DIR__/add_rollback');
+
+statement ok
+USE ducklake
+
+statement ok
+CREATE TABLE test(col1 INTEGER, col2 VARCHAR);
+
+statement ok
+COPY (SELECT 200 col1, 'world' col2 LIMIT 1) TO '__TEST_DIR__/file.parquet';
+
+statement ok
+BEGIN
+
+statement ok
+CALL ducklake_add_data_files('ducklake', 'test', '__TEST_DIR__/file.parquet');
+
+statement ok
+ROLLBACK
+
+# Our file should still be alive
+query I
+SELECT COUNT(*) FROM GLOB('__TEST_DIR__/*.parquet')
+----
+1
