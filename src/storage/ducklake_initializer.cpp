@@ -176,6 +176,7 @@ void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction)
 				// we need to do this after InitializeDataPath() because that sets up the correct separator
 				options.data_path = metadata_manager.LoadPath(options.data_path);
 			} else {
+				options.data_path = metadata_manager.LoadPath(options.data_path);
 				// verify that they match if override_data_path is not set to true
 				if (options.data_path != tag.value && !options.override_data_path) {
 					throw InvalidConfigurationException(
