@@ -47,6 +47,8 @@ struct DuckLakeDataFile {
 	MappingIndex mapping_id;
 	optional_idx begin_snapshot;
 	optional_idx max_partial_file_snapshot;
+	//! If file was created by ducklake
+	bool created_by_ducklake = false;
 };
 
 } // namespace duckdb

@@ -808,6 +808,8 @@ vector<DuckLakeDataFile> DuckLakeFileProcessor::AddFiles(const vector<string> &g
 	vector<DuckLakeDataFile> written_files;
 	for (auto &entry : parquet_files) {
 		auto file = AddFileToTable(*entry.second);
+		// File being called by add files is not created by ducklake
+		file.created_by_ducklake = false;
 		if (file.row_count == 0) {
 			// skip adding empty files
 			continue;

@@ -381,7 +381,9 @@ void DuckLakeTransaction::CleanupFiles() {
 	for (auto &entry : table_data_changes) {
 		auto &table_changes = entry.second;
 		for (auto &file : table_changes.new_data_files) {
-			fs.TryRemoveFile(file.file_name);
+			if (file.created_by_ducklake) {
+				fs.TryRemoveFile(file.file_name);
+			}
 			if (file.delete_file) {
 				fs.TryRemoveFile(file.delete_file->file_name);
 			}
