@@ -20,34 +20,12 @@ USE ducklake;
 statement ok
 create table t1 (g GEOMETRY);
 
-statement ok
+statement error
 insert into t1 VALUES (ST_POINT(1,2));
-
-query I
-select * from t1;
 ----
-POINT (1 2)
+Not implemented Error: DuckLake does not yet support data-inlining of GEOMETRY columns
 
-# Inspect file stats, none cause its all inlined
-query I
-select extra_stats from ducklake_meta.ducklake_file_column_statistics;
+statement error
+create table t2 as select ST_POINT(1,2) as g;
 ----
-
-# Force a flush
-statement ok
-insert into t1 (SELECT ST_POINT(x, y) FROM range(5) AS r1(x), range(5) AS r2(y));
-
-# Inspect file stats, now there should be one
-query I
-select extra_stats from ducklake_meta.ducklake_file_column_statistics;
-----
-{"bbox": {"xmin": 0.000000, "xmax": 4.000000, "ymin": 0.000000, "ymax": 4.000000, "zmin": null, "zmax": null, "mmin": null, "mmax": null}, "types": ["point"]}
-
-
-# insert another geometry
-statement ok
-insert into t1 VALUES ('LINESTRING Z (5 5 5, 10 10 10)'::GEOMETRY);
-
-# Now do a force flush
-statement ok
-CALL ducklake_flush_inlined_data('ducklake');
+Not implemented Error: DuckLake does not yet support data-inlining of GEOMETRY columns

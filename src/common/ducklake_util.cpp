@@ -94,6 +94,11 @@ string DuckLakeUtil::ValueToSQL(ClientContext &context, const Value &val) {
 	if (val.IsNull()) {
 		return val.ToSQLString();
 	}
+	if (val.type().HasAlias()) {
+		// extension type: cast to string
+		auto str_val = val.CastAs(context, LogicalType::VARCHAR);
+		return DuckLakeUtil::ValueToSQL(context, str_val);
+	}
 	switch (val.type().id()) {
 	case LogicalTypeId::VARCHAR: {
 		auto &str_val = StringValue::Get(val);
@@ -143,14 +148,6 @@ string DuckLakeUtil::ValueToSQL(ClientContext &context, const Value &val) {
 		}
 		ret += "])";
 		return ret;
-	}
-	case LogicalTypeId::BLOB: {
-		if (val.type().HasAlias() && val.type().GetAlias() == "GEOMETRY") {
-			// geometry - cast to string
-			auto str_val = val.CastAs(context, LogicalType::VARCHAR);
-			return DuckLakeUtil::ValueToSQL(context, str_val);
-		}
-		return val.ToSQLString();
 	}
 	default:
 		return val.ToSQLString();

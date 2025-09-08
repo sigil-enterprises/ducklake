@@ -1,4 +1,6 @@
 #include "storage/ducklake_inline_data.hpp"
+
+#include "../../../duckdb-spatial/duckdb/src/include/duckdb/common/type_visitor.hpp"
 #include "storage/ducklake_insert.hpp"
 #include "storage/ducklake_table_entry.hpp"
 #include "storage/ducklake_transaction.hpp"
@@ -10,6 +12,16 @@ DuckLakeInlineData::DuckLakeInlineData(PhysicalPlan &physical_plan, PhysicalOper
     : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, child.types, child.estimated_cardinality),
       inline_row_limit(inline_row_limit) {
 	children.push_back(child);
+
+
+	for (const auto &type : types) {
+		if (TypeVisitor::Contains(type, [&](const LogicalType &typ) {
+			return type.id() == LogicalTypeId::BLOB && type.HasAlias() && type.GetAlias() == "GEOMETRY";
+		})) {
+			throw NotImplementedException(
+			    "DuckLake does not yet support data-inlining of GEOMETRY columns");
+		};
+	}
 }
 
 enum class InlinePhase { INLINING_ROWS, EMITTING_PREVIOUSLY_INLINED_ROWS, PASS_THROUGH_ROWS };

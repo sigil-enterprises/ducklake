@@ -122,4 +122,5 @@ void DuckLakeTypes::CheckSupportedType(const LogicalType &type) {
 	});
 }
 
+
 } // namespace duckdb

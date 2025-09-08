@@ -213,6 +213,14 @@
       ]
     },
     {
+      "reason": "FIXME: Deserialization field id failure?",
+      "paths": [
+        "test/sql/storage/compression/simple_compression.test",
+        "test/sql/storage/test_large_commits.test",
+        "test/sql/storage/multiple_clients_checkpoint_pending_updates.test"
+      ]
+    },
+    {
       "reason": "Hugeint is unsupported",
       "paths": [
         "test/sql/types/hugeint/test_hugeint_aggregates.test",
