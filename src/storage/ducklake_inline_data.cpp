@@ -1,6 +1,6 @@
 #include "storage/ducklake_inline_data.hpp"
 
-#include "../../../duckdb-spatial/duckdb/src/include/duckdb/common/type_visitor.hpp"
+#include "duckdb/common/type_visitor.hpp"
 #include "storage/ducklake_insert.hpp"
 #include "storage/ducklake_table_entry.hpp"
 #include "storage/ducklake_transaction.hpp"
