@@ -28,7 +28,6 @@
     "Collations are not supported in DuckLake storage",
     "Cascade Drop not supported in DuckLake",
     "CHECK constraints are not supported in DuckLake",
-    "CHECKPOINT not supported for DuckLake yet",
     "Defining a compression type for a column is not supported in DuckLake",
     "FOREIGN KEY constraints are not supported in DuckLake",
     "Only literals (e.g. 42 or 'hello world') are supported as default values",
@@ -457,6 +456,50 @@
       "reason": "FIXME: Unstable OID",
       "paths": [
         "test/sql/pg_catalog/pg_namespace.test"
+      ]
+    },
+    {
+      "reason": "Checkpoint in DuckLake doesn't produce expected result. Notice these are not ducklake bugs just tests that do not fit.",
+      "paths": [
+        "test/fuzzer/pedro/incomplete_checkpoint.test",
+        "test/sql/copy/csv/rejects/csv_rejects_read.test",
+        "test/sql/copy/csv/test_csv_timestamp_tz.test",
+        "test/sql/copy/csv/test_timestamptz_12926.test",
+        "test/sql/error/extension_function_error.test",
+        "test/sql/storage/compression/bitpacking/bitpacking_delta_for.test",
+        "test/sql/storage/compression/bitpacking/bitpacking_hugeint.test",
+        "test/sql/storage/compression/bitpacking/bitpacking_simple.test",
+        "test/sql/storage/compression/bitpacking/bitpacking_simple_hugeint.test",
+        "test/sql/storage/compression/bitpacking/bitpacking_storage_info.test",
+        "test/sql/storage/compression/bitpacking/bitpacking_uhugeint.test",
+        "test/sql/storage/compression/bitpacking/force_bitpacking.test",
+        "test/sql/storage/compression/compression_selection.test",
+        "test/sql/storage/compression/compression_selection_dict_fsst.test",
+        "test/sql/storage/compression/dict_fsst/dictionary_covers_validity.test",
+        "test/sql/storage/compression/dict_fsst/dictionary_storage_info.test",
+        "test/sql/storage/compression/dict_fsst/fetch_row.test",
+        "test/sql/storage/compression/dict_fsst/force_dictionary.test",
+        "test/sql/storage/compression/dict_fsst/fsst_storage_info.test",
+        "test/sql/storage/compression/dictionary/dictionary_storage_info.test",
+        "test/sql/storage/compression/dictionary/fetch_row.test",
+        "test/sql/storage/compression/dictionary/force_dictionary.test",
+        "test/sql/storage/compression/fsst/fsst_disable_compression.test",
+        "test/sql/storage/compression/fsst/fsst_storage_info.test",
+        "test/sql/storage/compression/rle/force_rle.test",
+        "test/sql/storage/compression/rle/rle_constant.test",
+        "test/sql/storage/compression/rle/rle_storage_info.test",
+        "test/sql/storage/compression/roaring/roaring_analyze_array.test",
+        "test/sql/storage/compression/roaring/roaring_analyze_bitset.test",
+        "test/sql/storage/compression/roaring/roaring_analyze_run.test",
+        "test/sql/storage/compression/string/medium.test",
+        "test/sql/storage/compression/string/struct.test",
+        "test/sql/storage/compression/string/table_copy.test",
+        "test/sql/storage/compression/zstd/zstd_force_compression.test",
+        "test/sql/storage/multiple_clients_checkpoint_pending_updates.test",
+        "test/sql/storage/optimistic_write/optimistic_write_temp_table.test",
+        "test/sql/timezone/disable_timestamptz_casts.test",
+        "test/sql/types/timestamp/test_timestamp_tz.test",
+        "test/sql/update/test_cascading_updates.test"
       ]
     }
   ]
