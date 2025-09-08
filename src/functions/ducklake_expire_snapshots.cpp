@@ -55,7 +55,7 @@ static unique_ptr<FunctionData> DuckLakeExpireSnapshotsBind(ClientContext &conte
 
 	string filter;
 	// we can never delete the most recent snapshot
-	filter = "snapshot_id != (SELECT MAX(snapshot_id) FROM ducklake_snapshot) AND ";
+	filter = "snapshot_id != (SELECT MAX(snapshot_id) FROM {METADATA_CATALOG}.ducklake_snapshot) AND ";
 	if (has_timestamp) {
 		auto ts = Timestamp::ToString(timestamp_t(from_timestamp.value));
 		filter += StringUtil::Format("snapshot_time < '%s'", ts);
