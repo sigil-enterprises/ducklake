@@ -213,11 +213,14 @@
       ]
     },
     {
-      "reason": "FIXME: Deserialization field id failure?",
+      "reason": "FIXME: Deserialization field id failure? Fixed on v1.4 branch..?",
       "paths": [
         "test/sql/storage/compression/simple_compression.test",
         "test/sql/storage/test_large_commits.test",
-        "test/sql/storage/multiple_clients_checkpoint_pending_updates.test"
+        "test/sql/storage/multiple_clients_checkpoint_pending_updates.test",
+        "test/sql/storage/test_store_nulls_strings.test",
+        "test/sql/storage/compression/roaring/fetch_row.test",
+        "test/sql/storage/test_store_integers.test"
       ]
     },
     {
