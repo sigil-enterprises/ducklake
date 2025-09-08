@@ -24,6 +24,7 @@ struct DuckLakeConfigOption;
 struct DeleteFileMap;
 class LogicalGet;
 
+enum class DuckLakeCatalogDBMS { DUCKDB, POSTGRES, SQLITE, MYSQL };
 class DuckLakeCatalog : public Catalog {
 public:
 	// default target file size: 512MB
@@ -52,7 +53,7 @@ public:
 	const string &DataPath() const {
 		return options.data_path;
 	}
-	const string &MetadataType() const {
+	const DuckLakeCatalogDBMS &MetadataType() const {
 		return metadata_type;
 	}
 	idx_t DataInliningRowLimit(SchemaIndex schema_index, TableIndex table_index) const;
@@ -186,7 +187,7 @@ private:
 	//! A unique tracker for catalog changes in uncommitted transactions.
 	atomic<idx_t> last_uncommitted_catalog_version;
 	//! The metadata server type
-	string metadata_type;
+	DuckLakeCatalogDBMS metadata_type;
 	//! Whether or not the catalog is initialized
 	bool initialized = false;
 	//! The id of the last committed snapshot, set at FlushChanges on a successful commit

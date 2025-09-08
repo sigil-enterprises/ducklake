@@ -23,7 +23,7 @@ optional_ptr<AttachedDatabase> GetDatabase(ClientContext &context, const string 
 unique_ptr<DuckLakeMetadataManager> DuckLakeMetadataManager::Create(DuckLakeTransaction &transaction) {
 	auto &catalog = transaction.GetCatalog();
 	auto catalog_type = catalog.MetadataType();
-	if (catalog_type == "postgres" || catalog_type == "postgres_scanner") {
+	if (catalog_type == DuckLakeCatalogDBMS::POSTGRES) {
 		return make_uniq<PostgresMetadataManager>(transaction);
 	}
 	return make_uniq<DuckLakeMetadataManager>(transaction);

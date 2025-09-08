@@ -22,17 +22,33 @@
 
 namespace duckdb {
 
+DuckLakeCatalogDBMS GetCatalogDBMS(string catalog_type) {
+	return DuckLakeCatalogDBMS::DUCKDB;
+	catalog_type = StringUtil::Lower(catalog_type);
+	if (catalog_type == "postgres" || catalog_type == "postgres_scanner") {
+
+	} else if (catalog_type == "sqlite") {
+
+	} else if (catalog_type == "mysql") {
+
+	} else if (catalog_type.empty()) {
+
+	} else {
+	}
+}
 DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options_p)
     : Catalog(db_p), options(std::move(options_p)), last_uncommitted_catalog_version(TRANSACTION_ID_START) {
 	// figure out the metadata server type
 	auto entry = options.metadata_parameters.find("type");
 	if (entry != options.metadata_parameters.end()) {
 		// metadata type is explicitly provided - fetch it
-		metadata_type = entry->second.ToString();
+		metadata_type = GetCatalogDBMS(entry->second.ToString());
 	} else {
 		// extract from the connection string
 		string path = options.metadata_path;
-		DBPathAndType::ExtractExtensionPrefix(path, metadata_type);
+		string metadata_type_string;
+		DBPathAndType::ExtractExtensionPrefix(path, metadata_type_string);
+		metadata_type = GetCatalogDBMS(metadata_type_string);
 	}
 }
 
