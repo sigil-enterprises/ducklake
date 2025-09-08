@@ -117,7 +117,7 @@ UPDATE {METADATA_CATALOG}.ducklake_metadata SET value = '0.3-dev1' WHERE key = '
 CREATE TABLE {METADATA_CATALOG}.ducklake_schema_versions(begin_snapshot BIGINT, schema_version BIGINT);
 INSERT INTO {METADATA_CATALOG}.ducklake_schema_versions SELECT MIN(snapshot_id), schema_version FROM {METADATA_CATALOG}.ducklake_snapshot GROUP BY schema_version ORDER BY schema_version;
 ALTER TABLE {METADATA_CATALOG}.ducklake_file_column_statistics RENAME TO ducklake_file_column_stats;
-ALTER TABLE {METADATA_CATALOG}.ducklake_file_column_statistics ADD COLUMN extra_stats VARCHAR DEFAULT NULL;
+ALTER TABLE {METADATA_CATALOG}.ducklake_file_column_stats ADD COLUMN extra_stats VARCHAR DEFAULT NULL;
 	)";
 	auto result = transaction.Query(migrate_query);
 	if (result->HasError()) {
