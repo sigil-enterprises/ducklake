@@ -62,8 +62,8 @@ jobs:
       env:
         GEN: ninja
       run: |
-        make reldebug
+        make release
 
     - name: Test extension
       run: |
-        build/reldebug/test/unittest --test-config test/configs/postgres.json
+        build/release/test/unittest --test-config test/configs/postgres.json
