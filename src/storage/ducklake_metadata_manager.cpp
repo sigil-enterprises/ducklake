@@ -71,9 +71,10 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_inlined_data_tables(table_id BIGINT, ta
 CREATE TABLE {METADATA_CATALOG}.ducklake_column_mapping(mapping_id BIGINT, table_id BIGINT, type VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_name_mapping(mapping_id BIGINT, column_id BIGINT, source_name VARCHAR, target_field_id BIGINT, parent_column BIGINT, is_partition BOOLEAN);
 CREATE TABLE {METADATA_CATALOG}.ducklake_schema_versions(begin_snapshot BIGINT, schema_version BIGINT);
+INSERT INTO {METADATA_CATALOG}.ducklake_schema_versions VALUES (0,0);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot_changes VALUES (0, 'created_schema:"main"',  NULL, NULL, NULL);
-INSERT INTO {METADATA_CATALOG}.ducklake_metadata (key, value) VALUES ('version', '0.3-dev1'), ('created_by', 'DuckDB %s'), ('data_path', %s), ('encrypted', '%s');
+INSERT INTO {METADATA_CATALOG}.ducklake_metadata (key, value) VALUES ('version', '0.3'), ('created_by', 'DuckDB %s'), ('data_path', %s), ('encrypted', '%s');
 INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main', 'main/', true);
 	)",
 	                                       DuckDB::SourceID(), SQLString(data_path), encryption_str);
@@ -107,19 +108,31 @@ UPDATE {METADATA_CATALOG}.ducklake_metadata SET value = '0.2' WHERE key = 'versi
 	}
 }
 
-void DuckLakeMetadataManager::MigrateV02() {
+void DuckLakeMetadataManager::MigrateV02(bool allow_failures) {
 	string migrate_query = R"(
-ALTER TABLE {METADATA_CATALOG}.ducklake_name_mapping ADD COLUMN is_partition BOOLEAN DEFAULT false;
-ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot_changes ADD COLUMN author VARCHAR DEFAULT NULL;
-ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot_changes ADD COLUMN commit_message VARCHAR DEFAULT NULL;
-ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot_changes ADD COLUMN commit_extra_info VARCHAR DEFAULT NULL;
-UPDATE {METADATA_CATALOG}.ducklake_metadata SET value = '0.3-dev1' WHERE key = 'version';
-CREATE TABLE {METADATA_CATALOG}.ducklake_schema_versions(begin_snapshot BIGINT, schema_version BIGINT);
-INSERT INTO {METADATA_CATALOG}.ducklake_schema_versions SELECT MIN(snapshot_id), schema_version FROM {METADATA_CATALOG}.ducklake_snapshot GROUP BY schema_version ORDER BY schema_version;
-ALTER TABLE {METADATA_CATALOG}.ducklake_file_column_statistics RENAME TO ducklake_file_column_stats;
-ALTER TABLE {METADATA_CATALOG}.ducklake_file_column_stats ADD COLUMN extra_stats VARCHAR DEFAULT NULL;
-ALTER TABLE {METADATA_CATALOG}.ducklake_table_column_stats ADD COLUMN extra_stats VARCHAR DEFAULT NULL;
+ALTER TABLE {METADATA_CATALOG}.ducklake_name_mapping ADD COLUMN {IF_NOT_EXISTS} is_partition BOOLEAN DEFAULT false;
+ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot_changes ADD COLUMN {IF_NOT_EXISTS} author VARCHAR DEFAULT NULL;
+ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot_changes ADD COLUMN {IF_NOT_EXISTS} commit_message VARCHAR DEFAULT NULL;
+ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot_changes ADD COLUMN {IF_NOT_EXISTS} commit_extra_info VARCHAR DEFAULT NULL;
+UPDATE {METADATA_CATALOG}.ducklake_metadata SET value = '0.3' WHERE key = 'version';
+CREATE TABLE {IF_NOT_EXISTS} {METADATA_CATALOG}.ducklake_schema_versions(begin_snapshot BIGINT, schema_version BIGINT);
+INSERT INTO {METADATA_CATALOG}.ducklake_schema_versions SELECT * FROM (SELECT MIN(snapshot_id), schema_version FROM {METADATA_CATALOG}.ducklake_snapshot GROUP BY schema_version ORDER BY schema_version) t {WHERE_EMPTY};
+ALTER TABLE {IF_EXISTS} {METADATA_CATALOG}.ducklake_file_column_statistics RENAME TO ducklake_file_column_stats;
+ALTER TABLE {METADATA_CATALOG}.ducklake_file_column_stats ADD COLUMN {IF_NOT_EXISTS} extra_stats VARCHAR DEFAULT NULL;
+ALTER TABLE {METADATA_CATALOG}.ducklake_table_column_stats ADD COLUMN {IF_NOT_EXISTS} extra_stats VARCHAR DEFAULT NULL;
 	)";
+	if (allow_failures) {
+		migrate_query = StringUtil::Replace(migrate_query, "{IF_NOT_EXISTS}", "IF NOT EXISTS");
+		migrate_query = StringUtil::Replace(migrate_query, "{IF_EXISTS}", "IF EXISTS");
+		migrate_query =
+		    StringUtil::Replace(migrate_query, "{WHERE_EMPTY}",
+		                        "WHERE NOT EXISTS (SELECT 1 FROM {METADATA_CATALOG}.ducklake_schema_versions);");
+	} else {
+		// All our place-holders are empty, so if any of these exist it will fail
+		migrate_query = StringUtil::Replace(migrate_query, "{IF_NOT_EXISTS}", "");
+		migrate_query = StringUtil::Replace(migrate_query, "{IF_EXISTS}", "");
+		migrate_query = StringUtil::Replace(migrate_query, "{WHERE_EMPTY}", "");
+	}
 	auto result = transaction.Query(migrate_query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to migrate DuckLake from v0.2 to v0.3:");
@@ -2188,13 +2201,13 @@ SELECT REPLACE(
 FROM
   (SELECT s.path AS schema_path, t.path AS table_path, file_path, s.path_is_relative AS schema_relative, t.path_is_relative AS table_relative, file_relative FROM (
     SELECT f.path AS file_path, f.path_is_relative AS file_relative, table_id
-    FROM ducklake_data_file f
+    FROM {METADATA_CATALOG}.ducklake_data_file f
     UNION ALL
     SELECT f.path AS file_path, f.path_is_relative AS file_relative, table_id
-    FROM ducklake_delete_file f
+    FROM {METADATA_CATALOG}.ducklake_delete_file f
   ) AS f
-   JOIN ducklake_table t ON f.table_id = t.table_id
-   JOIN ducklake_schema s ON t.schema_id = s.schema_id) AS r
+   JOIN {METADATA_CATALOG}.ducklake_table t ON f.table_id = t.table_id
+   JOIN {METADATA_CATALOG}.ducklake_schema s ON t.schema_id = s.schema_id) AS r
 UNION ALL
 SELECT REPLACE(
     CASE
@@ -2204,7 +2217,7 @@ SELECT REPLACE(
            '/',
            '{SEPARATOR}'
 ) AS full_path
-FROM ducklake_files_scheduled_for_deletion f
+FROM {METADATA_CATALOG}.ducklake_files_scheduled_for_deletion f
 )
 )" + filter;
 	query = StringUtil::Replace(query, "{SEPARATOR}", separator);

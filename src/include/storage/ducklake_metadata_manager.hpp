@@ -129,7 +129,7 @@ public:
 	virtual string GetPathForTable(TableIndex table_id);
 
 	virtual void MigrateV01();
-	virtual void MigrateV02();
+	virtual void MigrateV02(bool allow_failures = false);
 
 	string LoadPath(string path);
 	string StorePath(string path);
