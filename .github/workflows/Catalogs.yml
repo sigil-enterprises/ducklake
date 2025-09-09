@@ -29,12 +29,17 @@ jobs:
     - name: Install required ubuntu packages
       run: |
         sudo apt-get update -y -qq
-        sudo apt-get install -y -qq build-essential cmake ninja-build ccache python3 postgresql postgresql-contrib
+        sudo apt-get install -y -qq build-essential cmake ninja-build ccache python3
 
-    - name: Start PostgreSQL and create database
-      run: |
-        sudo pg_ctlcluster 14 main start
-        sudo -u postgres psql -c "CREATE DATABASE ducklakedb;"
+    - name: Setup PostgreSQL for Linux/macOS/Windows
+      uses: ikalnytskyi/action-setup-postgres@v7
+      with:
+        postgres-version: '15'
+        username: 'postgres'
+        password: 'postgres'
+        database: 'postgres'
+        port: '5432'
+        ssl: true
 
     - uses: actions/checkout@v3
       with:
@@ -66,4 +71,5 @@ jobs:
 
     - name: Test extension
       run: |
+        createdb ducklakedb
         build/release/test/unittest --test-config test/configs/postgres.json
