@@ -33,7 +33,7 @@ jobs:
 
     - name: Start PostgreSQL and create database
       run: |
-        sudo systemctl start postgresql
+        sudo pg_ctlcluster 14 main start
         sudo -u postgres psql -c "CREATE DATABASE ducklakedb;"
 
     - uses: actions/checkout@v3
