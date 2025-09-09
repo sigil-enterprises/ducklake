@@ -61,7 +61,6 @@ jobs:
     - name: Build extension
       env:
         GEN: ninja
-        STATIC_LIBCPP: 1
       run: |
         make reldebug
 
