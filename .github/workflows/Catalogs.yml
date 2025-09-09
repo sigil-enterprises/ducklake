@@ -70,6 +70,8 @@ jobs:
         make release
 
     - name: Test extension
+      env:
+        PGSERVICE: postgres
       run: |
         createdb ducklakedb
         build/release/test/unittest --test-config test/configs/postgres.json
