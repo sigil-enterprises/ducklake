@@ -1,5 +1,5 @@
-# name: test/sql/migration/v01.test
-# description: test migration from v0.1
+# name: test/sql/migration/migration.test
+# description: test migration from previous releases to the latest ducklake version.
 # group: [migration]
 
 require ducklake
