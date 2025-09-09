@@ -148,9 +148,9 @@ void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction)
 	for (auto &tag : metadata.tags) {
 		if (tag.key == "version") {
 			string version = tag.value;
-			if (version != "0.3-dev1" && !options.migrate_if_required) {
+			if (version != "0.3" && !options.migrate_if_required) {
 				// Throw when Loading the Ducklake if a Migration is required and migrate_if_required option is false
-				throw InvalidInputException("DuckLake Extension requires a DuckLake Catalog version of 0.3-dev1 or "
+				throw InvalidInputException("DuckLake Extension requires a DuckLake Catalog version of 0.3 or "
 				                            "higher, current version is %s "
 				                            "and migrate_if_required is set to false",
 				                            version);
@@ -161,10 +161,14 @@ void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction)
 			}
 			if (version == "0.2") {
 				metadata_manager.MigrateV02();
-				version = "0.3-dev1";
+				version = "0.3";
 			}
-			if (version != "0.3-dev1") {
-				throw NotImplementedException("Only DuckLake versions 0.1, 0.2 and 0.3-dev1 are supported");
+			if (version == "0.3-dev1") {
+				metadata_manager.MigrateV02(true);
+				version = "0.3";
+			}
+			if (version != "0.3") {
+				throw NotImplementedException("Only DuckLake versions 0.1, 0.2, 0.3-dev1 and 0.3 are supported");
 			}
 		}
 		if (tag.key == "data_path") {
@@ -175,6 +179,14 @@ void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction)
 				// load the correct path from the metadata manager
 				// we need to do this after InitializeDataPath() because that sets up the correct separator
 				options.data_path = metadata_manager.LoadPath(options.data_path);
+			} else {
+				// verify that they match if override_data_path is not set to true
+				if (metadata_manager.StorePath(options.data_path) != tag.value && !options.override_data_path) {
+					throw InvalidConfigurationException(
+					    "DATA_PATH parameter \"%s\" does not match existing data path in the catalog \"%s\".\nYou can "
+					    "override the DATA_PATH by setting OVERRIDE_DATA_PATH to True.",
+					    options.data_path, tag.value);
+				}
 			}
 		}
 		if (tag.key == "encrypted") {

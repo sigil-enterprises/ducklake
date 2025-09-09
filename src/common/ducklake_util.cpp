@@ -89,10 +89,15 @@ string DuckLakeUtil::StatsToString(const string &text) {
 	return DuckLakeUtil::SQLLiteralToString(text);
 }
 
-string DuckLakeUtil::ValueToSQL(const Value &val) {
+string DuckLakeUtil::ValueToSQL(ClientContext &context, const Value &val) {
 	// FIXME: this should be upstreamed
 	if (val.IsNull()) {
 		return val.ToSQLString();
+	}
+	if (val.type().HasAlias()) {
+		// extension type: cast to string
+		auto str_val = val.CastAs(context, LogicalType::VARCHAR);
+		return DuckLakeUtil::ValueToSQL(context, str_val);
 	}
 	switch (val.type().id()) {
 	case LogicalTypeId::VARCHAR: {

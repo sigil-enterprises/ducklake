@@ -13,7 +13,7 @@ test-env DUCKLAKE_CONNECTION __TEST_DIR__/
 test-env DUCKLAKE_CATALOG_DB v01_partitioned.db
 
 statement ok
-ATTACH 'ducklake:${DUCKLAKE_CONNECTION}${DUCKLAKE_CATALOG_DB}' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_migrate_v01_partitioned', METADATA_CATALOG 'ducklake_metadata')
+ATTACH 'ducklake:${DUCKLAKE_CONNECTION}${DUCKLAKE_CATALOG_DB}' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_migrate_v01_partitioned', METADATA_CATALOG 'ducklake_metadata', OVERRIDE_DATA_PATH TRUE)
 
 statement ok
 INSERT INTO ducklake.partitioned_tbl SELECT NULL, i%2, concat('thisisastring_', i) FROM range(10000) t(i)

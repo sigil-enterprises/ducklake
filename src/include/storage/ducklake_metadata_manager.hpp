@@ -59,7 +59,8 @@ public:
 	virtual vector<DuckLakeFileListExtendedEntry>
 	GetExtendedFilesForTable(DuckLakeTableEntry &table, DuckLakeSnapshot snapshot, const string &filter);
 	virtual vector<DuckLakeCompactionFileEntry> GetFilesForCompaction(DuckLakeTableEntry &table, CompactionType type,
-	                                                                  double deletion_threshold);
+	                                                                  double deletion_threshold,
+	                                                                  DuckLakeSnapshot snapshot);
 	virtual vector<DuckLakeFileForCleanup> GetOldFilesForCleanup(const string &filter);
 	virtual vector<DuckLakeFileForCleanup> GetOrphanFilesForCleanup(const string &filter, const string &separator);
 	virtual vector<DuckLakeFileForCleanup> GetFilesForCleanup(const string &filter, CleanupType type,
@@ -128,7 +129,7 @@ public:
 	virtual string GetPathForTable(TableIndex table_id);
 
 	virtual void MigrateV01();
-	virtual void MigrateV02();
+	virtual void MigrateV02(bool allow_failures = false);
 
 	string LoadPath(string path);
 	string StorePath(string path);
