@@ -9,7 +9,7 @@ defaults:
 
 jobs:
   ducklake-config-tests:
-    name: DuckDB Tests with DuckLake + Postgres
+    name: DuckDB Tests with DuckLake + (Postgres/SQLite)
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -24,6 +24,8 @@ jobs:
       VCPKG_TARGET_TRIPLET: ${{ matrix.vcpkg_triplet }}
       GEN: Ninja
       VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+      ENABLE_SQLITE_SCANNER: ON
+      ENABLE_POSTGRES_SCANNER: ON
 
     steps:
     - name: Install required ubuntu packages
@@ -69,9 +71,13 @@ jobs:
       run: |
         make release
 
-    - name: Test extension
+    - name: Test Postgres
       env:
         PGSERVICE: postgres
       run: |
         createdb ducklakedb
         build/release/test/unittest --test-config test/configs/postgres.json
+
+    - name: Test SQLite
+      run: |
+        build/release/test/unittest --test-config test/configs/sqlite.json
