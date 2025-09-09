@@ -71,6 +71,7 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_inlined_data_tables(table_id BIGINT, ta
 CREATE TABLE {METADATA_CATALOG}.ducklake_column_mapping(mapping_id BIGINT, table_id BIGINT, type VARCHAR);
 CREATE TABLE {METADATA_CATALOG}.ducklake_name_mapping(mapping_id BIGINT, column_id BIGINT, source_name VARCHAR, target_field_id BIGINT, parent_column BIGINT, is_partition BOOLEAN);
 CREATE TABLE {METADATA_CATALOG}.ducklake_schema_versions(begin_snapshot BIGINT, schema_version BIGINT);
+INSERT INTO {METADATA_CATALOG}.ducklake_schema_versions VALUES (0,0);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot_changes VALUES (0, 'created_schema:"main"',  NULL, NULL, NULL);
 INSERT INTO {METADATA_CATALOG}.ducklake_metadata (key, value) VALUES ('version', '0.3'), ('created_by', 'DuckDB %s'), ('data_path', %s), ('encrypted', '%s');
@@ -115,7 +116,7 @@ ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot_changes ADD COLUMN {IF_NOT_EXIS
 ALTER TABLE {METADATA_CATALOG}.ducklake_snapshot_changes ADD COLUMN {IF_NOT_EXISTS} commit_extra_info VARCHAR DEFAULT NULL;
 UPDATE {METADATA_CATALOG}.ducklake_metadata SET value = '0.3' WHERE key = 'version';
 CREATE TABLE {IF_NOT_EXISTS} {METADATA_CATALOG}.ducklake_schema_versions(begin_snapshot BIGINT, schema_version BIGINT);
-INSERT INTO {METADATA_CATALOG}.ducklake_schema_versions SELECT MIN(snapshot_id), schema_version FROM {METADATA_CATALOG}.ducklake_snapshot GROUP BY schema_version ORDER BY schema_version {WHERE_EMPTY};
+INSERT INTO {METADATA_CATALOG}.ducklake_schema_versions SELECT * FROM (SELECT MIN(snapshot_id), schema_version FROM {METADATA_CATALOG}.ducklake_snapshot GROUP BY schema_version ORDER BY schema_version) t {WHERE_EMPTY};
 ALTER TABLE {IF_EXISTS} {METADATA_CATALOG}.ducklake_file_column_statistics RENAME TO ducklake_file_column_stats;
 ALTER TABLE {METADATA_CATALOG}.ducklake_file_column_stats ADD COLUMN {IF_NOT_EXISTS} extra_stats VARCHAR DEFAULT NULL;
 ALTER TABLE {METADATA_CATALOG}.ducklake_table_column_stats ADD COLUMN {IF_NOT_EXISTS} extra_stats VARCHAR DEFAULT NULL;
