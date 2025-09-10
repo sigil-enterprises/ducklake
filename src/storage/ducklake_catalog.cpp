@@ -22,32 +22,17 @@
 
 namespace duckdb {
 
-DuckLakeCatalogDBMS GetCatalogDBMS(string catalog_type) {
-	catalog_type = StringUtil::Lower(catalog_type);
-	if (catalog_type == "postgres" || catalog_type == "postgres_scanner") {
-		return DuckLakeCatalogDBMS::POSTGRES;
-	} else if (catalog_type == "sqlite" || catalog_type == "sqlite_scanner") {
-		return DuckLakeCatalogDBMS::SQLITE;
-	} else if (catalog_type == "mysql" || catalog_type == "mysql_scanner") {
-		return DuckLakeCatalogDBMS::MYSQL;
-	} else {
-		// Maybe we would like to be less lenient here, and throw an error here in the future?
-		return DuckLakeCatalogDBMS::DUCKDB;
-	}
-}
 DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options_p)
     : Catalog(db_p), options(std::move(options_p)), last_uncommitted_catalog_version(TRANSACTION_ID_START) {
 	// figure out the metadata server type
 	auto entry = options.metadata_parameters.find("type");
 	if (entry != options.metadata_parameters.end()) {
 		// metadata type is explicitly provided - fetch it
-		metadata_type = GetCatalogDBMS(entry->second.ToString());
+		metadata_type = entry->second.ToString();
 	} else {
 		// extract from the connection string
 		string path = options.metadata_path;
-		string metadata_type_string;
-		DBPathAndType::ExtractExtensionPrefix(path, metadata_type_string);
-		metadata_type = GetCatalogDBMS(metadata_type_string);
+		DBPathAndType::ExtractExtensionPrefix(path, metadata_type);
 	}
 }
 

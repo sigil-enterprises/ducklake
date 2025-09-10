@@ -68,7 +68,7 @@ static unique_ptr<FunctionData> DuckLakeSetOptionBind(ClientContext &context, Ta
 		auto target_file_size_bytes = DBConfig::ParseMemoryLimit(val.ToString());
 		value = to_string(target_file_size_bytes);
 	} else if (option == "data_inlining_row_limit") {
-		if (ducklake_catalog.MetadataType() != DuckLakeCatalogDBMS::DUCKDB) {
+		if (!ducklake_catalog.MetadataType().empty()) {
 			throw NotImplementedException("Data Inlining is currently only implemented for DuckDB as a DBMS");
 		}
 		auto data_inlining_row_limit = val.DefaultCastAs(LogicalType::UBIGINT).GetValue<idx_t>();
