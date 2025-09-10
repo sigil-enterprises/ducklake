@@ -1,4 +1,4 @@
-name: DBMS Catalog Tests
+name: DuckLake + DuckDB run tests on debug
 on: [push, pull_request, repository_dispatch]
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' || github.sha }}
@@ -9,7 +9,7 @@ defaults:
 
 jobs:
   ducklake-config-tests:
-    name: DuckDB Tests with DuckLake + (Postgres/SQLite)
+    name: DuckLake Tests using DuckDB as the catalog on Debug Mode
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -32,16 +32,6 @@ jobs:
       run: |
         sudo apt-get update -y -qq
         sudo apt-get install -y -qq build-essential cmake ninja-build ccache python3
-
-    - name: Setup PostgreSQL for Linux/macOS/Windows
-      uses: ikalnytskyi/action-setup-postgres@v7
-      with:
-        postgres-version: '15'
-        username: 'postgres'
-        password: 'postgres'
-        database: 'postgres'
-        port: '5432'
-        ssl: true
 
     - uses: actions/checkout@v3
       with:
@@ -69,15 +59,8 @@ jobs:
       env:
         GEN: ninja
       run: |
-        make release
+        make debug
 
     - name: Test SQLite
       run: |
-        build/release/test/unittest --test-config test/configs/sqlite.json
-
-    - name: Test Postgres
-      env:
-        PGSERVICE: postgres
-      run: |
-        createdb ducklakedb
-        build/release/test/unittest --test-config test/configs/postgres.json
+        build/debug/test/unittest
