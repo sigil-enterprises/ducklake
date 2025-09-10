@@ -424,13 +424,7 @@
       ]
     },
     {
-      "reason": "FIXME: SEGV?",
-      "paths": [
-        "test/sql/storage/delete/repeated_deletes.test"
-      ]
-    },
-    {
-      "reason": "FIXME: SORTED BY not supported",
+      "reason": "FEATURE: SORTED BY not supported",
       "paths": [
         "test/sql/alter/alter_table_set_sorted_by.test"
       ]
