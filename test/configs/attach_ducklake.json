@@ -369,16 +369,9 @@
     {
       "reason": "FIXME: Immediate transaction mode not respected",
       "paths": [
-        "test/sql/insert/unaligned_interleaved_appends.test",
         "test/sql/update/test_update_many_updaters_nulls.test",
         "test/sql/update/test_update_many_updaters.test",
-        "test/sql/update/test_string_update_null.test",
-        "test/sql/update/test_update_mix.test",
-        "test/sql/delete/test_using_delete_duplicates.test",
-        "test/sql/transactions/test_null_version.test",
-        "test/sql/transactions/transaction_insert_delete_chunks.test",
-        "test/sql/index/art/create_drop/test_art_many_versions.test",
-        "test/sql/index/art/create_drop/test_art_create_index_delete.test"
+        "test/sql/delete/test_using_delete_duplicates.test"
       ]
     },
     {
