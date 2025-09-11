@@ -12,7 +12,7 @@ SET parquet_metadata_cache=true;
 # FIXME: succeeds on v1.3 branch but fails on v1.3.0 release
 mode skip
 
-test-env DUCKLAKE_CONNECTION __TEST_DIR__/{BASE_TEST_NAME}.db
+test-env DUCKLAKE_CONNECTION __TEST_DIR__/{UUID}.db
 
 
 statement ok

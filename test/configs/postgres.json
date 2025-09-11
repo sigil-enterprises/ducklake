@@ -35,7 +35,10 @@
         "test/sql/data_inlining/data_inlining_transaction_local_delete.test",
         "test/sql/data_inlining/data_inlining_types.test",
         "test/sql/data_inlining/data_inlining_update.test",
-        "test/sql/transaction/transaction_conflict_inlining.test"
+        "test/sql/transaction/transaction_conflict_inlining.test",
+        "test/sql/data_inlining/inlining_global_options.test",
+        "test/sql/checkpoint/checkpoint_updates_interleaved.test",
+        "test/sql/checkpoint/checkpoint_ducklake.test"
       ]
     },
     {
@@ -54,9 +57,10 @@
       ]
     },
     {
-      "reason": "Auto Loading",
+      "reason": "DuckDB as a catalog specific",
       "paths": [
-        "test/sql/autoloading/autoload_data_path.test"
+        "test/sql/autoloading/autoload_data_path.test",
+        "test/sql/general/metadata_parameters.test"
       ]
     }
   ]

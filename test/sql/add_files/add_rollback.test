@@ -6,8 +6,10 @@ require ducklake
 
 require parquet
 
+test-env DUCKLAKE_CONNECTION __TEST_DIR__/{UUID}.db
+
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/add_rollback.db' AS ducklake (DATA_PATH '__TEST_DIR__/add_rollback');
+ATTACH 'ducklake:${DUCKLAKE_CONNECTION}' AS ducklake (DATA_PATH '__TEST_DIR__/add_rollback');
 
 statement ok
 USE ducklake

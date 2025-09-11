@@ -6,8 +6,10 @@ require ducklake
 
 require parquet
 
+test-env DUCKLAKE_CONNECTION __TEST_DIR__/{UUID}.db
+
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/stats_mre.db' AS ducklake (DATA_PATH '__TEST_DIR__/stats_data', METADATA_CATALOG 'metadata');
+ATTACH 'ducklake:${DUCKLAKE_CONNECTION}' AS ducklake (DATA_PATH '__TEST_DIR__/stats_data', METADATA_CATALOG 'metadata');
 
 # Schema that reproduces the original error: array + struct array + other types
 statement ok

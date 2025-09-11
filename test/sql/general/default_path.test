@@ -6,8 +6,10 @@ require ducklake
 
 require parquet
 
+test-env DUCKLAKE_CONNECTION __TEST_DIR__/ducklake_default_paths.db
+
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/ducklake_default_paths.db' AS ducklake
+ATTACH 'ducklake:${DUCKLAKE_CONNECTION}' AS ducklake
 
 # built-in paths
 statement ok
