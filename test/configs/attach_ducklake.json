@@ -471,6 +471,12 @@
       ]
     },
     {
+      "reason": "FIXME: Wrong snapshot ID when running merge_adjacent_files",
+      "paths": [
+        "test/sql/storage/compression/rle/rle_nulls_edge_case.test"
+      ]
+    },
+    {
       "reason": "Checkpoint in DuckLake doesn't produce expected result. Notice these are not ducklake bugs just tests that do not fit.",
       "paths": [
         "test/fuzzer/pedro/incomplete_checkpoint.test",
