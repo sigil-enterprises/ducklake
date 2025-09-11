@@ -862,7 +862,7 @@ WITH snapshot_ranges AS (
 SELECT %s,
 FROM {METADATA_CATALOG}.ducklake_data_file data
 JOIN snapshot_ranges sr
-  ON data.begin_snapshot BETWEEN sr.begin_snapshot AND sr.end_snapshot
+  ON data.begin_snapshot >= sr.begin_snapshot AND data.begin_snapshot < sr.end_snapshot
 LEFT JOIN (
 	SELECT *
     FROM {METADATA_CATALOG}.ducklake_delete_file

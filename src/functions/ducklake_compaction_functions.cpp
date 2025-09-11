@@ -300,10 +300,8 @@ unique_ptr<LogicalOperator>
 DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry> source_files) {
 	// get the table entry at the specified snapshot
 	auto snapshot_id = source_files[0].file.begin_snapshot;
-	auto snapshot = transaction.GetSnapshot();
-	if (snapshot_id != snapshot.snapshot_id) {
-		snapshot = DuckLakeSnapshot(snapshot_id, source_files[0].schema_version, 0, 0);
-	}
+	DuckLakeSnapshot snapshot(snapshot_id, source_files[0].schema_version, 0, 0);
+
 	auto entry = catalog.GetEntryById(transaction, snapshot, table_id);
 	if (!entry) {
 		throw InternalException("DuckLakeCompactor: failed to find table entry for given snapshot id");
