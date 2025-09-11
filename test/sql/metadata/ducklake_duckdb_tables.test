@@ -6,12 +6,11 @@ require ducklake
 
 require parquet
 
-test-env DUCKLAKE_CONNECTION __TEST_DIR__/
+test-env DUCKLAKE_CONNECTION __TEST_DIR__/{BASE_TEST_NAME}.db
 
-test-env DUCKLAKE_CATALOG_DB ducklake_duckdb_tables.db
 
 statement ok
-ATTACH 'ducklake:${DUCKLAKE_CONNECTION}${DUCKLAKE_CATALOG_DB}' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_duckdb_tables_files', METADATA_CATALOG 'ducklake_meta')
+ATTACH 'ducklake:${DUCKLAKE_CONNECTION}' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_duckdb_tables_files', METADATA_CATALOG 'ducklake_meta')
 
 statement ok
 CREATE TABLE ducklake.test(i INTEGER);

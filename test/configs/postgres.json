@@ -11,11 +11,7 @@
   ],
     "test_env": [{
       "env_name":  "DUCKLAKE_CONNECTION",
-      "env_value": "postgres:"
-   },
-    {
-      "env_name":  "DUCKLAKE_CATALOG_DB",
-      "env_value": "dbname=ducklakedb"
+      "env_value": "postgres:dbname=ducklakedb"
    }],
   "skip_tests": [
    {
