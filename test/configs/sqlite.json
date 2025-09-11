@@ -1,6 +1,6 @@
 {
   "description": "Run DuckLake tests using SQLite as a catalog DBMS.",
-  "on_init": "SET extension_directory = 'build/release/repository';",
+  "autoloading": "all",
   "statically_loaded_extensions": [
     "core_functions",
     "parquet",
