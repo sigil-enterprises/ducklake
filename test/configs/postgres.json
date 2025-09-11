@@ -6,7 +6,8 @@
     "core_functions",
     "parquet",
     "ducklake",
-    "postgres_scanner"
+    "postgres_scanner",
+    "icu"
   ],
     "test_env": [{
       "env_name":  "DUCKLAKE_CONNECTION",
@@ -54,6 +55,12 @@
       "paths": [
         "test/sql/migration/v01_partitioned.test",
         "test/sql/migration/v01.test"
+      ]
+    },
+    {
+      "reason": "Auto Loading",
+      "paths": [
+        "test/sql/autoloading/autoload_data_path.test"
       ]
     }
   ]

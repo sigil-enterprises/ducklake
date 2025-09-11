@@ -5,7 +5,8 @@
     "core_functions",
     "parquet",
     "ducklake",
-    "sqlite_scanner"
+    "sqlite_scanner",
+    "icu"
   ],
   "test_env": [{
       "env_name":  "DUCKLAKE_CONNECTION",
@@ -100,6 +101,12 @@
       "reason": "SQLite databases do not support creating new schemas",
       "paths": [
         "test/sql/transaction/transaction_schema.test"
+      ]
+    },
+    {
+      "reason": "Auto Loading",
+      "paths": [
+        "test/sql/autoloading/autoload_data_path.test"
       ]
     }
   ]
