@@ -416,8 +416,7 @@
         "test/sql/alter/rename_table/test_rename_table.test",
         "test/sql/alter/rename_table/test_rename_table_collision.test",
         "test/sql/alter/rename_table/test_rename_table_many_transactions.test",
-        "test/sql/alter/rename_view/test_rename_view_many_transactions.test",
-        "test/sql/alter/rename_view/test_rename_view_incorrect.test"
+        "test/sql/alter/rename_view/test_rename_view_many_transactions.test"
       ]
     },
     {

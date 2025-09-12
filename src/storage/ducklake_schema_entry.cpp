@@ -172,6 +172,12 @@ void DuckLakeSchemaEntry::Alter(CatalogTransaction catalog_transaction, AlterInf
 		}
 		auto &view = view_entry->Cast<DuckLakeViewEntry>();
 		auto new_view = view.AlterEntry(context, alter);
+		if (alter.alter_view_type == AlterViewType::RENAME_VIEW) {
+			// We must check if this view name does not yet exist.
+			 if (GetEntry(catalog_transaction, CatalogType::VIEW_ENTRY, new_view->name)) {
+				 throw BinderException("Cannot rename view %s to %s, since %s already exists.", alter.name, new_view->name,alter.name);
+			 }
+		}
 		transaction.AlterEntry(view, std::move(new_view));
 		break;
 	}
