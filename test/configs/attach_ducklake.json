@@ -1,6 +1,6 @@
 {
   "description": "Run on DuckLake database as storage.",
-  "on_init": "ATTACH 'ducklake:{TEST_DIR}/{BASE_TEST_NAME}__ducklake.db' AS dl;",
+  "on_init": "ATTACH 'ducklake:{TEST_DIR}/{BASE_TEST_NAME}__ducklake.db' AS dl; SET timezone = 'UTC';",
   "on_new_connection": "USE dl;",
   "skip_compiled": "true",
   "sort_style": "rowsort",
@@ -285,27 +285,6 @@
       ]
     },
     {
-      "reason": "Underspecified Result Order",
-      "paths": [
-        "test/sql/function/timestamp/age.test",
-        "test/sql/storage/types/struct/struct_storage.test",
-        "test/sql/storage/types/struct/wal_struct_storage.test",
-        "test/sql/storage/types/test_unsigned_storage.test",
-        "test/sql/transactions/test_from_update_conflict.test",
-        "test/sql/copy/parquet/writer/parquet_write_strings.test",
-        "test/sql/copy/csv/test_insert_into_types.test",
-        "test/issues/general/test_1599.test",
-        "test/sql/types/nested/map/test_map_subscript.test",
-        "test/sql/join/semianti/semijoin.test",
-        "test/sql/subquery/scalar/test_scalar_subquery.test",
-        "test/sql/insert/test_big_insert.test",
-        "test/sql/types/nested/map/test_map_subscript_composite.test",
-        "test/sql/json/test_json_macros.test",
-        "test/sql/window/test_window_range.test",
-        "test/sql/filter/test_transitive_filters.test"
-      ]
-    },
-    {
       "reason": "Load Related",
       "paths": [
         "test/sql/storage/optimistic_write/optimistic_write_large_strings.test",
@@ -400,7 +379,8 @@
       "paths": [
         "test/sql/storage/catalog/test_drop_table.test",
         "test/sql/storage/compression/bitpacking/struct_bitpacking.test",
-        "test/sql/storage/delete/test_unchanged_deletes_large.test"
+        "test/sql/storage/delete/test_unchanged_deletes_large.test",
+        "test/sql/window/test_window_range.test"
       ]
     },
     {
@@ -461,6 +441,20 @@
       "reason": "FIXME: Wrong snapshot ID when running merge_adjacent_files",
       "paths": [
         "test/sql/storage/compression/rle/rle_nulls_edge_case.test"
+      ]
+    },
+    {
+      "reason": "FIXME: Statement differs from original result!",
+      "paths": [
+        "test/sql/types/nested/map/test_map_subscript.test",
+        "test/sql/subquery/scalar/test_scalar_subquery.test",
+        "test/sql/json/test_json_macros.test"
+      ]
+    },
+    {
+      "reason": "FIXME: Transaction Conflict Error",
+      "paths": [
+        "test/sql/transactions/test_from_update_conflict.test"
       ]
     },
     {
