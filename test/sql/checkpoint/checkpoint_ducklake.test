@@ -8,8 +8,10 @@ require parquet
 
 require icu
 
+test-env DUCKLAKE_CONNECTION __TEST_DIR__/{UUID}.db
+
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/checkpoint_ducklake.db' AS ducklake (DATA_PATH '__TEST_DIR__/checkpoint_ducklake', DATA_INLINING_ROW_LIMIT 5)
+ATTACH 'ducklake:${DUCKLAKE_CONNECTION}' AS ducklake (DATA_PATH '__TEST_DIR__/checkpoint_ducklake', DATA_INLINING_ROW_LIMIT 5)
 
 statement ok
 use ducklake
