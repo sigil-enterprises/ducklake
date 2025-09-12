@@ -6,8 +6,11 @@ require ducklake
 
 require parquet
 
+test-env DUCKLAKE_CONNECTION __TEST_DIR__/{UUID}.db
+
+
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/ducklake_add_files_nested.db' AS ducklake;
+ATTACH 'ducklake:${DUCKLAKE_CONNECTION}' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_add_files_nested');
 
 statement ok
 CREATE TABLE ducklake.test(col1 STRUCT(i INTEGER, j INTEGER), col2 STRUCT(col1 INTEGER, col2 INTEGER));
