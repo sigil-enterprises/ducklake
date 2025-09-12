@@ -20,6 +20,7 @@
 #include "duckdb/common/types/timestamp.hpp"
 #include "storage/ducklake_metadata_info.hpp"
 #include "common/ducklake_encryption.hpp"
+#include "common/ducklake_options.hpp"
 #include "common/index.hpp"
 
 namespace duckdb {
@@ -58,9 +59,14 @@ public:
 	virtual vector<DuckLakeFileListExtendedEntry>
 	GetExtendedFilesForTable(DuckLakeTableEntry &table, DuckLakeSnapshot snapshot, const string &filter);
 	virtual vector<DuckLakeCompactionFileEntry> GetFilesForCompaction(DuckLakeTableEntry &table, CompactionType type,
-	                                                                  double deletion_threshold);
-	virtual vector<DuckLakeFileScheduledForCleanup> GetFilesScheduledForCleanup(const string &filter);
-	virtual void RemoveFilesScheduledForCleanup(const vector<DuckLakeFileScheduledForCleanup> &cleaned_up_files);
+	                                                                  double deletion_threshold,
+	                                                                  DuckLakeSnapshot snapshot);
+	virtual vector<DuckLakeFileForCleanup> GetOldFilesForCleanup(const string &filter);
+	virtual vector<DuckLakeFileForCleanup> GetOrphanFilesForCleanup(const string &filter, const string &separator);
+	virtual vector<DuckLakeFileForCleanup> GetFilesForCleanup(const string &filter, CleanupType type,
+	                                                          const string &separator);
+
+	virtual void RemoveFilesScheduledForCleanup(const vector<DuckLakeFileForCleanup> &cleaned_up_files);
 	virtual void DropSchemas(DuckLakeSnapshot commit_snapshot, const set<SchemaIndex> &ids);
 	virtual void DropTables(DuckLakeSnapshot commit_snapshot, const set<TableIndex> &ids, bool renamed);
 	virtual void DropViews(DuckLakeSnapshot commit_snapshot, const set<TableIndex> &ids);
@@ -123,7 +129,7 @@ public:
 	virtual string GetPathForTable(TableIndex table_id);
 
 	virtual void MigrateV01();
-	virtual void MigrateV02();
+	virtual void MigrateV02(bool allow_failures = false);
 
 	string LoadPath(string path);
 	string StorePath(string path);

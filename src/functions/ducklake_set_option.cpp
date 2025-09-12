@@ -83,6 +83,21 @@ static unique_ptr<FunctionData> DuckLakeSetOptionBind(ClientContext &context, Ta
 		value = to_string(val.GetValue<double>());
 	} else if (option == "hive_file_pattern") {
 		value = val.GetValue<bool>() ? "true" : "false";
+	} else if (option == "delete_older_than" || option == "expire_older_than") {
+		auto interval_value = val.ToString();
+		if (!interval_value.empty()) {
+			// Let's verify this is actually an interval
+			interval_t result;
+			if (!Interval::FromString(val.ToString(), result)) {
+				throw BinderException("%s is not a valid interval value.", option);
+			}
+		}
+		value = val.ToString();
+	} else if (option == "compaction_schema" || option == "compaction_table") {
+		if (val.IsNull()) {
+			throw BinderException("The %s option can't be null.", option.c_str());
+		}
+		value = val.ToString();
 	} else if (option == "per_thread_output") {
 		value = val.CastAs(context, LogicalType::BOOLEAN).GetValue<bool>() ? "true" : "false";
 	} else {

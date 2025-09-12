@@ -34,7 +34,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	auto table_deletions = DuckLakeTableDeletionsFunction::GetFunctions();
 	loader.RegisterFunction(table_deletions);
 
-	DuckLakeMergeAdjacentFilesFunction merge_adjacent_files;
+	auto merge_adjacent_files = DuckLakeMergeAdjacentFilesFunction::GetFunctions();
 	loader.RegisterFunction(merge_adjacent_files);
 
 	auto rewrite_files = DuckLakeRewriteDataFilesFunction::GetFunctions();
@@ -42,6 +42,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	DuckLakeCleanupOldFilesFunction cleanup_old_files;
 	loader.RegisterFunction(cleanup_old_files);
+
+	DuckLakeCleanupOrphanedFilesFunction cleanup_orphaned_files;
+	loader.RegisterFunction(cleanup_orphaned_files);
 
 	DuckLakeExpireSnapshotsFunction expire_snapshots;
 	loader.RegisterFunction(expire_snapshots);

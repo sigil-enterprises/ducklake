@@ -227,7 +227,7 @@ TransactionChangeInformation DuckLakeTransaction::GetTransactionChanges() {
 }
 
 struct DuckLakeCommitState {
-	DuckLakeCommitState(DuckLakeSnapshot &snapshot) : commit_snapshot(snapshot) {
+	explicit DuckLakeCommitState(DuckLakeSnapshot &snapshot) : commit_snapshot(snapshot) {
 	}
 
 	DuckLakeSnapshot &commit_snapshot;
@@ -381,7 +381,9 @@ void DuckLakeTransaction::CleanupFiles() {
 	for (auto &entry : table_data_changes) {
 		auto &table_changes = entry.second;
 		for (auto &file : table_changes.new_data_files) {
-			fs.TryRemoveFile(file.file_name);
+			if (file.created_by_ducklake) {
+				fs.TryRemoveFile(file.file_name);
+			}
 			if (file.delete_file) {
 				fs.TryRemoveFile(file.delete_file->file_name);
 			}
@@ -899,6 +901,12 @@ void DuckLakeTransaction::UpdateGlobalTableStats(TableIndex table_id, const Duck
 		if (column_stats.has_max) {
 			col_stats.max_val = column_stats.max;
 		}
+		if (column_stats.extra_stats) {
+			col_stats.has_extra_stats = true;
+			col_stats.extra_stats = column_stats.extra_stats->Serialize();
+		} else {
+			col_stats.has_extra_stats = false;
+		}
 		stats.column_stats.push_back(std::move(col_stats));
 	}
 	stats.record_count = new_stats.record_count;
@@ -946,6 +954,11 @@ DuckLakeFileInfo DuckLakeTransaction::GetNewDataFile(DuckLakeDataFile &file, Duc
 			column_stats.contains_nan = stats.contains_nan ? "true" : "false";
 		} else {
 			column_stats.contains_nan = "NULL";
+		}
+		if (stats.extra_stats) {
+			column_stats.extra_stats = stats.extra_stats->Serialize();
+		} else {
+			column_stats.extra_stats = "NULL";
 		}
 
 		data_file.column_stats.push_back(std::move(column_stats));
@@ -1027,7 +1040,7 @@ NewDataInfo DuckLakeTransaction::GetNewDataFiles(DuckLakeCommitState &commit_sta
 
 			// add the file to the to-be-written inlined data list
 			new_inlined_data.data = table_changes.new_inlined_data.get();
-			result.new_inlined_data.push_back(std::move(new_inlined_data));
+			result.new_inlined_data.push_back(new_inlined_data);
 
 			if (table_changes.new_data_files.empty()) {
 				// force an increment of file_id to signal a data change if we have only inlined data changes
@@ -1040,8 +1053,9 @@ NewDataInfo DuckLakeTransaction::GetNewDataFiles(DuckLakeCommitState &commit_sta
 	return result;
 }
 
-vector<DuckLakeDeleteFileInfo> DuckLakeTransaction::GetNewDeleteFiles(DuckLakeCommitState &commit_state,
-                                                                      set<DataFileIndex> &overwritten_delete_files) {
+vector<DuckLakeDeleteFileInfo>
+DuckLakeTransaction::GetNewDeleteFiles(const DuckLakeCommitState &commit_state,
+                                       set<DataFileIndex> &overwritten_delete_files) const {
 	vector<DuckLakeDeleteFileInfo> result;
 	for (auto &entry : table_data_changes) {
 		auto table_id = commit_state.GetTableId(entry.first);

@@ -52,12 +52,11 @@ public:
 class DuckLakeTableDeletionsFunction {
 public:
 	static TableFunctionSet GetFunctions();
-	DuckLakeTableDeletionsFunction();
 };
 
 class DuckLakeMergeAdjacentFilesFunction : public TableFunction {
 public:
-	DuckLakeMergeAdjacentFilesFunction();
+	static TableFunctionSet GetFunctions();
 };
 
 class DuckLakeRewriteDataFilesFunction : public TableFunction {
@@ -68,6 +67,11 @@ public:
 class DuckLakeCleanupOldFilesFunction : public TableFunction {
 public:
 	DuckLakeCleanupOldFilesFunction();
+};
+
+class DuckLakeCleanupOrphanedFilesFunction : public TableFunction {
+public:
+	DuckLakeCleanupOrphanedFilesFunction();
 };
 
 class DuckLakeExpireSnapshotsFunction : public TableFunction {

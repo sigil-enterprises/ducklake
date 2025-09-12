@@ -69,6 +69,11 @@ public:
 		return true;
 	}
 
+	static bool RequireCasts(const vector<LogicalType> &types);
+	static void InsertCasts(const vector<LogicalType> &types, ClientContext &context, PhysicalPlanGenerator &planner,
+	                        optional_ptr<PhysicalOperator> &plan);
+	static unique_ptr<LogicalOperator> InsertCasts(Binder &binder, unique_ptr<LogicalOperator> &plan);
+
 	static DuckLakeColumnStats ParseColumnStats(const LogicalType &type, const vector<Value> &stats);
 	static DuckLakeCopyOptions GetCopyOptions(ClientContext &context, DuckLakeCopyInput &copy_input);
 	static PhysicalOperator &PlanCopyForInsert(ClientContext &context, PhysicalPlanGenerator &planner,
@@ -128,7 +133,7 @@ struct DuckLakeCopyOptions {
 };
 
 struct DuckLakeCopyInput {
-	explicit DuckLakeCopyInput(ClientContext &context, DuckLakeTableEntry &table, string hive_partition = "");
+	explicit DuckLakeCopyInput(ClientContext &context, DuckLakeTableEntry &table, const string &hive_partition = "");
 	DuckLakeCopyInput(ClientContext &context, DuckLakeSchemaEntry &schema, const ColumnList &columns,
 	                  const string &data_path_p);
 
