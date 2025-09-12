@@ -232,8 +232,15 @@ TableFunction DuckLakeTableEntry::GetScanFunction(ClientContext &context, unique
 		function_info->column_names.push_back(col.Name());
 		function_info->column_types.push_back(col.Type());
 	}
-	function_info->table_id = GetTableId();
+	auto table_id = GetTableId();
+	function_info->table_id = table_id;
 	function.function_info = std::move(function_info);
+	auto &dropped_tables = transaction.GetDroppedTables();
+	auto &renamed_tables = transaction.GetRenamedTables();
+	if (dropped_tables.find(table_id) != dropped_tables.end() ||
+	    renamed_tables.find(table_id) != renamed_tables.end()) {
+		throw BinderException("Table with name %s does not exist", name);
+	}
 
 	bind_data = DuckLakeFunctions::BindDuckLakeScan(context, function);
 	auto &multi_file_bind_data = bind_data->Cast<MultiFileBindData>();

@@ -136,6 +136,9 @@ public:
 	const set<TableIndex> &GetDroppedTables() {
 		return dropped_tables;
 	}
+	const set<TableIndex> &GetRenamedTables() {
+		return renamed_tables;
+	}
 
 	//! Returns the current version of the catalog:
 	//! If there are no uncommitted changes, this is the schema version of the snapshot.
