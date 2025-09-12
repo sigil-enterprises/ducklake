@@ -6,8 +6,11 @@ require ducklake
 
 require parquet
 
+test-env DUCKLAKE_CONNECTION __TEST_DIR__/{UUID}.db
+
+
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/ducklake_multi_deletes.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_multi_deletes_files')
+ATTACH 'ducklake:${DUCKLAKE_CONNECTION}' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_multi_deletes_files')
 
 statement ok
 CREATE TABLE ducklake.test AS SELECT i id FROM range(10000) t(i);

@@ -8,8 +8,11 @@ require ducklake
 
 require parquet
 
+test-env DUCKLAKE_CONNECTION __TEST_DIR__/{UUID}.db
+
+
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/ducklake_concurrent_insert_inline.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_concurrent_insert_inline_files')
+ATTACH 'ducklake:${DUCKLAKE_CONNECTION}' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_concurrent_insert_inline_files')
 
 statement ok
 CREATE TABLE ducklake.tbl(key INTEGER);

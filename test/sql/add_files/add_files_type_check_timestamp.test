@@ -11,8 +11,11 @@ require icu
 statement ok
 SET TimeZone='UTC';
 
+test-env DUCKLAKE_CONNECTION __TEST_DIR__/{UUID}.db
+
+
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/ducklake_add_files_type_timestamp.db' AS ducklake
+ATTACH 'ducklake:${DUCKLAKE_CONNECTION}' AS ducklake  (DATA_PATH '__TEST_DIR__/ducklake_add_files_type_timestamp')
 
 statement ok
 COPY (SELECT DATE '2000-01-01' AS col1) TO '__TEST_DIR__/date.parquet';
