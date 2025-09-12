@@ -6,8 +6,10 @@ require ducklake
 
 require parquet
 
+test-env DUCKLAKE_CONNECTION __TEST_DIR__/{UUID}.db
+
 statement ok
-ATTACH 'ducklake:__TEST_DIR__/test_rewrite_merge_adjacent.db' AS ducklake (DATA_PATH '__TEST_DIR__/test_rewrite_merge_adjacent', METADATA_CATALOG 'test_rewrite_merge_adjacent')
+ATTACH 'ducklake:${DUCKLAKE_CONNECTION}' AS ducklake (DATA_PATH '__TEST_DIR__/test_rewrite_merge_adjacent/', METADATA_CATALOG 'test_rewrite_merge_adjacent');
 
 statement ok
 USE ducklake;
