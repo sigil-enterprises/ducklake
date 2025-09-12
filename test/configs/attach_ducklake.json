@@ -427,12 +427,6 @@
       ]
     },
     {
-      "reason": "FIXME: Wrong snapshot ID when running merge_adjacent_files",
-      "paths": [
-        "test/sql/storage/compression/rle/rle_nulls_edge_case.test"
-      ]
-    },
-    {
       "reason": "FIXME: Statement differs from original result!",
       "paths": [
         "test/sql/types/nested/map/test_map_subscript.test",

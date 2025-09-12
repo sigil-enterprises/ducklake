@@ -1298,7 +1298,7 @@ CompactionInformation DuckLakeTransaction::GetCompactionChanges(DuckLakeSnapshot
 						throw InternalException("Only the first compacted file can have existing partial file info");
 					}
 					new_file.partial_file_info = compacted_file.partial_files;
-				} else {
+				} else if (compaction.source_files.size() > 1) {
 					DuckLakePartialFileInfo partial_info;
 					partial_info.snapshot_id = compacted_file.file.begin_snapshot;
 					partial_info.max_row_count = row_id_limit;
