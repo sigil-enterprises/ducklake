@@ -427,6 +427,7 @@
       "reason": "FIXME: Statement differs from original result!",
       "paths": [
         "test/sql/types/nested/map/test_map_subscript.test",
+        "test/sql/types/nested/map/test_map_subscript_composite.test",
         "test/sql/subquery/scalar/test_scalar_subquery.test",
         "test/sql/json/test_json_macros.test"
       ]

@@ -163,7 +163,8 @@ void DuckLakeSchemaEntry::Alter(CatalogTransaction catalog_transaction, AlterInf
 		auto new_table = table.Alter(transaction, alter);
 		if (alter.alter_table_type == AlterTableType::RENAME_TABLE) {
 			// We must check if this view name does not yet exist.
-			if (GetEntry(catalog_transaction, CatalogType::VIEW_ENTRY, new_table->name)) {
+			if (StringUtil::Lower(alter.name) != StringUtil::Lower(new_table->name) &&
+			    GetEntry(catalog_transaction, CatalogType::TABLE_ENTRY, new_table->name)) {
 				throw BinderException("Cannot rename table %s to %s, since %s already exists.", alter.name,
 				                      new_table->name, alter.name);
 			}
