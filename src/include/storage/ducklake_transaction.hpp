@@ -204,7 +204,7 @@ private:
 	//! New tables added by this transaction
 	case_insensitive_map_t<unique_ptr<DuckLakeCatalogSet>> new_tables;
 	set<TableIndex> dropped_tables;
-	// case_insensitive_map_t<TableIndex> renamed_table_names;
+
 	set<TableIndex> renamed_tables;
 	set<TableIndex> dropped_views;
 	unordered_map<string, DataFileIndex> dropped_files;
