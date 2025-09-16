@@ -104,6 +104,7 @@ struct TransactionChangeInformation {
 	set<TableIndex> dropped_views;
 	set<TableIndex> tables_inserted_into;
 	set<TableIndex> tables_deleted_from;
+	set<DataFileIndex> files_deleted_from;
 	set<TableIndex> tables_inserted_inlined;
 	set<TableIndex> tables_deleted_inlined;
 	set<TableIndex> tables_flushed_inlined;
@@ -292,6 +293,9 @@ void DuckLakeTransaction::AddTableChanges(TableIndex table_id, const LocalTableD
 	if (!table_changes.new_delete_files.empty()) {
 		changes.tables_deleted_from.insert(table_id);
 	}
+	for (auto& delete_file: table_changes.new_delete_files) {
+		changes.files_deleted_from.insert(delete_file.second.data_file_id);
+	}
 	if (!table_changes.new_inlined_data_deletes.empty()) {
 		changes.tables_deleted_inlined.insert(table_id);
 	}
@@ -476,8 +480,10 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 	for (auto &table_id : changes.tables_deleted_from) {
 		ConflictCheck(table_id, other_changes.dropped_tables, "delete from table", "dropped it");
 		ConflictCheck(table_id, other_changes.altered_tables, "delete from table", "altered it");
-		ConflictCheck(table_id, other_changes.tables_deleted_from, "delete from table", "deleted from it");
 		ConflictCheck(table_id, other_changes.tables_compacted, "delete from table", "compacted it");
+	}
+	for (auto &data_file_id: changes.files_deleted_from) {
+		ConflictCheck(data_file_id, other_changes.files_deleted_from, "delete from table", "deleted from it");
 	}
 	for (auto &table_id : changes.tables_deleted_inlined) {
 		ConflictCheck(table_id, other_changes.dropped_tables, "delete from table", "dropped it");
