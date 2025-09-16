@@ -1,6 +1,7 @@
 # name: test/sql/attach/attach_replace.test
 # description: test attach replace with ducklake
 # group: [attach]
+
 require ducklake
 
 require parquet
