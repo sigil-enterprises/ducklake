@@ -64,7 +64,7 @@ ChangeType ParseChangeType(const string &changes_made, idx_t &pos) {
 		return ChangeType::FLUSHED_INLINE_DATA_FOR_TABLE;
 	} else if (StringUtil::CIEquals(change_type_str, "files_deleted_from")) {
 		return ChangeType::FILES_DELETED_FROM;
-	}else {
+	} else {
 		throw InvalidInputException("Unsupported change type %s", change_type_str);
 	}
 }

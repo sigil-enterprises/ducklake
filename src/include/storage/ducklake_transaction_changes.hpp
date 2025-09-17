@@ -32,7 +32,6 @@ struct SnapshotChangeInformation {
 	set<TableIndex> tables_flushed_inlined;
 	set<DataFileIndex> files_deleted_from;
 
-
 	static SnapshotChangeInformation ParseChangesMade(const string &changes_made);
 };
 
