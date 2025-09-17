@@ -17,7 +17,8 @@ enum class ChangeType {
 	FLUSHED_INLINE_DATA_FOR_TABLE,
 	ALTERED_TABLE,
 	ALTERED_VIEW,
-	COMPACTED_TABLE
+	COMPACTED_TABLE,
+	FILES_DELETED_FROM
 };
 
 struct ChangeInfo {
@@ -61,7 +62,9 @@ ChangeType ParseChangeType(const string &changes_made, idx_t &pos) {
 		return ChangeType::DELETED_FROM_TABLE_INLINED;
 	} else if (StringUtil::CIEquals(change_type_str, "flushed_inlined")) {
 		return ChangeType::FLUSHED_INLINE_DATA_FOR_TABLE;
-	} else {
+	} else if (StringUtil::CIEquals(change_type_str, "files_deleted_from")) {
+		return ChangeType::FILES_DELETED_FROM;
+	}else {
 		throw InvalidInputException("Unsupported change type %s", change_type_str);
 	}
 }
@@ -145,6 +148,9 @@ SnapshotChangeInformation SnapshotChangeInformation::ParseChangesMade(const stri
 			break;
 		case ChangeType::DELETED_FROM_TABLE:
 			result.tables_deleted_from.insert(TableIndex(StringUtil::ToUnsigned(entry.change_value)));
+			break;
+		case ChangeType::FILES_DELETED_FROM:
+			result.files_deleted_from.insert(DataFileIndex(StringUtil::ToUnsigned(entry.change_value)));
 			break;
 		case ChangeType::ALTERED_TABLE:
 			result.altered_tables.insert(TableIndex(StringUtil::ToUnsigned(entry.change_value)));

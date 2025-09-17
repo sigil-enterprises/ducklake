@@ -215,6 +215,7 @@ TransactionChangeInformation DuckLakeTransaction::GetTransactionChanges() {
 		}
 	}
 	changes.tables_deleted_from = tables_deleted_from;
+	changes.files_deleted_from = files_deleted_from;
 	for (auto &entry : table_data_changes) {
 		auto table_id = entry.first;
 		if (table_id.IsTransactionLocal()) {
@@ -304,19 +305,43 @@ void DuckLakeTransaction::AddTableChanges(TableIndex table_id, const LocalTableD
 	}
 }
 
+template <typename T>
+struct AddChangeHelper {
+    static void Apply(DuckLakeCommitState &commit_state, SnapshotChangeInfo &change_info,
+                      const std::set<T> &changes, const char *change_type) {
+        for (auto &entry : changes) {
+            if (!change_info.changes_made.empty()) {
+                change_info.changes_made += ",";
+            }
+            auto id = commit_state.GetTableId(entry);
+            change_info.changes_made += change_type;
+            change_info.changes_made += ":";
+            change_info.changes_made += std::to_string(id.index);
+        }
+    }
+};
+
+template <>
+struct AddChangeHelper<DataFileIndex> {
+    static void Apply(DuckLakeCommitState &, SnapshotChangeInfo &change_info,
+                      const std::set<DataFileIndex> &changes, const char *change_type) {
+        for (auto &entry : changes) {
+            if (!change_info.changes_made.empty()) {
+                change_info.changes_made += ",";
+            }
+            change_info.changes_made += change_type;
+            change_info.changes_made += ":";
+            change_info.changes_made += std::to_string(entry.index); // use the string directly
+        }
+    }
+};
+
 template <class T>
-void AddChangeInfo(DuckLakeCommitState &commit_state, SnapshotChangeInfo &change_info, const set<T> &changes,
-                   const char *change_type) {
-	for (auto &entry : changes) {
-		if (!change_info.changes_made.empty()) {
-			change_info.changes_made += ",";
-		}
-		auto id = commit_state.GetTableId(entry);
-		change_info.changes_made += change_type;
-		change_info.changes_made += ":";
-		change_info.changes_made += to_string(id.index);
-	}
+void AddChangeInfo(DuckLakeCommitState &commit_state, SnapshotChangeInfo &change_info,
+                   const std::set<T> &changes, const char *change_type) {
+    AddChangeHelper<T>::Apply(commit_state, change_info, changes, change_type);
 }
+
 
 void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeCommitState &commit_state,
                                                TransactionChangeInformation &changes) {
@@ -365,6 +390,8 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeCommitState &commit_state
 	AddChangeInfo(commit_state, change_info, changes.tables_inserted_inlined, "inlined_insert");
 	AddChangeInfo(commit_state, change_info, changes.tables_deleted_inlined, "inlined_delete");
 	AddChangeInfo(commit_state, change_info, changes.tables_flushed_inlined, "flushed_inlined");
+	AddChangeInfo(commit_state, change_info, changes.files_deleted_from, "files_deleted_from");
+
 	if (!changes.tables_compacted.empty() && !change_info.changes_made.empty()) {
 		throw InvalidInputException("Transactions can either make changes OR perform compaction - not both");
 	}
@@ -483,7 +510,7 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 		ConflictCheck(table_id, other_changes.tables_compacted, "delete from table", "compacted it");
 	}
 	for (auto &data_file_id: changes.files_deleted_from) {
-		ConflictCheck(data_file_id, other_changes.files_deleted_from, "delete from table", "deleted from it");
+		ConflictCheck(data_file_id, other_changes.files_deleted_from, "delete from file", "deleted from it");
 	}
 	for (auto &table_id : changes.tables_deleted_inlined) {
 		ConflictCheck(table_id, other_changes.dropped_tables, "delete from table", "dropped it");
@@ -1875,6 +1902,7 @@ void DuckLakeTransaction::DropView(DuckLakeViewEntry &view) {
 void DuckLakeTransaction::DropFile(TableIndex table_id, DataFileIndex data_file_id, string path) {
 	tables_deleted_from.insert(table_id);
 	dropped_files.emplace(std::move(path), data_file_id);
+	files_deleted_from.insert(data_file_id);
 }
 
 bool DuckLakeTransaction::HasDroppedFiles() const {

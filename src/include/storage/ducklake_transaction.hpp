@@ -203,6 +203,7 @@ private:
 	set<TableIndex> dropped_views;
 	unordered_map<string, DataFileIndex> dropped_files;
 	set<TableIndex> tables_deleted_from;
+	set<DataFileIndex> files_deleted_from;
 	//! Schemas added by this transaction
 	unique_ptr<DuckLakeCatalogSet> new_schemas;
 	map<SchemaIndex, reference<DuckLakeSchemaEntry>> dropped_schemas;
