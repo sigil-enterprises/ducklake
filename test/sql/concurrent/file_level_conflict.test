@@ -39,12 +39,15 @@ SELECT COUNT(*), SUM(key) FROM ducklake.tbl
 ----
 980	499310
 
-# Lets force some conflicts
-concurrentloop i 20 100
+# Lets do multiple files on the same transaction
+concurrentloop i 20 30
 
-statement maybe
-DELETE FROM ducklake.tbl WHERE key = ${i}
-----
-attempting to delete from file with index
+statement ok
+DELETE FROM ducklake.tbl WHERE key = ${i} OR KEY = ${i} + 10
 
 endloop
+
+query II
+SELECT COUNT(*), SUM(key) FROM ducklake.tbl
+----
+960	498720
