@@ -480,19 +480,27 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 		ConflictCheck(table_id, other_changes.tables_compacted, "delete from table", "compacted it");
 	}
 	if (!changes.tables_deleted_from.empty()) {
-		// If we have deletes on the tables check for files being deleted
-		const auto deleted_files = metadata_manager->GetFilesDeletedOrDroppedAfterSnapshot(transaction_snapshot);
-		for (auto &entry : table_data_changes) {
-			// auto table_id = commit_state.GetTableId(entry.first);
-			auto &table_changes = entry.second;
-			for (auto &file_entry : table_changes.new_delete_files) {
-				auto &file = file_entry.second;
-				ConflictCheck(file.data_file_id, deleted_files.deleted_from_files, "delete from file",
-				              "deleted from it");
+		bool check_for_matches = false;
+		for (auto &table_id : changes.tables_deleted_from) {
+			if (other_changes.tables_deleted_from.find(table_id) != other_changes.tables_deleted_from.end()) {
+				check_for_matches = true;
+				break;
 			}
 		}
-		for (auto &file : dropped_files) {
-			ConflictCheck(file.second, deleted_files.deleted_from_files, "delete from file", "deleted from it");
+		if (check_for_matches) {
+			// If we have deletes on the tables, check for files being deleted
+			const auto deleted_files = metadata_manager->GetFilesDeletedOrDroppedAfterSnapshot(transaction_snapshot);
+			for (auto &entry : table_data_changes) {
+				auto &table_changes = entry.second;
+				for (auto &file_entry : table_changes.new_delete_files) {
+					auto &file = file_entry.second;
+					ConflictCheck(file.data_file_id, deleted_files.deleted_from_files, "delete from file",
+					              "deleted from it");
+				}
+			}
+			for (auto &file : dropped_files) {
+				ConflictCheck(file.second, deleted_files.deleted_from_files, "delete from file", "deleted from it");
+			}
 		}
 	}
 	for (auto &table_id : changes.tables_deleted_inlined) {
