@@ -104,7 +104,6 @@ struct TransactionChangeInformation {
 	set<TableIndex> dropped_views;
 	set<TableIndex> tables_inserted_into;
 	set<TableIndex> tables_deleted_from;
-	set<DataFileIndex> files_deleted_from;
 	set<TableIndex> tables_inserted_inlined;
 	set<TableIndex> tables_deleted_inlined;
 	set<TableIndex> tables_flushed_inlined;
@@ -215,9 +214,7 @@ TransactionChangeInformation DuckLakeTransaction::GetTransactionChanges() {
 		}
 	}
 	changes.tables_deleted_from = tables_deleted_from;
-	for (auto &del_file : dropped_files) {
-		changes.files_deleted_from.insert(del_file.second);
-	}
+
 	for (auto &entry : table_data_changes) {
 		auto table_id = entry.first;
 		if (table_id.IsTransactionLocal()) {
@@ -295,9 +292,6 @@ void DuckLakeTransaction::AddTableChanges(TableIndex table_id, const LocalTableD
 	}
 	if (!table_changes.new_delete_files.empty()) {
 		changes.tables_deleted_from.insert(table_id);
-	}
-	for (auto &delete_file : table_changes.new_delete_files) {
-		changes.files_deleted_from.insert(delete_file.second.data_file_id);
 	}
 	if (!table_changes.new_inlined_data_deletes.empty()) {
 		changes.tables_deleted_inlined.insert(table_id);
@@ -391,7 +385,6 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeCommitState &commit_state
 	AddChangeInfo(commit_state, change_info, changes.tables_inserted_inlined, "inlined_insert");
 	AddChangeInfo(commit_state, change_info, changes.tables_deleted_inlined, "inlined_delete");
 	AddChangeInfo(commit_state, change_info, changes.tables_flushed_inlined, "flushed_inlined");
-	AddChangeInfo(commit_state, change_info, changes.files_deleted_from, "files_deleted_from");
 
 	if (!changes.tables_compacted.empty() && !change_info.changes_made.empty()) {
 		throw InvalidInputException("Transactions can either make changes OR perform compaction - not both");
@@ -448,7 +441,8 @@ void ConflictCheck(const string &source_name, const MAP &conflict_map, const cha
 }
 
 void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &changes,
-                                            const SnapshotChangeInformation &other_changes) {
+                                            const SnapshotChangeInformation &other_changes,
+                                            DuckLakeSnapshot transaction_snapshot) {
 	// check if we are dropping the same table as another transaction
 	for (auto &dropped_idx : changes.dropped_tables) {
 		ConflictCheck(dropped_idx, other_changes.dropped_tables, "drop table", "dropped it already");
@@ -512,8 +506,18 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 	}
 	if (!changes.tables_deleted_from.empty()) {
 		// If we have deletes on the tables check for files being deleted
-		for (auto &data_file_id : changes.files_deleted_from) {
-			ConflictCheck(data_file_id, other_changes.files_deleted_from, "delete from file", "deleted from it");
+		const auto deleted_files = metadata_manager->GetFilesDeletedOrDroppedAfterSnapshot(transaction_snapshot);
+		for (auto &entry : table_data_changes) {
+			// auto table_id = commit_state.GetTableId(entry.first);
+			auto &table_changes = entry.second;
+			for (auto &file_entry : table_changes.new_delete_files) {
+				auto &file = file_entry.second;
+				ConflictCheck(file.data_file_id, deleted_files.deleted_from_files, "delete from file",
+				              "deleted from it");
+			}
+		}
+		for (auto &file : dropped_files) {
+			ConflictCheck(file.second, deleted_files.deleted_from_files, "delete from file", "deleted from it");
 		}
 	}
 	for (auto &table_id : changes.tables_deleted_inlined) {
@@ -550,7 +554,7 @@ void DuckLakeTransaction::CheckForConflicts(DuckLakeSnapshot transaction_snapsho
 	auto other_changes = SnapshotChangeInformation::ParseChangesMade(changes_made.changes_made);
 
 	// now check for conflicts
-	CheckForConflicts(changes, other_changes);
+	CheckForConflicts(changes, other_changes, transaction_snapshot);
 }
 
 vector<DuckLakeSchemaInfo> DuckLakeTransaction::GetNewSchemas(DuckLakeCommitState &commit_state) {
