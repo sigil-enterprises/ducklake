@@ -416,7 +416,8 @@ void ConflictCheck(const string &source_name, const MAP &conflict_map, const cha
 }
 
 void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &changes,
-                                            const SnapshotChangeInformation &other_changes) {
+                                            const SnapshotChangeInformation &other_changes,
+                                            DuckLakeSnapshot transaction_snapshot) {
 	// check if we are dropping the same table as another transaction
 	for (auto &dropped_idx : changes.dropped_tables) {
 		ConflictCheck(dropped_idx, other_changes.dropped_tables, "drop table", "dropped it already");
@@ -476,8 +477,31 @@ void DuckLakeTransaction::CheckForConflicts(const TransactionChangeInformation &
 	for (auto &table_id : changes.tables_deleted_from) {
 		ConflictCheck(table_id, other_changes.dropped_tables, "delete from table", "dropped it");
 		ConflictCheck(table_id, other_changes.altered_tables, "delete from table", "altered it");
-		ConflictCheck(table_id, other_changes.tables_deleted_from, "delete from table", "deleted from it");
 		ConflictCheck(table_id, other_changes.tables_compacted, "delete from table", "compacted it");
+	}
+	if (!changes.tables_deleted_from.empty()) {
+		bool check_for_matches = false;
+		for (auto &table_id : changes.tables_deleted_from) {
+			if (other_changes.tables_deleted_from.find(table_id) != other_changes.tables_deleted_from.end()) {
+				check_for_matches = true;
+				break;
+			}
+		}
+		if (check_for_matches) {
+			// If we have deletes on the tables, check for files being deleted
+			const auto deleted_files = metadata_manager->GetFilesDeletedOrDroppedAfterSnapshot(transaction_snapshot);
+			for (auto &entry : table_data_changes) {
+				auto &table_changes = entry.second;
+				for (auto &file_entry : table_changes.new_delete_files) {
+					auto &file = file_entry.second;
+					ConflictCheck(file.data_file_id, deleted_files.deleted_from_files, "delete from file",
+					              "deleted from it");
+				}
+			}
+			for (auto &file : dropped_files) {
+				ConflictCheck(file.second, deleted_files.deleted_from_files, "delete from file", "deleted from it");
+			}
+		}
 	}
 	for (auto &table_id : changes.tables_deleted_inlined) {
 		ConflictCheck(table_id, other_changes.dropped_tables, "delete from table", "dropped it");
@@ -513,7 +537,7 @@ void DuckLakeTransaction::CheckForConflicts(DuckLakeSnapshot transaction_snapsho
 	auto other_changes = SnapshotChangeInformation::ParseChangesMade(changes_made.changes_made);
 
 	// now check for conflicts
-	CheckForConflicts(changes, other_changes);
+	CheckForConflicts(changes, other_changes, transaction_snapshot);
 }
 
 vector<DuckLakeSchemaInfo> DuckLakeTransaction::GetNewSchemas(DuckLakeCommitState &commit_state) {
