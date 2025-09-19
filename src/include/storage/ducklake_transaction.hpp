@@ -136,7 +136,12 @@ public:
 	const set<TableIndex> &GetDroppedTables() {
 		return dropped_tables;
 	}
-
+	const set<TableIndex> &GetRenamedTables() {
+		return renamed_tables;
+	}
+	const case_insensitive_map_t<unique_ptr<DuckLakeCatalogSet>> &GetNewTables() {
+		return new_tables;
+	}
 	//! Returns the current version of the catalog:
 	//! If there are no uncommitted changes, this is the schema version of the snapshot.
 	//! Otherwise, it is an id that is incremented whenever the schema changes (not stored between restarts)
@@ -199,6 +204,7 @@ private:
 	//! New tables added by this transaction
 	case_insensitive_map_t<unique_ptr<DuckLakeCatalogSet>> new_tables;
 	set<TableIndex> dropped_tables;
+
 	set<TableIndex> renamed_tables;
 	set<TableIndex> dropped_views;
 	unordered_map<string, DataFileIndex> dropped_files;
