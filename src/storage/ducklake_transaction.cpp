@@ -379,7 +379,7 @@ void DuckLakeTransaction::CleanupFiles() {
 	// remove any files that were written
 	// auto &fs = FileSystem::GetFileSystem(db);
 	auto context_ref = context.lock();
-	auto &fs = FileSystem::GetFileSystem(*context_ref);
+	auto &fs = FileSystem::GetFileSystem(db);
 	for (auto &entry : table_data_changes) {
 		auto &table_changes = entry.second;
 		for (auto &file : table_changes.new_data_files) {
