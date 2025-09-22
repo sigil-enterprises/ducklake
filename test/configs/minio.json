@@ -4,13 +4,14 @@
   "autoloading": "all",
   "test_env": [{
       "env_name":  "DATA_PATH",
-      "env_value": "s3:/"
+      "env_value": "s3://mybucket"
    }],
   "statically_loaded_extensions": [
     "core_functions",
     "parquet",
     "ducklake",
     "icu",
-    "httpfs"
+    "httpfs",
+    "json"
   ]
 }

@@ -13,4 +13,11 @@ set -ex
 
 docker compose kill
 docker compose rm -f
+
+# Remove named volumes
+docker volume rm $(docker volume ls -q --filter name=scripts_) || true
+
+#  clean bind-mounted data directory
+rm -rf ../data/*
+
 docker compose up --detach
