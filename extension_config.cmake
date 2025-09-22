@@ -8,6 +8,7 @@ duckdb_extension_load(ducklake
 duckdb_extension_load(icu)
 duckdb_extension_load(json)
 duckdb_extension_load(tpch)
+duckdb_extension_load(httpfs)
 
 if($ENV{ENABLE_SQLITE_SCANNER})
     duckdb_extension_load(sqlite_scanner
