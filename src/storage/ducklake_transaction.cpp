@@ -377,7 +377,6 @@ void DuckLakeTransaction::WriteSnapshotChanges(DuckLakeCommitState &commit_state
 
 void DuckLakeTransaction::CleanupFiles() {
 	// remove any files that were written
-	// auto &fs = FileSystem::GetFileSystem(db);
 	auto context_ref = context.lock();
 	auto &fs = FileSystem::GetFileSystem(db);
 	for (auto &entry : table_data_changes) {
@@ -1815,7 +1814,6 @@ void DuckLakeTransaction::TransactionLocalDelete(TableIndex table_id, const stri
 		if (file.file_name == data_file_path) {
 			if (file.delete_file) {
 				// this file already has a transaction-local delete file - delete it
-				// auto &fs = FileSystem::GetFileSystem(db);
 				auto context_ref = context.lock();
 				auto &fs = FileSystem::GetFileSystem(*context_ref);
 				fs.RemoveFile(file.delete_file->file_name);
