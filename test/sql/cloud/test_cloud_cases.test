@@ -1,6 +1,6 @@
 # name: test/sql/cloud/test_cloud_cases.test
 # description: test ducklake extension
-# group: [sql]
+# group: [cloud]
 
 require-env CLOUD_TESTS_READY
 
