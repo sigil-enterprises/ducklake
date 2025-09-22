@@ -163,7 +163,14 @@ unique_ptr<MergeIntoOperator> DuckLakePlanMergeIntoAction(DuckLakeCatalog &catal
 		update.expressions = std::move(action.expressions);
 		update.columns = std::move(action.columns);
 		update.update_is_del_and_insert = action.update_is_del_and_insert;
-		result->op = catalog.PlanUpdate(context, planner, update, child_plan);
+		auto &update_plan = catalog.PlanUpdate(context, planner, update, child_plan);
+		result->op = update_plan;
+		// if (!RefersToSameObject(result->op->GetChildren()[0].get(), child_plan)) {
+			// auto &proj = update_plan.children[0].get().Cast<PhysicalProjection>();
+			// for (idx_t i = update.expressions.size(); i < proj.select_list.size(); i++) {
+			// 	update.expressions.push_back(std::move(proj.select_list[i]));
+			// }
+		// }
 		auto &dl_update = result->op->Cast<DuckLakeUpdate>();
 		dl_update.row_id_index = child_plan.types.size() - 1;
 		break;

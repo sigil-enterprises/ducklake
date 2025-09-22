@@ -705,9 +705,10 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, Phys
 	if (RequireCasts(copy_options.expected_types)) {
 		// Insert a cast projection
 		InsertCasts(copy_options.expected_types, context, planner, plan);
-		// Update the expected types to match the casted types
+		// Update the expected types to match the cast types
 		copy_options.expected_types = plan->types;
 	}
+
 
 	auto copy_return_types = GetCopyFunctionReturnLogicalTypes(CopyFunctionReturnType::WRITTEN_FILE_STATISTICS);
 	auto &physical_copy = planner

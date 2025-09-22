@@ -214,10 +214,10 @@ PhysicalOperator &DuckLakeCatalog::PlanUpdate(ClientContext &context, PhysicalPl
 	// FIXME: we should take the inlining limit into account here and write new updates to the inline data tables if
 	// possible updates are executed as a delete + insert - generate the two nodes (delete and insert) plan the copy for
 	// the insert
-
 	DuckLakeCopyInput copy_input(context, table);
 	copy_input.virtual_columns = InsertVirtualColumns::WRITE_ROW_ID;
-	auto &copy_op = DuckLakeInsert::PlanCopyForInsert(context, planner, copy_input, nullptr);
+	auto &copy_op = DuckLakeInsert::PlanCopyForInsert(context, planner, copy_input, child_plan);
+
 	// plan the delete
 	vector<idx_t> row_id_indexes;
 	for (idx_t i = 0; i < 3; i++) {
