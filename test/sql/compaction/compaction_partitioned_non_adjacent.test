@@ -8,9 +8,11 @@ require parquet
 
 test-env DUCKLAKE_CONNECTION __TEST_DIR__/{UUID}.db
 
+test-env DATA_PATH __TEST_DIR__
+
 
 statement ok
-ATTACH 'ducklake:${DUCKLAKE_CONNECTION}' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_partitioned_compact_non_adjacent_files', METADATA_CATALOG 'ducklake_metadata')
+ATTACH 'ducklake:${DUCKLAKE_CONNECTION}' AS ducklake (DATA_PATH '${DATA_PATH}/ducklake_partitioned_compact_non_adjacent_files', METADATA_CATALOG 'ducklake_metadata')
 
 statement ok
 CREATE TABLE ducklake.partitioned(part_key INTEGER, value INTEGER);
@@ -31,7 +33,7 @@ statement ok
 INSERT INTO ducklake.partitioned VALUES (2, 200);
 
 query I
-SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_partitioned_compact_non_adjacent_files/**/*.parquet')
+SELECT COUNT(*) FROM GLOB('${DATA_PATH}/ducklake_partitioned_compact_non_adjacent_files/**/*.parquet')
 ----
 4
 
@@ -48,7 +50,7 @@ CALL ducklake_merge_adjacent_files('ducklake');
 
 # we gain two files here
 query I
-SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_partitioned_compact_non_adjacent_files/**/*.parquet')
+SELECT COUNT(*) FROM GLOB('${DATA_PATH}/ducklake_partitioned_compact_non_adjacent_files/**/*.parquet')
 ----
 6
 
@@ -58,7 +60,7 @@ CALL ducklake_cleanup_old_files('ducklake', cleanup_all => true);
 
 # two files left
 query I
-SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_partitioned_compact_non_adjacent_files/**/*.parquet')
+SELECT COUNT(*) FROM GLOB('${DATA_PATH}/ducklake_partitioned_compact_non_adjacent_files/**/*.parquet')
 ----
 2
 
@@ -118,7 +120,7 @@ SELECT snapshot_id, rowid, * FROM ducklake.partitioned ORDER BY ALL
 
 # we're back up to 6 files
 query I
-SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_partitioned_compact_non_adjacent_files/**/*.parquet')
+SELECT COUNT(*) FROM GLOB('${DATA_PATH}/ducklake_partitioned_compact_non_adjacent_files/**/*.parquet')
 ----
 6
 
@@ -132,7 +134,7 @@ CALL ducklake_cleanup_old_files('ducklake', cleanup_all => true);
 
 # back down to 2 files
 query I
-SELECT COUNT(*) FROM GLOB('__TEST_DIR__/ducklake_partitioned_compact_non_adjacent_files/**/*.parquet')
+SELECT COUNT(*) FROM GLOB('${DATA_PATH}/ducklake_partitioned_compact_non_adjacent_files/**/*.parquet')
 ----
 2
 
