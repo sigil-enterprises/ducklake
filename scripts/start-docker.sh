@@ -30,5 +30,5 @@ for i in {1..30}; do
     break
   fi
   echo "Still waiting for MinIO..."
-  sleep 1
+  sleep 10
 done
