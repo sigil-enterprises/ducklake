@@ -44,12 +44,12 @@ statement ok
 INSERT INTO ducklake.partitioned_tbl VALUES (1, 50), (2, 100);
 
 query I
-SELECT COUNT(*) FROM ducklake_list_files('ducklake', 'test') WHERE '//' NOT IN data_file
+SELECT COUNT(*) FROM ducklake_list_files('ducklake', 'test')
 ----
 3
 
 query I
-SELECT COUNT(*) FROM ducklake_list_files('ducklake', 'partitioned_tbl') WHERE '//' NOT IN data_file
+SELECT COUNT(*) FROM ducklake_list_files('ducklake', 'partitioned_tbl')
 ----
 2
 

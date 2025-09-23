@@ -20,6 +20,9 @@ statement ok
 CREATE TABLE test(col1 INTEGER, col2 VARCHAR);
 
 statement ok
+INSERT INTO test VALUES (1,2);
+
+statement ok
 COPY (SELECT 200 col1, 'world' col2 LIMIT 1) TO '${DATA_PATH}/add_rollback/file.parquet';
 
 statement ok

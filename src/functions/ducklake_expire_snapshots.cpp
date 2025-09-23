@@ -20,7 +20,7 @@ static unique_ptr<FunctionData> DuckLakeExpireSnapshotsBind(ClientContext &conte
                                                             vector<LogicalType> &return_types, vector<string> &names) {
 	auto &catalog = BaseMetadataFunction::GetCatalog(context, input.inputs[0]);
 	auto result = make_uniq<ExpireSnapshotsBindData>(catalog);
-	timestamp_tz_t from_timestamp;
+	string from_timestamp;
 	string snapshot_list;
 	bool has_timestamp = false;
 	bool has_versions = false;
@@ -41,7 +41,7 @@ static unique_ptr<FunctionData> DuckLakeExpireSnapshotsBind(ClientContext &conte
 				snapshot_list += snapshot_id.ToString();
 			}
 		} else if (StringUtil::CIEquals(entry.first, "older_than")) {
-			from_timestamp = entry.second.GetValue<timestamp_tz_t>();
+			from_timestamp = entry.second.ToString();
 			has_timestamp = true;
 		} else {
 			throw InternalException("Unsupported named parameter for ducklake_expire_snapshots");
@@ -57,8 +57,7 @@ static unique_ptr<FunctionData> DuckLakeExpireSnapshotsBind(ClientContext &conte
 	// we can never delete the most recent snapshot
 	filter = "snapshot_id != (SELECT MAX(snapshot_id) FROM {METADATA_CATALOG}.ducklake_snapshot) AND ";
 	if (has_timestamp) {
-		auto ts = Timestamp::ToString(timestamp_t(from_timestamp.value));
-		filter += StringUtil::Format("snapshot_time < '%s'", ts);
+		filter += StringUtil::Format("snapshot_time < '%s'::TIMESTAMPTZ", from_timestamp);
 	} else if (!has_versions && !older_than_default.empty()) {
 		filter += StringUtil::Format("snapshot_time < NOW() - INTERVAL '%s'", older_than_default);
 	} else {
