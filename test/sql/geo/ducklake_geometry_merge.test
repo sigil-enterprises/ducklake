@@ -47,3 +47,15 @@ query II
 select * from t1;
 ----
 1	POINT (3 4)
+
+# Also test with an alter table
+statement ok
+ALTER TABLE t1 ADD COLUMN g2 geometry;
+
+statement ok
+UPDATE t1 SET g2 = ST_POINT(7,8) WHERE i = 1
+
+query III
+select * from t1;
+----
+1	POINT (3 4)	POINT (7 8)

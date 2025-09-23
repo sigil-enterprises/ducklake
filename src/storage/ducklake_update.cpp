@@ -58,12 +58,8 @@ unique_ptr<LocalSinkState> DuckLakeUpdate::GetLocalSinkState(ExecutionContext &c
 	// updates also write the row id to the file
 	auto insert_types = table.GetTypes();
 	for (auto &type : insert_types) {
-		if (type.id() == LogicalTypeId::BLOB && type.HasAlias() && type.GetAlias() == "GEOMETRY") {
-			LogicalType wkb_type(LogicalTypeId::BLOB);
-			wkb_type.SetAlias("WKB_BLOB");
-
-			// Change the type to WKB_BLOB
-			type = wkb_type;
+		if (DuckLakeTypes::RequiresCast(type)) {
+			type = DuckLakeTypes::GetCastedType(type);
 		}
 	}
 	insert_types.push_back(LogicalType::BIGINT);
