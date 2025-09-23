@@ -704,9 +704,23 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, Phys
 
 	if (RequireCasts(copy_options.expected_types)) {
 		// Insert a cast projection
-		InsertCasts(copy_options.expected_types, context, planner, plan);
-		// Update the expected types to match the casted types
-		copy_options.expected_types = plan->types;
+		if (plan) {
+			InsertCasts(copy_options.expected_types, context, planner, plan);
+			// Update the expected types to match the casted types
+			copy_options.expected_types = plan->types;
+		} else {
+			// Still update types. If there is no child-plan node, we expect that whoever inserts chunks (e.g.
+			// DuckLakeUpdate, DuckLakeMergeInsert) directly into the physical copy operator will pre-cast the data.
+			for (auto &type : copy_options.expected_types) {
+				if (type.id() == LogicalTypeId::BLOB && type.HasAlias() && type.GetAlias() == "GEOMETRY") {
+					LogicalType wkb_type(LogicalTypeId::BLOB);
+					wkb_type.SetAlias("WKB_BLOB");
+
+					// Change the type to WKB_BLOB
+					type = wkb_type;
+				}
+			}
+		}
 	}
 
 	auto copy_return_types = GetCopyFunctionReturnLogicalTypes(CopyFunctionReturnType::WRITTEN_FILE_STATISTICS);
