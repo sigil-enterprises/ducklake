@@ -150,6 +150,11 @@ void DuckLakeTypes::CheckSupportedType(const LogicalType &type) {
 		DuckLakeTypes::ToString(type);
 		return type;
 	});
+
+	// Special case for now, only allow GEOMETRY as top-level type
+	if (!IsGeoType(type) && TypeVisitor::Contains(type, IsGeoType)) {
+		throw InvalidInputException("GEOMETRY type is only supported as a top-level type");
+	}
 }
 
 } // namespace duckdb
