@@ -6,7 +6,7 @@
       "env_name":  "DATA_PATH",
       "env_value": "s3://mybucket"
    }],
-  "skip_error_messages": [""],
+  "skip_error_messages": ["this_is_not_allowed_to_be_empty"],
   "statically_loaded_extensions": [
     "core_functions",
     "parquet",
