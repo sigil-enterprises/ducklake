@@ -380,7 +380,7 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 		if (path_result.size() > 1) {
 			// This means we have a hive partition.
 			for (idx_t i = 0; i < path_result.size() - 1; i++) {
-				data_path += catalog.Separator() + path_result[i];
+				data_path += path_result[i];
 			}
 			// If we do have a hive partition, let's verify all files have the same one.
 			for (idx_t i = 1; i < actionable_source_files.size(); i++) {

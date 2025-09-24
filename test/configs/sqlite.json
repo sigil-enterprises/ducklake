@@ -41,7 +41,8 @@
         "test/sql/transaction/transaction_conflict_cleanup.test",
         "test/sql/transaction/transaction_conflicts.test",
         "test/sql/transaction/transaction_conflicts_delete.test",
-        "test/sql/transaction/transaction_conflicts_view.test"
+        "test/sql/transaction/transaction_conflicts_view.test",
+        "test/sql/concurrent/file_level_conflict.test"
       ]
     },
     {
