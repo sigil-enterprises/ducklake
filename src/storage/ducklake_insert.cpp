@@ -709,7 +709,6 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, Phys
 		copy_options.expected_types = plan->types;
 	}
 
-
 	auto copy_return_types = GetCopyFunctionReturnLogicalTypes(CopyFunctionReturnType::WRITTEN_FILE_STATISTICS);
 	auto &physical_copy = planner
 	                          .Make<PhysicalCopyToFile>(copy_return_types, std::move(copy_options.copy_function),

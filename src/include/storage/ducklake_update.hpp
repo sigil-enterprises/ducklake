@@ -30,6 +30,8 @@ public:
 	PhysicalOperator &insert_op;
 	//! The row-id-index
 	idx_t row_id_index;
+	//! Extra Projections
+	vector<unique_ptr<Expression>> extra_projections;
 
 public:
 	// // Source interface

@@ -27,9 +27,11 @@ public:
 	PhysicalOperator &copy;
 	//! The final insert operator
 	PhysicalOperator &insert;
+	//! Extra Projections
+	vector<unique_ptr<Expression>> extra_projections;
 
 public:
-	// // Source interface
+	// Source interface
 	SourceResultType GetData(ExecutionContext &context, DataChunk &chunk, OperatorSourceInput &input) const override;
 
 	bool IsSource() const override {
@@ -67,13 +69,38 @@ SourceResultType DuckLakeMergeInsert::GetData(ExecutionContext &context, DataChu
 //===--------------------------------------------------------------------===//
 // Sink
 //===--------------------------------------------------------------------===//
+class DuckLakeMergeIntoLocalState : public LocalSinkState {
+public:
+	unique_ptr<LocalSinkState> copy_sink_state;
+	unique_ptr<DataChunk> chunk;
+	unique_ptr<ExpressionExecutor> expression_executor;
+};
+
 SinkResultType DuckLakeMergeInsert::Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const {
-	OperatorSinkInput sink_input {*copy.sink_state, input.local_state, input.interrupt_state};
-	return copy.Sink(context, chunk, sink_input);
+	auto &local_state = input.local_state.Cast<DuckLakeMergeIntoLocalState>();
+	OperatorSinkInput sink_input {*copy.sink_state, *local_state.copy_sink_state, input.interrupt_state};
+	if (!extra_projections.empty()) {
+		// We have extra projections, we need to execute them
+		if (!local_state.expression_executor) {
+			local_state.expression_executor = make_uniq<ExpressionExecutor>(context.client, extra_projections);
+			vector<LogicalType> insert_types;
+			for (auto &expr : local_state.expression_executor->expressions) {
+				insert_types.push_back(expr->return_type);
+			}
+			local_state.chunk = make_uniq<DataChunk>();
+			local_state.chunk->Initialize(context.client, insert_types);
+		}
+		local_state.chunk->Reset();
+		local_state.expression_executor->Execute(chunk, *local_state.chunk);
+		return copy.Sink(context, *local_state.chunk, sink_input);
+	} else {
+		return copy.Sink(context, chunk, sink_input);
+	}
 }
 
 SinkCombineResultType DuckLakeMergeInsert::Combine(ExecutionContext &context, OperatorSinkCombineInput &input) const {
-	OperatorSinkCombineInput combine_input {*copy.sink_state, input.local_state, input.interrupt_state};
+	auto &local_state = input.local_state.Cast<DuckLakeMergeIntoLocalState>();
+	OperatorSinkCombineInput combine_input {*copy.sink_state, *local_state.copy_sink_state, input.interrupt_state};
 	return copy.Combine(context, combine_input);
 }
 
@@ -134,7 +161,9 @@ unique_ptr<GlobalSinkState> DuckLakeMergeInsert::GetGlobalSinkState(ClientContex
 }
 
 unique_ptr<LocalSinkState> DuckLakeMergeInsert::GetLocalSinkState(ExecutionContext &context) const {
-	return copy.GetLocalSinkState(context);
+	auto local = make_uniq<DuckLakeMergeIntoLocalState>();
+	local->copy_sink_state = copy.GetLocalSinkState(context);
+	return local;
 }
 
 //===--------------------------------------------------------------------===//
@@ -165,13 +194,11 @@ unique_ptr<MergeIntoOperator> DuckLakePlanMergeIntoAction(DuckLakeCatalog &catal
 		update.update_is_del_and_insert = action.update_is_del_and_insert;
 		auto &update_plan = catalog.PlanUpdate(context, planner, update, child_plan);
 		result->op = update_plan;
-		// if (!RefersToSameObject(result->op->GetChildren()[0].get(), child_plan)) {
-			// auto &proj = update_plan.children[0].get().Cast<PhysicalProjection>();
-			// for (idx_t i = update.expressions.size(); i < proj.select_list.size(); i++) {
-			// 	update.expressions.push_back(std::move(proj.select_list[i]));
-			// }
-		// }
 		auto &dl_update = result->op->Cast<DuckLakeUpdate>();
+		if (!RefersToSameObject(result->op->GetChildren()[0].get(), child_plan)) {
+			auto &proj = update_plan.children[0].get().Cast<PhysicalProjection>();
+			dl_update.extra_projections = std::move(proj.select_list);
+		}
 		dl_update.row_id_index = child_plan.types.size() - 1;
 		break;
 	}
@@ -213,13 +240,13 @@ unique_ptr<MergeIntoOperator> DuckLakePlanMergeIntoAction(DuckLakeCatalog &catal
 		result->expressions = std::move(action.expressions);
 		auto &insert = catalog.PlanInsert(context, planner, insert_op, child_plan);
 		auto &copy = insert.children[0].get();
+		result->op = planner.Make<DuckLakeMergeInsert>(insert.types, insert, copy);
 		if (!RefersToSameObject(copy.children[0].get(), child_plan)) {
 			auto &proj = copy.children[0].get().Cast<PhysicalProjection>();
-			for (idx_t i = result->expressions.size(); i < proj.select_list.size(); i++) {
-				result->expressions.push_back(std::move(proj.select_list[i]));
+			for (auto &expression : proj.select_list) {
+				result->op->Cast<DuckLakeMergeInsert>().extra_projections.push_back(expression->Copy());
 			}
 		}
-		result->op = planner.Make<DuckLakeMergeInsert>(insert.types, insert, copy);
 		break;
 	}
 	case MergeActionType::MERGE_ERROR:
