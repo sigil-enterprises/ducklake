@@ -66,13 +66,33 @@ SourceResultType DuckLakeMergeInsert::GetData(ExecutionContext &context, DataChu
 //===--------------------------------------------------------------------===//
 // Sink
 //===--------------------------------------------------------------------===//
+
+struct DuckLakeMergeInsertLocalState : public LocalSinkState {
+	unique_ptr<LocalSinkState> copy_local_state;
+	DataChunk cast_chunk;
+};
+
 SinkResultType DuckLakeMergeInsert::Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const {
-	OperatorSinkInput sink_input {*copy.sink_state, input.local_state, input.interrupt_state};
-	return copy.Sink(context, chunk, sink_input);
+	auto &lstate = input.local_state.Cast<DuckLakeMergeInsertLocalState>();
+	OperatorSinkInput sink_input {*copy.sink_state, *lstate.copy_local_state, input.interrupt_state};
+
+	// Cast the chunk if needed
+	auto &copy_types = copy.Cast<PhysicalCopyToFile>().expected_types;
+	for (idx_t i = 0; i < chunk.ColumnCount(); i++) {
+		if (chunk.data[i].GetType() != copy_types[i]) {
+			VectorOperations::Cast(context.client, chunk.data[i], lstate.cast_chunk.data[i], chunk.size());
+		} else {
+			lstate.cast_chunk.data[i].Reference(chunk.data[i]);
+		}
+	}
+	lstate.cast_chunk.SetCardinality(chunk.size());
+
+	return copy.Sink(context, lstate.cast_chunk, sink_input);
 }
 
 SinkCombineResultType DuckLakeMergeInsert::Combine(ExecutionContext &context, OperatorSinkCombineInput &input) const {
-	OperatorSinkCombineInput combine_input {*copy.sink_state, input.local_state, input.interrupt_state};
+	auto &lstate = input.local_state.Cast<DuckLakeMergeInsertLocalState>();
+	OperatorSinkCombineInput combine_input {*copy.sink_state, *lstate.copy_local_state, input.interrupt_state};
 	return copy.Combine(context, combine_input);
 }
 
@@ -133,15 +153,20 @@ unique_ptr<GlobalSinkState> DuckLakeMergeInsert::GetGlobalSinkState(ClientContex
 }
 
 unique_ptr<LocalSinkState> DuckLakeMergeInsert::GetLocalSinkState(ExecutionContext &context) const {
-	return copy.GetLocalSinkState(context);
+	auto result = make_uniq<DuckLakeMergeInsertLocalState>();
+	result->copy_local_state = copy.GetLocalSinkState(context);
+	result->cast_chunk.Initialize(context.client, copy.Cast<PhysicalCopyToFile>().expected_types);
+
+	return std::move(result);
 }
 
 //===--------------------------------------------------------------------===//
 // Plan Merge Into
 //===--------------------------------------------------------------------===//
-unique_ptr<MergeIntoOperator> DuckLakePlanMergeIntoAction(DuckLakeCatalog &catalog, ClientContext &context,
-                                                          LogicalMergeInto &op, PhysicalPlanGenerator &planner,
-                                                          BoundMergeIntoAction &action, PhysicalOperator &child_plan) {
+static unique_ptr<MergeIntoOperator> DuckLakePlanMergeIntoAction(DuckLakeCatalog &catalog, ClientContext &context,
+                                                                 LogicalMergeInto &op, PhysicalPlanGenerator &planner,
+                                                                 BoundMergeIntoAction &action,
+                                                                 PhysicalOperator &child_plan) {
 	auto result = make_uniq<MergeIntoOperator>();
 
 	result->action_type = action.action_type;

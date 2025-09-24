@@ -423,7 +423,7 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	// Insert a cast projection if necessary
 	auto root = unique_ptr_cast<LogicalGet, LogicalOperator>(std::move(ducklake_scan));
 
-	if (DuckLakeInsert::RequireCasts(root->types)) {
+	if (DuckLakeTypes::RequiresCast(root->types)) {
 		root = DuckLakeInsert::InsertCasts(binder, root);
 	}
 
