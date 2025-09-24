@@ -23,6 +23,9 @@ statement ok
 ALTER TABLE my_timeseries SET PARTITIONED BY (year(ts));
 
 statement ok
+insert into my_timeseries VALUES ('2025-09-15',42)
+
+statement ok
 MERGE INTO my_timeseries
     USING (
         SELECT
@@ -35,19 +38,268 @@ MERGE INTO my_timeseries
 query I
 SELECT COUNT (*) FROM my_timeseries
 ----
-1
+2
+
 
 statement ok
-MERGE INTO my_timeseries
-    USING (
-        SELECT
-            '2025-09-17'::TIMESTAMPTZ as ts,
-            43::DOUBLE PRECISION as x
-    ) AS timeseries_updates
-ON my_timeseries.ts = timeseries_updates.ts
-WHEN MATCHED THEN UPDATE;
+CREATE TABLE my_timeseries_new (ts TIMESTAMPTZ, x DOUBLE PRECISION);
 
-query I
-SELECT COUNT (*) FROM my_timeseries
-----
-2
+statement ok
+insert into my_timeseries_new VALUES ('2025-09-15', 43)
+
+# Error 1
+# statement ok
+# MERGE INTO my_timeseries old
+#     USING my_timeseries_new new
+#     ON (
+#         old.x = new.x AND
+#          (  old.ts != new.ts
+#             OR old.x = 1
+#         )
+#     )
+# WHEN MATCHED THEN UPDATE;
+
+
+# Error 2
+# statement ok
+# MERGE INTO my_timeseries
+#     USING (
+#         SELECT
+#             '2025-09-17'::TIMESTAMPTZ as ts,
+#             43::DOUBLE PRECISION as x
+#     ) AS timeseries_updates
+# ON my_timeseries.ts = timeseries_updates.ts
+# WHEN MATCHED THEN UPDATE;
+
+# query I
+# SELECT COUNT (*) FROM my_timeseries
+# ----
+# 2
+
+# Error 3
+
+# statement ok
+# MERGE INTO table old
+#     USING new_table new
+#     USING(id)
+# WHEN MATCHED AND (
+#     old.tags  IS DISTINCT FROM new.tags
+# ) THEN UPDATE;
+
+
+# Error 4
+
+statement ok
+CREATE TABLE ourairports_airports(
+  id BIGINT,
+  ident VARCHAR,
+  "type" VARCHAR,
+  "name" VARCHAR,
+  latitude_deg DOUBLE,
+  longitude_deg DOUBLE,
+  elevation_ft BIGINT,
+  continent VARCHAR,
+  iso_country VARCHAR,
+  iso_region VARCHAR,
+  municipality VARCHAR,
+  scheduled_service BOOLEAN,
+  icao_code VARCHAR,
+  iata_code VARCHAR,
+  gps_code VARCHAR,
+  local_code VARCHAR,
+  home_link VARCHAR,
+  wikipedia_link VARCHAR,
+  keywords VARCHAR,
+  _etl_created_at TIMESTAMP WITH TIME ZONE,
+  _etl_updated_at TIMESTAMP WITH TIME ZONE
+);
+
+statement ok
+MERGE INTO ourairports_airports tgt
+  USING (
+    SELECT
+      id::int               AS id,
+      ident::varchar        AS ident,
+      type::varchar         AS type,
+      name::varchar         AS name,
+      latitude_deg::double  AS latitude_deg,
+      longitude_deg::double AS longitude_deg,
+      elevation_ft::int     AS elevation_ft,
+      continent::varchar    AS continent,
+      iso_country::varchar  AS iso_country,
+      iso_region::varchar   as iso_region,
+      municipality::varchar as municipality,
+      scheduled_service::boolean as scheduled_service,
+      icao_code::varchar    AS icao_code,
+      iata_code::varchar    AS iata_code,
+      gps_code::varchar     AS gps_code,
+      local_code::varchar   AS local_code,
+      home_link::varchar    AS home_link,
+      wikipedia_link::varchar AS wikipedia_link,
+      keywords::varchar     AS keywords,
+      get_current_timestamp() as _etl_created_at,
+      get_current_timestamp() as _etl_updated_at
+    FROM read_csv('/Users/holanda/Desktop/airports.csv')
+  ) as src
+  ON (tgt.ident = src.ident)
+  WHEN MATCHED AND (
+    tgt.id <> src.id OR
+    tgt.ident <> src.ident OR
+    tgt.type <> src.type OR
+    tgt.name <> src.name OR
+    tgt.latitude_deg <> src.latitude_deg OR
+    tgt.longitude_deg <> src.longitude_deg OR
+    tgt.elevation_ft <> src.elevation_ft OR
+    tgt.continent <> src.continent OR
+    tgt.iso_country <> src.iso_country OR
+    tgt.iso_region <> src.iso_region OR
+    tgt.municipality <> src.municipality OR
+    tgt.scheduled_service <> src.scheduled_service OR
+    tgt.icao_code <> src.icao_code OR
+    tgt.iata_code <> src.iata_code OR
+    tgt.gps_code <> src.gps_code OR
+    tgt.local_code <> src.local_code OR
+    tgt.home_link <> src.home_link OR
+    tgt.wikipedia_link <> src.wikipedia_link OR
+    tgt.keywords <> src.keywords
+  ) THEN UPDATE SET
+      id = src.id,
+      ident = src.ident,
+      type = src.type,
+      name = src.name,
+      latitude_deg = src.latitude_deg,
+      longitude_deg = src.longitude_deg,
+      elevation_ft = src.elevation_ft,
+      continent = src.continent,
+      iso_country = src.iso_country,
+      iso_region = src.iso_region,
+      municipality = src.municipality,
+      scheduled_service = src.scheduled_service,
+      icao_code = src.icao_code,
+      iata_code = src.iata_code,
+      gps_code = src.gps_code,
+      local_code = src.local_code,
+      home_link = src.home_link,
+      wikipedia_link = src.wikipedia_link,
+      keywords = src.keywords,
+      _etl_updated_at = get_current_timestamp()
+  WHEN NOT MATCHED THEN INSERT
+--  RETURNING merge_action, *
+;
+
+statement ok
+update ourairports_airports
+set local_code = 'THISGOTUPDATED'
+where ident = 'KRDG'
+;
+
+statement ok
+MERGE INTO ourairports_airports tgt
+  USING (
+    SELECT
+      id::int               AS id,
+      ident::varchar        AS ident,
+      type::varchar         AS type,
+      name::varchar         AS name,
+      latitude_deg::double  AS latitude_deg,
+      longitude_deg::double AS longitude_deg,
+      elevation_ft::int     AS elevation_ft,
+      continent::varchar    AS continent,
+      iso_country::varchar  AS iso_country,
+      iso_region::varchar   as iso_region,
+      municipality::varchar as municipality,
+      scheduled_service::boolean as scheduled_service,
+      icao_code::varchar    AS icao_code,
+      iata_code::varchar    AS iata_code,
+      gps_code::varchar     AS gps_code,
+      local_code::varchar   AS local_code,
+      home_link::varchar    AS home_link,
+      wikipedia_link::varchar AS wikipedia_link,
+      keywords::varchar     AS keywords,
+      get_current_timestamp() as _etl_created_at,
+      get_current_timestamp() as _etl_updated_at
+    FROM read_csv('/Users/holanda/Desktop/airports.csv')
+  ) as src
+  ON (tgt.ident = src.ident)
+  WHEN MATCHED AND (
+    tgt.id <> src.id OR
+    tgt.ident <> src.ident OR
+    tgt.type <> src.type OR
+    tgt.name <> src.name OR
+    tgt.latitude_deg <> src.latitude_deg OR
+    tgt.longitude_deg <> src.longitude_deg OR
+    tgt.elevation_ft <> src.elevation_ft OR
+    tgt.continent <> src.continent OR
+    tgt.iso_country <> src.iso_country OR
+    tgt.iso_region <> src.iso_region OR
+    tgt.municipality <> src.municipality OR
+    tgt.scheduled_service <> src.scheduled_service OR
+    tgt.icao_code <> src.icao_code OR
+    tgt.iata_code <> src.iata_code OR
+    tgt.gps_code <> src.gps_code OR
+    tgt.local_code <> src.local_code OR
+    tgt.home_link <> src.home_link OR
+    tgt.wikipedia_link <> src.wikipedia_link OR
+    tgt.keywords <> src.keywords
+  ) THEN UPDATE SET
+      id = src.id,
+      ident = src.ident,
+      type = src.type,
+      name = src.name,
+      latitude_deg = src.latitude_deg,
+      longitude_deg = src.longitude_deg,
+      elevation_ft = src.elevation_ft,
+      continent = src.continent,
+      iso_country = src.iso_country,
+      iso_region = src.iso_region,
+      municipality = src.municipality,
+      scheduled_service = src.scheduled_service,
+      icao_code = src.icao_code,
+      iata_code = src.iata_code,
+      gps_code = src.gps_code,
+      local_code = src.local_code,
+      home_link = src.home_link,
+      wikipedia_link = src.wikipedia_link,
+      keywords = src.keywords,
+      _etl_updated_at = get_current_timestamp()
+  WHEN NOT MATCHED THEN INSERT
+--  RETURNING merge_action, *
+;
+
+# statement ok
+# MERGE INTO my_timeseries
+#     USING (
+#         SELECT
+#             '2025-09-17'::TIMESTAMPTZ as ts,
+#             42::DOUBLE PRECISION as x
+#     ) AS timeseries_updates
+#     ON my_timeseries.ts = timeseries_updates.ts
+#     WHEN NOT MATCHED THEN INSERT;
+#
+# query I
+# SELECT COUNT (*) FROM my_timeseries
+# ----
+# 1
+#
+# statement ok
+# MERGE INTO my_timeseries
+#     USING  (
+#         SELECT
+#             '2025-09-17'::TIMESTAMPTZ as ts,
+#             42::DOUBLE PRECISION as x
+#     ) AS timeseries_updates
+# WHEN MATCHED AND (
+#     my_timeseries.ts = timeseries_updates.ts
+# ) THEN UPDATE;
+
+
+# statement ok
+# MERGE INTO my_timeseries
+#     USING (
+#         SELECT
+#             '2025-09-17'::TIMESTAMPTZ as ts,
+#             43::DOUBLE PRECISION as x
+#     ) AS timeseries_updates
+# ON my_timeseries.ts = timeseries_updates.ts
+# WHEN MATCHED THEN UPDATE;
+#
