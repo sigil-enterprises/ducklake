@@ -9,6 +9,8 @@ require spatial
 
 test-env DUCKLAKE_CONNECTION __TEST_DIR__/{UUID}.db
 
+test-env DATA_PATH __TEST_DIR__
+
 statement ok
 ATTACH 'ducklake:${DUCKLAKE_CONNECTION}' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_files', METADATA_CATALOG 'ducklake_meta')
 
