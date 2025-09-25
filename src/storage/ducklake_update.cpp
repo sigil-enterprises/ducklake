@@ -99,26 +99,21 @@ SinkResultType DuckLakeUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 
 	insert_chunk.SetCardinality(chunk.size());
 	insert_chunk_no_cap.SetCardinality(chunk.size());
+	DataChunk *chunk_ptr = &chunk;
 	if (lstate.expression_executor) {
 		lstate.expression_executor->Execute(chunk, insert_chunk);
-	} else {
-		for (idx_t i = 0; i < columns.size(); i++) {
-			insert_chunk.data[columns[i].index].Reference(chunk.data[i]);
-		}
-			for (idx_t i = 0; i < columns.size(); i++) {
-		auto &target_vec = insert_chunk.data[columns[i].index];
-		auto &source_vec = chunk.data[i];
+		chunk_ptr = &insert_chunk;
+	}
+	for (idx_t i = 0; i < columns.size(); i++) {
+		auto &target_vec = insert_chunk_no_cap.data[columns[i].index];
+		auto &source_vec = chunk_ptr->data[i];
 		if (target_vec.GetType() != source_vec.GetType()) {
 			VectorOperations::Cast(context.client, source_vec, target_vec, chunk.size());
 		} else {
 			target_vec.Reference(source_vec);
 		}
 	}
-	}
 
-	for (idx_t i = 0; i < insert_chunk.data.size(); i++) {
-		insert_chunk_no_cap.data[i].Reference(insert_chunk.data[i]);
-	}
 	insert_chunk_no_cap.data[columns.size()].Reference(chunk.data[row_id_index]);
 
 	OperatorSinkInput copy_input {*copy_op.sink_state, *lstate.copy_local_state, input.interrupt_state};

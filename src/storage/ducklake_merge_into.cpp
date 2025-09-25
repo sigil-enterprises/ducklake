@@ -93,7 +93,8 @@ SinkResultType DuckLakeMergeInsert::Sink(ExecutionContext &context, DataChunk &c
 	auto &copy_types = copy.Cast<PhysicalCopyToFile>().expected_types;
 	for (idx_t i = 0; i < chunk_ptr->ColumnCount(); i++) {
 		if (chunk_ptr->data[i].GetType() != copy_types[i]) {
-			VectorOperations::Cast(context.client, chunk_ptr->data[i], local_state.cast_chunk.data[i], chunk_ptr->size());
+			VectorOperations::Cast(context.client, chunk_ptr->data[i], local_state.cast_chunk.data[i],
+			                       chunk_ptr->size());
 		} else {
 			local_state.cast_chunk.data[i].Reference(chunk_ptr->data[i]);
 		}
