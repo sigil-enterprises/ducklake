@@ -73,6 +73,7 @@ class DuckLakeMergeIntoLocalState : public LocalSinkState {
 public:
 	unique_ptr<LocalSinkState> copy_sink_state;
 	//! Used if we have extra projections
+	DataChunk cast_chunk;
 	DataChunk chunk;
 	unique_ptr<ExpressionExecutor> expression_executor;
 };
@@ -80,14 +81,26 @@ public:
 SinkResultType DuckLakeMergeInsert::Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const {
 	auto &local_state = input.local_state.Cast<DuckLakeMergeIntoLocalState>();
 	OperatorSinkInput sink_input {*copy.sink_state, *local_state.copy_sink_state, input.interrupt_state};
+	DataChunk *chunk_ptr = &chunk;
 	if (!extra_projections.empty()) {
 		// We have extra projections, we need to execute them
 		local_state.chunk.Reset();
 		local_state.expression_executor->Execute(chunk, local_state.chunk);
-		return copy.Sink(context, local_state.chunk, sink_input);
-	} else {
-		return copy.Sink(context, chunk, sink_input);
+		chunk_ptr = &local_state.chunk;
 	}
+
+	// Cast the chunk if needed
+	auto &copy_types = copy.Cast<PhysicalCopyToFile>().expected_types;
+	for (idx_t i = 0; i < chunk_ptr->ColumnCount(); i++) {
+		if (chunk_ptr->data[i].GetType() != copy_types[i]) {
+			VectorOperations::Cast(context.client, chunk_ptr->data[i], local_state.cast_chunk.data[i], chunk_ptr->size());
+		} else {
+			local_state.cast_chunk.data[i].Reference(chunk_ptr->data[i]);
+		}
+	}
+	local_state.cast_chunk.SetCardinality(chunk_ptr->size());
+
+	return copy.Sink(context, local_state.cast_chunk, sink_input);
 }
 
 SinkCombineResultType DuckLakeMergeInsert::Combine(ExecutionContext &context, OperatorSinkCombineInput &input) const {
@@ -163,15 +176,18 @@ unique_ptr<LocalSinkState> DuckLakeMergeInsert::GetLocalSinkState(ExecutionConte
 		}
 		result->chunk.Initialize(context.client, insert_types);
 	}
+	result->cast_chunk.Initialize(context.client, copy.Cast<PhysicalCopyToFile>().expected_types);
+
 	return result;
 }
 
 //===--------------------------------------------------------------------===//
 // Plan Merge Into
 //===--------------------------------------------------------------------===//
-unique_ptr<MergeIntoOperator> DuckLakePlanMergeIntoAction(DuckLakeCatalog &catalog, ClientContext &context,
-                                                          LogicalMergeInto &op, PhysicalPlanGenerator &planner,
-                                                          BoundMergeIntoAction &action, PhysicalOperator &child_plan) {
+static unique_ptr<MergeIntoOperator> DuckLakePlanMergeIntoAction(DuckLakeCatalog &catalog, ClientContext &context,
+                                                                 LogicalMergeInto &op, PhysicalPlanGenerator &planner,
+                                                                 BoundMergeIntoAction &action,
+                                                                 PhysicalOperator &child_plan) {
 	auto result = make_uniq<MergeIntoOperator>();
 
 	result->action_type = action.action_type;

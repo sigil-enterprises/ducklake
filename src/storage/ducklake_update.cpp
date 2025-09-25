@@ -71,6 +71,11 @@ unique_ptr<LocalSinkState> DuckLakeUpdate::GetLocalSinkState(ExecutionContext &c
 	} else {
 		insert_types = table.GetTypes();
 	}
+	for (auto &type : insert_types) {
+		if (DuckLakeTypes::RequiresCast(type)) {
+			type = DuckLakeTypes::GetCastedType(type);
+		}
+	}
 	result->insert_chunk.Initialize(context.client, insert_types);
 	// updates also write the row id to the file, so the final version needs the row_id
 	if (extra_projections.empty()) {
@@ -99,6 +104,15 @@ SinkResultType DuckLakeUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 	} else {
 		for (idx_t i = 0; i < columns.size(); i++) {
 			insert_chunk.data[columns[i].index].Reference(chunk.data[i]);
+		}
+	}
+	for (idx_t i = 0; i < columns.size(); i++) {
+		auto &target_vec = insert_chunk.data[columns[i].index];
+		auto &source_vec = chunk.data[i];
+		if (target_vec.GetType() != source_vec.GetType()) {
+			VectorOperations::Cast(context.client, source_vec, target_vec, chunk.size());
+		} else {
+			target_vec.Reference(source_vec);
 		}
 	}
 	for (idx_t i = 0; i < insert_chunk.data.size(); i++) {
