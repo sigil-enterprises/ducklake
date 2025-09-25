@@ -35,6 +35,7 @@ public:
 	unique_ptr<LocalSinkState> delete_local_state;
 	unique_ptr<ExpressionExecutor> expression_executor;
 	DataChunk insert_chunk;
+	DataChunk insert_chunk_no_cap;
 	DataChunk delete_chunk;
 	idx_t updated_count = 0;
 };
@@ -56,19 +57,27 @@ unique_ptr<LocalSinkState> DuckLakeUpdate::GetLocalSinkState(ExecutionContext &c
 	delete_types.emplace_back(LogicalType::UBIGINT);
 	delete_types.emplace_back(LogicalType::BIGINT);
 
-	// updates also write the row id to the file
 	vector<LogicalType> insert_types;
-	if (extra_projections.empty()) {
-		insert_types = table.GetTypes();
-		insert_types.push_back(LogicalType::BIGINT);
-	} else {
+	if (!extra_projections.empty()) {
 		result->expression_executor = make_uniq<ExpressionExecutor>(context.client, extra_projections);
 		for (auto &expr : result->expression_executor->expressions) {
 			insert_types.push_back(expr->return_type);
 		}
+	} else if (!expressions.empty()) {
+		result->expression_executor = make_uniq<ExpressionExecutor>(context.client, expressions);
+		for (auto &expr : result->expression_executor->expressions) {
+			insert_types.push_back(expr->return_type);
+		}
+	} else {
+		insert_types = table.GetTypes();
 	}
-
 	result->insert_chunk.Initialize(context.client, insert_types);
+	// updates also write the row id to the file, so the final version needs the row_id
+	if (extra_projections.empty()) {
+		insert_types.push_back(LogicalType::BIGINT);
+	}
+	result->insert_chunk_no_cap.Initialize(context.client, insert_types);
+
 	result->delete_chunk.Initialize(context.client, delete_types);
 	return std::move(result);
 }
@@ -81,21 +90,24 @@ SinkResultType DuckLakeUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 
 	// push the to-be-inserted data into the copy
 	auto &insert_chunk = lstate.insert_chunk;
-	if (!extra_projections.empty()) {
-		// We have extra projections, we need to execute them
-		insert_chunk.Reset();
+	auto &insert_chunk_no_cap = lstate.insert_chunk_no_cap;
+
+	insert_chunk.SetCardinality(chunk.size());
+	insert_chunk_no_cap.SetCardinality(chunk.size());
+	if (lstate.expression_executor) {
 		lstate.expression_executor->Execute(chunk, insert_chunk);
-	}
-	else {
-		insert_chunk.SetCardinality(chunk.size());
+	} else {
 		for (idx_t i = 0; i < columns.size(); i++) {
 			insert_chunk.data[columns[i].index].Reference(chunk.data[i]);
 		}
-		insert_chunk.data[columns.size()].Reference(chunk.data[row_id_index]);
 	}
+	for (idx_t i = 0; i < insert_chunk.data.size(); i++) {
+		insert_chunk_no_cap.data[i].Reference(insert_chunk.data[i]);
+	}
+	insert_chunk_no_cap.data[columns.size()].Reference(chunk.data[row_id_index]);
 
 	OperatorSinkInput copy_input {*copy_op.sink_state, *lstate.copy_local_state, input.interrupt_state};
-	copy_op.Sink(context, insert_chunk, copy_input);
+	copy_op.Sink(context, insert_chunk_no_cap, copy_input);
 
 	// push the rowids into the delete
 	auto &delete_chunk = lstate.delete_chunk;

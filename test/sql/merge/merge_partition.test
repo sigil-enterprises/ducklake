@@ -61,17 +61,16 @@ statement ok
 DROP TABLE my_timeseries;
 
 statement ok
-CREATE TABLE my_timeseries (ts TIMESTAMPTZ, x DOUBLE PRECISION, y DOUBLE PRECISION);
+CREATE TABLE my_timeseries (ts TIMESTAMP, x DOUBLE PRECISION, y DOUBLE PRECISION);
 
 statement ok
 insert into my_timeseries VALUES ('2025-09-15', 43, 39)
 
+statement ok
+CREATE TABLE my_timeseries_new (ts TIMESTAMP, x DOUBLE PRECISION, y DOUBLE PRECISION);
 
 statement ok
-CREATE TABLE my_timeseries_new (ts TIMESTAMPTZ, x DOUBLE PRECISION, y DOUBLE PRECISION);
-
-statement ok
-insert into my_timeseries_new VALUES ('2025-09-15', 43, 39)
+insert into my_timeseries_new VALUES ('2025-09-15', 43, 33)
 
 statement ok
 MERGE INTO my_timeseries old
@@ -80,3 +79,8 @@ MERGE INTO my_timeseries old
 WHEN MATCHED AND (
     old.x  IS DISTINCT FROM new.y
 ) THEN UPDATE;
+
+query III
+FROM my_timeseries
+----
+2025-09-15 00:00:00	43.0	33.0

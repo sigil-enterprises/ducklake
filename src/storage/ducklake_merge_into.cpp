@@ -195,10 +195,12 @@ unique_ptr<MergeIntoOperator> DuckLakePlanMergeIntoAction(DuckLakeCatalog &catal
 		auto &update_plan = catalog.PlanUpdate(context, planner, update, child_plan);
 		result->op = update_plan;
 		auto &dl_update = result->op->Cast<DuckLakeUpdate>();
+		for (auto &expr : update.expressions) {
+			dl_update.expressions.push_back(expr->Copy());
+		}
 		if (!RefersToSameObject(result->op->GetChildren()[0].get(), dl_update.copy_op.children[0].get())) {
-			// Both children are projections, are they the same?
 			auto &copy_proj = dl_update.copy_op.children[0].get().Cast<PhysicalProjection>();
-			for (auto&expr: copy_proj.select_list) {
+			for (auto &expr : copy_proj.select_list) {
 				dl_update.extra_projections.push_back(expr->Copy());
 			}
 		}
