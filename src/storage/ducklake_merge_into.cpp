@@ -72,7 +72,8 @@ SourceResultType DuckLakeMergeInsert::GetData(ExecutionContext &context, DataChu
 class DuckLakeMergeIntoLocalState : public LocalSinkState {
 public:
 	unique_ptr<LocalSinkState> copy_sink_state;
-	unique_ptr<DataChunk> chunk;
+	//! Used if we have extra projections
+	DataChunk chunk;
 	unique_ptr<ExpressionExecutor> expression_executor;
 };
 
@@ -81,18 +82,9 @@ SinkResultType DuckLakeMergeInsert::Sink(ExecutionContext &context, DataChunk &c
 	OperatorSinkInput sink_input {*copy.sink_state, *local_state.copy_sink_state, input.interrupt_state};
 	if (!extra_projections.empty()) {
 		// We have extra projections, we need to execute them
-		if (!local_state.expression_executor) {
-			local_state.expression_executor = make_uniq<ExpressionExecutor>(context.client, extra_projections);
-			vector<LogicalType> insert_types;
-			for (auto &expr : local_state.expression_executor->expressions) {
-				insert_types.push_back(expr->return_type);
-			}
-			local_state.chunk = make_uniq<DataChunk>();
-			local_state.chunk->Initialize(context.client, insert_types);
-		}
-		local_state.chunk->Reset();
-		local_state.expression_executor->Execute(chunk, *local_state.chunk);
-		return copy.Sink(context, *local_state.chunk, sink_input);
+		local_state.chunk.Reset();
+		local_state.expression_executor->Execute(chunk, local_state.chunk);
+		return copy.Sink(context, local_state.chunk, sink_input);
 	} else {
 		return copy.Sink(context, chunk, sink_input);
 	}
@@ -161,9 +153,17 @@ unique_ptr<GlobalSinkState> DuckLakeMergeInsert::GetGlobalSinkState(ClientContex
 }
 
 unique_ptr<LocalSinkState> DuckLakeMergeInsert::GetLocalSinkState(ExecutionContext &context) const {
-	auto local = make_uniq<DuckLakeMergeIntoLocalState>();
-	local->copy_sink_state = copy.GetLocalSinkState(context);
-	return local;
+	auto result = make_uniq<DuckLakeMergeIntoLocalState>();
+	result->copy_sink_state = copy.GetLocalSinkState(context);
+	if (!extra_projections.empty()) {
+		result->expression_executor = make_uniq<ExpressionExecutor>(context.client, extra_projections);
+		vector<LogicalType> insert_types;
+		for (auto &expr : result->expression_executor->expressions) {
+			insert_types.push_back(expr->return_type);
+		}
+		result->chunk.Initialize(context.client, insert_types);
+	}
+	return result;
 }
 
 //===--------------------------------------------------------------------===//
@@ -195,9 +195,12 @@ unique_ptr<MergeIntoOperator> DuckLakePlanMergeIntoAction(DuckLakeCatalog &catal
 		auto &update_plan = catalog.PlanUpdate(context, planner, update, child_plan);
 		result->op = update_plan;
 		auto &dl_update = result->op->Cast<DuckLakeUpdate>();
-		if (!RefersToSameObject(result->op->GetChildren()[0].get(), child_plan)) {
-			auto &proj = update_plan.children[0].get().Cast<PhysicalProjection>();
-			dl_update.extra_projections = std::move(proj.select_list);
+		if (!RefersToSameObject(result->op->GetChildren()[0].get(), dl_update.copy_op.children[0].get())) {
+			// Both children are projections, are they the same?
+			auto &copy_proj = dl_update.copy_op.children[0].get().Cast<PhysicalProjection>();
+			for (auto&expr: copy_proj.select_list) {
+				dl_update.extra_projections.push_back(expr->Copy());
+			}
 		}
 		dl_update.row_id_index = child_plan.types.size() - 1;
 		break;

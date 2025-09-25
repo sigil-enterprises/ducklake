@@ -33,6 +33,7 @@ class DuckLakeUpdateLocalState : public LocalSinkState {
 public:
 	unique_ptr<LocalSinkState> copy_local_state;
 	unique_ptr<LocalSinkState> delete_local_state;
+	unique_ptr<ExpressionExecutor> expression_executor;
 	DataChunk insert_chunk;
 	DataChunk delete_chunk;
 	idx_t updated_count = 0;
@@ -56,8 +57,16 @@ unique_ptr<LocalSinkState> DuckLakeUpdate::GetLocalSinkState(ExecutionContext &c
 	delete_types.emplace_back(LogicalType::BIGINT);
 
 	// updates also write the row id to the file
-	auto insert_types = table.GetTypes();
-	insert_types.push_back(LogicalType::BIGINT);
+	vector<LogicalType> insert_types;
+	if (extra_projections.empty()) {
+		insert_types = table.GetTypes();
+		insert_types.push_back(LogicalType::BIGINT);
+	} else {
+		result->expression_executor = make_uniq<ExpressionExecutor>(context.client, extra_projections);
+		for (auto &expr : result->expression_executor->expressions) {
+			insert_types.push_back(expr->return_type);
+		}
+	}
 
 	result->insert_chunk.Initialize(context.client, insert_types);
 	result->delete_chunk.Initialize(context.client, delete_types);
@@ -72,11 +81,18 @@ SinkResultType DuckLakeUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 
 	// push the to-be-inserted data into the copy
 	auto &insert_chunk = lstate.insert_chunk;
-	insert_chunk.SetCardinality(chunk.size());
-	for (idx_t i = 0; i < columns.size(); i++) {
-		insert_chunk.data[columns[i].index].Reference(chunk.data[i]);
+	if (!extra_projections.empty()) {
+		// We have extra projections, we need to execute them
+		insert_chunk.Reset();
+		lstate.expression_executor->Execute(chunk, insert_chunk);
 	}
-	insert_chunk.data[columns.size()].Reference(chunk.data[row_id_index]);
+	else {
+		insert_chunk.SetCardinality(chunk.size());
+		for (idx_t i = 0; i < columns.size(); i++) {
+			insert_chunk.data[columns[i].index].Reference(chunk.data[i]);
+		}
+		insert_chunk.data[columns.size()].Reference(chunk.data[row_id_index]);
+	}
 
 	OperatorSinkInput copy_input {*copy_op.sink_state, *lstate.copy_local_state, input.interrupt_state};
 	copy_op.Sink(context, insert_chunk, copy_input);
