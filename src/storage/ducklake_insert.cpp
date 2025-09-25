@@ -690,7 +690,7 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, Phys
 		// Insert a cast projection
 		if (plan) {
 			InsertCasts(copy_options.expected_types, context, planner, plan);
-			// Update the expected types to match the casted types
+			// Update the expected types to match the cast types
 			copy_options.expected_types = plan->types;
 		} else {
 			// Still update types. If there is no child-plan node, we expect that whoever inserts chunks (e.g.

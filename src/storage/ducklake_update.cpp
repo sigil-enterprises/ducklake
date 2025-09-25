@@ -105,8 +105,7 @@ SinkResultType DuckLakeUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 		for (idx_t i = 0; i < columns.size(); i++) {
 			insert_chunk.data[columns[i].index].Reference(chunk.data[i]);
 		}
-	}
-	for (idx_t i = 0; i < columns.size(); i++) {
+			for (idx_t i = 0; i < columns.size(); i++) {
 		auto &target_vec = insert_chunk.data[columns[i].index];
 		auto &source_vec = chunk.data[i];
 		if (target_vec.GetType() != source_vec.GetType()) {
@@ -115,6 +114,8 @@ SinkResultType DuckLakeUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 			target_vec.Reference(source_vec);
 		}
 	}
+	}
+
 	for (idx_t i = 0; i < insert_chunk.data.size(); i++) {
 		insert_chunk_no_cap.data[i].Reference(insert_chunk.data[i]);
 	}
