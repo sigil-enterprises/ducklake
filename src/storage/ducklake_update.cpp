@@ -11,9 +11,10 @@ namespace duckdb {
 
 DuckLakeUpdate::DuckLakeUpdate(PhysicalPlan &physical_plan, DuckLakeTableEntry &table, vector<PhysicalIndex> columns_p,
                                PhysicalOperator &child, PhysicalOperator &copy_op, PhysicalOperator &delete_op,
-                               PhysicalOperator &insert_op)
+                               PhysicalOperator &insert_op, vector<unique_ptr<Expression>> &expressions)
     : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, 1), table(table),
-      columns(std::move(columns_p)), copy_op(copy_op), delete_op(delete_op), insert_op(insert_op) {
+      columns(std::move(columns_p)), copy_op(copy_op), delete_op(delete_op), insert_op(insert_op),
+      expressions(std::move(expressions)) {
 	children.push_back(child);
 	row_id_index = columns.size();
 }
@@ -35,7 +36,8 @@ public:
 	unique_ptr<LocalSinkState> delete_local_state;
 	unique_ptr<ExpressionExecutor> expression_executor;
 	DataChunk insert_chunk;
-	DataChunk insert_chunk_no_cap;
+	// Insert chunk that will be used after expression execution and casting
+	DataChunk insert_chunk_final;
 	DataChunk delete_chunk;
 	idx_t updated_count = 0;
 };
@@ -63,13 +65,11 @@ unique_ptr<LocalSinkState> DuckLakeUpdate::GetLocalSinkState(ExecutionContext &c
 		for (auto &expr : result->expression_executor->expressions) {
 			insert_types.push_back(expr->return_type);
 		}
-	} else if (!expressions.empty()) {
+	} else {
 		result->expression_executor = make_uniq<ExpressionExecutor>(context.client, expressions);
 		for (auto &expr : result->expression_executor->expressions) {
 			insert_types.push_back(expr->return_type);
 		}
-	} else {
-		insert_types = table.GetTypes();
 	}
 	for (auto &type : insert_types) {
 		if (DuckLakeTypes::RequiresCast(type)) {
@@ -81,7 +81,7 @@ unique_ptr<LocalSinkState> DuckLakeUpdate::GetLocalSinkState(ExecutionContext &c
 	if (extra_projections.empty()) {
 		insert_types.push_back(LogicalType::BIGINT);
 	}
-	result->insert_chunk_no_cap.Initialize(context.client, insert_types);
+	result->insert_chunk_final.Initialize(context.client, insert_types);
 
 	result->delete_chunk.Initialize(context.client, delete_types);
 	return std::move(result);
@@ -95,18 +95,15 @@ SinkResultType DuckLakeUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 
 	// push the to-be-inserted data into the copy
 	auto &insert_chunk = lstate.insert_chunk;
-	auto &insert_chunk_no_cap = lstate.insert_chunk_no_cap;
+	auto &insert_chunk_final = lstate.insert_chunk_final;
 
 	insert_chunk.SetCardinality(chunk.size());
-	insert_chunk_no_cap.SetCardinality(chunk.size());
-	DataChunk *chunk_ptr = &chunk;
-	if (lstate.expression_executor) {
-		lstate.expression_executor->Execute(chunk, insert_chunk);
-		chunk_ptr = &insert_chunk;
-	}
+	insert_chunk_final.SetCardinality(chunk.size());
+	lstate.expression_executor->Execute(chunk, insert_chunk);
+
 	for (idx_t i = 0; i < columns.size(); i++) {
-		auto &target_vec = insert_chunk_no_cap.data[columns[i].index];
-		auto &source_vec = chunk_ptr->data[i];
+		auto &target_vec = insert_chunk_final.data[i];
+		auto &source_vec = insert_chunk.data[i];
 		if (target_vec.GetType() != source_vec.GetType()) {
 			VectorOperations::Cast(context.client, source_vec, target_vec, chunk.size());
 		} else {
@@ -114,10 +111,10 @@ SinkResultType DuckLakeUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 		}
 	}
 
-	insert_chunk_no_cap.data[columns.size()].Reference(chunk.data[row_id_index]);
+	insert_chunk_final.data[columns.size()].Reference(chunk.data[row_id_index]);
 
 	OperatorSinkInput copy_input {*copy_op.sink_state, *lstate.copy_local_state, input.interrupt_state};
-	copy_op.Sink(context, insert_chunk_no_cap, copy_input);
+	copy_op.Sink(context, insert_chunk_final, copy_input);
 
 	// push the rowids into the delete
 	auto &delete_chunk = lstate.delete_chunk;
@@ -266,7 +263,18 @@ PhysicalOperator &DuckLakeCatalog::PlanUpdate(ClientContext &context, PhysicalPl
 	// plan the actual insert
 	auto &insert_op = DuckLakeInsert::PlanInsert(context, planner, table, copy_input.encryption_key);
 
-	return planner.Make<DuckLakeUpdate>(table, op.columns, child_plan, copy_op, delete_op, insert_op);
+	vector<unique_ptr<Expression>> expressions;
+	unordered_map<idx_t, idx_t> expression_map;
+
+	for (idx_t i = 0; i < op.columns.size(); i++) {
+		expression_map[op.columns[i].index] = i;
+	}
+
+	for (idx_t i = 0; i < op.columns.size(); i++) {
+		expressions.push_back(op.expressions[expression_map[i]]->Copy());
+	}
+
+	return planner.Make<DuckLakeUpdate>(table, op.columns, child_plan, copy_op, delete_op, insert_op, expressions);
 }
 
 void DuckLakeTableEntry::BindUpdateConstraints(Binder &binder, LogicalGet &get, LogicalProjection &proj,

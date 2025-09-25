@@ -6,8 +6,6 @@ require ducklake
 
 require parquet
 
-require icu
-
 test-env DUCKLAKE_CONNECTION __TEST_DIR__/{UUID}.db
 
 statement ok

@@ -81,25 +81,25 @@ public:
 SinkResultType DuckLakeMergeInsert::Sink(ExecutionContext &context, DataChunk &chunk, OperatorSinkInput &input) const {
 	auto &local_state = input.local_state.Cast<DuckLakeMergeIntoLocalState>();
 	OperatorSinkInput sink_input {*copy.sink_state, *local_state.copy_sink_state, input.interrupt_state};
-	DataChunk *chunk_ptr = &chunk;
+	reference<DataChunk> chunk_ref = chunk;
 	if (!extra_projections.empty()) {
 		// We have extra projections, we need to execute them
 		local_state.chunk.Reset();
 		local_state.expression_executor->Execute(chunk, local_state.chunk);
-		chunk_ptr = &local_state.chunk;
+		chunk_ref = local_state.chunk;
 	}
 
 	// Cast the chunk if needed
 	auto &copy_types = copy.Cast<PhysicalCopyToFile>().expected_types;
-	for (idx_t i = 0; i < chunk_ptr->ColumnCount(); i++) {
-		if (chunk_ptr->data[i].GetType() != copy_types[i]) {
-			VectorOperations::Cast(context.client, chunk_ptr->data[i], local_state.cast_chunk.data[i],
-			                       chunk_ptr->size());
+	for (idx_t i = 0; i < chunk_ref.get().ColumnCount(); i++) {
+		if (chunk_ref.get().data[i].GetType() != copy_types[i]) {
+			VectorOperations::Cast(context.client, chunk_ref.get().data[i], local_state.cast_chunk.data[i],
+			                       chunk_ref.get().size());
 		} else {
-			local_state.cast_chunk.data[i].Reference(chunk_ptr->data[i]);
+			local_state.cast_chunk.data[i].Reference(chunk_ref.get().data[i]);
 		}
 	}
-	local_state.cast_chunk.SetCardinality(chunk_ptr->size());
+	local_state.cast_chunk.SetCardinality(chunk_ref.get().size());
 
 	return copy.Sink(context, local_state.cast_chunk, sink_input);
 }
@@ -212,9 +212,6 @@ static unique_ptr<MergeIntoOperator> DuckLakePlanMergeIntoAction(DuckLakeCatalog
 		auto &update_plan = catalog.PlanUpdate(context, planner, update, child_plan);
 		result->op = update_plan;
 		auto &dl_update = result->op->Cast<DuckLakeUpdate>();
-		for (auto &expr : update.expressions) {
-			dl_update.expressions.push_back(expr->Copy());
-		}
 		if (!RefersToSameObject(result->op->GetChildren()[0].get(), dl_update.copy_op.children[0].get())) {
 			auto &copy_proj = dl_update.copy_op.children[0].get().Cast<PhysicalProjection>();
 			for (auto &expr : copy_proj.select_list) {
