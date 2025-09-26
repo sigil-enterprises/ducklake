@@ -1,33 +1,17 @@
 # name: test/sql/cloud/test_cloud_cases.test
 # description: test ducklake extension
-# group: [sql]
-
-require-env CLOUD_TESTS_READY
-
-require-env AWS_KEY_ID
-
-require-env AWS_SECRET_KEY
-
-require-env AWS_REGION
+# group: [cloud]
 
 require ducklake
 
 require parquet
 
-require httpfs
+test-env DUCKLAKE_CONNECTION __TEST_DIR__/{UUID}.db
+
+test-env DATA_PATH __TEST_DIR__
 
 statement ok
-set s3_region='${AWS_REGION}';
-
-statement ok
-create secret foo (
-    type s3,
-    key_id '${AWS_KEY_ID}',
-    secret '${AWS_SECRET_KEY}'
-);
-
-statement ok
-attach 'ducklake:duckdb:' as lake (data_path 's3://test-ducklake-pedro/');
+ATTACH 'ducklake:${DUCKLAKE_CONNECTION}' AS lake (DATA_PATH '${DATA_PATH}/test_cloud_cases/', METADATA_CATALOG 'metadata');
 
 statement ok
 use lake;
@@ -47,7 +31,7 @@ DELETE FROM test where i = 2;
 statement ok
 COMMIT;
 
-statement ok
+query I
 select * from test order by all;
 ----
 0
