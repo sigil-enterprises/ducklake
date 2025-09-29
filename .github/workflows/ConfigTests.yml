@@ -58,7 +58,7 @@ jobs:
       env:
         GEN: ninja
       run: |
-        make release
+        make reldebug
 
     - name: Test extension
       run: |
