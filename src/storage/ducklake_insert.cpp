@@ -316,10 +316,6 @@ DuckLakeCopyInput::DuckLakeCopyInput(ClientContext &context, DuckLakeTableEntry 
     : catalog(table.ParentCatalog().Cast<DuckLakeCatalog>()), columns(table.GetColumns()),
       data_path(table.DataPath() + hive_partition) {
 	partition_data = table.GetPartitionData();
-	optional_idx partition_id;
-	if (partition_data) {
-		partition_id = partition_data->partition_id;
-	}
 	field_data = table.GetFieldData();
 	schema_id = table.ParentSchema().Cast<DuckLakeSchemaEntry>().GetSchemaId();
 	table_id = table.GetTableId();

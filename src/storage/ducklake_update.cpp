@@ -1,4 +1,6 @@
 #include "storage/ducklake_update.hpp"
+
+#include "duckdb/execution/operator/projection/physical_projection.hpp"
 #include "storage/ducklake_delete.hpp"
 #include "storage/ducklake_table_entry.hpp"
 #include "storage/ducklake_catalog.hpp"
@@ -245,12 +247,6 @@ PhysicalOperator &DuckLakeCatalog::PlanUpdate(ClientContext &context, PhysicalPl
 			throw BinderException("SET DEFAULT is not yet supported for updates of a DuckLake table");
 		}
 	}
-	// if (!RefersToSameObject(result->op->GetChildren()[0].get(), dl_update.copy_op.children[0].get())) {
-	// 			auto &copy_proj = dl_update.copy_op.children[0].get().Cast<PhysicalProjection>();
-	// 			for (auto &expr : copy_proj.select_list) {
-	// 				dl_update.extra_projections.push_back(expr->Copy());
-	// 			}
-	// 		}
 	auto &table = op.table.Cast<DuckLakeTableEntry>();
 	// FIXME: we should take the inlining limit into account here and write new updates to the inline data tables if
 	// possible updates are executed as a delete + insert - generate the two nodes (delete and insert) plan the copy for
@@ -279,8 +275,18 @@ PhysicalOperator &DuckLakeCatalog::PlanUpdate(ClientContext &context, PhysicalPl
 	for (idx_t i = 0; i < op.columns.size(); i++) {
 		expressions.push_back(op.expressions[expression_map[i]]->Copy());
 	}
-
-	return planner.Make<DuckLakeUpdate>(table, op.columns, child_plan, copy_op, delete_op, insert_op, expressions);
+	auto &physical_operator = planner.Make<DuckLakeUpdate>(table, op.columns, child_plan, copy_op, delete_op, insert_op, expressions);
+	auto &dl_update = physical_operator.Cast<DuckLakeUpdate>();
+	// if (!RefersToSameObject(physical_operator.GetChildren()[0].get(), dl_update.copy_op.children[0].get())) {
+	// 	auto &copy_proj = dl_update.copy_op.children[0].get().Cast<PhysicalProjection>();
+	// 	for (idx_t i = 0; i < expression_map.size(); i++) {
+	// 		dl_update.extra_projections.push_back( copy_proj.select_list[expression_map[i]]->Copy());
+	// 	}
+	// 	for (idx_t i = expression_map.size(); i < copy_proj.select_list.size(); i++) {
+	// 		dl_update.extra_projections.push_back( copy_proj.select_list[i]->Copy());
+	// 	}
+	// }
+	return dl_update;
 }
 
 void DuckLakeTableEntry::BindUpdateConstraints(Binder &binder, LogicalGet &get, LogicalProjection &proj,
