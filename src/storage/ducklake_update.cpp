@@ -101,7 +101,7 @@ SinkResultType DuckLakeUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 	insert_chunk_final.SetCardinality(chunk.size());
 	lstate.expression_executor->Execute(chunk, insert_chunk);
 
-	for (idx_t i = 0; i < columns.size(); i++) {
+	for (idx_t i = 0; i < insert_chunk.data.size(); i++) {
 		auto &target_vec = insert_chunk_final.data[i];
 		auto &source_vec = insert_chunk.data[i];
 		if (target_vec.GetType() != source_vec.GetType()) {
@@ -110,8 +110,9 @@ SinkResultType DuckLakeUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 			target_vec.Reference(source_vec);
 		}
 	}
-
-	insert_chunk_final.data[columns.size()].Reference(chunk.data[row_id_index]);
+	if (insert_chunk.data.size() != insert_chunk_final.data.size()) {
+		insert_chunk_final.data[insert_chunk_final.data.size() - 1].Reference(chunk.data[row_id_index]);
+	}
 
 	OperatorSinkInput copy_input {*copy_op.sink_state, *lstate.copy_local_state, input.interrupt_state};
 	copy_op.Sink(context, insert_chunk_final, copy_input);
@@ -244,7 +245,12 @@ PhysicalOperator &DuckLakeCatalog::PlanUpdate(ClientContext &context, PhysicalPl
 			throw BinderException("SET DEFAULT is not yet supported for updates of a DuckLake table");
 		}
 	}
-
+	// if (!RefersToSameObject(result->op->GetChildren()[0].get(), dl_update.copy_op.children[0].get())) {
+	// 			auto &copy_proj = dl_update.copy_op.children[0].get().Cast<PhysicalProjection>();
+	// 			for (auto &expr : copy_proj.select_list) {
+	// 				dl_update.extra_projections.push_back(expr->Copy());
+	// 			}
+	// 		}
 	auto &table = op.table.Cast<DuckLakeTableEntry>();
 	// FIXME: we should take the inlining limit into account here and write new updates to the inline data tables if
 	// possible updates are executed as a delete + insert - generate the two nodes (delete and insert) plan the copy for
@@ -308,7 +314,7 @@ void DuckLakeTableEntry::BindUpdateConstraints(Binder &binder, LogicalGet &get, 
 			}
 		}
 		if (!column_id_index.IsValid()) {
-			// not yet projected - add to projection list
+			// not yet projected - add to a projection list
 			column_id_index = column_ids.size();
 			get.AddColumnId(physical_index.index);
 		}
