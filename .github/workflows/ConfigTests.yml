@@ -59,7 +59,7 @@ jobs:
         GEN: ninja
         STATIC_LIBCPP: 1
       run: |
-        make reldebug
+        make release
 
     - name: Test extension
       run: |
