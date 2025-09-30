@@ -388,18 +388,18 @@ static unique_ptr<Expression> GetFunction(ClientContext &context, DuckLakeCopyIn
 }
 
 static unique_ptr<Expression> GetPartitionExpression(ClientContext &context, DuckLakeCopyInput &copy_input,
-                                                     const DuckLakePartitionField &field) {
+                                                     const DuckLakePartitionField &field, FieldIndex field_id) {
 	switch (field.transform.type) {
 	case DuckLakeTransformType::IDENTITY:
-		return GetColumnReference(copy_input, field.field_id);
+		return GetColumnReference(copy_input, field_id);
 	case DuckLakeTransformType::YEAR:
-		return GetFunction(context, copy_input, "year", field.field_id);
+		return GetFunction(context, copy_input, "year", field_id);
 	case DuckLakeTransformType::MONTH:
-		return GetFunction(context, copy_input, "month", field.field_id);
+		return GetFunction(context, copy_input, "month", field_id);
 	case DuckLakeTransformType::DAY:
-		return GetFunction(context, copy_input, "day", field.field_id);
+		return GetFunction(context, copy_input, "day", field_id);
 	case DuckLakeTransformType::HOUR:
-		return GetFunction(context, copy_input, "hour", field.field_id);
+		return GetFunction(context, copy_input, "hour", field_id);
 	default:
 		throw NotImplementedException("Unsupported partition transform type in GetPartitionExpression");
 	}
@@ -435,7 +435,7 @@ static string GetPartitionExpressionName(DuckLakeCopyInput &copy_input, const Du
 }
 
 static void GeneratePartitionExpressions(ClientContext &context, DuckLakeCopyInput &copy_input,
-                                         DuckLakeCopyOptions &copy_options) {
+                                         DuckLakeCopyOptions &copy_options, optional_ptr<PhysicalOperator> plan) {
 	bool all_identity = true;
 	for (auto &field : copy_input.partition_data->fields) {
 		if (field.transform.type != DuckLakeTransformType::IDENTITY) {
@@ -473,7 +473,6 @@ static void GeneratePartitionExpressions(ClientContext &context, DuckLakeCopyInp
 	}
 	copy_options.write_partition_columns = false;
 
-	// push the columns
 	idx_t col_idx = 0;
 	for (auto &col : copy_input.columns.Physical()) {
 		copy_options.projection_list.push_back(CreateColumnReference(copy_input, col.Type(), col_idx++));
@@ -485,7 +484,8 @@ static void GeneratePartitionExpressions(ClientContext &context, DuckLakeCopyInp
 	// push the partition expressions
 	case_insensitive_set_t names;
 	for (auto &field : copy_input.partition_data->fields) {
-		auto expr = GetPartitionExpression(context, copy_input, field);
+		FieldIndex actual_field_id = field.field_id;
+		auto expr = GetPartitionExpression(context, copy_input, field, actual_field_id);
 		copy_options.names.push_back(GetPartitionExpressionName(copy_input, field, names));
 		names.insert(copy_options.names.back());
 		copy_options.expected_types.push_back(expr->return_type);
@@ -493,7 +493,7 @@ static void GeneratePartitionExpressions(ClientContext &context, DuckLakeCopyInp
 	}
 }
 
-DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckLakeCopyInput &copy_input) {
+DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckLakeCopyInput &copy_input, optional_ptr<PhysicalOperator> plan) {
 	auto info = make_uniq<CopyInfo>();
 	auto &catalog = copy_input.catalog;
 	info->file_path = copy_input.data_path;
@@ -612,13 +612,30 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckL
 
 	if (copy_input.partition_data) {
 		// we are partitioning - generate partition expressions (if any)
-		GeneratePartitionExpressions(context, copy_input, result);
+		GeneratePartitionExpressions(context, copy_input, result, plan);
 	}
 	return result;
 }
 
 static void GenerateProjection(ClientContext &context, PhysicalPlanGenerator &planner,
                                vector<unique_ptr<Expression>> &expressions, optional_ptr<PhysicalOperator> &plan) {
+	// vector<unique_ptr<Expression>> expressions_to_project;
+	// push the columns
+	// if (plan && plan->type == PhysicalOperatorType::PROJECTION) {
+	// 		auto &projection = plan->Cast<PhysicalProjection>();
+	// 		for (idx_t i = 0; i < projection.select_list.size(); i++) {
+	// 			auto &expr = projection.select_list[i];
+	// 			if (expr->type == ExpressionType::BOUND_REF) {
+	// 				auto &bound_ref = expr->Cast<BoundReferenceExpression>();
+	// 				if (bound_ref.index == field.field_id.index) {
+	// 					actual_field_id.index = i;
+	// 					break;
+	// 				}
+	// 			}
+	//
+	// 	}
+	// 	idx_t  i = 0;
+	// }
 	// push the projection
 	vector<LogicalType> types;
 	for (auto &expr : expressions) {
@@ -675,7 +692,7 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, Phys
                                                     DuckLakeCopyInput &copy_input,
                                                     optional_ptr<PhysicalOperator> plan) {
 	bool is_encrypted = !copy_input.encryption_key.empty();
-	auto copy_options = GetCopyOptions(context, copy_input);
+	auto copy_options = GetCopyOptions(context, copy_input, plan);
 
 	if (!copy_options.projection_list.empty()) {
 		// generate a projection

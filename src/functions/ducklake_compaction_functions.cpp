@@ -401,7 +401,7 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 		copy_input.virtual_columns = InsertVirtualColumns::WRITE_ROW_ID_AND_SNAPSHOT_ID;
 	}
 
-	auto copy_options = DuckLakeInsert::GetCopyOptions(context, copy_input);
+	auto copy_options = DuckLakeInsert::GetCopyOptions(context, copy_input, nullptr);
 
 	auto virtual_columns = table.GetVirtualColumns();
 	auto ducklake_scan =

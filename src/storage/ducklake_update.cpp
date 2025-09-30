@@ -1,11 +1,15 @@
 #include "storage/ducklake_update.hpp"
 
 #include "duckdb/execution/operator/projection/physical_projection.hpp"
+#include "duckdb/function/function_binder.hpp"
+#include "duckdb/planner/expression.hpp"
+#include "duckdb/planner/expression/bound_reference_expression.hpp"
 #include "storage/ducklake_delete.hpp"
 #include "storage/ducklake_table_entry.hpp"
 #include "storage/ducklake_catalog.hpp"
 #include "duckdb/planner/operator/logical_update.hpp"
 #include "duckdb/parallel/thread_context.hpp"
+#include "duckdb/planner/expression/bound_function_expression.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/planner/operator/logical_projection.hpp"
 
@@ -237,6 +241,36 @@ InsertionOrderPreservingMap<string> DuckLakeUpdate::ParamsToString() const {
 	return result;
 }
 
+static unique_ptr<Expression> GetFunction(ClientContext &context, unique_ptr<BoundReferenceExpression> column_reference,
+                                          const string &function_name) {
+	vector<unique_ptr<Expression>> children;
+	children.emplace_back(std::move(column_reference));
+	ErrorData error;
+	FunctionBinder binder(context);
+	auto function = binder.BindScalarFunction(DEFAULT_SCHEMA, function_name, std::move(children), error, false);
+	if (!function) {
+		error.Throw();
+	}
+	return function;
+}
+
+static unique_ptr<Expression> GetPartitionExpressionForUpdate(ClientContext &context,
+                                                              unique_ptr<BoundReferenceExpression> column_reference,
+                                                              const DuckLakePartitionField &field) {
+	switch (field.transform.type) {
+	case DuckLakeTransformType::YEAR:
+		return GetFunction(context, std::move(column_reference), "year");
+	case DuckLakeTransformType::MONTH:
+		return GetFunction(context, std::move(column_reference), "month");
+	case DuckLakeTransformType::DAY:
+		return GetFunction(context, std::move(column_reference), "day");
+	case DuckLakeTransformType::HOUR:
+		return GetFunction(context, std::move(column_reference), "hour");
+	default:
+		throw NotImplementedException("Unsupported partition transform type in GetPartitionExpressionForUpdate");
+	}
+}
+
 PhysicalOperator &DuckLakeCatalog::PlanUpdate(ClientContext &context, PhysicalPlanGenerator &planner, LogicalUpdate &op,
                                               PhysicalOperator &child_plan) {
 	if (op.return_chunk) {
@@ -271,22 +305,47 @@ PhysicalOperator &DuckLakeCatalog::PlanUpdate(ClientContext &context, PhysicalPl
 	for (idx_t i = 0; i < op.columns.size(); i++) {
 		expression_map[op.columns[i].index] = i;
 	}
-
 	for (idx_t i = 0; i < op.columns.size(); i++) {
 		expressions.push_back(op.expressions[expression_map[i]]->Copy());
 	}
-	auto &physical_operator = planner.Make<DuckLakeUpdate>(table, op.columns, child_plan, copy_op, delete_op, insert_op, expressions);
-	auto &dl_update = physical_operator.Cast<DuckLakeUpdate>();
-	// if (!RefersToSameObject(physical_operator.GetChildren()[0].get(), dl_update.copy_op.children[0].get())) {
-	// 	auto &copy_proj = dl_update.copy_op.children[0].get().Cast<PhysicalProjection>();
-	// 	for (idx_t i = 0; i < expression_map.size(); i++) {
-	// 		dl_update.extra_projections.push_back( copy_proj.select_list[expression_map[i]]->Copy());
-	// 	}
-	// 	for (idx_t i = expression_map.size(); i < copy_proj.select_list.size(); i++) {
-	// 		dl_update.extra_projections.push_back( copy_proj.select_list[i]->Copy());
-	// 	}
+
+	if (!RefersToSameObject(child_plan, copy_op.children[0].get()) && copy_input.partition_data) {
+				for (auto &field : copy_input.partition_data->fields) {
+			if (field.transform.type != DuckLakeTransformType::IDENTITY) {
+				auto &child_expression =
+				    expressions[expression_map[field.field_id.index]]->Cast<BoundReferenceExpression>();
+				auto column_reference =
+				    make_uniq<BoundReferenceExpression>(child_expression.return_type, child_expression.index);
+				expressions.push_back(GetPartitionExpressionForUpdate(context, std::move(column_reference), field));
+				idx_t expression_map_id = expression_map.size();
+				expression_map[expression_map_id] = expression_map_id;
+			}
+		}
+		auto &child_proj = child_plan.Cast<PhysicalProjection>();
+		auto &copy_proj = copy_op.children[0].get().Cast<PhysicalProjection>();
+		idx_t projection_fields = copy_input.partition_data->fields.size();
+		for (idx_t i = copy_proj.select_list.size() - projection_fields; i < copy_proj.select_list.size(); i++) {
+			// These are the partitions in our copy projection, we need to make them point to the
+			// right column on the underlying projection
+			// auto &expr = *copy_proj.select_list[i];
+			// if (expr.type == ExpressionType::BOUND_FUNCTION) {
+			// 	child_proj.
+			// 	auto &bound_function_expression = expr.Cast<BoundFunctionExpression>();
+			// 	bound_function_expression.children
+			// }
+
+		}
+
+		// for (auto &expr : copy_proj.select_list) {
+		// 		expressions.push_back(expr->Copy());
+		// 		idx_t expression_map_id = expression_map.size();
+		// 		expression_map[expression_map_id] = expression_map_id;
+		// 	}
+		}
+
+
 	// }
-	return dl_update;
+	return planner.Make<DuckLakeUpdate>(table, op.columns, child_plan, copy_op, delete_op, insert_op, expressions);
 }
 
 void DuckLakeTableEntry::BindUpdateConstraints(Binder &binder, LogicalGet &get, LogicalProjection &proj,
