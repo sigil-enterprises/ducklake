@@ -212,12 +212,12 @@ static unique_ptr<MergeIntoOperator> DuckLakePlanMergeIntoAction(DuckLakeCatalog
 		auto &update_plan = catalog.PlanUpdate(context, planner, update, child_plan);
 		result->op = update_plan;
 		auto &dl_update = result->op->Cast<DuckLakeUpdate>();
-		if (!RefersToSameObject(result->op->GetChildren()[0].get(), dl_update.copy_op.children[0].get())) {
-			auto &copy_proj = dl_update.copy_op.children[0].get().Cast<PhysicalProjection>();
-			for (auto &expr : copy_proj.select_list) {
-				dl_update.extra_projections.push_back(expr->Copy());
-			}
-		}
+		// if (!RefersToSameObject(result->op->GetChildren()[0].get(), dl_update.copy_op.children[0].get())) {
+		// 	auto &copy_proj = dl_update.copy_op.children[0].get().Cast<PhysicalProjection>();
+		// 	for (auto &expr : copy_proj.select_list) {
+		// 		dl_update.extra_projections.push_back(expr->Copy());
+		// 	}
+		// }
 		dl_update.row_id_index = child_plan.types.size() - 1;
 		break;
 	}

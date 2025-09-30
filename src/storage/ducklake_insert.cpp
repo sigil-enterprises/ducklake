@@ -493,7 +493,8 @@ static void GeneratePartitionExpressions(ClientContext &context, DuckLakeCopyInp
 	}
 }
 
-DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckLakeCopyInput &copy_input, optional_ptr<PhysicalOperator> plan) {
+DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckLakeCopyInput &copy_input,
+                                                   optional_ptr<PhysicalOperator> plan) {
 	auto info = make_uniq<CopyInfo>();
 	auto &catalog = copy_input.catalog;
 	info->file_path = copy_input.data_path;
@@ -694,7 +695,7 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, Phys
 	bool is_encrypted = !copy_input.encryption_key.empty();
 	auto copy_options = GetCopyOptions(context, copy_input, plan);
 
-	if (!copy_options.projection_list.empty()) {
+	if (!copy_options.projection_list.empty() && plan) {
 		// generate a projection
 		GenerateProjection(context, planner, copy_options.projection_list, plan);
 	}

@@ -258,6 +258,8 @@ static unique_ptr<Expression> GetPartitionExpressionForUpdate(ClientContext &con
                                                               unique_ptr<BoundReferenceExpression> column_reference,
                                                               const DuckLakePartitionField &field) {
 	switch (field.transform.type) {
+	case DuckLakeTransformType::IDENTITY:
+		return column_reference;
 	case DuckLakeTransformType::YEAR:
 		return GetFunction(context, std::move(column_reference), "year");
 	case DuckLakeTransformType::MONTH:
@@ -287,7 +289,7 @@ PhysicalOperator &DuckLakeCatalog::PlanUpdate(ClientContext &context, PhysicalPl
 	// the insert
 	DuckLakeCopyInput copy_input(context, table);
 	copy_input.virtual_columns = InsertVirtualColumns::WRITE_ROW_ID;
-	auto &copy_op = DuckLakeInsert::PlanCopyForInsert(context, planner, copy_input, child_plan);
+	auto &copy_op = DuckLakeInsert::PlanCopyForInsert(context, planner, copy_input, nullptr);
 
 	// plan the delete
 	vector<idx_t> row_id_indexes;
@@ -308,41 +310,50 @@ PhysicalOperator &DuckLakeCatalog::PlanUpdate(ClientContext &context, PhysicalPl
 	for (idx_t i = 0; i < op.columns.size(); i++) {
 		expressions.push_back(op.expressions[expression_map[i]]->Copy());
 	}
-
-	if (!RefersToSameObject(child_plan, copy_op.children[0].get()) && copy_input.partition_data) {
-				for (auto &field : copy_input.partition_data->fields) {
-			if (field.transform.type != DuckLakeTransformType::IDENTITY) {
-				auto &child_expression =
-				    expressions[expression_map[field.field_id.index]]->Cast<BoundReferenceExpression>();
-				auto column_reference =
-				    make_uniq<BoundReferenceExpression>(child_expression.return_type, child_expression.index);
-				expressions.push_back(GetPartitionExpressionForUpdate(context, std::move(column_reference), field));
-				idx_t expression_map_id = expression_map.size();
-				expression_map[expression_map_id] = expression_map_id;
-			}
+	if (copy_input.partition_data) {
+		// If we have partitions, we must include them in our expressions.
+		for (auto &field : copy_input.partition_data->fields) {
+			// Can we match the projection child of our update with the partition?
+			auto &child_expression = expressions[field.partition_key_index]->Cast<BoundReferenceExpression>();
+			auto column_reference =
+			    make_uniq<BoundReferenceExpression>(child_expression.return_type, child_expression.index);
+			expressions.push_back(GetPartitionExpressionForUpdate(context, std::move(column_reference), field));
 		}
-		auto &child_proj = child_plan.Cast<PhysicalProjection>();
-		auto &copy_proj = copy_op.children[0].get().Cast<PhysicalProjection>();
-		idx_t projection_fields = copy_input.partition_data->fields.size();
-		for (idx_t i = copy_proj.select_list.size() - projection_fields; i < copy_proj.select_list.size(); i++) {
-			// These are the partitions in our copy projection, we need to make them point to the
-			// right column on the underlying projection
-			// auto &expr = *copy_proj.select_list[i];
-			// if (expr.type == ExpressionType::BOUND_FUNCTION) {
-			// 	child_proj.
-			// 	auto &bound_function_expression = expr.Cast<BoundFunctionExpression>();
-			// 	bound_function_expression.children
-			// }
+	}
 
-		}
-
-		// for (auto &expr : copy_proj.select_list) {
-		// 		expressions.push_back(expr->Copy());
-		// 		idx_t expression_map_id = expression_map.size();
-		// 		expression_map[expression_map_id] = expression_map_id;
-		// 	}
-		}
-
+	// if (!RefersToSameObject(child_plan, copy_op.children[0].get()) && copy_input.partition_data) {
+	// 			for (auto &field : copy_input.partition_data->fields) {
+	// 		if (field.transform.type != DuckLakeTransformType::IDENTITY) {
+	// 			auto &child_expression =
+	// 			    expressions[expression_map[field.field_id.index]]->Cast<BoundReferenceExpression>();
+	// 			auto column_reference =
+	// 			    make_uniq<BoundReferenceExpression>(child_expression.return_type, child_expression.index);
+	// 			expressions.push_back(GetPartitionExpressionForUpdate(context, std::move(column_reference), field));
+	// 			idx_t expression_map_id = expression_map.size();
+	// 			expression_map[expression_map_id] = expression_map_id;
+	// 		}
+	// 	}
+	// 	auto &child_proj = child_plan.Cast<PhysicalProjection>();
+	// 	auto &copy_proj = copy_op.children[0].get().Cast<PhysicalProjection>();
+	// 	idx_t projection_fields = copy_input.partition_data->fields.size();
+	// 	for (idx_t i = copy_proj.select_list.size() - projection_fields; i < copy_proj.select_list.size(); i++) {
+	// 		// These are the partitions in our copy projection, we need to make them point to the
+	// 		// right column on the underlying projection
+	// 		// auto &expr = *copy_proj.select_list[i];
+	// 		// if (expr.type == ExpressionType::BOUND_FUNCTION) {
+	// 		// 	child_proj.
+	// 		// 	auto &bound_function_expression = expr.Cast<BoundFunctionExpression>();
+	// 		// 	bound_function_expression.children
+	// 		// }
+	//
+	// 	}
+	//
+	// 	// for (auto &expr : copy_proj.select_list) {
+	// 	// 		expressions.push_back(expr->Copy());
+	// 	// 		idx_t expression_map_id = expression_map.size();
+	// 	// 		expression_map[expression_map_id] = expression_map_id;
+	// 	// 	}
+	// 	}
 
 	// }
 	return planner.Make<DuckLakeUpdate>(table, op.columns, child_plan, copy_op, delete_op, insert_op, expressions);
