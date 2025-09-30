@@ -66,17 +66,11 @@ unique_ptr<LocalSinkState> DuckLakeUpdate::GetLocalSinkState(ExecutionContext &c
 	delete_types.emplace_back(LogicalType::BIGINT);
 
 	vector<LogicalType> insert_types;
-	if (!extra_projections.empty()) {
-		result->expression_executor = make_uniq<ExpressionExecutor>(context.client, extra_projections);
-		for (auto &expr : result->expression_executor->expressions) {
-			insert_types.push_back(expr->return_type);
-		}
-	} else {
-		result->expression_executor = make_uniq<ExpressionExecutor>(context.client, expressions);
-		for (auto &expr : result->expression_executor->expressions) {
-			insert_types.push_back(expr->return_type);
-		}
+	result->expression_executor = make_uniq<ExpressionExecutor>(context.client, expressions);
+	for (auto &expr : result->expression_executor->expressions) {
+		insert_types.push_back(expr->return_type);
 	}
+
 	for (auto &type : insert_types) {
 		if (DuckLakeTypes::RequiresCast(type)) {
 			type = DuckLakeTypes::GetCastedType(type);
@@ -84,9 +78,8 @@ unique_ptr<LocalSinkState> DuckLakeUpdate::GetLocalSinkState(ExecutionContext &c
 	}
 	result->insert_chunk.Initialize(context.client, insert_types);
 	// updates also write the row id to the file, so the final version needs the row_id
-	if (extra_projections.empty()) {
-		insert_types.push_back(LogicalType::BIGINT);
-	}
+	insert_types.push_back(LogicalType::BIGINT);
+
 	result->insert_chunk_final.Initialize(context.client, insert_types);
 
 	result->delete_chunk.Initialize(context.client, delete_types);
