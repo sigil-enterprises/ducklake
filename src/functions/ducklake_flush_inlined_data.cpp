@@ -171,7 +171,7 @@ unique_ptr<LogicalOperator> DuckLakeDataFlusher::GenerateFlushCommand() {
 	copy_input.get_table_index = table_idx;
 	copy_input.virtual_columns = InsertVirtualColumns::WRITE_ROW_ID_AND_SNAPSHOT_ID;
 
-	auto copy_options = DuckLakeInsert::GetCopyOptions(context, copy_input, nullptr);
+	auto copy_options = DuckLakeInsert::GetCopyOptions(context, copy_input);
 
 	auto virtual_columns = table.GetVirtualColumns();
 	auto ducklake_scan =
