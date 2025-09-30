@@ -42,8 +42,6 @@ public:
 	unique_ptr<LocalSinkState> delete_local_state;
 	unique_ptr<ExpressionExecutor> expression_executor;
 	DataChunk insert_chunk;
-	// Insert chunk that will be used after expression execution and casting
-	DataChunk insert_chunk_final;
 	DataChunk delete_chunk;
 	idx_t updated_count = 0;
 };
@@ -76,11 +74,9 @@ unique_ptr<LocalSinkState> DuckLakeUpdate::GetLocalSinkState(ExecutionContext &c
 			type = DuckLakeTypes::GetCastedType(type);
 		}
 	}
-	result->insert_chunk.Initialize(context.client, insert_types);
 	// updates also write the row id to the file, so the final version needs the row_id
 	insert_types.push_back(LogicalType::BIGINT);
-
-	result->insert_chunk_final.Initialize(context.client, insert_types);
+	result->insert_chunk.Initialize(context.client, insert_types);
 
 	result->delete_chunk.Initialize(context.client, delete_types);
 	return std::move(result);
@@ -94,27 +90,13 @@ SinkResultType DuckLakeUpdate::Sink(ExecutionContext &context, DataChunk &chunk,
 
 	// push the to-be-inserted data into the copy
 	auto &insert_chunk = lstate.insert_chunk;
-	auto &insert_chunk_final = lstate.insert_chunk_final;
-
 	insert_chunk.SetCardinality(chunk.size());
-	insert_chunk_final.SetCardinality(chunk.size());
 	lstate.expression_executor->Execute(chunk, insert_chunk);
 
-	for (idx_t i = 0; i < insert_chunk.data.size(); i++) {
-		auto &target_vec = insert_chunk_final.data[i];
-		auto &source_vec = insert_chunk.data[i];
-		if (target_vec.GetType() != source_vec.GetType()) {
-			VectorOperations::Cast(context.client, source_vec, target_vec, chunk.size());
-		} else {
-			target_vec.Reference(source_vec);
-		}
-	}
-	if (insert_chunk.data.size() != insert_chunk_final.data.size()) {
-		insert_chunk_final.data[insert_chunk_final.data.size() - 1].Reference(chunk.data[row_id_index]);
-	}
+	insert_chunk.data[insert_chunk.data.size() - 1].Reference(chunk.data[row_id_index]);
 
 	OperatorSinkInput copy_input {*copy_op.sink_state, *lstate.copy_local_state, input.interrupt_state};
-	copy_op.Sink(context, insert_chunk_final, copy_input);
+	copy_op.Sink(context, insert_chunk, copy_input);
 
 	// push the rowids into the delete
 	auto &delete_chunk = lstate.delete_chunk;
