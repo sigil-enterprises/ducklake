@@ -439,6 +439,12 @@
       ]
     },
     {
+      "reason": "RowID order - SELECT (SELECT rowid FROM a LIMIT 1) - No guarantee from DuckLake to be ordered",
+      "paths": [
+        "test/sql/projection/test_row_id_expression.test"
+      ]
+    },
+    {
       "reason": "Checkpoint in DuckLake doesn't produce expected result. Notice these are not ducklake bugs just tests that do not fit.",
       "paths": [
         "test/fuzzer/pedro/incomplete_checkpoint.test",
@@ -479,7 +485,13 @@
         "test/sql/storage/optimistic_write/optimistic_write_temp_table.test",
         "test/sql/timezone/disable_timestamptz_casts.test",
         "test/sql/types/timestamp/test_timestamp_tz.test",
-        "test/sql/update/test_cascading_updates.test"
+        "test/sql/update/test_cascading_updates.test",
+        "test/sql/storage/compression/string/simple.test",
+        "test/sql/storage/compression/string/filter_pushdown.test",
+        "test/sql/storage/compression/string/index_fetch.test",
+        "test/sql/storage/compression/string/big_strings.test",
+        "test/sql/storage/compression/string/blob.test",
+        "test/sql/storage/compression/string/empty.test"
       ]
     }
   ]

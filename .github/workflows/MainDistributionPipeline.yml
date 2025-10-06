@@ -35,7 +35,7 @@ jobs:
     secrets: inherit
     with:
       extension_name: ducklake
-      duckdb_version: v1.4-andium
+      duckdb_version: main
       ci_tools_version: main
       deploy_latest: ${{ startsWith(github.ref, 'refs/heads/v') || github.ref == 'refs/heads/main' }}
       deploy_versioned: ${{ startsWith(github.ref, 'refs/heads/v') || github.ref == 'refs/heads/main' }}
