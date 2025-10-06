@@ -276,7 +276,6 @@ PhysicalOperator &DuckLakeCatalog::PlanUpdate(ClientContext &context, PhysicalPl
 	DuckLakeCopyInput copy_input(context, table);
 	copy_input.virtual_columns = InsertVirtualColumns::WRITE_ROW_ID;
 	auto &copy_op = DuckLakeInsert::PlanCopyForInsert(context, planner, copy_input, nullptr);
-
 	// plan the delete
 	vector<idx_t> row_id_indexes;
 	for (idx_t i = 0; i < 3; i++) {
@@ -299,20 +298,14 @@ PhysicalOperator &DuckLakeCatalog::PlanUpdate(ClientContext &context, PhysicalPl
 	if (copy_input.partition_data) {
 		// If we have partitions, we must include them in our expressions.
 		for (auto &field : copy_input.partition_data->fields) {
+			if (field.transform.type == DuckLakeTransformType::IDENTITY) {
+				// Identity Partitions are already there
+				continue;
+			}
 			auto &child_expression = expressions[field.partition_key_index]->Cast<BoundReferenceExpression>();
 			auto column_reference =
 			    make_uniq<BoundReferenceExpression>(child_expression.return_type, child_expression.index);
-			// But only if they are not there yet
-			bool new_expression = true;
-			for (auto &expr : expressions) {
-				if (*expr == *column_reference) {
-					new_expression = false;
-					break;
-				}
-			}
-			if (new_expression) {
-				expressions.push_back(GetPartitionExpressionForUpdate(context, std::move(column_reference), field));
-			}
+			expressions.push_back(GetPartitionExpressionForUpdate(context, std::move(column_reference), field));
 		}
 	}
 
