@@ -1159,8 +1159,8 @@ void DuckLakeMetadataManager::WriteNewInlinedTables(DuckLakeSnapshot commit_snap
 	string inlined_tables;
 	string inlined_table_queries;
 	for (auto &table : new_tables) {
-		if (catalog.DataInliningRowLimit(table.schema_id, table.id) == 0) {
-			// not inlining for this table - skip it
+		if (catalog.DataInliningRowLimit(table.schema_id, table.id) == 0 || table.id.IsTransactionLocal()) {
+			// not inlining for this table or inlining is for a table on this transaction, hence handled there - skip it
 			continue;
 		}
 		GetInlinedTableQueries(commit_snapshot, table, inlined_tables, inlined_table_queries);
