@@ -381,6 +381,9 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 			// This means we have a hive partition.
 			for (idx_t i = 0; i < path_result.size() - 1; i++) {
 				data_path += path_result[i];
+				if (i != path_result.size() - 2) {
+					data_path += catalog.Separator();
+				}
 			}
 			// If we do have a hive partition, let's verify all files have the same one.
 			for (idx_t i = 1; i < actionable_source_files.size(); i++) {
@@ -423,7 +426,7 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	// Insert a cast projection if necessary
 	auto root = unique_ptr_cast<LogicalGet, LogicalOperator>(std::move(ducklake_scan));
 
-	if (DuckLakeInsert::RequireCasts(root->types)) {
+	if (DuckLakeTypes::RequiresCast(root->types)) {
 		root = DuckLakeInsert::InsertCasts(binder, root);
 	}
 
