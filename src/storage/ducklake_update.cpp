@@ -302,7 +302,17 @@ PhysicalOperator &DuckLakeCatalog::PlanUpdate(ClientContext &context, PhysicalPl
 			auto &child_expression = expressions[field.partition_key_index]->Cast<BoundReferenceExpression>();
 			auto column_reference =
 			    make_uniq<BoundReferenceExpression>(child_expression.return_type, child_expression.index);
-			expressions.push_back(GetPartitionExpressionForUpdate(context, std::move(column_reference), field));
+			// But only if they are not there yet
+			bool new_expression = true;
+			for (auto &expr : expressions) {
+				if (*expr == *column_reference) {
+					new_expression = false;
+					break;
+				}
+			}
+			if (new_expression) {
+				expressions.push_back(GetPartitionExpressionForUpdate(context, std::move(column_reference), field));
+			}
 		}
 	}
 
