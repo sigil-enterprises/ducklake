@@ -9,7 +9,7 @@ defaults:
 
 jobs:
   ducklake-config-tests:
-    name: DuckLake (RelAssert)
+    name: DuckLake (Debug)
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -25,7 +25,6 @@ jobs:
       VCPKG_TARGET_TRIPLET: ${{ matrix.vcpkg_triplet }}
       GEN: Ninja
       VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
-      DISABLE_EXTENSIONS_FOR_TEST: ON
 
     steps:
     - name: "node-cleanup"
@@ -66,8 +65,8 @@ jobs:
         GEN: ninja
         CMAKE_BUILD_PARALLEL_LEVEL: 2
       run: |
-        make relassert
+        make debug
 
     - name: Test extension
       run: |
-        build/relassert/test/unittest
+        build/debug/test/unittest
