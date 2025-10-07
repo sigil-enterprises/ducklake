@@ -58,6 +58,7 @@ jobs:
     - name: Build extension
       env:
         GEN: ninja
+        CMAKE_BUILD_PARALLEL_LEVEL: 2
       run: |
         make relassert
 
