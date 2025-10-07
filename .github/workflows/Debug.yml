@@ -1,4 +1,4 @@
-name: Debug Mode Tests
+name: RelAssert Mode Tests
 on: [push, pull_request,repository_dispatch]
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' || github.sha }}
@@ -9,7 +9,7 @@ defaults:
 
 jobs:
   ducklake-config-tests:
-    name: DuckLake (Debug)
+    name: DuckLake (RelAssert)
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -58,10 +58,9 @@ jobs:
     - name: Build extension
       env:
         GEN: ninja
-        CMAKE_BUILD_PARALLEL_LEVEL: 2
       run: |
-        make debug
+        make relassert
 
     - name: Test extension
       run: |
-        build/debug/test/unittest
+        build/relassert/test/unittest
