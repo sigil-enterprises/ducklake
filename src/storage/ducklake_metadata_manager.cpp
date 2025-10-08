@@ -226,6 +226,20 @@ static vector<DuckLakeInlinedTableInfo> LoadInlinedDataTables(const Value &list)
 	return result;
 }
 
+idx_t DuckLakeMetadataManager::GetCatalogIdForSchema(idx_t schema_id) {
+	string query = R"(
+SELECT begin_snapshot
+FROM {METADATA_CATALOG}.ducklake_inlined_data_tables
+INNER JOIN {METADATA_CATALOG}.ducklake_table ON (ducklake_table.table_id = ducklake_inlined_data_tables.table_id)
+WHERE schema_version = {SCHEMA_ID})";
+	query = StringUtil::Replace(query, "{SCHEMA_ID}", to_string(schema_id)).c_str();
+	auto result = transaction.Query(query);
+	for (auto &row : *result) {
+		return row.GetValue<idx_t>(0);
+	}
+	throw InternalException("Schema Version %llu does not exist", schema_id);
+}
+
 DuckLakeCatalogInfo DuckLakeMetadataManager::GetCatalogForSnapshot(DuckLakeSnapshot snapshot) {
 	auto &ducklake_catalog = transaction.GetCatalog();
 	auto &base_data_path = ducklake_catalog.DataPath();
@@ -1145,8 +1159,8 @@ void DuckLakeMetadataManager::WriteNewInlinedTables(DuckLakeSnapshot commit_snap
 	string inlined_tables;
 	string inlined_table_queries;
 	for (auto &table : new_tables) {
-		if (catalog.DataInliningRowLimit(table.schema_id, table.id) == 0) {
-			// not inlining for this table - skip it
+		if (catalog.DataInliningRowLimit(table.schema_id, table.id) == 0 || table.id.IsTransactionLocal()) {
+			// not inlining for this table or inlining is for a table on this transaction, hence handled there - skip it
 			continue;
 		}
 		GetInlinedTableQueries(commit_snapshot, table, inlined_tables, inlined_table_queries);
