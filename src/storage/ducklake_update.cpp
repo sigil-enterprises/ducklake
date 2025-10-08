@@ -9,6 +9,8 @@
 #include "storage/ducklake_catalog.hpp"
 #include "duckdb/planner/operator/logical_update.hpp"
 #include "duckdb/parallel/thread_context.hpp"
+#include "duckdb/parser/expression/cast_expression.hpp"
+#include "duckdb/planner/expression/bound_cast_expression.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/planner/operator/logical_projection.hpp"
@@ -306,6 +308,13 @@ PhysicalOperator &DuckLakeCatalog::PlanUpdate(ClientContext &context, PhysicalPl
 			auto column_reference =
 			    make_uniq<BoundReferenceExpression>(child_expression.return_type, child_expression.index);
 			expressions.push_back(GetPartitionExpressionForUpdate(context, std::move(column_reference), field));
+		}
+	}
+
+	for (auto &expr : expressions) {
+		if (DuckLakeTypes::RequiresCast(expr->return_type)) {
+			auto target_type = DuckLakeTypes::GetCastedType(expr->return_type);
+			expr = BoundCastExpression::AddCastToType(context, std::move(expr), std::move(target_type));
 		}
 	}
 
