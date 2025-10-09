@@ -85,6 +85,12 @@ INSERT INTO ducklake.test2 VALUES (1);
 statement ok
 ALTER TABLE ducklake.test2 RENAME TO test3
 
+query I
+SELECT table_name FROM duckdb_tables() WHERE database_name='ducklake' ORDER BY table_name;
+----
+local_test3
+test3
+
 statement ok
 INSERT INTO ducklake.test3 VALUES (2);
 
