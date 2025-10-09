@@ -15,10 +15,10 @@ statement ok
 ATTACH 'ducklake:${DUCKLAKE_CONNECTION}' AS ducklake (DATA_PATH '${DATA_PATH}/ducklake_rename_files', METADATA_CATALOG 'ducklake_meta')
 
 statement ok
-CREATE TABLE ducklake.view_base_table(i INTEGER);
+CREATE TABLE ducklake.view_base_table AS FROM range(42);
 
 statement ok
-CREATE TABLE ducklake.original_table(i INTEGER);
+CREATE TABLE ducklake.original_table AS FROM range(84);
 
 statement ok
 CREATE VIEW ducklake.original_view AS FROM ducklake.view_base_table;
@@ -42,6 +42,16 @@ query I
 SELECT view_name FROM duckdb_views() WHERE database_name='ducklake' ORDER BY view_name
 ----
 new_view_name
+
+query I
+SELECT count(*) from ducklake.new_view_name;
+----
+42
+
+query I
+SELECT count(*) from ducklake.new_table_name;
+----
+84
 
 statement ok
 COMMIT
