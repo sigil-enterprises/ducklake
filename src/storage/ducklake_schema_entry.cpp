@@ -1,14 +1,14 @@
 #include "storage/ducklake_schema_entry.hpp"
+
+#include "duckdb/common/types/uuid.hpp"
+#include "duckdb/parser/parsed_data/comment_on_column_info.hpp"
+#include "duckdb/parser/parsed_data/create_view_info.hpp"
+#include "duckdb/parser/parsed_data/drop_info.hpp"
+#include "duckdb/planner/parsed_data/bound_create_table_info.hpp"
+#include "storage/ducklake_catalog.hpp"
 #include "storage/ducklake_table_entry.hpp"
 #include "storage/ducklake_transaction.hpp"
 #include "storage/ducklake_view_entry.hpp"
-#include "storage/ducklake_catalog.hpp"
-
-#include "duckdb/planner/parsed_data/bound_create_table_info.hpp"
-#include "duckdb/parser/parsed_data/create_view_info.hpp"
-#include "duckdb/common/types/uuid.hpp"
-#include "duckdb/parser/parsed_data/drop_info.hpp"
-#include "duckdb/parser/parsed_data/comment_on_column_info.hpp"
 
 namespace duckdb {
 
@@ -250,7 +250,7 @@ void DuckLakeSchemaEntry::Scan(ClientContext &context, CatalogType type,
 	// scan committed entries
 	auto &catalog_set = GetCatalogSet(type);
 	for (auto &entry : catalog_set.GetEntries()) {
-		if (duck_transaction.IsDeleted(*entry.second)) {
+		if (duck_transaction.IsDeleted(*entry.second) || duck_transaction.IsRenamed(*entry.second)) {
 			continue;
 		}
 		if (local_set && local_set->GetEntry(entry.second->name)) {
