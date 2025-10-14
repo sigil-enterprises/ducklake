@@ -1,14 +1,14 @@
 #include "storage/ducklake_schema_entry.hpp"
+
+#include "duckdb/common/types/uuid.hpp"
+#include "duckdb/parser/parsed_data/comment_on_column_info.hpp"
+#include "duckdb/parser/parsed_data/create_view_info.hpp"
+#include "duckdb/parser/parsed_data/drop_info.hpp"
+#include "duckdb/planner/parsed_data/bound_create_table_info.hpp"
+#include "storage/ducklake_catalog.hpp"
 #include "storage/ducklake_table_entry.hpp"
 #include "storage/ducklake_transaction.hpp"
 #include "storage/ducklake_view_entry.hpp"
-#include "storage/ducklake_catalog.hpp"
-
-#include "duckdb/planner/parsed_data/bound_create_table_info.hpp"
-#include "duckdb/parser/parsed_data/create_view_info.hpp"
-#include "duckdb/common/types/uuid.hpp"
-#include "duckdb/parser/parsed_data/drop_info.hpp"
-#include "duckdb/parser/parsed_data/comment_on_column_info.hpp"
 
 namespace duckdb {
 
@@ -163,8 +163,8 @@ void DuckLakeSchemaEntry::Alter(CatalogTransaction catalog_transaction, AlterInf
 		auto new_table = table.Alter(transaction, alter);
 		if (alter.alter_table_type == AlterTableType::RENAME_TABLE) {
 			// We must check if this view name does not yet exist.
-			if (StringUtil::Lower(alter.name) != StringUtil::Lower(new_table->name) &&
-			    GetEntry(catalog_transaction, CatalogType::TABLE_ENTRY, new_table->name)) {
+			auto existing_table = GetEntry(catalog_transaction, CatalogType::TABLE_ENTRY, new_table->name);
+			if (StringUtil::Lower(alter.name) != StringUtil::Lower(new_table->name) && existing_table) {
 				throw BinderException("Cannot rename table %s to %s, since %s already exists.", alter.name,
 				                      new_table->name, alter.name);
 			}
@@ -250,7 +250,7 @@ void DuckLakeSchemaEntry::Scan(ClientContext &context, CatalogType type,
 	// scan committed entries
 	auto &catalog_set = GetCatalogSet(type);
 	for (auto &entry : catalog_set.GetEntries()) {
-		if (duck_transaction.IsDeleted(*entry.second)) {
+		if (duck_transaction.IsDeleted(*entry.second) || duck_transaction.IsRenamed(*entry.second)) {
 			continue;
 		}
 		if (local_set && local_set->GetEntry(entry.second->name)) {
@@ -321,7 +321,7 @@ optional_ptr<CatalogEntry> DuckLakeSchemaEntry::LookupEntry(CatalogTransaction t
 	if (!entry) {
 		return nullptr;
 	}
-	if (duck_transaction.IsDeleted(*entry)) {
+	if (duck_transaction.IsDeleted(*entry) || duck_transaction.IsRenamed(*entry)) {
 		return nullptr;
 	}
 	return *entry;
