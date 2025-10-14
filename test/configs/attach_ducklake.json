@@ -75,7 +75,8 @@
         "test/sql/table_function/duckdb_databases.test",
         "test/sql/table_function/sqlite_master.test",
         "test/sql/table_function/duckdb_columns.test",
-        "test/sql/table_function/sqlite_master_quotes.test"
+        "test/sql/table_function/sqlite_master_quotes.test",
+        "test/sql/storage/read_duckdb/read_duckdb_basic.test"
       ]
     },
     {
