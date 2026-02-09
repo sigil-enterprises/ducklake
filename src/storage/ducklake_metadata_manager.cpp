@@ -1400,7 +1400,12 @@ vector<DuckLakeFileListEntry> DuckLakeMetadataManager::GetTableInsertions(DuckLa
 	    StringUtil::Format(R"(
 SELECT %s
 FROM {METADATA_CATALOG}.ducklake_data_file data, (
-	SELECT CAST(NULL AS VARCHAR) path, CAST(NULL AS BOOLEAN) path_is_relative, CAST(NULL AS BIGINT) file_size_bytes, CAST(NULL AS BIGINT) footer_size, CAST(NULL AS VARCHAR) encryption_key
+	SELECT
+		CAST(NULL AS VARCHAR) path,
+		CAST(NULL AS BOOLEAN) path_is_relative,
+		CAST(NULL AS BIGINT) file_size_bytes,
+		CAST(NULL AS BIGINT) footer_size,
+		CAST(NULL AS VARCHAR) encryption_key
 ) del
 WHERE data.table_id=%d AND data.begin_snapshot <= {SNAPSHOT_ID} AND (
 	(data.begin_snapshot >= %d) OR
@@ -1687,9 +1692,12 @@ vector<DuckLakeCompactionFileEntry> DuckLakeMetadataManager::GetFilesForCompacti
 	                          "data.end_snapshot, data.mapping_id, sr.schema_version , data.partial_max, "
 	                          "data.partition_id, partition_info.keys, " +
 	                          GetFileSelectList("data");
-	string delete_select_list = "del.data_file_id AS del_data_file_id, del.delete_file_id AS del_delete_file_id, "
-	                            "del.delete_count, del.begin_snapshot AS del_begin_snapshot, del.end_snapshot AS "
-	                            "del_end_snapshot, del.partial_max AS del_partial_max, " +
+	string delete_select_list = "del.data_file_id AS del_data_file_id,"
+	                            "del.delete_file_id AS del_delete_file_id, "
+	                            "del.delete_count, "
+	                            "del.begin_snapshot AS del_begin_snapshot, "
+	                            "del.end_snapshot AS del_end_snapshot, "
+	                            "del.partial_max AS del_partial_max, " +
 	                            GetFileSelectList("del");
 	string select_list = data_select_list + ", " + delete_select_list;
 	string deletion_threshold_clause;
@@ -2608,7 +2616,11 @@ WHERE schema_id = %d;)",
 		}
 	}
 	auto result = transaction.Query(StringUtil::Format(R"(
-SELECT s.path AS s_path, s.path_is_relative AS s_path_is_relative, t.path AS t_path, t.path_is_relative AS t_path_is_relative
+SELECT
+	s.path AS s_path,
+	s.path_is_relative AS s_path_is_relative,
+	t.path AS t_path,
+	t.path_is_relative AS t_path_is_relative
 FROM {METADATA_CATALOG}.ducklake_schema s
 JOIN {METADATA_CATALOG}.ducklake_table t
 USING (schema_id)
