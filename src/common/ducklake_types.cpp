@@ -76,7 +76,7 @@ static string ToStringBaseType(const LogicalType &type) {
 
 // Only GEOMETRY type needs special handling, to cast to WKB_BLOB
 bool DuckLakeTypes::IsGeoType(const LogicalType &type) {
-	return type.HasAlias() && StringUtil::CIEquals(type.GetAlias(), "GEOMETRY") && (type.id() == LogicalTypeId::BLOB);
+	return type.id() == LogicalTypeId::GEOMETRY;
 }
 
 bool DuckLakeTypes::RequiresCast(const LogicalType &type) {
