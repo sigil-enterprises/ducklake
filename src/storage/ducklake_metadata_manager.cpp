@@ -1482,14 +1482,21 @@ SELECT %s, current_delete.begin_snapshot FROM (
 	FROM {METADATA_CATALOG}.ducklake_delete_file
 	WHERE table_id = %d AND begin_snapshot <= {SNAPSHOT_ID}
 ) AS current_delete
-LEFT JOIN (
-	SELECT data_file_id, MAX_BY(COLUMNS(['path', 'path_is_relative', 'file_size_bytes', 'footer_size', 'encryption_key']), begin_snapshot) AS '\0'
+LEFT JOIN LATERAL (
+	SELECT DISTINCT ON (data_file_id)
+		data_file_id,
+		path,
+		path_is_relative,
+		file_size_bytes,
+		footer_size,
+		encryption_key
 	FROM {METADATA_CATALOG}.ducklake_delete_file
 	WHERE table_id = %d AND begin_snapshot < %d
-	GROUP BY data_file_id
+	ORDER BY data_file_id, begin_snapshot DESC
 ) AS previous_delete
 USING (data_file_id)
 JOIN (
+	SELECT *
 	FROM {METADATA_CATALOG}.ducklake_data_file data
 	WHERE table_id = %d
 ) AS data
@@ -1498,14 +1505,21 @@ USING (data_file_id)
 UNION ALL
 
 SELECT %s, data.end_snapshot FROM (
+	SELECT *
 	FROM {METADATA_CATALOG}.ducklake_data_file
 	WHERE table_id = %d AND end_snapshot >= %d AND end_snapshot <= {SNAPSHOT_ID}
 ) AS data
-LEFT JOIN (
-	SELECT data_file_id, MAX_BY(COLUMNS(['path', 'path_is_relative', 'file_size_bytes', 'footer_size', 'encryption_key']), begin_snapshot) AS '\0'
+LEFT JOIN LATERAL (
+	SELECT DISTINCT ON (data_file_id)
+		data_file_id,
+		path,
+		path_is_relative,
+		file_size_bytes,
+		footer_size,
+		encryption_key
 	FROM {METADATA_CATALOG}.ducklake_delete_file
 	WHERE table_id = %d AND begin_snapshot < data.end_snapshot
-	GROUP BY data_file_id
+	ORDER BY data_file_id, begin_snapshot DESC
 ) AS previous_delete
 USING (data_file_id), (
 	SELECT NULL path, NULL path_is_relative, NULL file_size_bytes, NULL footer_size, NULL encryption_key
@@ -1686,7 +1700,8 @@ vector<DuckLakeCompactionFileEntry> DuckLakeMetadataManager::GetFilesForCompacti
 	string deletion_threshold_clause;
 	if (type == CompactionType::REWRITE_DELETES) {
 		deletion_threshold_clause = StringUtil::Format(
-		    " AND del.delete_count/data.record_count >= %f and data.end_snapshot is null", deletion_threshold);
+		    " AND CAST(del.delete_count AS FLOAT)/CAST(data.record_count AS FLOAT) >= %f and data.end_snapshot is null",
+		    deletion_threshold);
 	}
 	// Add file size filtering for MERGE_ADJACENT_TABLES compaction
 	string file_size_filter_clause;
@@ -3101,7 +3116,7 @@ unique_ptr<DuckLakeSnapshot> DuckLakeMetadataManager::GetSnapshot(BoundAtClause 
 	auto &unit = at_clause.Unit();
 	auto &val = at_clause.GetValue();
 	unique_ptr<QueryResult> result;
-	const string timestamp_aggregate = bound == SnapshotBound::LOWER_BOUND ? "MIN" : "MAX";
+	const string timestamp_order = bound == SnapshotBound::LOWER_BOUND ? "ASC" : "DESC";
 	const string timestamp_condition = bound == SnapshotBound::LOWER_BOUND ? ">" : "<";
 	if (StringUtil::CIEquals(unit, "version")) {
 		result = transaction.Query(StringUtil::Format(R"(
@@ -3114,11 +3129,13 @@ WHERE snapshot_id = %llu;)",
 SELECT snapshot_id, schema_version, next_catalog_id, next_file_id
 FROM {METADATA_CATALOG}.ducklake_snapshot
 WHERE snapshot_id = (
-	SELECT %s_BY(snapshot_id, snapshot_time)
+	SELECT snapshot_id
 	FROM {METADATA_CATALOG}.ducklake_snapshot
-	WHERE snapshot_time %s= %s);)",
-		                                              timestamp_aggregate, timestamp_condition,
-		                                              val.DefaultCastAs(LogicalType::VARCHAR).ToSQLString()));
+	WHERE snapshot_time %s= %s
+	ORDER BY snapshot_time %s
+	LIMIT 1);)",
+		                                  timestamp_condition, val.DefaultCastAs(LogicalType::VARCHAR).ToSQLString(),
+		                                  timestamp_order));
 	} else {
 		throw InvalidInputException("Unsupported AT clause unit - %s", unit);
 	}
