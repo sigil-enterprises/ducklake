@@ -65,12 +65,17 @@ private:
 	CryptaClient client;
 	string lake_id;
 
-	//! Unwrapped DEKs, keyed by the wrapped blob.
+	//! Unwrapped DEKs, keyed by (identity, wrapped blob) - BOTH, never the blob
+	//! alone.
 	//!
-	//! Bounded, and keyed by the CIPHERTEXT rather than by the file: two rows
-	//! with the same blob are the same key, and a row whose blob changes must
-	//! miss. Entries are dropped wholesale when the cap is hit - a scan re-reads
-	//! the same handful of files, so a crude cap beats an LRU's bookkeeping here.
+	//! Keying on the blob alone is a hole: read file A, caching blob-A -> DEK-A,
+	//! then paste blob A onto file B's row, and the next read of file B would hit
+	//! the cache and get DEK-A back without crypta ever seeing the mismatched
+	//! identity. The binding would be bypassed for the life of the process.
+	//! Including the identity makes a substituted row always a miss.
+	//!
+	//! Entries are dropped wholesale when the cap is hit - a scan re-reads the
+	//! same handful of files, so a crude cap beats an LRU's bookkeeping here.
 	//!
 	//! This is a plaintext-DEK cache inside the reader process, which is the
 	//! residual this design already accepts and documents: a compromised live

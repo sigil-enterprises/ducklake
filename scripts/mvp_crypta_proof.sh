@@ -58,6 +58,7 @@ emit() { # $1 = file, $2 = body
 	} > "$SCRATCH/$1"
 }
 emit write.sql "CREATE TABLE lake.patients AS SELECT i AS id, 'NHS-' || i AS nhs FROM range(2000) t(i);
+CREATE TABLE lake.other AS SELECT i AS id, 'X-' || i AS v FROM range(2000) t(i);
 SELECT sum(id) AS checksum FROM lake.patients;"
 # A genuine column read. SELECT count(*) is answered from record_count in the
 # catalog and never touches the Parquet file, so it does not test decryption.
@@ -98,8 +99,10 @@ UPDATE raw.ducklake_data_file SET encryption_key=(SELECT encryption_key FROM k W
 UPDATE raw.ducklake_data_file SET encryption_key=(SELECT encryption_key FROM k WHERE k.data_file_id=0) WHERE data_file_id=1;
 SELECT data_file_id, md5(encryption_key) AS key_md5 FROM raw.ducklake_data_file ORDER BY data_file_id;
 SWAP
-echo "=== 5. substitution (needs 2 files; skipped if only 1) ==="
+echo "=== 5. substitution: swap the key rows, then READ REAL COLUMNS ==="
 dl swap.sql | tail -12
+echo "--- the read after the swap MUST fail ---"
+dl read.sql | head -3
 
 echo
 echo "Expected: 1,2,4 succeed with checksum 1999000; 3 refuses with"

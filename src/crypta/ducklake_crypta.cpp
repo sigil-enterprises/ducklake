@@ -40,9 +40,21 @@ string DuckLakeCryptaProvider::UnwrapKey(const CryptaFileIdentity &identity, con
 		    "envelope entirely",
 		    identity.stored_path);
 	}
+	// The cache key MUST include the identity, not just the blob.
+	//
+	// Keying on the blob alone is a hole, and a subtle one: read file A, which
+	// caches blob-A -> DEK-A; then an attacker pastes blob A onto file B's row;
+	// the next read of file B hits the cache and gets DEK-A back WITHOUT crypta
+	// ever seeing the mismatched identity. The binding would be bypassed for the
+	// life of the process. Keying on (identity, blob) means a substituted row is
+	// always a miss and always goes to crypta, which rejects it.
+	auto cache_key = StringUtil::Format("%s|%lld|%s|%s", identity.lake_id,
+	                                    static_cast<long long>(identity.table_id),
+	                                    identity.is_delete_file ? "delete" : "data", identity.stored_path) +
+	                 "|" + base64_value;
 	{
 		lock_guard<mutex> guard(cache_lock);
-		auto entry = unwrap_cache.find(base64_value);
+		auto entry = unwrap_cache.find(cache_key);
 		if (entry != unwrap_cache.end()) {
 			return entry->second;
 		}
@@ -60,7 +72,7 @@ string DuckLakeCryptaProvider::UnwrapKey(const CryptaFileIdentity &identity, con
 		if (unwrap_cache.size() >= MAX_CACHED_KEYS) {
 			unwrap_cache.clear();
 		}
-		unwrap_cache[base64_value] = keys[0];
+		unwrap_cache[cache_key] = keys[0];
 	}
 	return keys[0];
 }
