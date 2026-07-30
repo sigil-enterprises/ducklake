@@ -79,10 +79,9 @@ static string JsonEscape(const string &input) {
 }
 
 string CryptaClient::IdentityJson(const CryptaFileIdentity &identity) {
-	return StringUtil::Format(
-	    "{\"catalog_uuid\":\"%s\",\"table_id\":%lld,\"file_kind\":\"%s\",\"file_path\":\"%s\"}",
-	    JsonEscape(identity.lake_id), static_cast<long long>(identity.table_id),
-	    identity.is_delete_file ? "delete" : "data", JsonEscape(identity.stored_path));
+	return StringUtil::Format("{\"catalog_uuid\":\"%s\",\"table_id\":%lld,\"file_kind\":\"%s\",\"file_path\":\"%s\"}",
+	                          JsonEscape(identity.lake_id), static_cast<long long>(identity.table_id),
+	                          identity.is_delete_file ? "delete" : "data", JsonEscape(identity.stored_path));
 }
 
 void CryptaClient::ThrowIfError(const string &response) {

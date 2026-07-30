@@ -48,8 +48,7 @@ string DuckLakeCryptaProvider::UnwrapKey(const CryptaFileIdentity &identity, con
 	// ever seeing the mismatched identity. The binding would be bypassed for the
 	// life of the process. Keying on (identity, blob) means a substituted row is
 	// always a miss and always goes to crypta, which rejects it.
-	auto cache_key = StringUtil::Format("%s|%lld|%s|%s", identity.lake_id,
-	                                    static_cast<long long>(identity.table_id),
+	auto cache_key = StringUtil::Format("%s|%lld|%s|%s", identity.lake_id, static_cast<long long>(identity.table_id),
 	                                    identity.is_delete_file ? "delete" : "data", identity.stored_path) +
 	                 "|" + base64_value;
 	{
