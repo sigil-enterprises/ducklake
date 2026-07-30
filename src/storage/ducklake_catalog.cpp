@@ -187,7 +187,7 @@ void DuckLakeCatalog::EnsureCommitInfoProvided(const DuckLakeSnapshotCommit &com
 
 // PRIVATE-FORK ONLY: crypta envelope encryption.
 CryptaFileIdentity DuckLakeCatalog::CryptaIdentity(TableIndex table_id, const string &stored_path,
-                                                  bool is_delete_file) const {
+                                                   bool is_delete_file) const {
 	CryptaFileIdentity identity;
 	identity.lake_id = options.crypta_lake_id;
 	identity.table_id = static_cast<int64_t>(table_id.index);

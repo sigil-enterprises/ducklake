@@ -3811,7 +3811,7 @@ string DuckLakeMetadataManager::WriteNewDataFilesSqlBatch(optional_ptr<const Duc
 		auto data_file_index = file.id.index;
 		auto table_id = file.table_id.index;
 		auto encryption_key = crypta ? DuckLakeUtil::WrappedEncryptionKeyLiteral(crypta_wrapped_keys[i])
-		                            : DuckLakeUtil::EncryptionKeyLiteral(file.encryption_key);
+		                             : DuckLakeUtil::EncryptionKeyLiteral(file.encryption_key);
 		string partial_max = DuckLakeUtil::OptionalIdxOrNull(file.max_partial_file_snapshot);
 		string footer_size = DuckLakeUtil::OptionalIdxOrNull(file.footer_size);
 		string mapping = DuckLakeUtil::MappingIdOrNull(file.mapping_id);
@@ -3974,7 +3974,7 @@ string DuckLakeMetadataManager::WriteNewDeleteFiles(optional_ptr<const DuckLakeC
 		auto table_id = file.table_id.index;
 		auto data_file_index = file.data_file_id.index;
 		auto encryption_key = crypta ? DuckLakeUtil::WrappedEncryptionKeyLiteral(crypta_wrapped_keys[i])
-		                            : DuckLakeUtil::EncryptionKeyLiteral(file.encryption_key);
+		                             : DuckLakeUtil::EncryptionKeyLiteral(file.encryption_key);
 		// Use explicit begin_snapshot if set (for flush operations), otherwise use commit snapshot
 		string begin_snapshot_str =
 		    file.begin_snapshot.IsValid() ? std::to_string(file.begin_snapshot.GetIndex()) : "{SNAPSHOT_ID}";
