@@ -102,14 +102,35 @@ it to `GetFileSelectList` shifts positional column indices in 8+ queries.
    `WrappedEncryptionKeyLiteral` only quotes it. Double-encoding produces rows
    nothing can read.
 
-### Known gap
+### The staged / server-side commit path refuses, rather than degrading
 
-The **server-side commit path** (`ducklake_server_side_commit.cpp`) builds its
-commit context without a catalog, so `context.catalog` is null there and the
-crypta provider is unreachable. On that path keys would be written **plaintext**.
-The read side refuses them, so it fails loudly rather than silently - but it is
-not supported yet and must not be used with crypta until the provider is threaded
-through that context.
+`ducklake_commit()` runs as a table function against the metadata schema alone,
+with no attached DuckLake catalog and therefore no reachable crypta provider - so
+the wrap cannot happen there. It has to happen at **staging** time, in
+`DuckLakeStagedCommit::Build`, which does have the transaction and the catalog.
+
+It does not happen there: the `Emit*` helpers serialise `file.encryption_key`
+through the upstream plaintext encoder `DuckLakeUtil::EncryptionKeyLiteral`. Left
+alone, a crypta-configured lake committed this way would write **plaintext keys**
+into `ducklake_data_file`, silently, because the rows look ordinary. The read side
+would later refuse them - but by then the plaintext keys are committed and have
+reached every replica, WAL archive and backup of the catalog.
+
+So `Build` **throws** when `CryptaProvider()` is set. Placement matters: it is the
+single point where this is preventable rather than merely detectable.
+
+Supporting it properly means threading the identity through `EmitDataFiles` /
+`EmitDeleteFiles` / `EmitCompactions` and wrapping against the staged stored path
+(`file.file_name`, staged with `path_is_relative = false` - note that differs from
+the regular path, which stores a resolved-or-relative path). That is mechanical.
+
+**Honest limit on the guard:** it compiles, and its only caller is
+`QuackMetadataManager::FlushChangesServerSide` (verified by grep - nothing else
+constructs a `DuckLakeStagedCommit`). It has **not been executed**, because
+`quack` is a metadata backend absent from this tree, so there is no way to reach
+that path here. What is proven is that the full suite still passes with it in
+place, i.e. it does not fire on a non-crypta lake. Whether it fires correctly on a
+quack lake is untested.
 
 ## Two findings about `ENCRYPTED` itself - read these
 
@@ -135,18 +156,33 @@ counts rows does not exercise decryption at all. Always read real columns
 
 ## The proof, and how to re-run it
 
-`scripts/mvp_crypta_proof.sh` documents the sequence. The socket is shared
-between the two containers over a **named Docker volume**, not a bind mount -
-macOS bind mounts do not carry Unix sockets.
+`scripts/mvp_crypta_proof.sh` runs the whole matrix - all eight steps, no manual
+follow-up. The socket is shared between the two containers over a **named Docker
+volume**, not a bind mount: macOS bind mounts do not carry Unix sockets, and the
+failure is a confusing ENOENT.
 
-Verified results:
+Observed, from `sh scripts/mvp_crypta_proof.sh`:
 
-| case | outcome |
-|---|---|
-| write + genuine read, crypta up | 2000 rows, checksum 1999000 |
-| catalog contents | 208-char wrapped blob (`RExL...` = `DLK1`), not a 24-char key |
-| crypta stopped | ATTACH refused: "cannot reach the crypta key service ... an encrypted DuckLake cannot be read without it" |
-| crypta restarted | reads again, checksum 1999000 |
-| key rows swapped between two files (md5-proven) | `unwrap failed: not valid for this KEK and file identity` |
-| wrong `CRYPTA_LAKE_ID` | `unwrap failed` - compartments are isolated |
-| blob replaced with a plaintext key | refused, with the downgrade explained |
+| # | case | outcome |
+|---|---|---|
+| 1-2 | write + genuine read, crypta up | checksum 1999000, sample `NHS-0` |
+| 3 | crypta stopped | ATTACH refused: "cannot reach the crypta key service ... an encrypted DuckLake cannot be read without it" |
+| 4 | crypta restarted, KEK **recovered** | reads again, checksum 1999000 |
+| 5 | what the catalog holds | `len 208`, `magic RExL` - a wrapped blob, not a 24-char key |
+| 6 | wrong `CRYPTA_LAKE_ID` | `unwrap failed` - compartments are isolated |
+| 7 | key rows swapped between two files (md5-proven both ways) | `unwrap failed: not valid for this KEK and file identity` |
+| 8 | blob replaced with a plaintext key | refused, with the downgrade explained |
+
+**Step 4 is the one to be careful with, and it caught us.** An earlier version of
+the script re-initialised the SoftHSM token and re-provisioned on every container
+start, so "restart" minted a **brand-new KEK** - under which the existing wrapped
+blobs correctly refuse to unwrap. The step failed, and it was right to fail: the
+test was wrong, not the code. The token and the root-wrapped KEK blob now live on
+a named volume (`crypta-mvp-state`) so a restart genuinely recovers the same KEK
+via `C_Decrypt`; crypta's own log distinguishes the two cases
+("provisioned a new root of trust" vs "recovering the existing KEK from the root
+of trust"), and step 4 must show the second one.
+
+A restart that silently regenerates the KEK proves nothing about restart
+behaviour and would mask a real KEK-persistence bug. Do not "simplify" the state
+volume away.
