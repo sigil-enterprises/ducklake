@@ -12,13 +12,25 @@
 #
 # Mirrors .github/workflows/MainDistributionPipeline.yml:
 #   - ubuntu-22.04 runners
-#   - vcpkg pinned at a42af01b72c28a8e1d7b48107b33e4f286a55ef6
+#   - vcpkg pinned at 84bab45d415d22042bd0b9081aea57f362da3f35
 #   - ccache
 # The vcpkg commit is pinned to the SAME sha as CI on purpose: a local build that
 # resolves a different `roaring` than CI is a local build that proves nothing.
+#
+# CI uses TWO vcpkg shas, and the choice here matters. The GCC-12 compatibility
+# job pins a42af01b..., but that job builds the extension with NO extension test
+# deps. The relassert job pins 84bab45d..., which is also the `builtin-baseline`
+# that duckdb's own merge_vcpkg_deps.py writes into the generated manifest.
+#
+# So a42af01b cannot build with BUILD_EXTENSION_TEST_DEPS=full at all: the merged
+# manifest asks for curl 8.17.0 / openssl 3.6.0 / roaring 4.5.0 and that older
+# version database has no entry for any of them. We need the full deps, because
+# httpfs is what supplies the real mbedtls crypto module for encrypted Parquet -
+# without it the proof has to fall back to `force_mbedtls_unsafe`, a setting this
+# repo otherwise declares forbidden.
 FROM ubuntu:22.04
 
-ARG VCPKG_COMMIT=a42af01b72c28a8e1d7b48107b33e4f286a55ef6
+ARG VCPKG_COMMIT=84bab45d415d22042bd0b9081aea57f362da3f35
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
