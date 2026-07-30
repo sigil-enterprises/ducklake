@@ -32,6 +32,11 @@ static void HandleDuckLakeOption(DuckLakeOptions &options, const string &option,
 		} else {
 			options.encryption = DuckLakeEncryption::UNENCRYPTED;
 		}
+	} else if (lcase == "crypta_socket") {
+		// PRIVATE-FORK ONLY. Turns on envelope encryption of the per-file keys.
+		options.crypta_socket = value.ToString();
+	} else if (lcase == "crypta_lake_id") {
+		options.crypta_lake_id = value.ToString();
 	} else if (lcase == "data_inlining_row_limit") {
 		options.config_options["data_inlining_row_limit"] = value.DefaultCastAs(LogicalType::UBIGINT).ToString();
 	} else if (lcase == "snapshot_version") {

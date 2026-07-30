@@ -9,6 +9,8 @@
 #pragma once
 
 #include "common/ducklake_encryption.hpp"
+// PRIVATE-FORK ONLY: crypta envelope encryption. Not upstream-eligible.
+#include "crypta/ducklake_crypta.hpp"
 #include "common/ducklake_options.hpp"
 #include "common/ducklake_name_map.hpp"
 #include "duckdb/catalog/catalog.hpp"
@@ -188,6 +190,17 @@ public:
 		return Encryption() == DuckLakeEncryption::ENCRYPTED;
 	}
 
+	//! PRIVATE-FORK ONLY (crypta envelope encryption). Not upstream-eligible.
+	//! The envelope provider for this lake, or nullptr when crypta_socket was not
+	//! set - in which case the encryption_key column holds a plaintext key
+	//! exactly as upstream, and nothing in the crypta path runs.
+	optional_ptr<DuckLakeCryptaProvider> CryptaProvider() const {
+		return crypta_provider.get();
+	}
+	//! Build a file identity for the crypta binding. `stored_path` must be the
+	//! path AS PERSISTED in the catalog, not one resolved against the data path.
+	CryptaFileIdentity CryptaIdentity(TableIndex table_id, const string &stored_path, bool is_delete_file) const;
+
 	bool IsCommitInfoRequired() const {
 		auto require = GetConfigOption<string>("require_commit_message", {}, {}, "false");
 		return require == "true";
@@ -293,6 +306,8 @@ private:
 	mutable mutex config_lock;
 	//! The DuckLake options
 	DuckLakeOptions options;
+	//! PRIVATE-FORK ONLY: envelope key provider, null unless crypta_socket is set.
+	unique_ptr<DuckLakeCryptaProvider> crypta_provider;
 	//! The path separator
 	string separator = "/";
 	//! A unique tracker for catalog changes in uncommitted transactions.

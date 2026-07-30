@@ -1021,7 +1021,7 @@ string DuckLakeMetadataManager::GetDeleteFileSelectList(const string &prefix) {
 
 template <class T>
 DuckLakeFileData DuckLakeMetadataManager::ReadDataFile(DuckLakeTableEntry &table, T &row, idx_t &col_idx,
-                                                       bool is_encrypted) {
+                                                       bool is_encrypted, bool is_delete_file) {
 	DuckLakeFileData data;
 	if (row.IsNull(col_idx)) {
 		// file is not there
@@ -1046,7 +1046,21 @@ DuckLakeFileData DuckLakeMetadataManager::ReadDataFile(DuckLakeTableEntry &table
 			throw InvalidInputException("Database is encrypted, but file %s does not have an encryption key",
 			                            data.path);
 		}
-		data.encryption_key = Blob::FromBase64(row.template GetValue<string>(col_idx++));
+		auto stored_key = row.template GetValue<string>(col_idx++);
+		// PRIVATE-FORK ONLY: crypta envelope encryption.
+		//
+		// THE unwrap choke point - every read of every encrypted file funnels
+		// through here. The identity is built from the path AS STORED (`path.path`
+		// above, before FromRelativePath resolved it into `data.path`) plus the
+		// table id and the file kind, and crypta verifies it. A key row moved from
+		// one file onto another therefore fails here rather than decrypting.
+		auto crypta = transaction.GetCatalog().CryptaProvider();
+		if (crypta) {
+			auto identity = transaction.GetCatalog().CryptaIdentity(table.GetTableId(), path.path, is_delete_file);
+			data.encryption_key = crypta->UnwrapKey(identity, stored_key);
+		} else {
+			data.encryption_key = Blob::FromBase64(string_t(stored_key));
+		}
 	}
 	return data;
 }
@@ -1054,7 +1068,10 @@ DuckLakeFileData DuckLakeMetadataManager::ReadDataFile(DuckLakeTableEntry &table
 template <class T>
 DuckLakeFileData DuckLakeMetadataManager::ReadDeleteFile(DuckLakeTableEntry &table, T &row, idx_t &col_idx,
                                                          bool is_encrypted) {
-	auto data = ReadDataFile(table, row, col_idx, is_encrypted);
+	// Delete files bind with file_kind=delete: they have their own id space and
+	// their own catalog table, so their key rows must not be interchangeable with
+	// data-file rows.
+	auto data = ReadDataFile(table, row, col_idx, is_encrypted, true);
 	if (!row.IsNull(col_idx)) {
 		data.format = DeleteFileFormatFromString(row.template GetValue<string>(col_idx));
 	}
@@ -3534,8 +3551,20 @@ string DuckLakeMetadataManager::WriteNewDataFilesWithAppender(DuckLakeSnapshot &
 			data_file_appender.Append(Value());
 		}
 		if (!file.encryption_key.empty()) {
-			data_file_appender.Append<string_t>(
-			    string_t(Blob::ToBase64(string_t(file.encryption_key)))); // encryption_key
+			// PRIVATE-FORK ONLY: crypta envelope encryption. The appender path writes
+			// one file at a time, so this is a per-file call - the batch shape is not
+			// available here without restructuring the appender loop.
+			auto crypta_appender = transaction.GetCatalog().CryptaProvider();
+			if (crypta_appender) {
+				auto identity = transaction.GetCatalog().CryptaIdentity(file.table_id, path.path, false);
+				vector<CryptaFileIdentity> identities {identity};
+				vector<string> keys {file.encryption_key};
+				auto wrapped = crypta_appender->WrapKeys(identities, keys);
+				data_file_appender.Append<string_t>(string_t(wrapped[0])); // encryption_key (wrapped)
+			} else {
+				data_file_appender.Append<string_t>(
+				    string_t(Blob::ToBase64(string_t(file.encryption_key)))); // encryption_key
+			}
 		} else {
 			data_file_appender.Append(Value());
 		}
@@ -3724,10 +3753,11 @@ string DuckLakeMetadataManager::WriteNewDataFiles(DuckLakeSnapshot &commit_snaps
 	for (auto &file : new_files) {
 		resolved_paths.push_back(GetRelativePath(file.table_id, file.file_name, new_tables, new_schemas_result));
 	}
-	return WriteNewDataFilesSqlBatch(new_files, resolved_paths);
+	return WriteNewDataFilesSqlBatch(&transaction.GetCatalog(), new_files, resolved_paths);
 }
 
-string DuckLakeMetadataManager::WriteNewDataFilesSqlBatch(const vector<DuckLakeFileInfo> &new_files,
+string DuckLakeMetadataManager::WriteNewDataFilesSqlBatch(optional_ptr<const DuckLakeCatalog> catalog,
+                                                          const vector<DuckLakeFileInfo> &new_files,
                                                           const vector<DuckLakePath> &resolved_paths) {
 	if (new_files.empty()) {
 		return string();
@@ -3737,6 +3767,36 @@ string DuckLakeMetadataManager::WriteNewDataFilesSqlBatch(const vector<DuckLakeF
 	string column_stats_insert_query;
 	string variant_stats_insert_query;
 	string partition_insert_query;
+
+	// PRIVATE-FORK ONLY: crypta envelope encryption.
+	//
+	// Wrapped up front, for the whole commit, in ONE call - the files are already
+	// in a vector here, so batching costs nothing and per-file round trips are
+	// avoided entirely on the write path.
+	vector<string> crypta_wrapped_keys;
+	optional_ptr<DuckLakeCryptaProvider> crypta = catalog ? catalog->CryptaProvider() : nullptr;
+	if (crypta) {
+		vector<CryptaFileIdentity> identities;
+		vector<string> keys;
+		for (idx_t i = 0; i < new_files.size(); i++) {
+			if (new_files[i].encryption_key.empty()) {
+				continue;
+			}
+			identities.push_back(catalog->CryptaIdentity(new_files[i].table_id, resolved_paths[i].path, false));
+			keys.push_back(new_files[i].encryption_key);
+		}
+		auto wrapped = crypta->WrapKeys(identities, keys);
+		// Re-expand to be positionally aligned with new_files, so the loop below can
+		// index it directly. Files with no key keep an empty entry.
+		crypta_wrapped_keys.resize(new_files.size());
+		idx_t next = 0;
+		for (idx_t i = 0; i < new_files.size(); i++) {
+			if (new_files[i].encryption_key.empty()) {
+				continue;
+			}
+			crypta_wrapped_keys[i] = wrapped[next++];
+		}
+	}
 
 	for (idx_t i = 0; i < new_files.size(); i++) {
 		auto &file = new_files[i];
@@ -3750,7 +3810,8 @@ string DuckLakeMetadataManager::WriteNewDataFilesSqlBatch(const vector<DuckLakeF
 		    file.begin_snapshot.IsValid() ? to_string(file.begin_snapshot.GetIndex()) : "{SNAPSHOT_ID}";
 		auto data_file_index = file.id.index;
 		auto table_id = file.table_id.index;
-		auto encryption_key = DuckLakeUtil::EncryptionKeyLiteral(file.encryption_key);
+		auto encryption_key = crypta ? DuckLakeUtil::WrappedEncryptionKeyLiteral(crypta_wrapped_keys[i])
+		                            : DuckLakeUtil::EncryptionKeyLiteral(file.encryption_key);
 		string partial_max = DuckLakeUtil::OptionalIdxOrNull(file.max_partial_file_snapshot);
 		string footer_size = DuckLakeUtil::OptionalIdxOrNull(file.footer_size);
 		string mapping = DuckLakeUtil::MappingIdOrNull(file.mapping_id);
@@ -3868,7 +3929,8 @@ WHERE delete_file_id IN (%s);
 	return batch_query;
 }
 
-string DuckLakeMetadataManager::WriteNewDeleteFiles(const vector<DuckLakeDeleteFileInfo> &new_files,
+string DuckLakeMetadataManager::WriteNewDeleteFiles(optional_ptr<const DuckLakeCatalog> catalog,
+                                                    const vector<DuckLakeDeleteFileInfo> &new_files,
                                                     const vector<DuckLakePath> &resolved_paths) {
 	if (new_files.empty()) {
 		return {};
@@ -3876,6 +3938,31 @@ string DuckLakeMetadataManager::WriteNewDeleteFiles(const vector<DuckLakeDeleteF
 	if (resolved_paths.size() != new_files.size()) {
 		throw InternalException("WriteNewDeleteFiles: resolved_paths size mismatch");
 	}
+	// PRIVATE-FORK ONLY: crypta envelope encryption. Same batch-up-front shape as
+	// the data-file path, with file_kind=delete so the bindings cannot be swapped.
+	vector<string> crypta_wrapped_keys;
+	optional_ptr<DuckLakeCryptaProvider> crypta = catalog ? catalog->CryptaProvider() : nullptr;
+	if (crypta) {
+		vector<CryptaFileIdentity> identities;
+		vector<string> keys;
+		for (idx_t i = 0; i < new_files.size(); ++i) {
+			if (new_files[i].encryption_key.empty()) {
+				continue;
+			}
+			identities.push_back(catalog->CryptaIdentity(new_files[i].table_id, resolved_paths[i].path, true));
+			keys.push_back(new_files[i].encryption_key);
+		}
+		auto wrapped = crypta->WrapKeys(identities, keys);
+		crypta_wrapped_keys.resize(new_files.size());
+		idx_t next = 0;
+		for (idx_t i = 0; i < new_files.size(); ++i) {
+			if (new_files[i].encryption_key.empty()) {
+				continue;
+			}
+			crypta_wrapped_keys[i] = wrapped[next++];
+		}
+	}
+
 	string delete_file_insert_query;
 	for (idx_t i = 0; i < new_files.size(); ++i) {
 		auto &file = new_files[i];
@@ -3886,7 +3973,8 @@ string DuckLakeMetadataManager::WriteNewDeleteFiles(const vector<DuckLakeDeleteF
 		auto delete_file_index = file.id.index;
 		auto table_id = file.table_id.index;
 		auto data_file_index = file.data_file_id.index;
-		auto encryption_key = DuckLakeUtil::EncryptionKeyLiteral(file.encryption_key);
+		auto encryption_key = crypta ? DuckLakeUtil::WrappedEncryptionKeyLiteral(crypta_wrapped_keys[i])
+		                            : DuckLakeUtil::EncryptionKeyLiteral(file.encryption_key);
 		// Use explicit begin_snapshot if set (for flush operations), otherwise use commit snapshot
 		string begin_snapshot_str =
 		    file.begin_snapshot.IsValid() ? std::to_string(file.begin_snapshot.GetIndex()) : "{SNAPSHOT_ID}";
