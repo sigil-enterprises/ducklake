@@ -37,13 +37,21 @@ upstream's (it includes `extension-ci-tools/makefiles/duckdb_extension.Makefile`
 ```bash
 git submodule update --init --recursive --depth 1     # once
 docker compose build app
-docker compose run --rm --entrypoint sh app -c 'make release'   # 30-70 min cold, minutes warm
-docker compose run --rm --entrypoint sh app -c 'make test'
+# BUILD_EXTENSION_TEST_DEPS=full statically links httpfs, which is what supplies
+# the real mbedtls crypto module for encrypted Parquet. Without it, encrypted
+# writes fail closed and the only way forward is the forbidden
+# force_mbedtls_unsafe - so build the deps, do not weaken the cipher.
+docker compose run --rm --entrypoint bash app -lc 'BUILD_EXTENSION_TEST_DEPS=full make release'
+docker compose run --rm --entrypoint bash app -lc './build/release/test/unittest "test/sql/*"'
 ```
 
-vcpkg is pinned to `a42af01b72c28a8e1d7b48107b33e4f286a55ef6` - the **same sha as
-CI**. Do not float it: a local build resolving a different `roaring` than CI
-proves nothing.
+Note the entrypoint override: the image's entrypoint is `make`, so
+`docker compose run app <target>` works but `... app bash -lc '...'` needs
+`--entrypoint bash`.
+
+vcpkg is pinned to `84bab45d415d22042bd0b9081aea57f362da3f35`. Do not float it,
+and do not "correct" it to the other sha in CI - see the `httpfs` note under the
+`ENCRYPTED` findings for why that one cannot build the full deps.
 
 The image builds **native**, so arm64 on an Apple Silicon workstation vs amd64 in
 CI. Deliberate: forcing amd64 locally means QEMU and an all-day build for a binary
@@ -147,7 +155,26 @@ both are on issue #1 with the reproductions.
 2. **Encrypted Parquet writes require `httpfs`** (the full mbedtls crypto
    module). Without it the write fails closed, which is right. But
    `force_mbedtls_unsafe` exists and would produce a lake that claims encryption
-   while not being securely encrypted. Treat that setting as forbidden.
+   while not being securely encrypted. **Treat that setting as forbidden**, and do
+   not reach for it to get a local build working - build `httpfs` instead:
+
+   ```sh
+   docker compose run --rm --entrypoint bash app -lc 'BUILD_EXTENSION_TEST_DEPS=full make release'
+   ```
+
+   This needs the vcpkg pin in `.devcontainer/Dockerfile` to be
+   `84bab45d415d22042bd0b9081aea57f362da3f35`, not the other sha CI uses. CI has
+   two: the GCC-12 compatibility job pins `a42af01b...` and builds with **no**
+   extension deps, while the relassert job pins `84bab45d...`, which is also the
+   `builtin-baseline` duckdb's own `merge_vcpkg_deps.py` writes into the generated
+   manifest. Under `a42af01b` the full-deps build cannot configure at all - the
+   merged manifest asks for curl 8.17.0 / openssl 3.6.0 / roaring 4.5.0 and that
+   older version database has no entry for any of them.
+
+   The proof script used to set `force_mbedtls_unsafe` for exactly this reason. It
+   no longer does, and must not again: a lake that claims encryption while running
+   a deliberately unsafe cipher is the vacuous-green outcome the envelope exists to
+   prevent, and a proof is the last place to accept one.
 
 Note for reproducing: `SELECT count(*)` on a DuckLake table is answered from
 `record_count` in the catalog and **never touches the Parquet file**. A test that
@@ -161,7 +188,8 @@ follow-up. The socket is shared between the two containers over a **named Docker
 volume**, not a bind mount: macOS bind mounts do not carry Unix sockets, and the
 failure is a confusing ENOENT.
 
-Observed, from `sh scripts/mvp_crypta_proof.sh`:
+Observed, from `sh scripts/mvp_crypta_proof.sh`, against the **real** Parquet
+cipher (no `force_mbedtls_unsafe`):
 
 | # | case | outcome |
 |---|---|---|
@@ -172,6 +200,11 @@ Observed, from `sh scripts/mvp_crypta_proof.sh`:
 | 6 | wrong `CRYPTA_LAKE_ID` | `unwrap failed` - compartments are isolated |
 | 7 | key rows swapped between two files (md5-proven both ways) | `unwrap failed: not valid for this KEK and file identity` |
 | 8 | blob replaced with a plaintext key | refused, with the downgrade explained |
+
+Regression suite alongside it: **18943 assertions in 506 test cases, 0 failures**,
+13 skipped. Worth noting against the earlier figure of 18818 / 498 / 21: building
+`httpfs` did not just remove the unsafe flag, it un-skipped **8 test cases** that
+had been silently sitting out for want of the extension. A skip is not a pass.
 
 **Step 4 is the one to be careful with, and it caught us.** An earlier version of
 the script re-initialised the SoftHSM token and re-provisioned on every container

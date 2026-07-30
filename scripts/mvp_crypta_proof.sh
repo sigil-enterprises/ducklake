@@ -10,13 +10,19 @@
 # The socket is shared over a NAMED DOCKER VOLUME, not a bind mount: macOS bind
 # mounts do not carry Unix sockets, and the failure is a confusing ENOENT.
 #
-# NOTE on force_mbedtls_unsafe below: it is set because a locally built DuckDB
-# reports version v0.0.1, so `INSTALL httpfs` 404s against the extension
-# repository and the full mbedtls crypto module is unavailable. It weakens the
-# PARQUET cipher only. The envelope path under test - key generated -> wrapped by
-# crypta -> stored -> unwrapped by crypta -> handed to the Parquet reader - is
-# completely unaffected. Do NOT copy this flag into anything that is not this test;
-# see .claude/README.md.
+# This proof uses the REAL Parquet cipher. It does not set
+# `force_mbedtls_unsafe`, and it must never be changed to.
+#
+# That flag was used here once, because a locally built DuckDB reports v0.0.1 so
+# `INSTALL httpfs` 404s against the extension repository, leaving the full mbedtls
+# crypto module unavailable. The honest fix is to BUILD httpfs rather than to
+# weaken the cipher: the devcontainer now pins the vcpkg sha that can resolve the
+# full extension deps, so `BUILD_EXTENSION_TEST_DEPS=full make release` statically
+# links httpfs and the flag is unnecessary.
+#
+# It matters that this proof runs unweakened. A lake that claims encryption while
+# using a deliberately unsafe cipher is precisely the vacuous-green outcome the
+# envelope exists to prevent, and a proof script is the last place to accept one.
 set -eu
 
 CRYPTA_REPO=${CRYPTA_REPO:-../crypta}
@@ -75,7 +81,6 @@ ATTACH_OPTS="DATA_PATH '/lake/data/', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0,
 
 emit() { # $1 = file, $2 = body
 	{
-		echo "SET force_mbedtls_unsafe='true';"
 		echo "ATTACH 'ducklake:/lake/meta.db' AS lake ($ATTACH_OPTS);"
 		echo "$2"
 	} > "$SCRATCH/$1"
@@ -94,7 +99,6 @@ emit inspect.sql "SELECT length(encryption_key) AS len, substr(encryption_key,1,
 # of the binding and not decoration: keys do not travel between compartments even
 # with the same KEK and the same root of trust.
 {
-	echo "SET force_mbedtls_unsafe='true';"
 	echo "ATTACH 'ducklake:/lake/meta.db' AS lake (DATA_PATH '/lake/data/', ENCRYPTED,"
 	echo "    DATA_INLINING_ROW_LIMIT 0, CRYPTA_SOCKET '/run/crypta/crypta.sock',"
 	echo "    CRYPTA_LAKE_ID 'teras-WRONG');"
