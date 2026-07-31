@@ -11,7 +11,8 @@
 # does, and nothing else.
 #
 # Mirrors .github/workflows/MainDistributionPipeline.yml:
-#   - ubuntu-22.04 runners
+#   - ubuntu-22.04 base, but with GCC 14 (see the compiler note below - upstream
+#     builds Linux in manylinux_2_28 with GCC 14.2.1, and this branch needs it)
 #   - vcpkg pinned at 84bab45d415d22042bd0b9081aea57f362da3f35
 #   - ccache
 # The vcpkg commit is pinned to the SAME sha as CI on purpose: a local build that
@@ -48,6 +49,41 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       unzip \
       zip \
  && rm -rf /var/lib/apt/lists/*
+
+# GCC 14, and it is load-bearing on the v1.5.3 branch - not a preference.
+#
+# duckdb v1.5.3 pins `set(CMAKE_CXX_STANDARD "11" ...)` in its top-level
+# CMakeLists (duckdb `main` pins 17). Under -std=c++11, GCC 11.4 and GCC 12.3
+# both REJECT two upstream DuckLake files that return a derived
+# `duckdb::unique_ptr` where the base type is declared:
+#
+#   src/metadata_manager/quack_metadata_manager.cpp:49
+#   src/functions/ducklake_flush_inlined_data.cpp:760
+#
+# `duckdb::unique_ptr` inherits its constructors (`using original::original;`),
+# and the derived-to-base conversion those two returns rely on resolves under
+# GCC 14 but not under 11 or 12. Measured, not assumed: the identical failure
+# reproduces on PRISTINE upstream v1.5-variegata with no fork changes at all,
+# and the same file compiles clean once GCC 14 is used.
+#
+# Upstream's Linux CI does not hit this because it builds inside
+# quay.io/pypa/manylinux_2_28_x86_64 with GCC 14.2.1. Ubuntu 22.04's default
+# toolchain is simply too old for this branch, so we take 14 from the toolchain
+# PPA and pin the compiler explicitly rather than inheriting `cc`/`c++`.
+# gpg-agent + dirmngr are needed explicitly: add-apt-repository imports the PPA
+# signing key through gpg, and --no-install-recommends drops both.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      software-properties-common \
+      gpg-agent \
+      dirmngr \
+ && add-apt-repository -y ppa:ubuntu-toolchain-r/test \
+ && apt-get update && apt-get install -y --no-install-recommends \
+      gcc-14 \
+      g++-14 \
+ && rm -rf /var/lib/apt/lists/*
+
+ENV CC=/usr/bin/gcc-14
+ENV CXX=/usr/bin/g++-14
 
 # vcpkg at the exact CI commit. Bootstrapped at build time so the toolchain file
 # exists in the image and a first build does not pay for it.
