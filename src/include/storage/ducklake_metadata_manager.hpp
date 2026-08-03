@@ -29,6 +29,8 @@
 namespace duckdb {
 class ColumnList;
 class DuckLakeCatalogSet;
+//! PRIVATE-FORK ONLY: crypta envelope encryption reaches the catalog.
+class DuckLakeCatalog;
 class DuckLakeSchemaEntry;
 class DuckLakeTableEntry;
 class DuckLakeTransaction;
@@ -257,7 +259,10 @@ public:
 	//! SQL branch of WriteNewDataFiles, shared with the server-side commit path. Returns SQL with
 	//! {METADATA_CATALOG} / {SNAPSHOT_ID} placeholders. Caller supplies resolved paths (one per file,
 	//! same order) since path policy differs across callers (schema-relative vs. always-absolute).
-	static string WriteNewDataFilesSqlBatch(const vector<DuckLakeFileInfo> &new_files,
+	//! PRIVATE-FORK ONLY: `catalog` supplies the crypta provider. It is optional so
+	//! the server-side commit path can pass nullptr and keep upstream behaviour.
+	static string WriteNewDataFilesSqlBatch(optional_ptr<const DuckLakeCatalog> catalog,
+	                                        const vector<DuckLakeFileInfo> &new_files,
 	                                        const vector<DuckLakePath> &resolved_paths);
 	//! Opt-in fast-path: if this backend supports the DuckDB Appender API, write the files directly
 	bool TryAppendDataFiles(DuckLakeSnapshot &commit_snapshot, const vector<DuckLakeFileInfo> &new_files,
@@ -296,7 +301,9 @@ public:
 	static string DeleteOverwrittenDeleteFiles(const vector<DuckLakeOverwrittenDeleteFile> &overwritten_files,
 	                                           const vector<DuckLakePath> &resolved_paths);
 	//! Caller supplies one resolved path per new delete file, in the same order.
-	static string WriteNewDeleteFiles(const vector<DuckLakeDeleteFileInfo> &new_delete_files,
+	//! PRIVATE-FORK ONLY: `catalog` supplies the crypta provider (may be nullptr).
+	static string WriteNewDeleteFiles(optional_ptr<const DuckLakeCatalog> catalog,
+	                                  const vector<DuckLakeDeleteFileInfo> &new_delete_files,
 	                                  const vector<DuckLakePath> &resolved_paths);
 	static string WriteNewMacros(const vector<DuckLakeMacroInfo> &new_macros);
 
@@ -441,7 +448,8 @@ private:
 	template <class T>
 	static string FlushDrop(const string &metadata_table_name, const string &id_name, const set<T> &dropped_entries);
 	template <class T>
-	DuckLakeFileData ReadDataFile(DuckLakeTableEntry &table, T &row, idx_t &col_idx, bool is_encrypted);
+	DuckLakeFileData ReadDataFile(DuckLakeTableEntry &table, T &row, idx_t &col_idx, bool is_encrypted,
+	                              bool is_delete_file = false);
 	template <class T>
 	DuckLakeFileData ReadDeleteFile(DuckLakeTableEntry &table, T &row, idx_t &col_idx, bool is_encrypted);
 

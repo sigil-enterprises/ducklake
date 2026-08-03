@@ -2,6 +2,7 @@
 
 #include "common/ducklake_data_file.hpp"
 #include "common/ducklake_util.hpp"
+#include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "storage/ducklake_catalog.hpp"
@@ -499,6 +500,41 @@ string DuckLakeStagedCommit::Build(DuckLakeTransaction &transaction, const DuckL
                                    const DuckLakeRetryConfig &retry_config) const {
 	auto &ducklake_catalog = transaction.GetCatalog();
 	auto &local_changes = transaction.GetLocalChanges();
+
+	// PRIVATE-FORK ONLY: crypta envelope encryption. Refuse, do not degrade.
+	//
+	// This path stages every data-file row into a temporary table and then has
+	// ducklake_commit() copy it into the real catalog. ducklake_commit runs as a
+	// table function against the metadata schema alone, with no attached DuckLake
+	// catalog and therefore no reachable crypta provider - so the wrap has to
+	// happen here, at staging time, or not at all.
+	//
+	// It does not happen here: the Emit* helpers below serialise
+	// file.encryption_key through DuckLakeUtil::EncryptionKeyLiteral, which is the
+	// upstream plaintext encoder. Left alone, a crypta-configured lake committed
+	// through this path would write PLAINTEXT keys into ducklake_data_file - the
+	// exact exposure the envelope exists to remove, and silently, because the rows
+	// look ordinary.
+	//
+	// The read side would later refuse those rows (UnwrapKey rejects a value
+	// without the wrapped magic), so the lake would fail closed on read rather than
+	// leak on read. But by then the plaintext keys are already committed and have
+	// already reached every replica, WAL archive and backup of the catalog. A
+	// write-time refusal is the only point where that is preventable.
+	//
+	// Supporting it properly means threading the identity through EmitDataFiles /
+	// EmitDeleteFiles / EmitCompactions and wrapping against the staged stored path
+	// (file.file_name, staged with path_is_relative = false). That is mechanical but
+	// unproven here - there is no staged-commit backend in this tree to run the
+	// substitution and downgrade proofs against - and shipping an untested crypto
+	// write path is worse than refusing one.
+	if (ducklake_catalog.CryptaProvider()) {
+		throw NotImplementedException(
+		    "this DuckLake is configured for crypta envelope encryption (CRYPTA_SOCKET), which the staged "
+		    "server-side commit path does not support - it would write plaintext data-file keys into the catalog. "
+		    "Commit through the regular metadata-manager path, or detach and re-attach without CRYPTA_SOCKET if "
+		    "plaintext keys in the catalog are acceptable for this lake");
+	}
 
 	string batch;
 	batch += DuckLakeStagedTable::CreateAllSql();

@@ -37,6 +37,14 @@ struct DuckLakeOptions {
 	map<SchemaIndex, option_map_t> schema_options;
 	map<TableIndex, option_map_t> table_options;
 	idx_t busy_timeout = 5000;
+
+	//! PRIVATE-FORK ONLY (crypta envelope encryption). Not upstream-eligible.
+	//! Unix socket of the crypta key service. Empty = no envelope, and the
+	//! encryption_key column holds a plaintext key exactly as upstream.
+	string crypta_socket;
+	//! Compartment name that scopes every key in this lake. Required whenever
+	//! crypta_socket is set; without it keys are interchangeable between lakes.
+	string crypta_lake_id;
 };
 
 } // namespace duckdb

@@ -1,0 +1,28 @@
+// PRIVATE fork infrastructure. Not an upstream file - never cherry-pick.
+{
+  "name": "ducklake (sigil fork)",
+  "dockerComposeFile": [
+    "../docker-compose.yaml"
+  ],
+  "service": "app",
+  "workspaceFolder": "/app",
+  "overrideCommand": true,
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+        "ms-vscode.makefile-tools",
+        "llvm-vs-code-extensions.vscode-clangd",
+        "eamodio.gitlens"
+      ],
+      "settings": {
+        "files.trimTrailingWhitespace": true,
+        "files.exclude": {
+          "**/build/": true,
+          "**/duckdb/": true
+        }
+      }
+    }
+  }
+}

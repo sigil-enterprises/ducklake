@@ -1458,6 +1458,8 @@ void DuckLakeTransaction::RunCommitLoop(DuckLakeSnapshot transaction_snapshot,
 		ducklake_catalog.SetCommittedSnapshotId(snapshot_id);
 	};
 	context.commit_info = state->commit_info;
+	// PRIVATE-FORK ONLY: hand the crypta provider to the SQL write helpers.
+	context.catalog = &ducklake_catalog;
 	state->Commit(transaction_snapshot, transaction_changes, retry_config, context);
 }
 
