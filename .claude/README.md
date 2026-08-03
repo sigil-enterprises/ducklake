@@ -219,3 +219,37 @@ of trust"), and step 4 must show the second one.
 A restart that silently regenerates the KEK proves nothing about restart
 behaviour and would mask a real KEK-persistence bug. Do not "simplify" the state
 volume away.
+
+## Installing the built extension - it is pinned to the exact PATCH
+
+A DuckDB extension is loadable **only** by the exact `duckdb` patch it was built
+against. Not the minor - the patch. Measured on 2026-08-03 with the fork
+extension built for v1.5.3, loaded into a stock v1.5.5 CLI:
+
+```
+Invalid Input Error: Failed to load '.../ducklake.duckdb_extension',
+The file was built specifically for DuckDB version 'v1.5.3' and can only be
+loaded with that version of DuckDB. (this version of DuckDB is 'v1.5.5')
+```
+
+Both are 1.5.x. Refused anyway. So "converge the fleet on one DuckDB minor" is
+NOT a convergence criterion - it has to be one exact patch, or the extension has
+to be built and published per patch. Today `luma-server` bundles `=1.10503.1`
+(v1.5.3) while the `lypto` image ships `1.5.5`, so one build cannot serve both.
+Tracked as an open decision on the epic (sigil-enterprises/ducklake#1).
+
+Two more things that bite when installing locally:
+
+- **Install into a SEPARATE extension directory, never `~/.duckdb`.** The fork
+  extension has the same name as the official one and will overwrite it. Use
+  `~/.duckdb-crypta/extensions/v<patch>/<platform>/`. (This was learned the hard
+  way: the official extension was overwritten and had to be restored, then
+  verified byte-identically - the `.info` hash is the md5 of the **`.gz`**, not
+  of the extension binary.)
+- **The fork cannot mint a valid signature.** Extension signatures verify
+  against DuckDB's own key, so a private fork's build is unsigned by
+  construction. `allow_unsigned_extensions` is read at **database configuration
+  time**, so no `SET` can turn it on afterwards - the CLI needs `-unsigned`, and
+  an embedding host has to decide at connection-open. In `luma-server` that is
+  `DataSource::in_memory_with(..., allow_unsigned_extensions)` behind
+  `LUMA_ALLOW_UNSIGNED_EXTENSIONS`, default OFF and fail-closed.
