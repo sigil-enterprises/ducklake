@@ -13,6 +13,9 @@
 
 namespace duckdb {
 
+//! PRIVATE-FORK ONLY: crypta envelope encryption reaches the catalog.
+class DuckLakeCatalog;
+
 struct DuckLakeColumnSchemaEntry {
 	FieldIndex field_index;
 	string column_name;
@@ -97,6 +100,11 @@ struct DuckLakeCommitContext {
 	DuckLakeSnapshotCommit commit_info;
 	//! When true, Commit() skips the post-commit DropEmptySupersededInlinedTables cleanup.
 	bool skip_drop_empty_inlined = false;
+	//! PRIVATE-FORK ONLY: the catalog, when this commit path has one, so the
+	//! crypta envelope provider is reachable from the SQL write helpers. Null on
+	//! the server-side commit path, which is deliberately catalog-free - and which
+	//! is therefore NOT yet supported together with crypta (see .claude/README).
+	optional_ptr<const DuckLakeCatalog> catalog;
 };
 
 //! Holds the per-transaction mutable change state (new/dropped/renamed catalog entries, local file

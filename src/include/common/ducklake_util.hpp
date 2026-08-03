@@ -57,6 +57,8 @@ public:
 	static string MappingIdOrNull(const MappingIndex &m);
 
 	static string EncryptionKeyLiteral(const string &key);
+	//! PRIVATE-FORK ONLY: quote an already-wrapped (base64) crypta blob.
+	static string WrappedEncryptionKeyLiteral(const string &wrapped_base64);
 
 	static const char *BoolLiteral(bool v);
 

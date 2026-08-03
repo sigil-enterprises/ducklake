@@ -436,6 +436,18 @@ string DuckLakeUtil::EncryptionKeyLiteral(const string &key) {
 	return "'" + Blob::ToBase64(string_t(key)) + "'";
 }
 
+// PRIVATE-FORK ONLY: crypta envelope encryption.
+//
+// The already-wrapped form. The blob arrives base64 from crypta, so this only
+// quotes it - deliberately NOT re-encoding, which would double-encode and
+// produce a row nothing can read.
+string DuckLakeUtil::WrappedEncryptionKeyLiteral(const string &wrapped_base64) {
+	if (wrapped_base64.empty()) {
+		return "NULL";
+	}
+	return "'" + wrapped_base64 + "'";
+}
+
 const char *DuckLakeUtil::BoolLiteral(bool v) {
 	return v ? "true" : "false";
 }

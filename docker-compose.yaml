@@ -1,0 +1,22 @@
+# PRIVATE fork infrastructure. Not an upstream file - never cherry-pick.
+#
+# No `container_name:` on purpose: Compose's global namespace collides across
+# projects, and this repo is one of several checkouts on the same machine.
+services:
+  app:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - .:/app
+      # A DuckLake build is 30-70 minutes cold. ccache and the vcpkg binary cache
+      # are what keep the second one short, so both outlive the container.
+      - ducklake-ccache:/ccache
+      - ducklake-vcpkg-cache:/root/.cache/vcpkg
+    environment:
+      CCACHE_DIR: /ccache
+      GEN: ninja
+
+volumes:
+  ducklake-ccache:
+  ducklake-vcpkg-cache:

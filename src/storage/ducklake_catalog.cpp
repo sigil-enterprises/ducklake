@@ -185,9 +185,33 @@ void DuckLakeCatalog::EnsureCommitInfoProvided(const DuckLakeSnapshotCommit &com
 	    "message to false with \"CALL ducklake.set_option('require_commit_message', False)\" '\"");
 }
 
+// PRIVATE-FORK ONLY: crypta envelope encryption.
+CryptaFileIdentity DuckLakeCatalog::CryptaIdentity(TableIndex table_id, const string &stored_path,
+                                                   bool is_delete_file) const {
+	CryptaFileIdentity identity;
+	identity.lake_id = options.crypta_lake_id;
+	identity.table_id = static_cast<int64_t>(table_id.index);
+	identity.is_delete_file = is_delete_file;
+	identity.stored_path = stored_path;
+	return identity;
+}
+
 DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options_p)
     : Catalog(db_p), options(std::move(options_p)), last_uncommitted_catalog_version(TRANSACTION_ID_START),
       instance_id(UUID::ToString(UUID::GenerateRandomUUID())) {
+	// PRIVATE-FORK ONLY: crypta envelope encryption.
+	//
+	// Constructed here, at ATTACH, so a bad socket path or a missing lake id
+	// fails immediately rather than mid-scan. The self-test that proves the
+	// service is actually reachable runs in FinalizeLoad, once the catalog is
+	// usable - throwing from a constructor would leave a half-attached database.
+	if (!options.crypta_socket.empty()) {
+		if (options.encryption == DuckLakeEncryption::UNENCRYPTED) {
+			throw InvalidInputException("crypta_socket was set on an UNENCRYPTED DuckLake - there are no per-file keys "
+			                            "to wrap. Either enable ENCRYPTED or drop crypta_socket");
+		}
+		crypta_provider = make_uniq<DuckLakeCryptaProvider>(options.crypta_socket, options.crypta_lake_id);
+	}
 	// figure out the metadata server type
 	auto entry = options.metadata_parameters.find("type");
 	if (entry != options.metadata_parameters.end()) {
@@ -211,6 +235,15 @@ void DuckLakeCatalog::Initialize(optional_ptr<ClientContext> context, bool load_
 }
 
 void DuckLakeCatalog::FinalizeLoad(optional_ptr<ClientContext> context) {
+	// PRIVATE-FORK ONLY: prove the key service is reachable at ATTACH.
+	//
+	// Without this, a lake with an unreachable crypta attaches cleanly and then
+	// fails on the first read of the first encrypted file - which looks like data
+	// corruption rather than a down dependency. Fail here, where the operator is
+	// still looking at the ATTACH statement.
+	if (crypta_provider) {
+		crypta_provider->SelfTest();
+	}
 	// initialize the metadata database
 	unique_ptr<Connection> con;
 	if (!context) {
