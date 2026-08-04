@@ -167,6 +167,6 @@ dl read.sql | head -3
 echo
 echo "Expected: 1,2,4 succeed with checksum 1999000 (4 after a restart that"
 echo "RECOVERS the KEK, not one that regenerates it); 5 shows a long wrapped"
-echo "blob, not a 24-char key; 3 refuses with 'cannot reach the crypta key"
+echo "blob, not a bare 44-char base64 key; 3 refuses with 'cannot reach the crypta key"
 echo "service'; 6 and 7 refuse with 'unwrap failed'; 8 refuses with the"
 echo "downgrade message."
