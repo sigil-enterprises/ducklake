@@ -1,6 +1,13 @@
 #
 # This workflow calls the main distribution pipeline from DuckDB to build, test and (optionally) release the extension
 #
+# Two deliberate divergences from the stock upstream pipeline, both load-bearing:
+#
+#   1. It builds for EVERY DuckDB patch listed in .github/duckdb-versions, not
+#      one. Extensions are pinned to the exact patch, so a single build cannot
+#      serve a fleet whose consumers sit on different patches.
+#   2. It excludes the platforms this fork does not ship. See exclude_archs.
+#
 name: Main Extension Distribution Pipeline
 on:
   push:
@@ -12,35 +19,73 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  get-duckdb-version:
-    name: Get DuckDB version
+  get-duckdb-versions:
+    name: Get DuckDB versions
     runs-on: ubuntu-latest
     outputs:
-      duckdb_version: ${{ steps.version.outputs.duckdb_version }}
+      versions: ${{ steps.versions.outputs.versions }}
     steps:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: .github
-      - id: version
-        run: echo "duckdb_version=$(cat .github/duckdb-version)" >> $GITHUB_OUTPUT
+      - id: versions
+        name: Read the patch list
+        run: |
+          set -euo pipefail
+          # Strip comments and blanks, emit a JSON array for the matrix.
+          versions=$(grep -vE '^[[:space:]]*(#|$)' .github/duckdb-versions | jq -cRn '[inputs | select(length > 0)]')
+          if [ "$versions" = "[]" ]; then
+            echo "::error::.github/duckdb-versions lists no DuckDB patch - nothing would be built"
+            exit 1
+          fi
+          echo "versions=$versions" >> "$GITHUB_OUTPUT"
+          echo "building for: $versions"
 
-  duckdb-next-build:
+  duckdb-build:
     name: Build extension binaries
-    needs: get-duckdb-version
+    needs: get-duckdb-versions
+    strategy:
+      fail-fast: false
+      matrix:
+        duckdb_version: ${{ fromJSON(needs.get-duckdb-versions.outputs.versions) }}
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
     with:
-      duckdb_version: ${{ needs.get-duckdb-version.outputs.duckdb_version }}
+      duckdb_version: ${{ matrix.duckdb_version }}
       ci_tools_version: v1.5-variegata
       extension_name: ducklake
+      # Windows and wasm are NOT shipped by this fork and are not built.
+      #
+      # Windows: red since at least 2026-07-31, and the cause is outside our
+      # code - vendored duckdb/third_party/fmt against a newer MSVC STL that
+      # dropped stdext::checked_array_iterator. Release v1.5.3-crypta.1 already
+      # shipped 8 assets, all linux and osx, with no Windows binary. Building a
+      # platform we neither ship nor deploy kept the pipeline permanently red,
+      # which trains everyone to ignore it - and that is how a real regression
+      # gets missed.
+      #
+      # wasm: same reasoning, never shipped. The consumers are luma-server,
+      # teras-ext-pgwire and the lypto image - all Linux containers.
+      #
+      # Re-enabling either means deleting it from this list, nothing else.
+      exclude_archs: "windows_amd64;windows_arm64;windows_amd64_mingw;wasm_mvp;wasm_eh;wasm_threads"
+      # Required when the reusable workflow is called more than once in a run -
+      # without it the per-version artifact names collide.
+      artifact_postfix: "-${{ matrix.duckdb_version }}"
 
-  duckdb-next-deploy:
+  duckdb-deploy:
     name: Deploy extension binaries
-    needs: [get-duckdb-version, duckdb-next-build]
+    needs: [get-duckdb-versions, duckdb-build]
+    strategy:
+      fail-fast: false
+      matrix:
+        duckdb_version: ${{ fromJSON(needs.get-duckdb-versions.outputs.versions) }}
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_deploy.yml@v1.5-variegata
     secrets: inherit
     with:
       extension_name: ducklake
-      duckdb_version: ${{ needs.get-duckdb-version.outputs.duckdb_version }}
+      duckdb_version: ${{ matrix.duckdb_version }}
       ci_tools_version: v1.5-variegata
+      exclude_archs: "windows_amd64;windows_arm64;windows_amd64_mingw;wasm_mvp;wasm_eh;wasm_threads"
+      artifact_postfix: "-${{ matrix.duckdb_version }}"
       deploy_latest: ${{ startsWith(github.ref, 'refs/heads/v') || github.ref == 'refs/heads/main' }}
       deploy_versioned: ${{ startsWith(github.ref, 'refs/heads/v') || github.ref == 'refs/heads/main' }}
