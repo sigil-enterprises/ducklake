@@ -1,0 +1,29 @@
+# DuckDB patches this fork builds the extension for - ONE PER LINE.
+#
+# A DuckDB extension loads ONLY under the exact patch it was built against, not
+# the minor. Measured: the build for v1.5.3 loaded into a stock v1.5.5 CLI is
+# refused outright - "The file was built specifically for DuckDB version
+# 'v1.5.3' and can only be loaded with that version of DuckDB". Both are 1.5.x.
+#
+# So "converge the fleet on one minor" is not a convergence criterion. Either
+# every consumer pins one exact patch, or the extension is published per patch.
+# This file is the second option: add a patch here and the pipeline builds and
+# publishes for it, so consumers keep independent upgrade cadences.
+#
+# Current consumers and the patch each needs:
+#   v1.5.3 - luma-server (bundles duckdb =1.10503.1), teras-ext-pgwire
+#   v1.5.5 - the lypto image
+#
+# Removing a line stops publishing for that patch. Do not remove one while a
+# consumer is still pinned to it: they will silently fail to load the extension.
+#
+# NOT the same file as `.github/duckdb-version` (singular), and both are live:
+#   duckdb-version  (singular) - the ONE patch the test workflows check out and
+#                                run the suite against (ConfigTests, Catalogs,
+#                                MinIO, DeletionVectors, NoInline, Debug).
+#   duckdb-versions (plural)   - THIS file: every patch the distribution
+#                                pipeline builds and publishes for.
+# Keep the singular value present in this list, or the fork would publish only
+# patches it never tests.
+v1.5.3
+v1.5.5
