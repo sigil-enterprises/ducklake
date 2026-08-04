@@ -220,6 +220,28 @@ A restart that silently regenerates the KEK proves nothing about restart
 behaviour and would mask a real KEK-persistence bug. Do not "simplify" the state
 volume away.
 
+## The consumption scenario: native Postgres -> encrypted lake -> psql
+
+`scripts/scenario_pg_to_ducklake/` proves the path a client actually takes:
+import a native Postgres database into a lake created `ENCRYPTED`, then read it
+back with a **stock psql** over the Postgres wire. Every claim is asserted, and
+it exits non-zero on any failure. Details and the two buenavista traps that cost
+real time are in that directory's `README.md`; the two worth knowing before
+touching any pgwire gateway:
+
+- buenavista 0.5.0 **silently refuses every non-loopback client** in
+  `verify_request()`, which runs before the handler - no log, no traceback, and
+  the client sees only "server closed the connection unexpectedly". Any
+  containerised gateway must set `BUENAVISTA_HOST`, which removes its only
+  default access control, so real auth has to replace it.
+- buenavista runs `SET search_path='main'` on **every new session**, discarding
+  the `USE lake` done on the parent connection. Fixed by overriding the session
+  factory, not by a connection-level setting.
+
+The features are sigil's; installation and the key dance are declared in
+opvance. Kept deliberately in step with `opvance/teras-ext-pgwire` - a scenario
+that passed with a client the real gateway rejects would prove nothing.
+
 ## Installing the built extension - it is pinned to the exact PATCH
 
 A DuckDB extension is loadable **only** by the exact `duckdb` patch it was built
