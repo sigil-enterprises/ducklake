@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Mutants of the crypta envelope provider, one per refusal guard.
+Mutants of the crypta refusal guards, one per guard.
 
 PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
 
@@ -15,16 +15,51 @@ names the test cases that must go red because of it.
 That is the positive control for an absence assertion: prove the check fires on
 a known-bad build before believing its clean run.
 
-Each mutant edits a COPY of `src/crypta/`, never the tree. Nothing here can
-change what ships; the copy is handed to the standalone test project through
-`-DCRYPTA_SRC_DIR`.
+TWO ROSTERS, ONE VOCABULARY
+---------------------------
+Every mutant, in either roster, is the same record: `{name, file, why, old, new,
+reddens}`, `old` matched EXACTLY and required to occur EXACTLY once, `reddens`
+naming the test cases that must go red. `spec` and `count` answer for a mutant in
+either roster, and both rosters share one substitution routine, so there is one
+mechanism here and not two. What differs is the BUILD a mutant needs, and that is
+the only reason they are separate lists:
+
+  MUTANTS            the crypta client and provider - `src/crypta/`. Each mutant
+                     edits a COPY of that directory, never the tree, and the copy
+                     is handed to the STANDALONE test project through
+                     `-DCRYPTA_SRC_DIR`. Nothing here can change what ships, and
+                     a mutant costs seconds. Driven by
+                     `test/cpp/crypta/run_crypta_tests.sh --mutants`, in the
+                     per-PR gate.
+
+  EXTENSION_MUTANTS  guards in `src/storage/` and `src/functions/` - ATTACH- and
+                     read-time refusals that live in full-extension files. The
+                     standalone project compiles two files and cannot reach them;
+                     pulling `ducklake_catalog.cpp` into it would drag in the
+                     whole catalog layer. So these are applied IN THE TREE and
+                     the whole extension is rebuilt, their `reddens` names
+                     sqllogictest files rather than Catch cases (the unittest
+                     binary is Catch2 too, so the spec and the exactly-N-cases
+                     control are literally the same code), and a mutant costs a
+                     rebuild. Driven by `test/sql/crypta/run_storage_mutants.sh`,
+                     on its own cadence - NOT the per-PR gate.
+
+An in-tree edit is the part that needs care, and `patch`/`unpatch` are built so
+it cannot go unnoticed: `unpatch` is the REVERSE substitution under the same
+exactly-once guard, and the runner refuses to finish unless `git diff` on every
+touched file comes back empty.
 
 Usage
 -----
-  mutants.py list
-  mutants.py names
-  mutants.py apply <name> <destination-dir>
+  mutants.py list [--extension]
+  mutants.py names [--extension]
+  mutants.py files --extension          # the tree files the roster edits
+  mutants.py apply <name> <destination-dir>   # MUTANTS: copy-then-edit
+  mutants.py patch <name> <repo-root>         # EXTENSION_MUTANTS: edit in tree
+  mutants.py unpatch <name> <repo-root>       # EXTENSION_MUTANTS: reverse it
+  mutants.py verify-clean <repo-root>         # no extension mutant is applied
   mutants.py spec  <name>     # the Catch test-spec for the cases it must redden
+  mutants.py count <name>     # how many cases that spec must match
 """
 
 import os
@@ -550,7 +585,216 @@ MUTANTS = [
     },
 ]
 
+# --------------------------------------------------------------------------
+# The FULL-EXTENSION roster - guards the standalone project structurally cannot
+# reach (#45).
+#
+# Same record, same exactly-once guard, same `reddens` contract. Three things
+# about it are worth stating rather than discovering:
+#
+#   1. `file` is a path from the REPO ROOT, not a basename inside src/crypta.
+#      These files are not copied anywhere - there is nowhere to copy them to
+#      that still builds - so `patch` edits the tree and `unpatch` reverses it.
+#   2. `reddens` names sqllogictest FILES. DuckDB's `test/unittest` is a Catch2
+#      binary that registers each .test file as a test case named by its path, so
+#      `catch_spec` and the "spec must match exactly this many cases" control are
+#      the same code doing the same job at a coarser grain. Coarser is the honest
+#      word for it: a sqllogictest file is bigger than a Catch case, so "the file
+#      went red" is weaker evidence than "this case went red". The runner closes
+#      that gap with `redden_at` below.
+#   3. `redden_at` is the one field this roster adds, and it exists because of
+#      that grain. It is a fragment of the FAILING STATEMENT the mutant is
+#      supposed to flip, and the runner requires it in the failure output. Without
+#      it a file that died on its fixture, its ATTACH, or an unrelated assertion
+#      would report RED and be counted as evidence for a guard it never reached.
+#      Matched on the STATEMENT's own text, never on a line number: a line-number
+#      assertion silently retargets the moment anything above it moves.
+#
+# A CALL SITE IS ITS OWN MUTANT. `RefuseWrappedKeyWithoutCrypta` has one body and
+# two callers, and it gets three mutants, not one. A body mutant reddens off
+# EITHER caller, so with only that one a caller whose test had rotted away would
+# stay invisible - the shared-guard blind spot the `cache_key_unprefixed_join`
+# note in the roster above describes from the other side. So each call site is
+# deleted on its own and must redden its own file, and the body mutant is kept as
+# well because deleting a call proves only that the caller CONSULTS the guard and
+# never what the guard ANSWERS.
+EXTENSION_MUTANTS = [
+    {
+        "name": "no_resolved_encryption_check",
+        "file": "src/storage/ducklake_catalog.cpp",
+        "why": "FinalizeLoad's refusal of an ATTACH where crypta was configured "
+               "but the lake RESOLVED to unencrypted (#19). The constructor "
+               "cannot make this call - the DEFAULT is AUTOMATIC, and only the "
+               "initializer resolves it - so without this the ATTACH succeeded, "
+               "the self-test passed, and NOT ONE key was written: the operator "
+               "asked for envelope encryption and got neither an envelope nor "
+               "encryption, silently",
+        "old": '\tif (crypta_provider && Encryption() != DuckLakeEncryption::ENCRYPTED) {',
+        "new": '\tif (false) {',
+        "reddens": ["test/sql/crypta/crypta_config_refusals.test"],
+        # The ATTACH that must stop being refused. It is the file's FIRST
+        # statement after the requires, so a fixture failure cannot counterfeit
+        # it - there is no fixture ahead of it to fail.
+        #
+        # Note what this fragment SKIPS. The .test file writes the path as
+        # `ducklake:__TEST_DIR__/crypta_automatic.db`, but sqllogictest expands
+        # __TEST_DIR__ before echoing the failing statement, so the output reads
+        # `ducklake:duckdb_unittest_tempdir/476/crypta_automatic.db` - with a run
+        # number in it. A marker copied verbatim from the .test file therefore
+        # never matches. Measured: the first run of this roster reported
+        # WRONG-RED on exactly that, which is the redden_at check doing its job on
+        # its own author. `verify_markers` below now refuses the substitution
+        # token outright.
+        "redden_at": "crypta_automatic.db' AS automatic",
+    },
+    {
+        "name": "no_wrapped_key_refusal_body",
+        "file": "src/storage/ducklake_catalog.cpp",
+        "why": "the JUDGEMENT inside RefuseWrappedKeyWithoutCrypta - it keeps "
+               "being called and keeps consulting LooksWrapped, and simply "
+               "answers 'not wrapped' every time. The two call-site mutants below "
+               "prove each caller CONSULTS the guard; only this one proves what "
+               "the guard ANSWERS, and it is the mutant that would survive if the "
+               "predicate itself were inverted or stubbed",
+        "old": '\tif (!CryptaClient::LooksWrapped(stored_key)) {',
+        "new": '\tif (true) {',
+        # Both files, because both call sites go through this body. The runner
+        # verifies the roster PER CASE - it requires each named file to fail, and
+        # each `redden_at` to appear - so a mutant that reddened only one of them
+        # is reported, never absorbed into a combined non-zero status.
+        "reddens": [
+            "test/sql/crypta/crypta_unconfigured_reader_refusal.test",
+            "test/sql/crypta/crypta_flush_unconfigured_refusal.test",
+        ],
+        "redden_at": [
+            "SELECT sum(id) FROM unconfigured.alpha",
+            "CALL ducklake_flush_inlined_data('unconfigured')",
+        ],
+    },
+    {
+        "name": "no_wrapped_key_refusal_on_scan",
+        "file": "src/storage/ducklake_metadata_manager.cpp",
+        "why": "the CALL at the scan site - ReadDataFile's null-provider branch, "
+               "reached exactly when the crypta options were absent from the "
+               "ATTACH. Without it the 208-byte wrapped blob is base64-decoded and "
+               "handed to the Parquet reader AS IF IT WERE A KEY, and mbedtls "
+               "asserts on the length (#20) - fail-closed by accident, and a blob "
+               "whose length happened to be valid would have been TRIED. "
+               "`data.path` and `stored_key` are both used on the next line, so "
+               "the call deletes cleanly with nothing left dangling",
+        "old": '\t\t\ttransaction.GetCatalog().RefuseWrappedKeyWithoutCrypta(data.path, stored_key);',
+        "new": '\t\t\t// MUTANT no_wrapped_key_refusal_on_scan: the call was here.',
+        "reddens": ["test/sql/crypta/crypta_unconfigured_reader_refusal.test"],
+        "redden_at": "SELECT sum(id) FROM unconfigured.alpha",
+    },
+    {
+        "name": "no_wrapped_key_refusal_on_flush",
+        "file": "src/functions/ducklake_flush_inlined_data.cpp",
+        "why": "the CALL at the SECOND decode site - the inlined-deletion flush "
+               "path, which reads a delete-file key with its own hand-written "
+               "query and never passes through ReadDataFile. The original fix "
+               "called ReadDataFile 'THE unwrap choke point'; that was false, and "
+               "this is the site that proves it. `resolved_delete_path` is used "
+               "NOWHERE else, so the call cannot simply be deleted without "
+               "orphaning it - the (void) casts keep the deletion of the CALL the "
+               "only change, exactly as no_error_status_check does above",
+        "old": '\t\t\t\t\t\tcatalog.RefuseWrappedKeyWithoutCrypta(resolved_delete_path, stored_delete_key);',
+        "new": '\t\t\t\t\t\t// MUTANT no_wrapped_key_refusal_on_flush: the call was here.\n'
+               '\t\t\t\t\t\t(void)catalog;\n'
+               '\t\t\t\t\t\t(void)resolved_delete_path;',
+        # ONE file, and that is the finding rather than an omission:
+        # `grep -rn RefuseWrappedKeyWithoutCrypta test/` finds this site named in
+        # exactly one .test file. It is also a file whose state is NOT
+        # constructible from public operations - #25 forbids inlining on a crypta
+        # lake - so the key is PLANTED there on purpose, which the file says in
+        # its own header. That is honest, and it is the whole coverage this call
+        # site has.
+        "reddens": ["test/sql/crypta/crypta_flush_unconfigured_refusal.test"],
+        "redden_at": "CALL ducklake_flush_inlined_data('unconfigured')",
+    },
+]
+
 BY_NAME = {mutant["name"]: mutant for mutant in MUTANTS}
+for _mutant in EXTENSION_MUTANTS:
+    # Names are the roster's public handles - `spec`, `count`, and
+    # ducklake-bench's `control_located_in` all resolve a bare name against BOTH
+    # lists. A duplicate would make which mutant you got depend on list order.
+    if _mutant["name"] in BY_NAME:
+        raise SystemExit("duplicate mutant name across the two rosters: %s" % _mutant["name"])
+    BY_NAME[_mutant["name"]] = _mutant
+
+EXTENSION_BY_NAME = {mutant["name"]: mutant for mutant in EXTENSION_MUTANTS}
+
+
+def redden_markers(mutant):
+    """
+    The failing-statement fragments a mutant must produce, one per named case.
+
+    Normalised to a list the same length as `reddens` so the runner can pair them
+    positionally. A single string is the common case and is written as one.
+    """
+    markers = mutant.get("redden_at")
+    if markers is None:
+        return [None] * len(mutant["reddens"])
+    if isinstance(markers, str):
+        markers = [markers]
+    if len(markers) != len(mutant["reddens"]):
+        raise SystemExit(
+            "mutant %s: %d redden_at marker(s) for %d case(s). One marker per "
+            "case, or none at all - a roster that pairs them by luck is not a "
+            "roster." % (mutant["name"], len(markers), len(mutant["reddens"]))
+        )
+    return markers
+
+
+# sqllogictest's own substitution tokens. A marker is matched against the
+# statement as the RUNNER ECHOES IT, which is after substitution, so a marker
+# carrying one of these can never match - and "can never match" is reported as
+# WRONG-RED, i.e. as a defect in the guard rather than in the roster. Refusing
+# them here turns a confusing red into an obvious one.
+SUBSTITUTED_IN_OUTPUT = ["__TEST_DIR__", "__WORKING_DIRECTORY__", "${"]
+
+
+def verify_markers(mutant):
+    for marker in redden_markers(mutant):
+        if marker is None:
+            continue
+        for token in SUBSTITUTED_IN_OUTPUT:
+            if token in marker:
+                raise SystemExit(
+                    "mutant %s: its redden_at marker contains %s, which "
+                    "sqllogictest EXPANDS before it echoes the failing "
+                    "statement. Copied verbatim from a .test file it can never "
+                    "match, and a marker that can never match reports the guard "
+                    "as broken. Use a fragment of the statement that survives "
+                    "substitution.\n  marker: %s" % (mutant["name"], token, marker)
+                )
+
+
+# Checked at IMPORT, not when `cases` happens to be called. A marker list that
+# had drifted out of step with its `reddens` would otherwise sit there until the
+# one subcommand that reads it ran - and the subcommand that reads it is the one
+# deciding whether a mutant counts as proven.
+for _mutant in EXTENSION_MUTANTS:
+    redden_markers(_mutant)
+    verify_markers(_mutant)
+    # An extension mutant is reversed by substituting `new` back to `old`, so an
+    # EMPTY `new` cannot be reversed: `"".count("")` is one-per-character, the
+    # exactly-once guard reports a five-figure occurrence count, and the mutant
+    # is stuck in the tree. MEASURED, on the first deletion mutant written here -
+    # "occurs 223478 times" - and it is the reason a call-site mutant replaces the
+    # call with a marker comment instead of deleting the line. A standalone mutant
+    # MAY have an empty `new` (`no_backslash_escape` does) because it works on a
+    # throwaway copy and is never reversed; an extension mutant edits the tree, so
+    # it may not.
+    if not _mutant["new"]:
+        raise SystemExit(
+            "extension mutant %s has an empty 'new'. An in-tree mutant is reversed "
+            "by substituting 'new' back to 'old', and the empty string cannot be "
+            "matched exactly once - it would leave the guard deleted in the tree. "
+            "Replace the line with a marker comment rather than deleting it."
+            % _mutant["name"]
+        )
 
 
 def catch_spec(test_names):
@@ -563,10 +807,42 @@ def catch_spec(test_names):
     return ",".join(name.replace("\\", "\\\\").replace(",", "\\,") for name in test_names)
 
 
+def substitute_exactly_once(target, name, old, new):
+    """
+    Rewrite `old` to `new` in `target`, and refuse unless `old` is there exactly
+    once.
+
+    The exactly-once demand is the whole point and it is shared by both rosters
+    deliberately. A pattern that has drifted out of the source would otherwise
+    apply NOTHING, the build would come back unmutated, its tests would pass, and
+    the runner would report that as "the guard was removed and nothing broke" -
+    a survivor that is really a typo. Raising here turns that into a loud error
+    with the file and the count in it.
+    """
+    with open(target, "r") as handle:
+        content = handle.read()
+    occurrences = content.count(old)
+    if occurrences != 1:
+        raise SystemExit(
+            "mutant %s: its pattern occurs %d times in %s, expected exactly 1. "
+            "The source moved under the mutant; fix the pattern rather than "
+            "letting it apply nothing." % (name, occurrences, target)
+        )
+    with open(target, "w") as handle:
+        handle.write(content.replace(old, new))
+
+
 def apply_mutant(name, destination):
     mutant = BY_NAME.get(name)
     if mutant is None:
         raise SystemExit("unknown mutant: %s" % name)
+    if name in EXTENSION_BY_NAME:
+        raise SystemExit(
+            "mutant %s is a FULL-EXTENSION mutant and cannot be copied into the "
+            "standalone project - it lives in %s, which that project does not "
+            "compile. Use `patch`/`unpatch` and run_storage_mutants.sh."
+            % (name, mutant["file"])
+        )
 
     source_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "src", "crypta"))
     if os.path.isdir(destination):
@@ -575,40 +851,128 @@ def apply_mutant(name, destination):
     for filename in SOURCES:
         shutil.copyfile(os.path.join(source_dir, filename), os.path.join(destination, filename))
 
-    target = os.path.join(destination, mutant["file"])
-    with open(target, "r") as handle:
-        content = handle.read()
-    occurrences = content.count(mutant["old"])
-    if occurrences != 1:
-        raise SystemExit(
-            "mutant %s: its pattern occurs %d times in %s, expected exactly 1. "
-            "The source moved under the mutant; fix the pattern rather than "
-            "letting it apply nothing." % (name, occurrences, mutant["file"])
-        )
-    with open(target, "w") as handle:
-        handle.write(content.replace(mutant["old"], mutant["new"]))
+    substitute_exactly_once(os.path.join(destination, mutant["file"]), name, mutant["old"], mutant["new"])
     return destination
+
+
+def extension_target(name, repo_root):
+    mutant = EXTENSION_BY_NAME.get(name)
+    if mutant is None:
+        raise SystemExit(
+            "unknown full-extension mutant: %s (it is %s)"
+            % (name, "a standalone mutant" if name in BY_NAME else "in no roster")
+        )
+    return mutant, os.path.join(os.path.abspath(repo_root), mutant["file"])
+
+
+def patch_extension(name, repo_root):
+    """
+    Apply a full-extension mutant IN THE TREE.
+
+    There is no copy-and-build path here: the guard lives in a file the whole
+    extension is compiled from, so the only build that exercises it is the tree's
+    own. `unpatch` reverses it, the runner traps so an interrupted run still
+    reverses it, and the runner then requires `git diff` to be empty before it
+    will report anything as proven. The tree is the safety net, not this function.
+    """
+    mutant, target = extension_target(name, repo_root)
+    substitute_exactly_once(target, name, mutant["old"], mutant["new"])
+    return target
+
+
+def unpatch_extension(name, repo_root):
+    """
+    Reverse a full-extension mutant - the same substitution, the other way round.
+
+    A reverse substitution rather than a saved backup on purpose: a backup file
+    can be stale, absent, or from a different mutant, and restoring the wrong one
+    is silent. The reverse runs under the same exactly-once guard, so restoring a
+    file that is not in exactly the mutated state is an error rather than a
+    plausible-looking overwrite.
+    """
+    mutant, target = extension_target(name, repo_root)
+    substitute_exactly_once(target, name, mutant["new"], mutant["old"])
+    return target
+
+
+def verify_clean(repo_root):
+    """
+    Assert that NO full-extension mutant is currently applied to the tree.
+
+    Content-based, not `git diff`, and that is forced rather than preferred: this
+    runs inside the devcontainer, and a git WORKTREE checkout has a `.git` FILE
+    pointing at an absolute host path that does not exist in the container, so
+    git there answers "not a git repository" - a check that errors is a check
+    that proves nothing. Reading the source is also the more direct question. Each
+    mutant's `old` is exactly the text it removes, so `old` present exactly once,
+    for every mutant, IS "nothing is applied". Anything else names the mutant that
+    is still in the tree.
+    """
+    problems = []
+    for mutant in EXTENSION_MUTANTS:
+        target = os.path.join(os.path.abspath(repo_root), mutant["file"])
+        with open(target, "r") as handle:
+            occurrences = handle.read().count(mutant["old"])
+        if occurrences != 1:
+            problems.append(
+                "%s: the text it removes occurs %d times in %s, expected 1 - it "
+                "is either still applied, or the source moved under it"
+                % (mutant["name"], occurrences, mutant["file"])
+            )
+    return problems
 
 
 def main(argv):
     if len(argv) < 2:
         raise SystemExit(__doc__)
     command = argv[1]
+    arguments = argv[2:]
+    extension = "--extension" in arguments
+    arguments = [argument for argument in arguments if argument != "--extension"]
+    roster = EXTENSION_MUTANTS if extension else MUTANTS
+
     if command == "names":
-        for mutant in MUTANTS:
+        for mutant in roster:
             print(mutant["name"])
     elif command == "list":
-        for mutant in MUTANTS:
-            print("%-26s %-22s removes %s" % (mutant["name"], mutant["file"], mutant["why"]))
+        for mutant in roster:
+            print("%-32s %-46s removes %s" % (mutant["name"], mutant["file"], mutant["why"]))
+    elif command == "files":
+        # De-duplicated but order-preserving: the runner asserts `git diff` is
+        # empty on each of them before it starts and after it finishes, and two
+        # mutants in the same file must not make it check twice.
+        seen = []
+        for mutant in roster:
+            if mutant["file"] not in seen:
+                seen.append(mutant["file"])
+        for path in seen:
+            print(path)
     elif command == "spec":
-        print(catch_spec(BY_NAME[argv[2]]["reddens"]))
+        print(catch_spec(BY_NAME[arguments[0]]["reddens"]))
     elif command == "count":
         # The runner requires the spec to match exactly this many cases. Counting
         # "more than zero" would let one renamed case in a multi-name list go
         # unproven while the mutant still reddened off the others.
-        print(len(BY_NAME[argv[2]]["reddens"]))
+        print(len(BY_NAME[arguments[0]]["reddens"]))
+    elif command == "cases":
+        # One case per line, paired with the failing-statement fragment it must
+        # produce. TAB-separated because a test name is a path and a marker is
+        # SQL - both can carry spaces, neither carries a tab.
+        mutant = BY_NAME[arguments[0]]
+        for case, marker in zip(mutant["reddens"], redden_markers(mutant)):
+            print("%s\t%s" % (case, marker if marker is not None else ""))
     elif command == "apply":
-        print(apply_mutant(argv[2], argv[3]))
+        print(apply_mutant(arguments[0], arguments[1]))
+    elif command == "patch":
+        print(patch_extension(arguments[0], arguments[1]))
+    elif command == "unpatch":
+        print(unpatch_extension(arguments[0], arguments[1]))
+    elif command == "verify-clean":
+        problems = verify_clean(arguments[0])
+        for problem in problems:
+            print(problem)
+        if problems:
+            raise SystemExit(1)
     else:
         raise SystemExit(__doc__)
 

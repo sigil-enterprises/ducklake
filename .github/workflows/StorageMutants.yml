@@ -1,0 +1,257 @@
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# The red-first evidence for the crypta guards that live in FULL-EXTENSION files
+# (#45) - the ones the cheap standalone mutant harness structurally cannot reach.
+#
+# WHY THIS IS NOT PART OF CryptaRefusals
+# ---------------------------------------
+# Cost, and only cost. The roster is one file and one vocabulary
+# (test/cpp/crypta/mutants.py); the difference is what a mutant costs to run.
+#
+#   CryptaRefusals   35 standalone mutants, each a two-file compile against a
+#                    COPY of src/crypta. Seconds apiece. It runs on every push
+#                    and every pull request, and it should.
+#
+#   this             4 in-tree mutants, each requiring the WHOLE extension to be
+#                    rebuilt - and twice, because the tree is restored and
+#                    rebuilt afterwards so the next mutant's clean control is
+#                    measured against a clean binary. Nine extension builds per
+#                    run.
+#
+# Putting these in the per-PR gate would charge every pull request nine extension
+# builds to re-prove guards that only change when someone edits them. So the
+# trigger is narrow instead of the schedule being loose: this runs ON DEMAND, and
+# AUTOMATICALLY on any push or pull request that TOUCHES its subject - the three
+# source files the roster edits, the three sqllogictest files it requires to
+# redden, the roster, the runner, or this workflow. A gate that fires exactly
+# when its subject moves is not a weaker gate than one that fires always; it is
+# the same gate without the tax. The first step VERIFIES that claim rather than
+# asserting it: it re-derives the subject list from the roster and reds if a path
+# filter below has drifted out of step with it.
+#
+# WHY THERE IS NO CRON
+# --------------------
+# `schedule` runs only on a repository's DEFAULT branch. This fork's default
+# branch is `main`, which tracks upstream duckdb/ducklake and carries none of
+# this - no crypta sources, no roster, no runner. A weekly cron would therefore
+# fire on a branch where every path here is absent, and either no-op or red for a
+# reason that has nothing to do with the guards. `workflow_dispatch` and
+# `repository_dispatch` give the same on-demand cadence from a branch that
+# actually contains the subject.
+#
+# WHY ONE DuckDB PATCH AND NOT THE MATRIX
+# ----------------------------------------
+# CryptaRefusals matrixes over `.github/duckdb-versions` because it measures
+# REFUSAL BEHAVIOUR, and an extension loads only under the exact patch it was
+# built against - so a published patch whose refusals were never executed is a
+# shipped untested refusal. This job measures something else: that DELETING a
+# guard from the source turns a named test red. That is a property of the source
+# and the test, not of the DuckDB patch underneath, and CryptaRefusals already
+# runs these same .test files against every published patch. Matrixing here would
+# double a multi-hour job to re-prove the same source-level deletion. So it pins
+# `.github/duckdb-version` (singular) - the one patch the fork's test workflows
+# run against.
+
+name: Storage-Layer Mutants
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+  pull_request:
+    paths:
+      - 'src/storage/ducklake_catalog.cpp'
+      - 'src/storage/ducklake_metadata_manager.cpp'
+      - 'src/functions/ducklake_flush_inlined_data.cpp'
+      - 'test/sql/crypta/crypta_config_refusals.test'
+      - 'test/sql/crypta/crypta_unconfigured_reader_refusal.test'
+      - 'test/sql/crypta/crypta_flush_unconfigured_refusal.test'
+      - 'test/cpp/crypta/mutants.py'
+      - 'test/sql/crypta/run_storage_mutants.sh'
+      - 'test/sql/crypta/fake_crypta.py'
+      - '.devcontainer/Dockerfile'
+      - '.github/workflows/StorageMutants.yml'
+  # Push is restricted to the long-lived branches on purpose. For a branch in
+  # this same repo BOTH `push` and `pull_request` fire, their concurrency groups
+  # differ so neither cancels the other, and every PR push would build the
+  # extension nine times TWICE. CryptaRefusals records the same measurement.
+  push:
+    branches: [main, 'release/**']
+    paths:
+      - 'src/storage/ducklake_catalog.cpp'
+      - 'src/storage/ducklake_metadata_manager.cpp'
+      - 'src/functions/ducklake_flush_inlined_data.cpp'
+      - 'test/sql/crypta/crypta_config_refusals.test'
+      - 'test/sql/crypta/crypta_unconfigured_reader_refusal.test'
+      - 'test/sql/crypta/crypta_flush_unconfigured_refusal.test'
+      - 'test/cpp/crypta/mutants.py'
+      - 'test/sql/crypta/run_storage_mutants.sh'
+      - 'test/sql/crypta/fake_crypta.py'
+      - '.devcontainer/Dockerfile'
+      - '.github/workflows/StorageMutants.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' || github.sha }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  storage-mutants:
+    name: Storage-Layer Mutants
+    runs-on: ubuntu-latest
+    # Nine extension builds. Cold, the first one alone is 30-70 minutes; the rest
+    # are incremental and ccache carries them.
+    timeout-minutes: 240
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: 'true'
+
+      # The trigger's own positive control, and it runs FIRST so a drifted filter
+      # costs seconds rather than two hours.
+      #
+      # A path-filtered workflow has a specific way of going quietly wrong: a
+      # mutant is added for a fourth source file, nobody updates `paths:`, and the
+      # gate silently stops firing for the file it was added to cover. Nothing
+      # fails - the job just never runs, which is indistinguishable from green.
+      # So the subject list is RE-DERIVED from the roster here and every entry has
+      # to be present in this file's filters.
+      - name: The path filters must cover every file the roster depends on
+        run: |
+          set -euo pipefail
+          workflow=.github/workflows/StorageMutants.yml
+          subjects="$(
+            python3 test/cpp/crypta/mutants.py files --extension
+            for mutant in $(python3 test/cpp/crypta/mutants.py names --extension); do
+              python3 test/cpp/crypta/mutants.py cases "${mutant}" | cut -f1
+            done
+          )"
+          subjects="$(sort -u <<< "${subjects}")"
+          if [ -z "${subjects}" ]; then
+            echo "::error::the roster names no subject files - this check would pass vacuously"
+            exit 1
+          fi
+          missing=0
+          while read -r subject; do
+            [ -n "${subject}" ] || continue
+            if ! grep -qF -- "- '${subject}'" "${workflow}"; then
+              echo "::error::${subject} is a roster subject but no path filter in ${workflow} names it"
+              missing=1
+            fi
+          done <<< "${subjects}"
+          # The positive control for the control. A grep that asserts PRESENCE is
+          # indistinguishable from a broken one when everything is present, so a
+          # name that is deliberately NOT in the filters must be reported missing.
+          #
+          # The fixture name is BUILT AT RUN TIME rather than written here, and
+          # that is not decoration. The first version spelled it as a literal -
+          # and the grep looks for that literal in THIS FILE, which now contained
+          # it, on this very line. So the control matched its own source and
+          # reported the fixture as present on a workflow that was entirely
+          # correct. Measured: run 31052489368 red at this step with every real
+          # filter in place. A name assembled from the run id cannot be written
+          # into the file it searches.
+          #
+          # The question it asks is the one the loop above cannot answer about
+          # itself: fed a subject that is NOT in the filters, does the SAME
+          # expression report it missing? If that grep matched anyway the loop
+          # would pass for every input and gate nothing.
+          fixture="src/storage/no_such_file_${GITHUB_RUN_ID:-local}_$$.cpp"
+          if grep -qF -- "- '${fixture}'" "${workflow}"; then
+            echo "::error::the drift check matched ${fixture}, which is in no filter - it cannot tell an absent subject from a present one"
+            exit 1
+          fi
+          [ "${missing}" -eq 0 ]
+          echo "every roster subject is covered by a path filter:"
+          sed 's/^/  /' <<< "${subjects}"
+
+      # The SINGULAR file - the one patch the fork's test workflows run against.
+      # See the header for why this job does not matrix.
+      - name: Checkout DuckDB to the tested patch
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < .github/duckdb-version)"
+          if [ -z "${version}" ]; then
+            echo "::error::.github/duckdb-version is empty"
+            exit 1
+          fi
+          echo "building against ${version}"
+          git -C duckdb checkout "${version}"
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build the devcontainer image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .devcontainer/Dockerfile
+          tags: ducklake-devcontainer:ci
+          load: true
+          cache-from: type=gha,scope=ducklake-devcontainer
+          cache-to: type=gha,scope=ducklake-devcontainer,mode=max
+
+      # Shared with CryptaRefusals by SCOPE, not by key: the same image and the
+      # same compiler produce the same objects, and this job's nine builds are
+      # exactly what a warm ccache is for.
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/.ccache
+          key: storage-mutants-ccache-${{ github.ref_name }}
+          restore-keys: |
+            storage-mutants-ccache-
+            crypta-refusals-ccache-
+
+      - name: Restore the vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/.vcpkg-cache
+          key: storage-mutants-vcpkg-${{ hashFiles('.devcontainer/Dockerfile', 'vcpkg.json') }}
+          restore-keys: |
+            storage-mutants-vcpkg-
+            crypta-refusals-vcpkg-
+
+      - name: Build the extension
+        run: |
+          mkdir -p "${RUNNER_TEMP}/.ccache" "${RUNNER_TEMP}/.vcpkg-cache"
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}":/app \
+            -v "${RUNNER_TEMP}/.ccache":/ccache \
+            -v "${RUNNER_TEMP}/.vcpkg-cache":/root/.cache/vcpkg \
+            -w /app -e CCACHE_DIR=/ccache -e GEN=ninja \
+            --entrypoint bash ducklake-devcontainer:ci -lc \
+            'BUILD_EXTENSION_TEST_DEPS=full make release'
+
+      # The runner rebuilds the extension itself, once per mutant and once to
+      # restore, so it needs the same mounts as the build step above.
+      - name: Full-extension red-first evidence, one guard removed at a time
+        run: |
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}":/app \
+            -v "${RUNNER_TEMP}/.ccache":/ccache \
+            -v "${RUNNER_TEMP}/.vcpkg-cache":/root/.cache/vcpkg \
+            -w /app -e CCACHE_DIR=/ccache -e GEN=ninja \
+            --entrypoint bash ducklake-devcontainer:ci -lc \
+            'test/sql/crypta/run_storage_mutants.sh'
+
+      # The runner already refuses to report anything as proven unless the tree
+      # came back, using its own content check - it must, because git inside the
+      # devcontainer cannot read a git-WORKTREE checkout. Here on the runner the
+      # checkout is ordinary and git DOES work, so this asks the independent
+      # authority the same question. `!cancelled()` so it still answers when the
+      # step above reds, which is exactly when a stuck mutant is most likely.
+      - name: The tree must carry no mutant when the run ends
+        if: '!cancelled()'
+        run: |
+          set -euo pipefail
+          if ! git diff --quiet -- $(python3 test/cpp/crypta/mutants.py files --extension); then
+            echo "::error::a mutant is still applied to the tree after the run"
+            git --no-pager diff -- $(python3 test/cpp/crypta/mutants.py files --extension)
+            exit 1
+          fi
+          echo "tree restored - no mutant left applied"
