@@ -34,9 +34,17 @@ static void HandleDuckLakeOption(DuckLakeOptions &options, const string &option,
 		}
 	} else if (lcase == "crypta_socket") {
 		// PRIVATE-FORK ONLY. Turns on envelope encryption of the per-file keys.
+		//
+		// The `_supplied` flag is recorded separately from the value because the
+		// value alone cannot distinguish `CRYPTA_SOCKET ''` from no CRYPTA_SOCKET
+		// at all, and those two must not behave the same: the first is a broken
+		// template that has to be refused, the second is a plain unenveloped lake.
 		options.crypta_socket = value.ToString();
+		options.crypta_socket_supplied = true;
 	} else if (lcase == "crypta_lake_id") {
+		// PRIVATE-FORK ONLY. Same _supplied reasoning as crypta_socket above.
 		options.crypta_lake_id = value.ToString();
+		options.crypta_lake_id_supplied = true;
 	} else if (lcase == "data_inlining_row_limit") {
 		options.config_options["data_inlining_row_limit"] = value.DefaultCastAs(LogicalType::UBIGINT).ToString();
 	} else if (lcase == "snapshot_version") {

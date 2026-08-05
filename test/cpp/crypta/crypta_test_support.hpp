@@ -50,4 +50,20 @@ inline std::string SampleDek(char fill = 'k') {
 	return std::string(32, fill);
 }
 
+//! A synthetic wrapped blob carrying `tag`, of REALISTIC LENGTH.
+//!
+//! Length is not cosmetic here. CryptaClient::LooksWrapped requires more than
+//! 44 base64 characters - the size of a raw 32-byte DEK - before it will call
+//! anything wrapped, because on the no-crypta read path a prefix-only test
+//! would refuse a legitimate plaintext DEK that happened to start with the
+//! magic. A fixture blob shorter than that floor is read as PLAINTEXT and
+//! refused by UnwrapKey before the cache is ever reached, so a cache test using
+//! one would be measuring the wrong refusal.
+//!
+//! Real crypta blobs run 208-280 characters. `tag` keeps distinct fixtures
+//! distinct, which is all the cache-key tests need of the content.
+inline std::string WrappedBlob(const std::string &tag) {
+	return "RExL" + tag + std::string(64, 'A');
+}
+
 } // namespace ducklake_crypta_test

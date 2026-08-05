@@ -1,0 +1,263 @@
+# name: test/sql/crypta/crypta_flush_unconfigured_refusal.test
+# description: The SECOND decode site - the inlined-deletion flush path - also refuses a wrapped key
+# group: [crypta]
+#
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# WHAT THIS FILE PROVES, AND WHAT IT DELIBERATELY DOES NOT
+# --------------------------------------------------------
+# It proves the GUARD at src/functions/ducklake_flush_inlined_data.cpp FIRES, and
+# that it does not fire on a plaintext key. It does NOT prove the shape ARISES
+# naturally from HEAD, because since #25 it cannot.
+#
+# That distinction is the whole reason this file is written the way it is, so it
+# is stated first rather than buried:
+#
+#   - The guard's ENTIRE input is the stored `encryption_key` STRING and the
+#     absence of a crypta provider. `DuckLakeCatalog::RefuseWrappedKeyWithoutCrypta`
+#     calls `CryptaClient::LooksWrapped(stored_key)` and nothing else; it never
+#     decodes, never decrypts, and never reaches a socket. A planted
+#     wrapped-LOOKING value therefore drives the predicate COMPLETELY and
+#     faithfully - there is no part of the guard a "real" blob would exercise
+#     that this does not.
+#   - The lake this fixture builds is a LEGACY lake: one that inlined deletions
+#     while it had no crypta, and whose delete-file key later became a wrapped
+#     blob. That is a real shape - every lake that inlined before #25 landed is
+#     one - and it is the shape the guard exists for.
+#   - It is NOT constructible from current code. #25 forbids inlining on a crypta
+#     lake at ATTACH, and `DuckLakeCatalog::DataInliningRowLimit` returns 0
+#     whenever `crypta_provider` is set, ahead of every option scope and of the
+#     global setting. So a configured crypta lake can never inline, the
+#     unconfigured session cannot inline either (any DELETE would have to scan a
+#     wrapped data file, which refuses at `ReadDataFile`), and no sequence of
+#     public operations reaches this state. Recorded at #41.
+#
+# So: the key is PLANTED, on purpose, and this file does not pretend otherwise.
+# An earlier version built the shape by attaching a crypta lake with
+# DATA_INLINING_ROW_LIMIT 100; that ATTACH is now refused outright, which is what
+# forced the rewrite.
+#
+# WHY THE SITE NEEDS ITS OWN FILE AT ALL
+# ---------------------------------------
+# crypta_unconfigured_reader_refusal.test covers the unwrap choke point in
+# DuckLakeMetadataManager::ReadDataFile. That is NOT the only place a stored
+# encryption key is base64-decoded and handed to the Parquet reader.
+#
+# ducklake_flush_inlined_data.cpp reads `existing_del.encryption_key` straight out
+# of ducklake_delete_file with its own hand-written SQL query, decodes it with
+# Blob::FromBase64, and passes it to DuckLakeDeleteFilter::ScanDeleteFile. It never
+# goes near ReadDataFile, so the refusal there does not cover it. An unconfigured
+# reader that flushes inlined deletions over an existing delete file got the same
+# INTERNAL assertion failure #20 was filed about:
+#
+#   INTERNAL Error: Invalid AES key length for GCM
+#
+# The original fix's comment called ReadDataFile "THE unwrap choke point - every
+# read of every encrypted file funnels through here". That was false, an
+# adversarial review caught it, and this site is the correction. It is also the
+# ONLY test of that call site: `grep -rn RefuseWrappedKeyWithoutCrypta test/`
+# finds nothing else, in C++ or SQL.
+#
+# NO KEY SERVICE, AND THEREFORE NO require-env
+# ---------------------------------------------
+# Nothing here attaches crypta, so nothing needs the fake. The `require-env` this
+# file used to carry is gone deliberately: it was true of the old fixture and is a
+# false dependency for this one. `run_sql_crypta_tests.sh` DERIVES its skip-guard
+# list with `grep -l '^require-env'`, so the guard follows automatically rather
+# than needing an edit. The file now also runs under a plain
+# `unittest "test/sql/crypta/*"` in the generic jobs, which is strictly more
+# coverage than before.
+#
+# NOTE on the CONFIGURED direction, which is a different defect: this same flush
+# path never calls UnwrapKey, and WriteNewDeleteFiles DOES wrap delete-file keys,
+# so a CONFIGURED crypta lake is broken here too. That is pre-existing, has its
+# own issue (#26), and is deliberately NOT what this file tests.
+
+require ducklake
+
+require parquet
+
+require httpfs
+
+# --------------------------------------------------------------------------
+# Fixture: a plain-ENCRYPTED lake with inlining, carrying a delete FILE and
+# further deletions still inlined and unflushed
+#
+# No crypta anywhere in this phase - that is what makes it constructible. The
+# lake is ENCRYPTED, so DuckLake mints a per-file key and stores it base64 in the
+# catalog; with no crypta configured that key is PLAINTEXT, which is exactly the
+# pre-envelope state a legacy lake is in.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_flush.db' AS seed (DATA_PATH '__TEST_DIR__/crypta_flush_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 100, METADATA_CATALOG 'seed_meta')
+
+statement ok
+CREATE TABLE seed.alpha AS SELECT i AS id FROM range(50) t(i)
+
+# Push the inlined rows out into a real Parquet data file, so the deletions below
+# are deletions OF A FILE rather than of inlined rows.
+statement ok
+CALL ducklake_flush_inlined_data('seed')
+
+statement ok
+DELETE FROM seed.alpha WHERE id < 5
+
+# This flush is what creates the delete FILE, with its own key.
+statement ok
+CALL ducklake_flush_inlined_data('seed')
+
+# THE INSTRUMENT, SHOWN LIVE AND BEFORE ANY PLANTING. Exactly one delete file, and
+# its key is the 44-character base64 of a raw 32-byte DEK - the plaintext shape.
+# Asserting the length here is what makes the planted value later a CHANGE rather
+# than a value of unknown provenance, and it is also why the over-refusal control
+# below means anything: 44 is exactly the floor `CryptaClient::LooksWrapped` uses,
+# so this real key sits on the boundary the guard must not trip on.
+query II
+SELECT count(*), count(*) FILTER (WHERE length(encryption_key) = 44) FROM seed_meta.ducklake_delete_file
+----
+1	1
+
+# And it does NOT look wrapped, which is the state the refusals below have to be a
+# change FROM. A fixture whose "before" already satisfied the guard would prove
+# nothing about the guard.
+query I
+SELECT bool_and(NOT starts_with(encryption_key, 'RExL')) FROM seed_meta.ducklake_delete_file
+----
+true
+
+# Keep the REAL key. The control at the end restores it and requires the flush to
+# SUCCEED, which only works if the key is the true one - so this table is
+# load-bearing, not bookkeeping.
+statement ok
+CREATE TABLE real_delete_key AS SELECT encryption_key AS k FROM seed_meta.ducklake_delete_file
+
+# More deletions, left INLINED - not flushed. These are what a later reader will
+# try to flush, forcing it to read the existing delete file above.
+statement ok
+DELETE FROM seed.alpha WHERE id > 45
+
+# --------------------------------------------------------------------------
+# Plant the wrapped-looking key - the one step current code cannot produce
+#
+# 'RExL' plus 220 base64 characters: past the 44-character floor, carrying the
+# magic, and inside the 208-280 range a real blob occupies. Deliberately NOT a
+# decodable blob for anything - the guard never decodes, so a decodable one would
+# test nothing more, and a value that could be mistaken for a genuine round-trip
+# would misrepresent what this file proves.
+# --------------------------------------------------------------------------
+
+statement ok
+UPDATE seed_meta.ducklake_delete_file SET encryption_key = 'RExL' || repeat('A', 220)
+
+# The plant took, and took the shape the guard keys on - both halves of
+# LooksWrapped's predicate, asserted separately so a wrong one names itself.
+query III
+SELECT count(*), count(*) FILTER (WHERE starts_with(encryption_key, 'RExL')), count(*) FILTER (WHERE length(encryption_key) > 44) FROM seed_meta.ducklake_delete_file
+----
+1	1	1
+
+statement ok
+DETACH seed
+
+# --------------------------------------------------------------------------
+# THE CASE: re-attach WITHOUT the crypta options and flush
+#
+# No DELETE is issued here on purpose. The deletions are already inlined from the
+# seed session; the flush alone drives the second decode site, and adding a DELETE
+# would pull the data-file read path into a file that is not about it.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_flush.db' AS unconfigured (DATA_PATH '__TEST_DIR__/crypta_flush_files', DATA_INLINING_ROW_LIMIT 100, METADATA_CATALOG 'unconf_meta')
+
+statement error
+CALL ducklake_flush_inlined_data('unconfigured')
+----
+carries a crypta-wrapped encryption key
+
+statement error
+CALL ducklake_flush_inlined_data('unconfigured')
+----
+CRYPTA_SOCKET
+
+statement error
+CALL ducklake_flush_inlined_data('unconfigured')
+----
+Re-attach with the crypta options
+
+statement ok
+DETACH unconfigured
+
+# --------------------------------------------------------------------------
+# CONTROL - the guard's OWN PREDICATE, in the direction that proves it is not
+# simply refusing everything
+#
+# This REPLACES the old closing control ("the same lake WITH the crypta options
+# still attaches and reads"), which cannot survive a planted key: a value that is
+# not a real blob would be sent to crypta and rejected, so that control would now
+# pass for the wrong reason - the strongest kind of silent rot.
+#
+# What replaces it is stronger, because it exercises the GUARD rather than the
+# lake: the SAME flush, on the SAME lake, through the SAME call site, with a key
+# that does NOT look wrapped - and it must PASS THROUGH. That is the positive
+# control for `LooksWrapped`'s negative answer, OBSERVED in this run rather than
+# assumed.
+#
+# It is simultaneously the OVER-REFUSAL assertion. The restored key is 44
+# characters - exactly `MAX_PLAINTEXT_KEY_BASE64` - so this is the boundary case a
+# too-greedy floor breaks: refuse at 44 and every plain-ENCRYPTED lake with no
+# crypta becomes unreadable forever, with advice that does not apply. A guard that
+# refused everything would pass every assertion above this one and fail here.
+#
+# The sharper false-positive shape - a plaintext DEK of exactly 44 characters that
+# HAPPENS to start with `RExL`, ~6e-8 per file - cannot be built here, because the
+# key must be the lake's real one for the flush to succeed and nothing can force a
+# minted DEK's leading bytes. It is pinned in C++ instead, at BOTH callers of the
+# floor: crypta_refusal_test.cpp ("LooksWrapped does not misread a plaintext DEK
+# that happens to start with the magic", which also asserts that one character
+# PAST the floor is still admitted) and crypta_cache_test.cpp ("a 44-character
+# plaintext DEK that happens to carry the magic"), with the
+# `no_plaintext_length_floor` mutant reddening both.
+# --------------------------------------------------------------------------
+
+# Restored under its OWN attach, which is then DETACHED before the flush runs.
+# Every metadata mutation in this file is followed by a fresh ATTACH for exactly
+# this reason: DuckLake reads delete-file metadata through the attached catalog,
+# so mutating it underneath a live attach would leave it open whether the flush
+# saw the new value or a cached one - and a control whose input is uncertain is
+# not a control. The refusal phase above already relies on the same discipline.
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_flush.db' AS restorer (DATA_PATH '__TEST_DIR__/crypta_flush_files', DATA_INLINING_ROW_LIMIT 100, METADATA_CATALOG 'restorer_meta')
+
+statement ok
+UPDATE restorer_meta.ducklake_delete_file SET encryption_key = (SELECT k FROM real_delete_key)
+
+# Back to the plaintext shape, and back below the floor.
+query II
+SELECT count(*) FILTER (WHERE length(encryption_key) = 44), count(*) FILTER (WHERE starts_with(encryption_key, 'RExL')) FROM restorer_meta.ducklake_delete_file
+----
+1	0
+
+statement ok
+DETACH restorer
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_flush.db' AS restored (DATA_PATH '__TEST_DIR__/crypta_flush_files', DATA_INLINING_ROW_LIMIT 100, METADATA_CATALOG 'restored_meta')
+
+# THE CONTROL ITSELF. Same call, same site, no refusal - the guard reads the key,
+# answers "not wrapped", and the flush completes.
+statement ok
+CALL ducklake_flush_inlined_data('restored')
+
+# And it completed CORRECTLY, not merely without throwing: the previously-inlined
+# deletions are now applied, and the row set is right. 50 rows minus ids 0-4 minus
+# ids 46-49 = 41 rows, sum 1225 - 10 - 190 = 1025. A flush that silently dropped
+# or mis-applied the deletions lands here.
+query II
+SELECT count(*), sum(id) FROM restored.alpha
+----
+41	1025
+
+statement ok
+DETACH restored

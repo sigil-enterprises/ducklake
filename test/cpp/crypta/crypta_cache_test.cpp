@@ -200,6 +200,27 @@ TEST_CASE("crypta provider: a plaintext key row is refused, never used", "[crypt
 		             Catch::Contains("carries a plaintext encryption key"));
 	}
 
+	// THE SECOND CALLER OF THE LENGTH FLOOR.
+	//
+	// The floor in LooksWrapped was added for the UNCONFIGURED direction, where a
+	// plaintext DEK that happens to start with the magic would be refused forever
+	// as wrapped. But LooksWrapped serves BOTH directions, so the floor changes
+	// this caller's answer too, and a guard shared by two callers needs a case on
+	// each rather than one case plus the assumption that the function is the same
+	// function.
+	//
+	// Here the change is an improvement and this pins it: a 44-character value
+	// with a correct RExL prefix is a plaintext DEK wearing a blob's hat. Without
+	// the floor it reads as wrapped and is sent to crypta - a socket call on a
+	// value that is not a blob. With it, the downgrade is refused BEFORE the
+	// socket, which the connection assertion below then proves.
+	SECTION("a 44-character plaintext DEK that happens to carry the magic") {
+		const string dek_wearing_the_magic = "RExL" + string(40, 'A');
+		REQUIRE(dek_wearing_the_magic.size() == 44);
+		REQUIRE_THAT(ThrownMessage([&]() { provider.UnwrapKey(identity, dek_wearing_the_magic); }),
+		             Catch::Contains("carries a plaintext encryption key"));
+	}
+
 	// It refused before the socket, so nothing was asked of crypta.
 	std::this_thread::sleep_for(std::chrono::milliseconds(60));
 	REQUIRE(server.Connections() == 0);
@@ -220,7 +241,7 @@ TEST_CASE("crypta provider: a repeated unwrap hits the cache and does not re-ask
 	});
 	DuckLakeCryptaProvider provider(server.Path(), "test-lake");
 	auto identity = SampleIdentity("t/a.parquet");
-	const std::string blob = "RExLQUFBQQ";
+	const std::string blob = WrappedBlob("QUFBQQ");
 
 	auto first = provider.UnwrapKey(identity, blob);
 	REQUIRE(first == dek);
@@ -249,7 +270,7 @@ TEST_CASE("crypta provider: the cache is cleared wholesale when the cap is hit",
 	DuckLakeCryptaProvider provider(server.Path(), "test-lake");
 
 	auto identity_for = [](int i) { return SampleIdentity("t/file_" + std::to_string(i) + ".parquet"); };
-	auto blob_for = [](int i) { return "RExL" + std::to_string(i); };
+	auto blob_for = [](int i) { return WrappedBlob(std::to_string(i)); };
 
 	// Fill the cache exactly to the cap. No clear has happened yet.
 	for (int i = 0; i < MAX_CACHED_KEYS; i++) {
@@ -289,7 +310,7 @@ TEST_CASE("crypta provider: two identities sharing one blob do not collide in th
 	// Keying the cache on the blob alone: read file A, caching blob -> DEK-A; then
 	// paste blob A onto file B's row; the next read of B hits the cache and gets
 	// DEK-A back WITHOUT crypta ever seeing the mismatched identity.
-	const std::string shared_blob = "RExLc2hhcmVk";
+	const std::string shared_blob = WrappedBlob("c2hhcmVk");
 
 	auto dek_a = DekFor("A");
 	auto dek_b = DekFor("B");
@@ -315,7 +336,7 @@ TEST_CASE("crypta provider: two identities sharing one blob do not collide in th
 // mutant: cache_key_blob_only
 TEST_CASE("crypta provider: every component of the identity is part of the cache key",
           "[crypta][cache][key_confusion]") {
-	const std::string shared_blob = "RExLc2hhcmVk";
+	const std::string shared_blob = WrappedBlob("c2hhcmVk");
 	auto base = SampleIdentity("t/a.parquet");
 
 	struct Variation {
@@ -383,9 +404,9 @@ TEST_CASE("crypta provider: one identity with two blobs does not collide in the 
 	DuckLakeCryptaProvider provider(server.Path(), "test-lake");
 	auto identity = SampleIdentity("t/a.parquet");
 
-	REQUIRE(provider.UnwrapKey(identity, "RExLb25l") == dek_one);
+	REQUIRE(provider.UnwrapKey(identity, WrappedBlob("b25l")) == dek_one);
 	REQUIRE(server.Connections() == 1);
-	REQUIRE(provider.UnwrapKey(identity, "RExLdHdv") == dek_two);
+	REQUIRE(provider.UnwrapKey(identity, WrappedBlob("dHdv")) == dek_two);
 	REQUIRE(server.Connections() == 2);
 }
 
@@ -399,8 +420,8 @@ TEST_CASE("crypta provider: a substituted key row is refused by crypta, not serv
 	BindingCryptaFake crypta;
 	auto identity_a = SampleIdentity("t/a.parquet");
 	auto identity_b = SampleIdentity("t/b.parquet");
-	const std::string blob_a = "RExLYQ";
-	const std::string blob_b = "RExLYg";
+	const std::string blob_a = WrappedBlob("YQ");
+	const std::string blob_b = WrappedBlob("Yg");
 	auto dek_a = DekFor("A");
 	auto dek_b = DekFor("B");
 	crypta.Issue(identity_a, blob_a, dek_a);
@@ -470,10 +491,15 @@ TEST_CASE("crypta provider: a '|' in a path cannot be re-read as the cache-key s
 	// Nothing escapes a field and nothing prefixes it with its length, so that
 	// join is NOT injective: two DIFFERENT (identity, blob) pairs produce the
 	// SAME key whenever a '|' inside a field can be re-read as the separator.
-	// Below, A's path ends with "|RExLZZZZ" and B's blob begins with
-	// "RExLZZZZ|", and both join to
+	// Below, A's path ends with "|RExLZZZZ" and B's blob is exactly
+	// "RExLZZZZ|" followed by A's blob; both therefore join to
 	//
-	//   test-lake|7|data|t/p|RExLZZZZ|RExLAAAA
+	//   test-lake|7|data|t/p|RExLZZZZ|<blob_a>
+	//
+	// blob_a is built with WrappedBlob so it clears LooksWrapped's length floor
+	// - a 44-character-or-shorter fixture would be refused as plaintext before
+	// the cache is reached, and this case would silently stop testing the
+	// collision. blob_b inherits the "RExL" prefix and is longer still.
 	//
 	// A is read first, so on a key like that B is handed A's cached DEK and
 	// crypta never sees the mismatched identity - the exact bypass the
@@ -508,9 +534,9 @@ TEST_CASE("crypta provider: a '|' in a path cannot be re-read as the cache-key s
 	BindingCryptaFake crypta;
 
 	auto identity_a = SampleIdentity("t/p|RExLZZZZ");
-	const std::string blob_a = "RExLAAAA";
+	const std::string blob_a = WrappedBlob("AAAA");
 	auto identity_b = SampleIdentity("t/p");
-	const std::string blob_b = "RExLZZZZ|RExLAAAA";
+	const std::string blob_b = "RExLZZZZ|" + blob_a;
 
 	auto dek_a = DekFor("A");
 	crypta.Issue(identity_a, blob_a, dek_a);
@@ -607,9 +633,9 @@ TEST_CASE("crypta provider: a '|' in an identity field cannot shift a cache-key 
 	// file_kind and stored_path boundaries at once:
 	//
 	//   C: lake_id "test-lake",            table_id 7, data,   path "t/p|9|delete|q.parquet"
-	//      -> test-lake|7|data|t/p|9|delete|q.parquet|RExLc2hhcmVk
+	//      -> test-lake|7|data|t/p|9|delete|q.parquet|<shared_blob>
 	//   D: lake_id "test-lake|7|data|t/p", table_id 9, delete, path "q.parquet"
-	//      -> test-lake|7|data|t/p|9|delete|q.parquet|RExLc2hhcmVk
+	//      -> test-lake|7|data|t/p|9|delete|q.parquet|<shared_blob>
 	//
 	// Byte-identical, while C and D disagree on the lake, the table, the file
 	// kind AND the path - so one collision confuses every component of the
@@ -625,7 +651,14 @@ TEST_CASE("crypta provider: a '|' in an identity field cannot shift a cache-key 
 	// reaches crypta, so the refusal counts only with the count at 2.
 	BindingCryptaFake crypta;
 
-	const std::string shared_blob = "RExLc2hhcmVk";
+	// WrappedBlob, not a bare "RExL..." literal: this case was written on the
+	// base, where LooksWrapped was a prefix-only test and a 12-character fixture
+	// was wrapped enough. This branch added a 44-character plaintext length
+	// floor, and UnwrapKey checks it BEFORE the cache - so the short literal is
+	// read as a plaintext DEK and refused before this case's collision is ever
+	// reached. Measured, not reasoned: it reddened in CI at 629a52f1 with
+	// `file t/p|9|delete|q.parquet carries a plaintext encryption key`.
+	const std::string shared_blob = WrappedBlob("c2hhcmVk");
 	auto identity_c = SampleIdentity("t/p|9|delete|q.parquet");
 	auto identity_d = SampleIdentity("q.parquet");
 	identity_d.lake_id = "test-lake|7|data|t/p";

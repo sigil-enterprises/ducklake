@@ -68,7 +68,8 @@ SELECT count(*), count(*) FILTER (WHERE encryption_key LIKE 'RExL%') FROM lake_m
 2	2
 
 # And it is not the 44-character base64 of a raw 32-byte DEK, which is what an
-# unenveloped lake stores (see crypta_config_fail_open.test).
+# unenveloped lake stores (see the plaintext-key control in
+# crypta_config_refusals.test).
 query I
 SELECT bool_and(length(encryption_key) > 64) FROM lake_meta.ducklake_data_file
 ----

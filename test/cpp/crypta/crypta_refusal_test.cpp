@@ -26,7 +26,9 @@
 #include <csignal>
 #include <pthread.h>
 #include <sys/resource.h>
+#include <sys/wait.h>
 #include <thread>
+#include <unistd.h>
 
 using namespace duckdb;              // NOLINT
 using namespace ducklake_crypta_test; // NOLINT
@@ -416,6 +418,99 @@ TEST_CASE("crypta: a socket write failure is refused", "[crypta][refusal][io]") 
 	}
 	REQUIRE_THAT(ThrownMessage([&]() { client.UnwrapBatch(identities, blobs); }),
 	             Catch::Contains("crypta write failed"));
+}
+
+namespace {
+
+//! The exit codes the forked child below reports its outcome with. They are
+//! distinct on purpose: "it threw the WRONG exception" must not be readable as
+//! success, because a request that slips past the write and dies on the READ
+//! instead would otherwise turn this case into a green that proves nothing
+//! about SIGPIPE.
+enum SigpipeChildOutcome : int {
+	CHILD_WRITE_FAILURE_RAISED = 0,
+	CHILD_NO_THROW = 2,
+	CHILD_WRONG_EXCEPTION = 3,
+	CHILD_UNKNOWN_EXCEPTION = 4,
+};
+
+//! Fill a batch big enough that the request cannot vanish into the socket
+//! buffer - the same reason the case above needs one.
+void FillOversizedBatch(vector<CryptaFileIdentity> &identities, vector<string> &blobs) {
+	for (int i = 0; i < 8000; i++) {
+		identities.push_back(SampleIdentity("table/file_" + std::to_string(i) + ".parquet"));
+		blobs.push_back("RExLblob" + std::to_string(i));
+	}
+}
+
+} // namespace
+
+// mutant: no_sigpipe_suppression
+TEST_CASE("crypta: a socket write failure does not kill a host that leaves SIGPIPE at its default",
+          "[crypta][refusal][io][sigpipe]") {
+	// The case above proves the client RAISES on a write failure. It cannot prove
+	// the host lives long enough to see it, because `crypta_test_main.cpp` ignores
+	// SIGPIPE process-wide so the branch is observable at all - which is exactly
+	// the production disposition an embedding host does NOT have.
+	//
+	// So this case forks, restores SIG_DFL in the child, and asserts on how the
+	// child DIED. A client that lets the signal fire kills the child (WIFSIGNALED,
+	// WTERMSIG == SIGPIPE); a client that suppresses it locally raises the
+	// IOException and the child exits 0. Nothing observable inside the runner can
+	// tell those two apart - only the wait status can.
+	FakeCryptaServer server;
+
+	// The fork happens BEFORE Start(), while this process is still single-
+	// threaded: forking a process with a live accept thread would give the child a
+	// heap whose allocator lock may be held by a thread that does not exist in it.
+	// connect() succeeds against a listening socket that nobody has accepted yet,
+	// so the child does not need the server thread to be running first.
+	auto child = fork();
+	REQUIRE(child >= 0);
+	if (child == 0) {
+		// CHILD. No Catch2 assertions past this point - it does not own the
+		// reporter - and _exit rather than exit, so no parent destructor (the
+		// server's socket unlink among them) runs twice.
+		signal(SIGPIPE, SIG_DFL);
+		// A client that neither raises nor dies would otherwise hang the suite.
+		alarm(60);
+		int outcome = CHILD_NO_THROW;
+		try {
+			CryptaClient client(server.Path());
+			vector<CryptaFileIdentity> identities;
+			vector<string> blobs;
+			FillOversizedBatch(identities, blobs);
+			client.UnwrapBatch(identities, blobs);
+		} catch (const std::exception &e) {
+			outcome = std::string(e.what()).find("crypta write failed") != std::string::npos
+			              ? CHILD_WRITE_FAILURE_RAISED
+			              : CHILD_WRONG_EXCEPTION;
+		} catch (...) {
+			outcome = CHILD_UNKNOWN_EXCEPTION;
+		}
+		_exit(outcome);
+	}
+
+	server.Start([](FakeConnection &connection, int) {
+		connection.CloseWithoutReading();
+		std::this_thread::sleep_for(std::chrono::milliseconds(200));
+	});
+	int status = 0;
+	auto waited = waitpid(child, &status, 0);
+	server.Stop();
+	REQUIRE(waited == child);
+
+	// Reported rather than merely asserted: on the pre-fix client the useful fact
+	// is WHICH signal killed the child, and Catch2 prints these only on failure.
+	INFO("WIFSIGNALED=" << (WIFSIGNALED(status) ? 1 : 0)
+	                    << " WTERMSIG=" << (WIFSIGNALED(status) ? WTERMSIG(status) : 0) << " (SIGPIPE is "
+	                    << SIGPIPE << ") WIFEXITED=" << (WIFEXITED(status) ? 1 : 0)
+	                    << " WEXITSTATUS=" << (WIFEXITED(status) ? WEXITSTATUS(status) : -1));
+	REQUIRE_FALSE(WIFSIGNALED(status));
+	REQUIRE(WIFEXITED(status));
+	// Not merely "it survived": 3 would mean the write slipped through and the
+	// read raised instead, which would leave the write path unproven.
+	REQUIRE(WEXITSTATUS(status) == CHILD_WRITE_FAILURE_RAISED);
 }
 
 //===----------------------------------------------------------------------===//
@@ -845,10 +940,44 @@ TEST_CASE("crypta: a well-formed response round-trips", "[crypta][happy]") {
 }
 
 TEST_CASE("crypta: LooksWrapped tells a blob from a plaintext key", "[crypta][happy]") {
-	REQUIRE(CryptaClient::LooksWrapped("RExLMQAAAA"));
+	// A real wrapped blob is ~208-280 base64 characters. Nothing shorter than a
+	// raw DEK's 44 can be one, so the prefix alone is not the test - see the
+	// length-floor case below for why that matters.
+	REQUIRE(CryptaClient::LooksWrapped("RExLMQAAAA" + string(256, 'A')));
 	REQUIRE_FALSE(CryptaClient::LooksWrapped(""));
 	REQUIRE_FALSE(CryptaClient::LooksWrapped("RExK"));
 	REQUIRE_FALSE(CryptaClient::LooksWrapped("REx"));
 	// A 24-character plaintext key, the shape a pre-envelope lake stores.
 	REQUIRE_FALSE(CryptaClient::LooksWrapped("AAAAAAAAAAAAAAAAAAAAAA=="));
+}
+
+TEST_CASE("crypta: LooksWrapped does not misread a plaintext DEK that happens to "
+          "start with the magic",
+          "[crypta][refusal]") {
+	// THE OVER-REFUSAL THIS FLOOR EXISTS TO PREVENT.
+	//
+	// LooksWrapped is now called on EVERY stored key of EVERY plain-ENCRYPTED
+	// lake - the upstream, no-crypta path - because that is where the
+	// unconfigured-reader refusal lives. A prefix-only test therefore has a
+	// false-positive rate on random key material: a 32-byte CSPRNG DEK whose
+	// first three bytes are 0x44 0x4C 0x4B base64-encodes to "RExL...", and
+	// would be refused forever as "crypta-wrapped" on a lake that has no crypta
+	// and never had any. The advice in that refusal - re-attach with the crypta
+	// options - would be wrong AND unactionable, and the file unreadable.
+	//
+	// ~6e-8 per file is small and is NOT zero, and the failure is unrecoverable,
+	// so the discriminator must be more than four characters.
+	//
+	// 44 characters is base64 of exactly 32 bytes, the largest DEK this fork
+	// mints (94144c31). Anything at or below that cannot be a wrapped blob.
+	const string plaintext_dek_that_looks_wrapped = "RExL" + string(40, 'A');
+	REQUIRE(plaintext_dek_that_looks_wrapped.size() == 44);
+	REQUIRE_FALSE(CryptaClient::LooksWrapped(plaintext_dek_that_looks_wrapped));
+
+	// The 24-character pre-envelope shape, same prefix, same answer.
+	REQUIRE_FALSE(CryptaClient::LooksWrapped("RExL" + string(20, 'A')));
+
+	// One character past the floor is admitted: the floor must not be so greedy
+	// that it starts rejecting genuine blobs.
+	REQUIRE(CryptaClient::LooksWrapped("RExL" + string(41, 'A')));
 }

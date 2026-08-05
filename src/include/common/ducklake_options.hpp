@@ -39,12 +39,24 @@ struct DuckLakeOptions {
 	idx_t busy_timeout = 5000;
 
 	//! PRIVATE-FORK ONLY (crypta envelope encryption). Not upstream-eligible.
-	//! Unix socket of the crypta key service. Empty = no envelope, and the
-	//! encryption_key column holds a plaintext key exactly as upstream.
+	//! Unix socket of the crypta key service. NOT SUPPLIED = no envelope, and the
+	//! encryption_key column holds a plaintext key exactly as upstream. Supplied
+	//! but empty is a misconfiguration and is refused - see the flags below.
 	string crypta_socket;
 	//! Compartment name that scopes every key in this lake. Required whenever
 	//! crypta_socket is set; without it keys are interchangeable between lakes.
 	string crypta_lake_id;
+	//! PRIVATE-FORK ONLY (crypta envelope encryption). Not upstream-eligible.
+	//! Whether each option was SUPPLIED at ATTACH, which is NOT the same as it
+	//! being non-empty - and the difference is the whole of #19. `CRYPTA_SOCKET
+	//! ''`, the shape an unexpanded `${VAR}` takes in a templated ATTACH, is
+	//! indistinguishable from "no crypta wanted" if you only look at the value,
+	//! so it used to silently disable the envelope and write PLAINTEXT per-file
+	//! keys. A string cannot carry that distinction; these flags can, and they
+	//! are what lets the catalog refuse a half-configured envelope in EITHER
+	//! direction rather than only when the lake id is the missing half.
+	bool crypta_socket_supplied = false;
+	bool crypta_lake_id_supplied = false;
 };
 
 } // namespace duckdb

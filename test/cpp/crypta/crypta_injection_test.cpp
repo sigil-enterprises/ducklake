@@ -394,12 +394,30 @@ TEST_CASE("crypta provider: a wrapped key that is not base64 is refused before i
 		REQUIRE_THAT(message, Catch::Contains("is not base64"));
 		REQUIRE_THAT(message, Catch::Contains("t/victim.parquet"));
 	}
+	// EVERY fixture below goes through WrappedBlob, and the reason is not tidiness.
+	//
+	// `UnwrapKey` consults LooksWrapped BEFORE IsBase64, and #19/#20/#21 narrowed
+	// LooksWrapped from `startswith("RExL")` to `startswith("RExL") AND length >
+	// 44`. A short literal - the shape these two sections used to carry - is
+	// therefore no longer a "wrapped blob" at all: it is refused as a PLAINTEXT
+	// DOWNGRADE, before the alphabet check this case exists to test, and the case
+	// then reports a message it never wrote. Fail-closed either way, so nothing
+	// was unsafe; the evidence was simply gone.
+	//
+	// Measured rather than reasoned, and the discriminator is length alone: the
+	// JSON-punctuation section above kept passing throughout, because
+	// INJECTS_AN_ELEMENT is a long concatenated literal. Same case, same guard
+	// order, same expectation - only the length differs.
+	//
+	// So: a fixture that must reach IsBase64 has to clear the floor first.
+	// WrappedBlob appends 64 characters, which clears it by construction and
+	// cannot silently stop doing so.
 	SECTION("a blob carrying a control character") {
-		REQUIRE_THAT(ThrownMessage([&]() { provider.UnwrapKey(identity, std::string("RExL\x01\x1f")); }),
+		REQUIRE_THAT(ThrownMessage([&]() { provider.UnwrapKey(identity, WrappedBlob(std::string("\x01\x1f"))); }),
 		             Catch::Contains("is not base64"));
 	}
 	SECTION("a blob carrying a character that is merely outside the alphabet") {
-		REQUIRE_THAT(ThrownMessage([&]() { provider.UnwrapKey(identity, "RExLwith-a-hyphen"); }),
+		REQUIRE_THAT(ThrownMessage([&]() { provider.UnwrapKey(identity, WrappedBlob("with-a-hyphen")); }),
 		             Catch::Contains("is not base64"));
 	}
 
@@ -455,9 +473,64 @@ TEST_CASE("crypta provider: a legitimate blob with base64 punctuation is served,
 	server.Start([&](FakeConnection &connection, int) { ServeParsedItems(server, connection); });
 	DuckLakeCryptaProvider provider(server.Path(), "test-lake");
 
+	//
+	// The punctuation is the point and it is preserved: '+', '/' and '=' are all
+	// in IsBase64's alphabet, so this value must be SERVED. It goes through
+	// WrappedBlob for the same reason as the refusal fixtures above, and here the
+	// consequence of getting it wrong is worse rather than milder: a literal under
+	// the 44-character floor is refused as a plaintext downgrade, so this case -
+	// the ONLY one asserting the alphabet check does not OVER-refuse - fails while
+	// every refusal case around it still passes. That is the shape that tempts a
+	// reader to relax the floor, which would reinstate the ~6e-8 false positive the
+	// floor exists to prevent. The fixture is what was wrong, never the guard.
 	auto identity = SampleIdentity("t/legit.parquet");
-	REQUIRE(provider.UnwrapKey(identity, "RExL+/9ab+/cdEF==") == DekForPath("t/legit.parquet"));
+	REQUIRE(provider.UnwrapKey(identity, WrappedBlob("+/9ab+/cdEF==")) == DekForPath("t/legit.parquet"));
 	REQUIRE(server.Connections() == 1);
+}
+
+TEST_CASE("crypta provider: the plaintext floor is consulted BEFORE the alphabet check",
+          "[crypta][refusal][base64][injection]") {
+	// THE ORDER, WRITTEN DOWN. It was not, anywhere, and that is what let two
+	// separate fixtures lose their evidence silently.
+	//
+	// `DuckLakeCryptaProvider::UnwrapKey` asks LooksWrapped first and IsBase64
+	// second, so a value that fails BOTH is reported as a downgrade attempt and
+	// never as a malformed blob. This case pins that, so the next guard added to
+	// this path changes a RED test rather than quietly stealing another case's
+	// coverage.
+	//
+	// This is the third time the pattern has bitten on this one decode path:
+	// `no_blob_alphabet_check`'s own roster note records the "'|' in a path" case
+	// transferring from `cache_key_unprefixed_join` when #24 merged, for exactly
+	// this reason; #41 records the flush fixture losing its shape to #25; and this
+	// case records the third.
+	//
+	// It is NOT a complaint about the ordering, which is correct on the merits: a
+	// short non-base64 value is refused either way and the envelope holds. What is
+	// wrong is only the DIAGNOSIS - a malformed or truncated catalog value is
+	// named a downgrade attempt, which sends the reader somewhere else entirely.
+	FakeCryptaServer server;
+	server.Start([&](FakeConnection &connection, int) { ServeParsedItems(server, connection); });
+	DuckLakeCryptaProvider provider(server.Path(), "test-lake");
+	auto identity = SampleIdentity("t/short.parquet");
+
+	// Carries the magic, fails the alphabet, and is UNDER the floor - so all three
+	// predicates are in play and only the first one answers.
+	const std::string under_floor_and_not_base64 = "RExLwith-a-hyphen";
+	REQUIRE(under_floor_and_not_base64.size() <= 44);
+	auto message = ThrownMessage([&]() { provider.UnwrapKey(identity, under_floor_and_not_base64); });
+	REQUIRE_THAT(message, Catch::Contains("carries a plaintext encryption key"));
+	REQUIRE_THAT(message, Catch::Contains("t/short.parquet"));
+
+	// The same bytes ABOVE the floor reach the alphabet check instead. One
+	// difference - length - and a different guard answers. That pair is the whole
+	// assertion; either half alone would be consistent with a single guard.
+	REQUIRE_THAT(ThrownMessage([&]() { provider.UnwrapKey(identity, WrappedBlob("with-a-hyphen")); }),
+	             Catch::Contains("is not base64"));
+
+	// Neither reached the wire, whichever guard answered.
+	std::this_thread::sleep_for(std::chrono::milliseconds(60));
+	REQUIRE(server.Connections() == 0);
 }
 
 //===----------------------------------------------------------------------===//

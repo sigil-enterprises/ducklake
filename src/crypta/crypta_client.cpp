@@ -40,6 +40,26 @@ CryptaClient::CryptaClient(string socket_path_p) : socket_path(std::move(socket_
 }
 
 bool CryptaClient::LooksWrapped(const string &base64_value) {
+	// The prefix ALONE is not enough, and the reason is a false positive on
+	// random key material rather than anything about crypta.
+	//
+	// This is now called on every stored key of every plain-ENCRYPTED lake - the
+	// upstream, no-crypta path - because that is where the unconfigured-reader
+	// refusal lives. A 32-byte CSPRNG DEK whose first three bytes happen to be
+	// 0x44 0x4C 0x4B ("DLK") base64-encodes to "RExL..." like a real blob does.
+	// On a prefix-only test such a file would be refused forever as
+	// crypta-wrapped, on a lake that has no crypta and never had any, with
+	// advice to re-attach with options that do not apply. ~6e-8 per file: small,
+	// not zero, and unrecoverable for whoever draws it.
+	//
+	// So require a length no plaintext key can reach. MAX_PLAINTEXT_KEY_BASE64 is
+	// base64 of 32 bytes, the largest DEK this fork mints (94144c31); a real
+	// wrapped blob runs 208-280 characters, so the two ranges do not overlap and
+	// the floor costs nothing.
+	static constexpr idx_t MAX_PLAINTEXT_KEY_BASE64 = 44;
+	if (base64_value.size() <= MAX_PLAINTEXT_KEY_BASE64) {
+		return false;
+	}
 	return StringUtil::StartsWith(base64_value, WRAPPED_PREFIX);
 }
 
@@ -219,10 +239,37 @@ static void ReadExact(int fd, char *buffer, idx_t n, const string &what) {
 	}
 }
 
-static void WriteAll(int fd, const char *buffer, idx_t n) {
+//! Make this socket's writes fail with EPIPE instead of KILLING the process,
+//! and return the send() flags that finish the job.
+//!
+//! Writing to a socket whose peer has gone away returns EPIPE *and* raises
+//! SIGPIPE. Under the default disposition SIGPIPE terminates the process before
+//! send() returns, so the IOException in WriteAll below is unreachable: the
+//! DuckDB CLI installs a handler and survives, a plain libduckdb embedding host
+//! installs nothing and dies. A crypta that restarts mid-request would take the
+//! whole host down rather than fail one query.
+//!
+//! Suppressed locally so no host cooperation is needed. Linux has MSG_NOSIGNAL
+//! on the send; macOS and the BSDs have no MSG_NOSIGNAL and use SO_NOSIGPIPE on
+//! the socket instead. Neither platform has both, and both arms are compiled in.
+static int SuppressSigpipe(int fd) {
+#ifdef SO_NOSIGPIPE
+	int enabled = 1;
+	setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled));
+#else
+	(void)fd;
+#endif
+#ifdef MSG_NOSIGNAL
+	return MSG_NOSIGNAL;
+#else
+	return 0;
+#endif
+}
+
+static void WriteAll(int fd, const char *buffer, idx_t n, int send_flags) {
 	idx_t sent = 0;
 	while (sent < n) {
-		auto rc = write(fd, buffer + sent, n - sent);
+		auto rc = send(fd, buffer + sent, n - sent, send_flags);
 		if (rc < 0) {
 			if (errno == EINTR) {
 				continue;
@@ -264,6 +311,7 @@ string CryptaClient::Request(const string &json_body) {
 	if (handle.fd < 0) {
 		throw IOException("could not create a socket for crypta: %s", strerror(errno));
 	}
+	auto send_flags = SuppressSigpipe(handle.fd);
 	if (connect(handle.fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
 		// The message names the socket on purpose. This is the error an operator
 		// sees when the key service is down, and "no such file" without the path
@@ -280,8 +328,8 @@ string CryptaClient::Request(const string &json_body) {
 	uint32_t length = static_cast<uint32_t>(json_body.size());
 	char header[4] = {static_cast<char>((length >> 24) & 0xFF), static_cast<char>((length >> 16) & 0xFF),
 	                  static_cast<char>((length >> 8) & 0xFF), static_cast<char>(length & 0xFF)};
-	WriteAll(handle.fd, header, 4);
-	WriteAll(handle.fd, json_body.c_str(), json_body.size());
+	WriteAll(handle.fd, header, 4, send_flags);
+	WriteAll(handle.fd, json_body.c_str(), json_body.size(), send_flags);
 
 	char response_header[4];
 	ReadExact(handle.fd, response_header, 4, "the response length");

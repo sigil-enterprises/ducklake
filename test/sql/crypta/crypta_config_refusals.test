@@ -1,0 +1,130 @@
+# name: test/sql/crypta/crypta_config_refusals.test
+# description: A half-configured or unencrypted crypta is REFUSED at ATTACH, not silently ignored
+# group: [crypta]
+#
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# This file REPLACES crypta_config_fail_open.test, which characterised the #19
+# defects as they behaved before they were fixed. That file said, in its own
+# header, that the day the defect was fixed its assertions would turn RED and
+# whoever fixed it should replace it with the refusal. This is that replacement.
+#
+# What changed. Three configurations used to attach cleanly and write the
+# per-file keys to the catalog in PLAINTEXT - 44 base64 characters of raw DEK,
+# readable by anyone who can read the catalog. The operator asked for envelope
+# encryption, got no error, and got no envelope. Each now refuses at ATTACH,
+# where the operator is still looking at the statement.
+#
+# EVERYTHING HERE NEEDS A LIVE KEY SERVICE, which is what earns the require-env
+# below - and require-env skips the WHOLE file, so anything that does NOT need
+# one is in the wrong place. The two #19 cases that refuse in the catalog
+# CONSTRUCTOR, before any socket work (an empty CRYPTA_SOCKET, and a
+# CRYPTA_LAKE_ID with no socket), have therefore been moved to
+# crypta_attach_refusals.test, which carries no require-env and IS run by the
+# ordinary test/sql/* jobs. What remains here genuinely cannot go with them:
+# the resolves-to-unencrypted case refuses in FinalizeLoad AFTER the self-test,
+# so without a socket it would die on "cannot reach the crypta key service" and
+# assert the wrong refusal, and both controls must WRAP to prove anything.
+
+require ducklake
+
+require parquet
+
+require httpfs
+
+require-env DUCKLAKE_FAKE_CRYPTA_SOCKET
+
+# --------------------------------------------------------------------------
+# CRYPTA_SOCKET on a lake that RESOLVES to unencrypted is refused
+#
+# The old guard tested `options.encryption == UNENCRYPTED`, but the DEFAULT is
+# AUTOMATIC. Omit ENCRYPTED on a fresh lake and it resolves to unencrypted
+# without ever equalling the value the guard tested, so the ATTACH succeeded,
+# the self-test passed, and NO keys were written at all - the operator asked for
+# envelope encryption and got neither an envelope nor encryption.
+#
+# The check now runs on the RESOLVED mode, in FinalizeLoad after the initializer
+# has resolved AUTOMATIC, which is why its message differs from the constructor's
+# one for an explicit `ENCRYPTED false` (crypta_attach_refusals.test). Each
+# refusal is attributable to its own site.
+# --------------------------------------------------------------------------
+
+statement error
+ATTACH 'ducklake:__TEST_DIR__/crypta_automatic.db' AS automatic (DATA_PATH '__TEST_DIR__/crypta_automatic_files', DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'automatic_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'fixture')
+----
+resolved to UNENCRYPTED
+
+# --------------------------------------------------------------------------
+# CONTROL A: a correctly configured lake still attaches, and WRAPS
+#
+# Without this the three refusals above are worthless: a change that refused
+# EVERY crypta ATTACH would pass a file made only of refusals. This is the
+# positive half - the configuration that is supposed to work, working, with the
+# wrapped blobs to prove the envelope is actually engaged.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_control.db' AS control (DATA_PATH '__TEST_DIR__/crypta_control_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'control_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'fixture')
+
+statement ok
+CREATE TABLE control.t AS SELECT i AS id FROM range(100) t(i)
+
+statement ok
+CREATE TABLE control.u AS SELECT i AS id FROM range(100) t(i)
+
+# Reads a real column, not count(*): count(*) is answered from `record_count` in
+# the catalog and never touches the Parquet file, so it would exercise no
+# decryption at all.
+query I
+SELECT sum(id) FROM control.t
+----
+4950
+
+# The instrument, shown LIVE before it is read for an absence.
+#
+# The assertion that matters below - "no row holds a 44-character plaintext DEK"
+# - is absence-shaped, and an absence over an EMPTY table is true for the wrong
+# reason. So the denominator is asserted first: there are two data files here,
+# and both carry the wrapped-blob magic.
+query II
+SELECT count(*), count(*) FILTER (WHERE encryption_key LIKE 'RExL%') FROM control_meta.ducklake_data_file
+----
+2	2
+
+# Now the absence, over a table just shown to hold two rows: not one of them is
+# the 44-character base64 of a raw 32-byte DEK, which is exactly what all three
+# defects above used to write.
+query I
+SELECT count(*) FILTER (WHERE length(encryption_key) = 44) FROM control_meta.ducklake_data_file
+----
+0
+
+statement ok
+DETACH control
+
+# --------------------------------------------------------------------------
+# CONTROL B: an EXISTING enveloped lake re-attaches under AUTOMATIC and works
+#
+# This is the case that separates the fix from a lazy one. Refusing AUTOMATIC
+# outright would also make case 3 pass, and would break this - re-attaching a
+# lake that is ALREADY encrypted, without repeating the ENCRYPTED keyword, is
+# legitimate and was measured working when #19 was filed. The check tests the
+# RESOLVED mode precisely so that this lake resolves to ENCRYPTED and is allowed
+# through, blobs and all.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_control.db' AS reattached (DATA_PATH '__TEST_DIR__/crypta_control_files', DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'reattached_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'fixture')
+
+query I
+SELECT sum(id) FROM reattached.t
+----
+4950
+
+query II
+SELECT count(*), count(*) FILTER (WHERE encryption_key LIKE 'RExL%') FROM reattached_meta.ducklake_data_file
+----
+2	2
+
+statement ok
+DETACH reattached

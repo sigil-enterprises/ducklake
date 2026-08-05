@@ -162,6 +162,7 @@ MUTANTS = [
         "reddens": [
             "crypta provider: a wrapped key that is not base64 is refused before it reaches crypta",
             "crypta provider: a '|' in a path cannot be re-read as the cache-key separator",
+            "crypta provider: the plaintext floor is consulted BEFORE the alphabet check",
         ],
     },
     {
@@ -306,6 +307,55 @@ MUTANTS = [
         "reddens": ["crypta: a socket write failure is refused"],
     },
     {
+        # A SEMANTIC mutant, not a presence-only one. Deleting a call proves only
+        # that the caller CONSULTS the guard; it never proves what the guard
+        # ANSWERS. This one leaves LooksWrapped called and changes its JUDGEMENT -
+        # it strips the length floor so the decision reverts to the 4-character
+        # prefix alone, which is exactly the over-refusing behaviour the floor was
+        # added to remove.
+        "name": "no_plaintext_length_floor",
+        "file": "crypta_client.cpp",
+        "why": "the length floor that stops a plaintext DEK being misread as a "
+               "wrapped blob. Without it a 44-character key beginning 'RExL' is "
+               "refused forever on a lake that never had crypta, with advice that "
+               "does not apply - an unrecoverable false positive on the upstream "
+               "path, which is the worst shape this change could have taken",
+        "old": 'static constexpr idx_t MAX_PLAINTEXT_KEY_BASE64 = 44;\n'
+               '\tif (base64_value.size() <= MAX_PLAINTEXT_KEY_BASE64) {\n'
+               '\t\treturn false;\n'
+               '\t}\n'
+               '\treturn StringUtil::StartsWith(base64_value, WRAPPED_PREFIX);',
+        "new": '\treturn StringUtil::StartsWith(base64_value, WRAPPED_PREFIX);',
+        "reddens": [
+            "crypta: LooksWrapped does not misread a plaintext DEK that happens to start with the magic",
+            "crypta provider: a plaintext key row is refused, never used",
+        ],
+    },
+    {
+        "name": "no_sigpipe_suppression",
+        "file": "crypta_client.cpp",
+        "why": "the LOCAL suppression of SIGPIPE on the write path. Both platform "
+               "arms go at once - MSG_NOSIGNAL on the send and SO_NOSIGPIPE on "
+               "the socket - so the mutant is the pre-fix behaviour on Linux AND "
+               "on macOS, not just on whichever one the runner happens to be",
+        "old": '#ifdef SO_NOSIGPIPE\n'
+               '\tint enabled = 1;\n'
+               '\tsetsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled));\n'
+               '#else\n'
+               '\t(void)fd;\n'
+               '#endif\n'
+               '#ifdef MSG_NOSIGNAL\n'
+               '\treturn MSG_NOSIGNAL;\n'
+               '#else\n'
+               '\treturn 0;\n'
+               '#endif',
+        "new": '\t(void)fd;\n'
+               '\treturn 0;',
+        "reddens": [
+            "crypta: a socket write failure does not kill a host that leaves SIGPIPE at its default"
+        ],
+    },
+    {
         "name": "no_eintr_retry_read",
         "file": "crypta_client.cpp",
         "why": "the EINTR retry on the read side",
@@ -395,7 +445,15 @@ MUTANTS = [
         "why": "the refusal of a plaintext key row on an enveloped lake",
         "old": '\tif (!CryptaClient::LooksWrapped(base64_value)) {',
         "new": '\tif (false) {',
-        "reddens": ["crypta provider: a plaintext key row is refused, never used"],
+        # The ordering case is named here as well as under no_blob_alphabet_check,
+        # deliberately: removing THIS guard makes the under-floor value fall
+        # through to the alphabet check, so the case's first assertion - that a
+        # short value is diagnosed as a downgrade - flips. A guard whose order is
+        # only documented in a comment is not pinned by anything.
+        "reddens": [
+            "crypta provider: a plaintext key row is refused, never used",
+            "crypta provider: the plaintext floor is consulted BEFORE the alphabet check",
+        ],
     },
     {
         "name": "no_cache_lookup",

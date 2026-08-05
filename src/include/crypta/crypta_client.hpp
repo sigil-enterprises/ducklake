@@ -58,8 +58,17 @@ public:
 
 	//! True when `value` carries the crypta wrapped-key magic, so a wrapped row
 	//! can be told apart from a pre-envelope plaintext key without a service
-	//! call. Used to fail closed in both directions: a wrapped lake read by an
-	//! unconfigured reader, and a plaintext row served to a configured one.
+	//! call. Used to fail closed in both directions, and BOTH call sites exist:
+	//! a wrapped lake read by an unconfigured reader is refused in
+	//! DuckLakeMetadataManager::ReadDataFile's null-provider branch, and a
+	//! plaintext row served to a configured reader is refused in
+	//! DuckLakeCryptaProvider::UnwrapKey.
+	//!
+	//! Keep it that way. Until #20 the first of those did not exist and this
+	//! comment was aspirational - the unconfigured path had no check, so a
+	//! wrapped blob reached the Parquet reader as a key and surfaced as an
+	//! INTERNAL assertion failure instead of a diagnosis. If a caller is ever
+	//! removed, this sentence stops being true and must go with it.
 	static bool LooksWrapped(const string &base64_value);
 
 	//! True when every character of `value` is in the base64 alphabet. The
