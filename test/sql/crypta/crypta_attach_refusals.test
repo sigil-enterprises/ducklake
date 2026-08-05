@@ -26,7 +26,7 @@ require parquet
 statement error
 ATTACH 'ducklake:__TEST_DIR__/crypta_unencrypted.db' AS unenc (DATA_PATH '__TEST_DIR__/crypta_unencrypted_files', ENCRYPTED false, CRYPTA_SOCKET '/tmp/ducklake_crypta_absent.sock', CRYPTA_LAKE_ID 'fixture')
 ----
-crypta_socket was set on an UNENCRYPTED DuckLake
+a crypta option was set on an UNENCRYPTED DuckLake
 
 # --------------------------------------------------------------------------
 # The lake id is what scopes a key to a compartment. Without it, two lakes
@@ -95,6 +95,57 @@ ATTACH 'ducklake:__TEST_DIR__/crypta_long_path.db' AS longpath (DATA_PATH '__TES
 ----
 crypta socket path is too long
 
-# The two ways a crypta_socket is silently ignored rather than refused are in
-# crypta_config_fail_open.test - they are characterisations of a defect, not
-# refusals, and they do not belong in a file of refusals.
+# --------------------------------------------------------------------------
+# A HALF-CONFIGURED envelope is refused, in either direction (#19)
+#
+# These two live HERE, not in crypta_config_refusals.test with the rest of #19,
+# for one reason: they refuse in the DuckLakeCatalog constructor, before any
+# socket work, so they need no key service and no require-env. That makes them
+# the only part of #19 the ordinary `test/sql/*` jobs actually run today. Their
+# sibling case - crypta on a lake that RESOLVES to unencrypted - refuses in
+# FinalizeLoad AFTER the self-test, so it cannot come along: without a live
+# socket it would die earlier on "cannot reach the crypta key service" and
+# assert the wrong refusal.
+#
+# Both of these used to attach silently and write the per-file keys to the
+# catalog in PLAINTEXT.
+# --------------------------------------------------------------------------
+
+# An empty CRYPTA_SOCKET is the shape an unexpanded ${VAR} takes in a templated
+# ATTACH. Treating it as "no crypta wanted" is what made CryptaClient's own
+# refusal unreachable from ATTACH entirely.
+statement error
+ATTACH 'ducklake:__TEST_DIR__/crypta_empty_socket.db' AS emptysocket (DATA_PATH '__TEST_DIR__/crypta_empty_socket_files', ENCRYPTED, CRYPTA_SOCKET '', CRYPTA_LAKE_ID 'fixture')
+----
+crypta socket path is empty
+
+# And on its own account, with no CRYPTA_LAKE_ID to blame it on.
+statement error
+ATTACH 'ducklake:__TEST_DIR__/crypta_empty_socket2.db' AS emptysocket2 (DATA_PATH '__TEST_DIR__/crypta_empty_socket2_files', ENCRYPTED, CRYPTA_SOCKET '')
+----
+crypta socket path is empty
+
+# The mirror of "crypta_lake_id must be set when crypta_socket is set", asserted
+# a few cases above. Only this direction was ever silent.
+statement error
+ATTACH 'ducklake:__TEST_DIR__/crypta_lake_id_only.db' AS lakeidonly (DATA_PATH '__TEST_DIR__/crypta_lake_id_only_files', ENCRYPTED, CRYPTA_LAKE_ID 'fixture')
+----
+crypta_socket must be set when crypta_lake_id is set
+
+# It names the consequence, not just the missing option - the whole defect was
+# that the silent outcome looked fine.
+statement error
+ATTACH 'ducklake:__TEST_DIR__/crypta_lake_id_only2.db' AS lakeidonly2 (DATA_PATH '__TEST_DIR__/crypta_lake_id_only2_files', ENCRYPTED, CRYPTA_LAKE_ID 'fixture')
+----
+plaintext
+
+# Neither ATTACH left a usable catalog behind: the refusal fires in the
+# constructor, before the initializer attaches the metadata catalog.
+statement error
+SELECT count(*) FROM emptysocket_meta.ducklake_data_file
+----
+does not exist
+
+# The remaining #19 case (crypta on a lake that RESOLVES to unencrypted) and the
+# controls that prove a correct configuration still wraps are in
+# crypta_config_refusals.test, which needs a live key service.

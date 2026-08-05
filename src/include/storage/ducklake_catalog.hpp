@@ -200,6 +200,23 @@ public:
 	//! Build a file identity for the crypta binding. `stored_path` must be the
 	//! path AS PERSISTED in the catalog, not one resolved against the data path.
 	CryptaFileIdentity CryptaIdentity(TableIndex table_id, const string &stored_path, bool is_delete_file) const;
+	//! PRIVATE-FORK ONLY (crypta envelope encryption). Not upstream-eligible.
+	//! Throw if `stored_key` is a crypta-wrapped blob while THIS lake has no
+	//! crypta provider - i.e. the lake was attached without CRYPTA_SOCKET /
+	//! CRYPTA_LAKE_ID. Call it immediately before any site that would otherwise
+	//! base64-decode a stored key and use the bytes as a Parquet encryption key.
+	//!
+	//! It is a shared helper rather than an inlined check because there is more
+	//! than one such site and they do NOT share a code path: ReadDataFile is the
+	//! choke point for ordinary reads, and ducklake_flush_inlined_data.cpp
+	//! queries ducklake_delete_file directly with its own SQL and never goes
+	//! near it. That second site is exactly how the first version of this guard
+	//! was incomplete. Any NEW decode site must call this too.
+	//!
+	//! Deliberately NOT an unwrap: it only refuses the unconfigured case. A site
+	//! that must actually unwrap for a CONFIGURED lake still has to call
+	//! CryptaProvider()->UnwrapKey itself.
+	void RefuseWrappedKeyWithoutCrypta(const string &file_path, const string &stored_key) const;
 
 	bool IsCommitInfoRequired() const {
 		auto require = GetConfigOption<string>("require_commit_message", {}, {}, "false");

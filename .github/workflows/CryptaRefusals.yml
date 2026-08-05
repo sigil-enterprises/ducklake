@@ -187,7 +187,20 @@ jobs:
 
       # The runner starts the fake key service and FAILS if either require-env
       # file skips - a skip is not a pass, and a skipped file exits zero.
+      #
+      # The `if:` is load-bearing, not tidiness. A step with no condition
+      # defaults to `success()`, so a red unit arm SKIPPED this one and the job
+      # reported NOTHING about the SQL refusals. Measured, not reasoned: on run
+      # 30977945298 step 9 came back `failure` and step 10 came back `skipped`,
+      # which is how the two require-env files in this group ended up with no
+      # gated red at all. That is exactly backwards - the moment one arm reds is
+      # the moment the other arm's answer is worth most, and these two arms test
+      # unrelated guards. `!cancelled()` rather than `always()` so a cancelled
+      # run still stops promptly instead of burning a runner. A failure here
+      # still fails the job; `if:` governs whether the step RUNS, not whether it
+      # counts.
       - name: SQL refusals, against a fake key service
+        if: '!cancelled()'
         run: |
           docker run --rm \
             -v "${GITHUB_WORKSPACE}":/app \
