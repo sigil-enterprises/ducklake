@@ -99,10 +99,20 @@
 # protects nothing here until the tag scheme is settled. That is the second reason the
 # scheme needs a decision, and it is not cosmetic.
 #
-# PROPOSED, NOT DERIVED. Derivation dates only the past. The `feature_completeness`
-# statement, the FC target, the proposed version scheme above, and every `target_date`
-# on a milestone that is not yet delivered are HUMAN-AUTHORED PROPOSALS and need the
-# human's ratification. Only M1's `target_date` is an observation (the date its last
+# RATIFIED 2026-08-05 by the programme owner: the `feature_completeness` statement,
+# the FC target, and the fork-native version scheme above. What is NOT ratified and
+# stays PROPOSED is every `target_date` on an undelivered milestone - dates were not
+# put to the human and must not be read as committed.
+#
+# THE VERSION SCHEME WAS THE LOAD-BEARING PART. Under the old
+# `v<duckdb>-crypta.<n>` tags no milestone here could ever flip `shipped`: the
+# promotion of `v1.5.3-crypta.1` is plain `v1.5.3`, which is UPSTREAM's tag, not
+# the fork's. So the FC target was unreachable by construction and the plan could
+# not fail visibly. Fork-native `v0.1.0 ... v1.0.0` makes it reachable. The
+# existing `v1.5.3-crypta.1` prerelease is left in place - nothing is retagged or
+# deleted, because a published tag is not ours to rewrite.
+#
+# Derivation still dates only the past. Only M1's `target_date` is an observation (the date its last
 # constituent PR merged). M3 is `active` because one of its epics has already partly
 # landed (PR #25), but its `target_date` is still a PROPOSAL, not an observation - an
 # active milestone is not a delivered one.
@@ -116,7 +126,7 @@ kind: Software
 posture_declared: exploratory
 
 feature_completeness:
-  statement: "PROPOSED: the sigil ducklake fork is production-ready as the teras lake's encryption provider - every data-file key in the catalog is an identity-bound crypta-wrapped blob rooted in an HSM, the provider FAILS CLOSED on every read and write path rather than silently emitting or accepting plaintext, no cleartext patient data reaches the catalog by inlining or column statistics, the reader-side residual (DEK cache, temp spill, snapshots) is bounded and documented, a rewrap sweep makes KEK retirement survivable, and the extension loads on every DuckDB patch pinned anywhere in the fleet. GA as v1.0.0."
+  statement: "The sigil ducklake fork is production-ready as the teras lake's encryption provider - every data-file key in the catalog is an identity-bound crypta-wrapped blob rooted in an HSM, the provider FAILS CLOSED on every read and write path rather than silently emitting or accepting plaintext, no cleartext patient data reaches the catalog by inlining or column statistics, the reader-side residual (DEK cache, temp spill, snapshots) is bounded and documented, a rewrap sweep makes KEK retirement survivable, and the extension loads on every DuckDB patch pinned anywhere in the fleet. GA as v1.0.0."
   target: v1.0.0
 
 updated: 2026-08-05
