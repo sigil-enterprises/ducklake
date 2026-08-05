@@ -1,0 +1,227 @@
+# name: test/sql/crypta/crypta_key_row_refusals.test
+# description: A tampered key row on an enveloped lake is refused, through SQL
+# group: [crypta]
+#
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# This file needs a REACHABLE key service, because the provider is only
+# installed on the catalog once ATTACH's self-test passes. Without one it skips.
+# `run_sql_crypta_tests.sh` starts `fake_crypta.py` and exports the socket; that
+# fake performs no cryptography, but it does enforce the identity binding, which
+# is the only property these cases depend on. The real cipher and the real KEK
+# are proven separately by `scripts/mvp_crypta_proof.sh`.
+#
+# Everything asserted here is a REFUSAL of a key row that has been tampered with
+# in the catalog - the threat the envelope exists for, since an attacker who can
+# write the catalog cannot mint a valid blob.
+#
+# NOTE on reading: count(*) is answered from `record_count` in the catalog and
+# never touches the Parquet file, so it exercises no decryption at all. Every
+# read below sums or mins a real column on purpose.
+
+require ducklake
+
+require parquet
+
+require httpfs
+
+require-env DUCKLAKE_FAKE_CRYPTA_SOCKET
+
+# The fake's request log. Needed for the "refused BEFORE the socket" assertion at
+# the end, which is a claim about a call that did not happen.
+require-env DUCKLAKE_FAKE_CRYPTA_OPLOG
+
+# --------------------------------------------------------------------------
+# Baseline: an enveloped lake reads, and what the catalog holds is a blob
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_rows.db' AS lake (DATA_PATH '__TEST_DIR__/crypta_rows_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'lake_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'sql-fixture')
+
+statement ok
+CREATE TABLE lake.alpha AS SELECT i AS id, 'a' || i AS label FROM range(1000) t(i)
+
+statement ok
+CREATE TABLE lake.beta AS SELECT i AS id, 'b' || i AS label FROM range(1000) t(i)
+
+query II
+SELECT sum(id), min(label) FROM lake.alpha
+----
+499500	a0
+
+query II
+SELECT sum(id), min(label) FROM lake.beta
+----
+499500	b0
+
+# Two data files, and neither row is a key this reader can use: both carry the
+# wrapped-blob magic and have to go through the key service.
+#
+# Deliberately NOT "neither carries a key". Against THIS fake that would be
+# false - its blob is a reversible encoding, so the DEK is one base64 hop away
+# inside it, exactly as its own docstring says. What the fixture models is the
+# SHAPE of the column and the code path it selects, not confidentiality; the
+# real blob's confidentiality is crypta's, and is proven against crypta.
+query II
+SELECT count(*), count(*) FILTER (WHERE encryption_key LIKE 'RExL%') FROM lake_meta.ducklake_data_file
+----
+2	2
+
+# And it is not the 44-character base64 of a raw 32-byte DEK, which is what an
+# unenveloped lake stores (see crypta_config_fail_open.test).
+query I
+SELECT bool_and(length(encryption_key) > 64) FROM lake_meta.ducklake_data_file
+----
+true
+
+statement ok
+DETACH lake
+
+# --------------------------------------------------------------------------
+# The wrong compartment: same lake, different CRYPTA_LAKE_ID
+#
+# No tampering at all - this is an operator pointing a second lake at the same
+# crypta with the wrong id. The lake id is part of the binding, so the blobs do
+# not unwrap. If they did, every lake on a shared crypta would have
+# interchangeable keys.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_rows.db' AS wronglake (DATA_PATH '__TEST_DIR__/crypta_rows_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'wronglake_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'somebody-elses-lake')
+
+statement error
+SELECT sum(id) FROM wronglake.alpha
+----
+not valid for this KEK and file identity
+
+statement ok
+DETACH wronglake
+
+# --------------------------------------------------------------------------
+# Substitution: alpha's key row is given beta's blob, and beta's alpha's
+#
+# This is MVP proof case 7, reached through SQL. Both rows still hold perfectly
+# valid blobs - they are simply bound to the OTHER file, and the identity is
+# part of what they are bound to.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH '__TEST_DIR__/crypta_rows.db' AS raw
+
+statement ok
+CREATE TABLE original_keys AS SELECT data_file_id, encryption_key FROM raw.main.ducklake_data_file
+
+statement ok
+UPDATE raw.main.ducklake_data_file AS d SET encryption_key = (SELECT o.encryption_key FROM original_keys o WHERE o.data_file_id <> d.data_file_id)
+
+statement ok
+DETACH raw
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_rows.db' AS swapped (DATA_PATH '__TEST_DIR__/crypta_rows_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'swapped_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'sql-fixture')
+
+statement error
+SELECT sum(id) FROM swapped.alpha
+----
+not valid for this KEK and file identity
+
+statement error
+SELECT sum(id) FROM swapped.beta
+----
+not valid for this KEK and file identity
+
+statement ok
+DETACH swapped
+
+# Put the blobs back, so the downgrade case below starts from a healthy lake
+# rather than from an already-broken one.
+statement ok
+ATTACH '__TEST_DIR__/crypta_rows.db' AS raw2
+
+statement ok
+UPDATE raw2.main.ducklake_data_file AS d SET encryption_key = (SELECT o.encryption_key FROM original_keys o WHERE o.data_file_id = d.data_file_id)
+
+statement ok
+DETACH raw2
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_rows.db' AS restored (DATA_PATH '__TEST_DIR__/crypta_rows_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'restored_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'sql-fixture')
+
+query II
+SELECT sum(id), min(label) FROM restored.alpha
+----
+499500	a0
+
+statement ok
+DETACH restored
+
+# --------------------------------------------------------------------------
+# Downgrade: a PLAINTEXT key row on an enveloped lake
+#
+# Invariant 2, and the case this whole fixture exists for. On a lake whose keys
+# are wrapped, a plaintext row is either a leftover from before the envelope was
+# enabled or an attempt to strip it. Using it would defeat the envelope
+# entirely, so it is refused and never silently used.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH '__TEST_DIR__/crypta_rows.db' AS raw3
+
+# 44 base64 characters - the shape of a raw 32-byte DEK, which is what this fork
+# mints (94144c31) and what an unenveloped lake stores. A 24-character value
+# would model a 16-byte key this fork can no longer have written.
+statement ok
+UPDATE raw3.main.ducklake_data_file SET encryption_key = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
+
+statement ok
+DETACH raw3
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_rows.db' AS downgraded (DATA_PATH '__TEST_DIR__/crypta_rows_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'downgraded_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'sql-fixture')
+
+statement error
+SELECT sum(id), min(label) FROM downgraded.alpha
+----
+carries a plaintext encryption key
+
+# The refusal explains itself rather than surfacing a decryption failure, so an
+# operator can tell a downgrade from a corrupt file.
+statement error
+SELECT sum(id) FROM downgraded.beta
+----
+an attempt to downgrade the file
+
+# It refuses BEFORE going to crypta - a plaintext row is not a question the key
+# service needs to be asked.
+#
+# That is a claim about a call that did NOT happen, so it needs an instrument,
+# not another substring of the same message. The fake logs one line per request;
+# the count must not move across the two refused reads below.
+statement ok
+CREATE TABLE ops_before AS SELECT count(*) AS n FROM read_csv('${DUCKLAKE_FAKE_CRYPTA_OPLOG}', columns={'op': 'VARCHAR', 'items': 'BIGINT'}, header=false)
+
+# The instrument has to be shown LIVE before a "it did not move" reading means
+# anything: a log that was never written would also never move, and the delta
+# assertion below would pass having measured nothing.
+query I
+SELECT n > 0 FROM ops_before
+----
+true
+
+statement error
+SELECT sum(id) FROM downgraded.alpha
+----
+this lake is configured for crypta envelope encryption
+
+statement error
+SELECT min(label) FROM downgraded.beta
+----
+carries a plaintext encryption key
+
+query I
+SELECT (SELECT count(*) FROM read_csv('${DUCKLAKE_FAKE_CRYPTA_OPLOG}', columns={'op': 'VARCHAR', 'items': 'BIGINT'}, header=false)) - (SELECT n FROM ops_before)
+----
+0
+
+statement ok
+DETACH downgraded

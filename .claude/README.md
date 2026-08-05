@@ -438,6 +438,154 @@ Note for reproducing: `SELECT count(*)` on a DuckLake table is answered from
 counts rows does not exercise decryption at all. Always read real columns
 (`sum(id)`, `min(nhs)`) when testing the key path - this cost us a false pass.
 
+## The refusal suite - what the proof structurally cannot reach
+
+`scripts/mvp_crypta_proof.sh` runs against a **healthy** crypta, so every path
+that only executes when the service MISBEHAVES is unreachable from it, and from
+anything under `test/sql/`. Those paths are the whole security surface of
+`CryptaClient`: truncated frames, wrong value counts, oversized frames, a
+connection closed mid-read, socket errors, EINTR, JSON escaping. A coverage run
+found them at zero while the proof reported green - a healthy 76.6% covering the
+paths that WORK, with 0% on the paths that must REFUSE.
+
+Two suites close that, and neither touches shared source:
+
+```bash
+# unit: a fake crypta socket that misbehaves on purpose, PLUS the red-first
+# evidence for every case (see below - --mutants is the point, not an extra)
+docker compose run --rm --entrypoint bash app -lc \
+  'test/cpp/crypta/run_crypta_tests.sh --mutants'
+
+# sql: the ATTACH-level and key-row refusals, with a fake key service behind them
+docker compose run --rm --entrypoint bash app -lc \
+  'test/sql/crypta/run_sql_crypta_tests.sh'
+```
+
+`test/cpp/crypta/` is a **standalone CMake project**, deliberately not wired into
+the extension's `CMakeLists.txt`. It compiles the two `src/crypta/` files against
+an already-built `libduckdb.so`. Two reasons: zero divergence in a file that also
+exists upstream, and a mutant rebuild that takes seconds instead of
+re-configuring a 700-target tree.
+
+### --mutants, and why a green here is worthless without it
+
+Every case in the suite asserts a REFUSAL, and **an unrun refusal test and a
+passing one look identical**. So `mutants.py` removes exactly one guard at a
+time - the truncation check, the count check, the EINTR retry, EACH HALF of the
+cache key - rebuilds, and requires the cases naming that guard to go RED. 24
+mutants, 24 reds. A guard whose removal changes nothing means the case naming it
+is not testing it, and the runner says so by name rather than counting it.
+
+Both halves of the cache key need their own mutant, and finding out why is worth
+the warning: reducing the key to the blob alone cannot redden the
+two-blobs-one-identity case, because two different blobs still give two different
+keys. That case carried a `// mutant:` annotation naming evidence that did not
+exist until a review caught it.
+
+Three controls sit in front of each mutant, because every failure mode here is
+silent:
+
+- the roster is read into a VARIABLE, not a process substitution - `done < <(...)`
+  hides the generator's exit status from both `set -e` and `pipefail`, so a
+  `mutants.py` that crashed would leave an empty loop printing "greens are
+  earned" and exiting 0;
+- a mutant's spec must match EXACTLY the cases it names. Counting "more than
+  zero" would let one renamed case in a multi-name list go unproven while the
+  mutant still reddened off the others, and a spec matching nothing runs nothing
+  and exits zero;
+- those cases must be green BEFORE the guard is removed, or the red proves
+  nothing about this mutant.
+
+The first two are themselves positive-controlled: a crashing roster generator and
+an empty one were both shown to stop the run.
+
+### The cache HIT path, and 7df67912
+
+`ducklake_crypta.cpp:58` had never executed. Every unwrap in the proof is a MISS,
+so the `(identity, blob)` cache keying - which IS the fix for the key-confusion
+hole - was carried by nothing at all. `crypta_cache_test.cpp` exercises a genuine
+hit, the wholesale clear at the 4096 cap, and each identity component
+independently. The load-bearing assertion throughout is the **connection count**:
+a hit is precisely "the client did not go to crypta again", and comparing
+returned DEKs cannot tell a hit from a miss.
+
+Mutating the key to the blob alone (`cache_key_blob_only`) reddens three cases,
+which is the first executable evidence that 7df67912 fixed anything.
+
+### The fakes are fakes, and the boundary is exact
+
+`fake_crypta.py` and the C++ `FakeCryptaServer` perform **no cryptography** - no
+KEK, no AEAD; the "blob" is a reversible encoding. They do enforce the identity
+binding, which is the only property the refusal cases depend on. The real cipher,
+the real KEK and KEK recovery across a restart are proven by
+`scripts/mvp_crypta_proof.sh` and by nothing here.
+
+One detail that will bite: `SelfTest` looks for the literal substring
+`"ok":true`, so a health response pretty-printed as `"ok": true` is rejected as
+not-ok. The fake emits compact JSON for that reason.
+
+### What it found, and did not fix
+
+Five defects, all reported on the issue rather than changed here - this suite
+tests the envelope, it does not modify it. Four are executable.
+
+1. **A wrapped lake read by an UNCONFIGURED reader is not refused - it hits an
+   assertion failure.** `crypta_client.hpp` says `LooksWrapped` fails closed "in
+   both directions", but its only call site is inside the provider, which only
+   exists when crypta is configured. Attach an enveloped lake with the crypta
+   options omitted and the read dies with `INTERNAL Error: Invalid AES key length
+   for GCM` and a stack trace, not a diagnostic. That is the most likely operator
+   mistake there is - forgetting the options on re-attach. Found by review, not
+   by this suite; no test added, because the fix changes behaviour.
+2. **The cache key delimiter is ambiguous** (`ducklake_crypta.cpp:51`). The key
+   joins the identity fields and the blob with a bare `|` and escapes nothing, so
+   a path ending `|RExLZZZZ` and a blob beginning `RExLZZZZ|` produce the SAME
+   key - reintroducing, through the delimiter, the exact bypass the
+   (identity, blob) keying exists to prevent. On reachability, precisely: a `|`
+   does NOT arrive via a table name - `stored_path` is the generated basename and
+   the table name lands in the stripped directory part, so the justification
+   comment at `crypta_client.cpp:48` is wrong about this field. The route that
+   does reach it is `ducklake_add_data_files`, which stores an operator-supplied
+   path verbatim (measured).
+3. **`CRYPTA_SOCKET ''` disables the envelope instead of being refused.**
+   `DuckLakeCatalog` guards the block with `!crypta_socket.empty()`, so an unset
+   variable expands to `''` and the lake writes 44-character PLAINTEXT keys with
+   no error. `CryptaClient`'s own empty-path refusal is unreachable from ATTACH.
+4. **`CRYPTA_LAKE_ID` with no `CRYPTA_SOCKET`** is silently ignored the same way.
+   Note the asymmetry: the opposite omission is refused, loudly.
+5. **`CRYPTA_SOCKET` on a lake that RESOLVES TO UNENCRYPTED** - a fresh lake
+   attached without `ENCRYPTED` - attaches, self-tests, and then encrypts
+   nothing. The "crypta_socket on an UNENCRYPTED DuckLake" guard only fires on an
+   explicit `ENCRYPTED false`. Stated carefully because a looser version of this
+   claim is false: re-attaching an EXISTING enveloped lake under AUTOMATIC works
+   fully, blobs and all (measured).
+
+The three fail-opens are characterised in
+`test/sql/crypta/crypta_config_fail_open.test`, the only file in the group that
+asserts current behaviour rather than a refusal - read its header before reading
+its assertions. Each turns red the day its defect is fixed, which is the point.
+
+### The gap: CI runs one of these four files
+
+`crypta_attach_refusals.test` needs nothing and is picked up by the jobs that run
+`test/sql/*`. The other two SQL files are `require-env` and SKIP in CI; the C++
+suite and its mutants are not wired to CI at all. So the mutant evidence and the
+key-row refusals are, today, proven on a workstation and nowhere else. Wiring
+them needs a Makefile target and a job that runs the devcontainer image - a
+decision for whoever owns this fork's CI, not something this suite took on
+itself.
+
+Two things are honestly NOT proven and were not contrived into looking proven:
+
+- `ducklake_crypta.cpp:65-67` (`crypta returned N keys for one file`) is
+  **unreachable**. `ExtractBase64Field` already enforces exactly-`expected`
+  values and `UnwrapKey` always requests one, so no response can reach it. It is
+  defence in depth, and it stays dark.
+- The write-failure branch depends on the HOST's SIGPIPE disposition, which
+  DuckLake does not set. The CLI installs a handler so the branch is reached; a
+  plain libduckdb embedding takes the default and the PROCESS DIES instead. The
+  unit runner ignores SIGPIPE to observe the branch, and says so in its `main`.
+
 ## The proof, and how to re-run it
 
 `scripts/mvp_crypta_proof.sh` runs the whole matrix - all eight steps, no manual
