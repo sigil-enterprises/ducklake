@@ -152,6 +152,45 @@ SELECT sum(id), min(label) FROM restored.alpha
 ----
 499500	a0
 
+# --------------------------------------------------------------------------
+# The DEK cache HIT, from SQL
+#
+# Re-read the SAME file inside the SAME attach. The provider's cache is keyed on
+# (identity, blob), so the second read must be served from it and crypta must
+# not be asked again - which is a claim about a call that does NOT happen, so it
+# needs the request log rather than another equal-looking result.
+#
+# This is the one path `scripts/mvp_crypta_proof.sh` structurally cannot reach:
+# every unwrap there is a first unwrap, so the hit branch
+# (`ducklake_crypta.cpp:58`) is reached by no ATTACH anywhere else. The C++
+# cache suite covers it in the STANDALONE binary; this is the only thing that
+# covers it through a real ATTACH, in the extension build.
+# --------------------------------------------------------------------------
+
+statement ok
+CREATE TABLE ops_before_reread AS SELECT count(*) AS n FROM read_csv('${DUCKLAKE_FAKE_CRYPTA_OPLOG}', columns={'op': 'VARCHAR', 'items': 'BIGINT'}, header=false)
+
+# The instrument must be live, or "it did not move" measures nothing.
+query I
+SELECT n > 0 FROM ops_before_reread
+----
+true
+
+query II
+SELECT sum(id), min(label) FROM restored.alpha
+----
+499500	a0
+
+query II
+SELECT sum(id), min(label) FROM restored.alpha
+----
+499500	a0
+
+query I
+SELECT (SELECT count(*) FROM read_csv('${DUCKLAKE_FAKE_CRYPTA_OPLOG}', columns={'op': 'VARCHAR', 'items': 'BIGINT'}, header=false)) - (SELECT n FROM ops_before_reread)
+----
+0
+
 statement ok
 DETACH restored
 

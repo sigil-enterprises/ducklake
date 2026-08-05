@@ -459,7 +459,23 @@ docker compose run --rm --entrypoint bash app -lc \
 # sql: the ATTACH-level and key-row refusals, with a fake key service behind them
 docker compose run --rm --entrypoint bash app -lc \
   'test/sql/crypta/run_sql_crypta_tests.sh'
+
+# what either suite actually reaches, both arms - see "Measuring it honestly"
+docker compose run --rm --entrypoint bash app -lc \
+  'scripts/measure_crypta_refusal_coverage.sh'
 ```
+
+Both suites run in CI, in `.github/workflows/CryptaRefusals.yml`, inside this
+repo's own devcontainer image. A surviving mutant FAILS the job - proven, not
+assumed: a no-op mutant (a semantically identical rewrite, so its case still
+passes) makes the runner print `SURVIVED` and exit 1, and the workflow invokes it
+as the last command in the container so that status is what the step sees.
+
+The measurement is deliberately NOT in that job, and it therefore gates nothing -
+it needs a second `-O0` build of DuckDB, roughly doubling a 30-70 minute job, for
+a number the mutants already gate. That is the same criticism this file levels at
+an unrun mutant suite; it is stated in the script's own header rather than left
+for a reader to notice.
 
 `test/cpp/crypta/` is a **standalone CMake project**, deliberately not wired into
 the extension's `CMakeLists.txt`. It compiles the two `src/crypta/` files against
@@ -472,8 +488,8 @@ re-configuring a 700-target tree.
 Every case in the suite asserts a REFUSAL, and **an unrun refusal test and a
 passing one look identical**. So `mutants.py` removes exactly one guard at a
 time - the truncation check, the count check, the EINTR retry, EACH HALF of the
-cache key - rebuilds, and requires the cases naming that guard to go RED. 24
-mutants, 24 reds. A guard whose removal changes nothing means the case naming it
+cache key - rebuilds, and requires the cases naming that guard to go RED. 28
+mutants, 28 reds. A guard whose removal changes nothing means the case naming it
 is not testing it, and the runner says so by name rather than counting it.
 
 Both halves of the cache key need their own mutant, and finding out why is worth
@@ -501,7 +517,10 @@ an empty one were both shown to stop the run.
 
 ### The cache HIT path, and 7df67912
 
-`ducklake_crypta.cpp:58` had never executed. Every unwrap in the proof is a MISS,
+`ducklake_crypta.cpp:58` had never executed in the EXTENSION build - i.e. through
+a real ATTACH. (The standalone cache suite covers it too; the looser claim
+"never executed in this tree" is false once that suite exists, and was corrected
+after a review caught it.) Every unwrap in the proof is a MISS,
 so the `(identity, blob)` cache keying - which IS the fix for the key-confusion
 hole - was carried by nothing at all. `crypta_cache_test.cpp` exercises a genuine
 hit, the wholesale clear at the 4096 cap, and each identity component
@@ -526,18 +545,27 @@ not-ok. The fake emits compact JSON for that reason.
 
 ### What it found, and did not fix
 
-Five defects, all reported on the issue rather than changed here - this suite
-tests the envelope, it does not modify it. Four are executable.
+Six defects, every one FILED rather than changed here - this suite tests the
+envelope, it does not modify it. The PR carrying it touches no `src/`.
+
+| # | issue | what |
+|---|-------|------|
+| 2 | [#18](https://github.com/sigil-enterprises/ducklake/issues/18) | SECURITY - the cache key delimiter is ambiguous |
+| 3,4,5 | [#19](https://github.com/sigil-enterprises/ducklake/issues/19) | three ATTACH-time fail-opens |
+| 1 | [#20](https://github.com/sigil-enterprises/ducklake/issues/20) | an unconfigured reader dies on an assertion, not a diagnostic |
+| - | [#21](https://github.com/sigil-enterprises/ducklake/issues/21) | SIGPIPE kills an embedding host |
 
 1. **A wrapped lake read by an UNCONFIGURED reader is not refused - it hits an
-   assertion failure.** `crypta_client.hpp` says `LooksWrapped` fails closed "in
+   assertion failure.** ([#20](https://github.com/sigil-enterprises/ducklake/issues/20)) `crypta_client.hpp` says `LooksWrapped` fails closed "in
    both directions", but its only call site is inside the provider, which only
    exists when crypta is configured. Attach an enveloped lake with the crypta
    options omitted and the read dies with `INTERNAL Error: Invalid AES key length
    for GCM` and a stack trace, not a diagnostic. That is the most likely operator
    mistake there is - forgetting the options on re-attach. Found by review, not
    by this suite; no test added, because the fix changes behaviour.
-2. **The cache key delimiter is ambiguous** (`ducklake_crypta.cpp:51`). The key
+2. **The cache key delimiter is ambiguous** (`ducklake_crypta.cpp:51`,
+   [#18](https://github.com/sigil-enterprises/ducklake/issues/18) - the most
+   important result here). The key
    joins the identity fields and the blob with a bare `|` and escapes nothing, so
    a path ending `|RExLZZZZ` and a blob beginning `RExLZZZZ|` produce the SAME
    key - reintroducing, through the delimiter, the exact bypass the
@@ -548,6 +576,7 @@ tests the envelope, it does not modify it. Four are executable.
    does reach it is `ducklake_add_data_files`, which stores an operator-supplied
    path verbatim (measured).
 3. **`CRYPTA_SOCKET ''` disables the envelope instead of being refused.**
+   ([#19](https://github.com/sigil-enterprises/ducklake/issues/19), with 4 and 5)
    `DuckLakeCatalog` guards the block with `!crypta_socket.empty()`, so an unset
    variable expands to `''` and the lake writes 44-character PLAINTEXT keys with
    no error. `CryptaClient`'s own empty-path refusal is unreachable from ATTACH.
@@ -565,26 +594,58 @@ The three fail-opens are characterised in
 asserts current behaviour rather than a refusal - read its header before reading
 its assertions. Each turns red the day its defect is fixed, which is the point.
 
-### The gap: CI runs one of these four files
+### Measuring it honestly - both arms, or the number is not evidence
 
-`crypta_attach_refusals.test` needs nothing and is picked up by the jobs that run
-`test/sql/*`. The other two SQL files are `require-env` and SKIP in CI; the C++
-suite and its mutants are not wired to CI at all. So the mutant evidence and the
-key-row refusals are, today, proven on a workstation and nowhere else. Wiring
-them needs a Makefile target and a job that runs the devcontainer image - a
-decision for whoever owns this fork's CI, not something this suite took on
-itself.
+`scripts/measure_crypta_refusal_coverage.sh`, against the opt-in
+`-DDUCKLAKE_ENABLE_COVERAGE=ON` build:
+
+| file | before | now | still dark |
+|------|--------|-----|------------|
+| `src/crypta/crypta_client.cpp` | 128/167 | **166/167** | `:79` |
+| `src/crypta/ducklake_crypta.cpp` | 30/36 | **35/36** | `:66` |
+
+Every number there is a PAIR, because gcov's `.gcda` counters accumulate and a
+lone non-zero proves nothing about which run produced it:
+
+- **the cache HIT** (`ducklake_crypta.cpp:58`) reads **0** with only
+  `crypta_attach_refusals.test` run - which exercises the same file, so the
+  instrument is demonstrably live - and **4** with the full SQL group. It moves
+  when and only when the cache case runs.
+- **the dark-line check** is a subset test with its own positive control: with
+  the unreachable list emptied it flags `:79` and `:66`, with the list in place
+  it passes. A check that cannot fail is not a check.
+
+Two traps this script exists to document, both of which it walked into first:
+
+- `run_sql_crypta_tests.sh` hardcoded `build/release/test/unittest`, so the
+  positive arm ran an UNINSTRUMENTED binary and wrote no counters - and read
+  LOWER than the negative arm. Hence `DUCKLAKE_UNITTEST`.
+- `gcovr --gcov-object-directory` does **not** scope the search - it ADDS a
+  search path while `--root` keeps scanning the whole tree, so a second build's
+  counters merged into the first's number (12 vs 4, measured). Only the trailing
+  positional search path isolates.
 
 Two things are honestly NOT proven and were not contrived into looking proven:
 
-- `ducklake_crypta.cpp:65-67` (`crypta returned N keys for one file`) is
+- `ducklake_crypta.cpp:66` (`crypta returned N keys for one file`) is
   **unreachable**. `ExtractBase64Field` already enforces exactly-`expected`
   values and `UnwrapKey` always requests one, so no response can reach it. It is
   defence in depth, and it stays dark.
-- The write-failure branch depends on the HOST's SIGPIPE disposition, which
-  DuckLake does not set. The CLI installs a handler so the branch is reached; a
-  plain libduckdb embedding takes the default and the PROCESS DIES instead. The
-  unit runner ignores SIGPIPE to observe the branch, and says so in its `main`.
+- `crypta_client.cpp:79`, the closing brace of `JsonEscape`, is its
+  exception-unwind block. gcov counts a closing brace on both the return and the
+  unwind path - measured, not assumed: `ExtractBase64Field`'s brace reads 4143
+  against 4131 returns, the excess being its throws unwinding through. Nothing in
+  `JsonEscape` can throw but an allocation. Worth reading rather than dismissing,
+  though: the same signal on `Health`'s brace was a REAL missing case - a health
+  probe answered with an error frame - and is now covered.
+
+And one that is proven only under a disposition DuckLake does not set:
+
+- The write-failure branch depends on the HOST's SIGPIPE disposition. The CLI
+  installs a handler so the branch is reached; a plain libduckdb embedding takes
+  the default and the PROCESS DIES instead
+  ([#21](https://github.com/sigil-enterprises/ducklake/issues/21)). The unit
+  runner ignores SIGPIPE to observe the branch, and says so in its `main`.
 
 ## The proof, and how to re-run it
 

@@ -78,7 +78,8 @@ MUTANTS = [
         "why": "surfacing an error status instead of parsing the response for keys",
         "old": '\tthrow IOException("crypta refused the request: %s", message);',
         "new": '\t(void)message;\n\treturn;',
-        "reddens": ["crypta: an error status is surfaced, never parsed for keys"],
+        "reddens": ["crypta: an error status is surfaced, never parsed for keys",
+                    "crypta: a health probe answered with an error frame fails the self-test"],
     },
     {
         "name": "no_truncation_check",
@@ -135,6 +136,66 @@ MUTANTS = [
                '\t\t\tbreak;\n'
                '\t\t}',
         "reddens": ["crypta: a connection closed mid-read is refused"],
+    },
+    {
+        "name": "no_wrap_item_separator",
+        "file": "crypta_client.cpp",
+        "why": "the comma between items in a wrap_batch body - without it a "
+               "two-file commit sends JSON crypta cannot parse",
+        "old": '\t\tif (i > 0) {\n'
+               '\t\t\tbody += ",";\n'
+               '\t\t}\n'
+               '\t\tbody += StringUtil::Format("{\\"identity\\":%s,\\"dek\\":\\"%s\\"}", IdentityJson(identities[i]),',
+        "new": '\t\tif (false) {\n'
+               '\t\t\tbody += ",";\n'
+               '\t\t}\n'
+               '\t\tbody += StringUtil::Format("{\\"identity\\":%s,\\"dek\\":\\"%s\\"}", IdentityJson(identities[i]),',
+        "reddens": ["crypta: a multi-item wrap is one request with well-formed separators"],
+    },
+    {
+        "name": "no_single_request_per_batch",
+        "file": "crypta_client.cpp",
+        "why": "the one-call-per-commit property of WrapBatch. Not a refusal - a "
+               "DESIGN claim the class's own note turns on (writes batch, reads "
+               "do not), and the connection-count assertions were the only thing "
+               "carrying it. Sending the body twice leaves every returned blob "
+               "correct and only the count wrong, which is exactly how this would "
+               "regress in practice",
+        "old": '\tauto response = Request(body);\n'
+               '\tThrowIfError(response);\n'
+               '\treturn ExtractBase64Field(response, "wrapped", identities.size());',
+        "new": '\tRequest(body);\n'
+               '\tauto response = Request(body);\n'
+               '\tThrowIfError(response);\n'
+               '\treturn ExtractBase64Field(response, "wrapped", identities.size());',
+        "reddens": ["crypta: a multi-item wrap is one request with well-formed separators",
+                    "crypta provider: WrapKeys batches a whole commit into one call"],
+    },
+    {
+        "name": "no_socket_creation_check",
+        "file": "crypta_client.cpp",
+        "why": "the refusal of a socket() that failed - so an fd of -1 is carried "
+               "into connect() and the error blames the service instead",
+        "old": '\tif (handle.fd < 0) {\n'
+               '\t\tthrow IOException("could not create a socket for crypta: %s", strerror(errno));\n'
+               '\t}',
+        "new": '\tif (false) {\n'
+               '\t\tthrow IOException("could not create a socket for crypta: %s", strerror(errno));\n'
+               '\t}',
+        "reddens": ["crypta: a socket that cannot be created is refused, not used"],
+    },
+    {
+        "name": "no_self_test_ok_check",
+        "file": "ducklake_crypta.cpp",
+        "why": "the ATTACH self-test's refusal of a service that answers but is "
+               "not ok - the fail-open that installs the provider on a sealed KEK",
+        "old": '\tif (health.find("\\"ok\\":true") == string::npos) {\n'
+               '\t\tthrow IOException("crypta at %s did not report ok: %s", client.SocketPath(), health);\n'
+               '\t}',
+        "new": '\tif (false) {\n'
+               '\t\tthrow IOException("crypta at %s did not report ok: %s", client.SocketPath(), health);\n'
+               '\t}',
+        "reddens": ["crypta: a service that answers but does not report ok fails the self-test"],
     },
     {
         "name": "no_read_error_check",

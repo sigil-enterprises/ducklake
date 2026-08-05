@@ -18,12 +18,14 @@
 // so `run_crypta_tests.sh --mutants` deletes the guard and requires the red.
 //===----------------------------------------------------------------------===//
 
+#include "crypta/ducklake_crypta.hpp"
 #include "crypta_test_support.hpp"
 #include "duckdb/common/exception.hpp"
 
 #include <chrono>
 #include <csignal>
 #include <pthread.h>
+#include <sys/resource.h>
 #include <thread>
 
 using namespace duckdb;              // NOLINT
@@ -328,6 +330,51 @@ TEST_CASE("crypta: a connection closed mid-read is refused", "[crypta][refusal][
 		REQUIRE_THAT(ThrownMessage([&]() { client.UnwrapBatch({SampleIdentity()}, {"RExLblob"}); }),
 		             Catch::Contains("closed the connection while reading the response body"));
 	}
+}
+
+// mutant: no_socket_creation_check
+TEST_CASE("crypta: a socket that cannot be created is refused, not used", "[crypta][refusal][io]") {
+	// The fd table is exhausted for the duration of one call. Without this the
+	// `socket() < 0` branch is unreachable from any test: every other failure in
+	// this file happens AFTER a socket exists.
+	//
+	// It matters because the guard is what stops an fd of -1 being carried into
+	// connect(). Deleting it does not produce a silent success - it produces the
+	// WRONG diagnosis, "could not connect to crypta at <path>", pointing an
+	// operator at a service that is running perfectly well while the real fault
+	// is a process out of descriptors.
+	struct RlimitGuard {
+		struct rlimit saved;
+		bool held = false;
+		~RlimitGuard() {
+			if (held) {
+				setrlimit(RLIMIT_NOFILE, &saved);
+			}
+		}
+	} guard;
+	REQUIRE(getrlimit(RLIMIT_NOFILE, &guard.saved) == 0);
+
+	// The path is never reached, but it still has to pass the constructor's own
+	// checks - non-empty and under sun_path - or this would measure those instead.
+	CryptaClient client("/tmp/ducklake-crypta-no-fds.sock");
+
+	struct rlimit squeezed = guard.saved;
+	squeezed.rlim_cur = 0;
+	REQUIRE(setrlimit(RLIMIT_NOFILE, &squeezed) == 0);
+	guard.held = true;
+	auto message = ThrownMessage([&]() { client.Health(); });
+
+	// Restore through the GUARD, and disarm it before asserting. Asserting first
+	// would leave `held` true when the REQUIRE throws, so the destructor would
+	// retry the same failing call and every later case in this binary would run
+	// at soft limit 0. Unreachable in practice - restoring a soft limit at or
+	// below an unchanged hard limit always succeeds - but the ordering costs
+	// nothing and the failure mode is silent and global.
+	int restored = setrlimit(RLIMIT_NOFILE, &guard.saved);
+	guard.held = false;
+	REQUIRE(restored == 0);
+
+	REQUIRE_THAT(message, Catch::Contains("could not create a socket for crypta"));
 }
 
 // mutant: no_read_error_check
@@ -679,6 +726,105 @@ TEST_CASE("crypta: the delete-file kind is carried on the wire", "[crypta][refus
 //===----------------------------------------------------------------------===//
 // The happy path, so the fake server is not proving refusals by being broken
 //===----------------------------------------------------------------------===//
+
+//===----------------------------------------------------------------------===//
+// The ATTACH-time self-test
+//===----------------------------------------------------------------------===//
+
+// mutant: no_self_test_ok_check
+TEST_CASE("crypta: a service that answers but does not report ok fails the self-test",
+          "[crypta][refusal][self_test]") {
+	// This is the gate that decides whether the envelope provider is installed on
+	// the catalog at all, so a fail-open here is not a degraded read - it is an
+	// ATTACH that reports success and then writes PLAINTEXT keys.
+	//
+	// Reachability is the easy half and the SQL fixture already covers it (a dead
+	// socket refuses the ATTACH). The half nothing covered is a service that is
+	// alive, answers the frame, and says it is NOT ok - a crypta whose KEK has
+	// not been unsealed answers exactly like this.
+	FakeCryptaServer server;
+	server.Start([&](FakeConnection &connection, int) {
+		server.Record(connection.ReadFrame());
+		connection.WriteFrame("{\"schema\":\"CryptaWireManifest@v2\",\"status\":\"ok\",\"ok\":false,"
+		                      "\"detail\":\"kek is sealed\"}");
+	});
+	DuckLakeCryptaProvider provider(server.Path(), "some-lake");
+	auto message = ThrownMessage([&]() { provider.SelfTest(); });
+	REQUIRE_THAT(message, Catch::Contains("did not report ok"));
+	// The refusal carries what the service actually said, so an operator can tell
+	// a sealed KEK from a wrong socket without reading the service's own log.
+	REQUIRE_THAT(message, Catch::Contains("kek is sealed"));
+	// `status` is "ok" on purpose: the response is NOT an error frame, so
+	// ThrowIfError passes it through and only the self-test's own check can
+	// refuse it. Without that, this case would be re-testing the error path.
+	REQUIRE(server.Connections() == 1);
+}
+
+TEST_CASE("crypta: a health probe answered with an error frame fails the self-test",
+          "[crypta][refusal][self_test]") {
+	// Distinct from the case above, and the distinction is the whole point: there
+	// the service answered "ok":false inside a SUCCESSFUL frame, here it answers
+	// an ERROR frame. The two take different code paths out of SelfTest - the
+	// first through the self-test's own check, this one through ThrowIfError
+	// inside Health - and only this one unwinds an exception through Health.
+	//
+	// It is the shape crypta returns when the request is refused rather than when
+	// the service is unwell, and an ATTACH must fail closed on both.
+	FakeCryptaServer server;
+	server.Start([](FakeConnection &connection, int) {
+		connection.ReadFrame();
+		connection.WriteFrame(ErrorResponse("health is not available to this caller"));
+	});
+	DuckLakeCryptaProvider provider(server.Path(), "some-lake");
+	auto message = ThrownMessage([&]() { provider.SelfTest(); });
+	REQUIRE_THAT(message, Catch::Contains("crypta refused the request"));
+	REQUIRE_THAT(message, Catch::Contains("health is not available to this caller"));
+	// And NOT the self-test's own wording: reporting "did not report ok" here
+	// would send an operator looking at a sealed KEK when the service is telling
+	// them the caller is not permitted.
+	REQUIRE(message.find("did not report ok") == std::string::npos);
+}
+
+TEST_CASE("crypta: a service reporting ok passes the self-test", "[crypta][happy]") {
+	FakeCryptaServer server;
+	server.Start([](FakeConnection &connection, int) {
+		connection.ReadFrame();
+		connection.WriteFrame("{\"schema\":\"CryptaWireManifest@v2\",\"status\":\"ok\",\"ok\":true,"
+		                      "\"kek\":\"yubihsm\"}");
+	});
+	DuckLakeCryptaProvider provider(server.Path(), "some-lake");
+	// The health text is RETURNED rather than swallowed, which is what lets ATTACH
+	// report what the lake is rooted in. A self-test that only threw or did not
+	// would leave the operator no way to tell one crypta from another.
+	REQUIRE_THAT(provider.SelfTest(), Catch::Contains("yubihsm"));
+}
+
+TEST_CASE("crypta: a multi-item wrap is one request with well-formed separators", "[crypta][happy]") {
+	// The unwrap side of this is covered by the round-trip case below; the wrap
+	// side was not, and its item separator is the difference between valid JSON
+	// and a body crypta cannot parse. A commit writing two or more files is the
+	// ordinary case, not an edge one - WrapKeys batches a whole commit.
+	FakeCryptaServer server;
+	server.Start([&](FakeConnection &connection, int) {
+		server.Record(connection.ReadFrame());
+		connection.WriteFrame(OkWrapResponse({"RExLone", "RExLtwo"}));
+	});
+	CryptaClient client(server.Path());
+	vector<CryptaFileIdentity> identities {SampleIdentity("a.parquet"), SampleIdentity("b.parquet")};
+	vector<string> deks {SampleDek('a'), SampleDek('b')};
+	auto blobs = client.WrapBatch(identities, deks);
+	REQUIRE(blobs.size() == 2);
+	REQUIRE(blobs[0] == "RExLone");
+	REQUIRE(blobs[1] == "RExLtwo");
+	REQUIRE(server.Connections() == 1);
+	auto request = server.Requests().at(0);
+	REQUIRE_THAT(request, Catch::Contains("},{\"identity\":"));
+	// Both files are in the ONE body, in order - not two calls, and not one file
+	// silently dropped.
+	REQUIRE_THAT(request, Catch::Contains("a.parquet"));
+	REQUIRE_THAT(request, Catch::Contains("b.parquet"));
+	REQUIRE(request.find("a.parquet") < request.find("b.parquet"));
+}
 
 TEST_CASE("crypta: a well-formed response round-trips", "[crypta][happy]") {
 	auto dek_a = SampleDek('a');

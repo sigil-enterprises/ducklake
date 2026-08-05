@@ -8,7 +8,7 @@
 //
 // PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
 //
-// Before this file, the cache HIT branch had never executed: every unwrap in
+// Before this file, the cache HIT branch had never executed anywhere: every unwrap in
 // `scripts/mvp_crypta_proof.sh` is a MISS, so the keying introduced in 7df67912
 // - which IS the fix for the key-confusion hole - was carried by nothing.
 //
@@ -139,6 +139,36 @@ TEST_CASE("crypta provider: an empty lake id is refused", "[crypta][cache][provi
 	             Catch::Contains("crypta_lake_id must be set"));
 }
 
+TEST_CASE("crypta provider: WrapKeys batches a whole commit into one call", "[crypta][cache][provider]") {
+	// The wrap half of the provider, which every other case here reaches only
+	// through the SQL fixture. It is a two-line delegation, and the only thing it
+	// can get wrong is silently, so the assertions are on the WIRE rather than on
+	// the return value: one connection for the whole commit, both identities
+	// present, in the order they were given.
+	//
+	// The count matters beyond tidiness. The design note on this class turns on
+	// writes batching per commit while reads do not; a WrapKeys that opened one
+	// connection per file would quietly invalidate that, and nothing else in this
+	// suite would notice.
+	FakeCryptaServer server;
+	server.Start([&](FakeConnection &connection, int) {
+		server.Record(connection.ReadFrame());
+		connection.WriteFrame(OkWrapResponse({"RExLfirst", "RExLsecond"}));
+	});
+	DuckLakeCryptaProvider provider(server.Path(), "commit-lake");
+	vector<CryptaFileIdentity> identities {SampleIdentity("first.parquet"), SampleIdentity("second.parquet")};
+	vector<string> deks {DekFor("first"), DekFor("second")};
+	auto blobs = provider.WrapKeys(identities, deks);
+	REQUIRE(blobs.size() == 2);
+	REQUIRE(blobs[0] == "RExLfirst");
+	REQUIRE(blobs[1] == "RExLsecond");
+	REQUIRE(server.Connections() == 1);
+	auto request = server.Requests().at(0);
+	REQUIRE_THAT(request, Catch::Contains("first.parquet"));
+	REQUIRE_THAT(request, Catch::Contains("second.parquet"));
+	REQUIRE(request.find("first.parquet") < request.find("second.parquet"));
+}
+
 //===----------------------------------------------------------------------===//
 // A plaintext key row on an enveloped lake
 //===----------------------------------------------------------------------===//
@@ -176,7 +206,7 @@ TEST_CASE("crypta provider: a plaintext key row is refused, never used", "[crypt
 }
 
 //===----------------------------------------------------------------------===//
-// The cache HIT path - never executed by anything in this tree before now
+// The cache HIT path - executed by nothing before this file
 //===----------------------------------------------------------------------===//
 
 // mutant: no_cache_lookup

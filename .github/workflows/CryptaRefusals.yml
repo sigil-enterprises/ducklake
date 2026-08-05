@@ -1,0 +1,198 @@
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# Gates the crypta envelope provider's REFUSAL paths, and the red-first evidence
+# that they are refusals rather than assertions nobody has seen fail.
+#
+# Why this is a separate workflow rather than a step bolted onto an existing one
+# ------------------------------------------------------------------------------
+# The other test workflows in this tree are upstream's, and this fork does not
+# own them. This file is additive and fork-local, so it costs nothing on an
+# upstream merge. Nothing here touches the Makefile either - that file is
+# upstream's too (it just includes extension-ci-tools), and adding a target to it
+# would be divergence in a shared file for no gain.
+#
+# Why it builds the devcontainer instead of provisioning the runner
+# -----------------------------------------------------------------
+# Two reasons, one of them hard:
+#
+#   1. The fleet rule is that CI reuses the project's devcontainer image, so a
+#      green locally and a green in CI mean the same thing. The upstream
+#      workflows here provision the runner directly; a new fork-local file
+#      should not copy that.
+#   2. GCC 14 is load-bearing on this branch, not a preference. `.devcontainer/
+#      Dockerfile` records the measurement: under `-std=c++11` (which DuckDB
+#      v1.5.3 pins) GCC 11.4 and 12.3 both REJECT two upstream DuckLake files,
+#      reproduced on pristine upstream with no fork changes. The image pins 14
+#      and the exact vcpkg commit; a runner's default toolchain pins neither.
+#
+# What it gates
+# -------------
+#   - test/cpp/crypta            cases against a fake crypta socket that
+#                                misbehaves on purpose, plus --mutants: every
+#                                guard deleted one at a time, each REQUIRED to
+#                                redden the cases naming it. Case and guard
+#                                counts deliberately NOT quoted here: the runner
+#                                prints the real ones, and a number in a comment
+#                                goes stale silently - the counts that were here
+#                                originally had already drifted from the truth by
+#                                the time anyone read them.
+#   - test/sql/crypta            the ATTACH-level and key-row refusals, with a
+#                                fake key service behind them so the two
+#                                require-env files RUN rather than skip.
+#
+# Before this job, CI ran exactly one of those four files. A mutant suite nobody
+# runs is a positive control nobody has seen fire.
+#
+# Matrixed over `.github/duckdb-versions` - EVERY patch the fork publishes, not
+# just the one the upstream test workflows pin. A DuckDB extension loads only
+# under the exact patch it was built against, so publishing a patch whose
+# refusal behaviour was never executed is shipping an untested refusal.
+
+name: Crypta Refusal Tests
+# Deliberately NOT `on: [push, pull_request]`, which the upstream workflows here
+# use: for a branch in this same repo BOTH events fire, their concurrency groups
+# differ so neither cancels the other, and every PR push cold-builds DuckDB
+# TWICE. Measured on this workflow's first run - two jobs, same commit. For a
+# 30-70 minute build that is not a rounding error.
+on:
+  pull_request:
+  push:
+    branches: [main, 'release/**']
+  repository_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' || github.sha }}
+  cancel-in-progress: true
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # Same discovery step MainDistributionPipeline uses, reading the same file, so
+  # adding a patch to .github/duckdb-versions extends this gate automatically
+  # instead of silently leaving it behind.
+  get-duckdb-versions:
+    name: Get DuckDB versions
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.versions.outputs.versions }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
+      - id: versions
+        name: Read the patch list
+        run: |
+          set -euo pipefail
+          versions=$(grep -vE '^[[:space:]]*(#|$)' .github/duckdb-versions | jq -cRn '[inputs | select(length > 0)]')
+          if [ "$versions" = "[]" ]; then
+            echo "::error::.github/duckdb-versions lists no DuckDB patch - nothing would be gated"
+            exit 1
+          fi
+          echo "versions=$versions" >> "$GITHUB_OUTPUT"
+          echo "gating: $versions"
+
+  crypta-refusals:
+    name: Crypta Refusals (${{ matrix.duckdb_version }})
+    needs: get-duckdb-versions
+    strategy:
+      # One patch failing must not cancel the other's evidence - the whole point
+      # is knowing WHICH published patch refuses correctly.
+      fail-fast: false
+      matrix:
+        duckdb_version: ${{ fromJSON(needs.get-duckdb-versions.outputs.versions) }}
+    runs-on: ubuntu-latest
+    # A cold run pays for the image, vcpkg and a full DuckDB build. Warm, ccache
+    # carries most of it.
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: 'true'
+
+      # The MATRIX patch, not `.github/duckdb-version` (singular). The singular
+      # file is the one patch the upstream test workflows run against; this gate
+      # must run against every patch the fork actually PUBLISHES, which is the
+      # plural file. Shipping a patch whose refusal behaviour was never executed
+      # is the gap this suite exists to close.
+      - name: Checkout DuckDB to the matrix patch
+        run: |
+          cd duckdb
+          git checkout "${{ matrix.duckdb_version }}"
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # The image is the slow part and it changes only when the Dockerfile does,
+      # so it is cached on the Dockerfile's own hash rather than rebuilt per run.
+      - name: Build the devcontainer image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .devcontainer/Dockerfile
+          tags: ducklake-devcontainer:ci
+          load: true
+          cache-from: type=gha,scope=ducklake-devcontainer
+          cache-to: type=gha,scope=ducklake-devcontainer,mode=max
+
+      # ccache lives on the host so actions/cache can carry it between runs; the
+      # container mounts it at the path the image already expects.
+      # Keyed on the ref, not the sha. A sha key can never hit - it is new every
+      # run - so the cache only ever SAVED, and a fresh multi-GB entry per push
+      # evicts the ones that would have been hits. That is a guaranteed cold
+      # build wearing the costume of a warm one.
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/.ccache
+          key: crypta-refusals-ccache-${{ matrix.duckdb_version }}-${{ github.ref_name }}
+          restore-keys: |
+            crypta-refusals-ccache-${{ matrix.duckdb_version }}-
+
+      # docker-compose.yaml keeps this in a named volume and says why: "A
+      # DuckLake build is 30-70 minutes cold. ccache and the vcpkg binary cache
+      # are what keep the second one short." CI mounted only ccache, so it
+      # rebuilt every vcpkg dependency from source on every run.
+      - name: Restore the vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/.vcpkg-cache
+          key: crypta-refusals-vcpkg-${{ matrix.duckdb_version }}-${{ hashFiles('.devcontainer/Dockerfile', 'vcpkg.json') }}
+          restore-keys: |
+            crypta-refusals-vcpkg-${{ matrix.duckdb_version }}-
+
+      - name: Build the extension
+        run: |
+          mkdir -p "${RUNNER_TEMP}/.ccache" "${RUNNER_TEMP}/.vcpkg-cache"
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}":/app \
+            -v "${RUNNER_TEMP}/.ccache":/ccache \
+            -v "${RUNNER_TEMP}/.vcpkg-cache":/root/.cache/vcpkg \
+            -w /app -e CCACHE_DIR=/ccache -e GEN=ninja \
+            --entrypoint bash ducklake-devcontainer:ci -lc \
+            'BUILD_EXTENSION_TEST_DEPS=full make release'
+
+      # --mutants is the point of this job, not an extra. Without it the refusal
+      # cases are unproven, and the runner says so in as many words.
+      - name: Unit refusals, with the red-first evidence for every guard
+        run: |
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}":/app \
+            -v "${RUNNER_TEMP}/.ccache":/ccache \
+            -v "${RUNNER_TEMP}/.vcpkg-cache":/root/.cache/vcpkg \
+            -w /app -e CCACHE_DIR=/ccache -e GEN=ninja \
+            --entrypoint bash ducklake-devcontainer:ci -lc \
+            'test/cpp/crypta/run_crypta_tests.sh --mutants'
+
+      # The runner starts the fake key service and FAILS if either require-env
+      # file skips - a skip is not a pass, and a skipped file exits zero.
+      - name: SQL refusals, against a fake key service
+        run: |
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}":/app \
+            -v "${RUNNER_TEMP}/.ccache":/ccache \
+            -v "${RUNNER_TEMP}/.vcpkg-cache":/root/.cache/vcpkg \
+            -w /app -e CCACHE_DIR=/ccache -e GEN=ninja \
+            --entrypoint bash ducklake-devcontainer:ci -lc \
+            'test/sql/crypta/run_sql_crypta_tests.sh'

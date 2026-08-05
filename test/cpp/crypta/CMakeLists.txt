@@ -25,10 +25,15 @@
 cmake_minimum_required(VERSION 3.5)
 project(ducklake_crypta_test CXX)
 
-# DuckDB v1.5.3 pins CMAKE_CXX_STANDARD to 11 in its own top-level CMakeLists,
-# so the client is COMPILED as C++11 in the shipped extension. Building the same
+# DuckDB pins CMAKE_CXX_STANDARD to 11 in its own top-level CMakeLists, so the
+# client is COMPILED as C++11 in the shipped extension. Building the same
 # translation unit under a newer standard here would be testing something the
 # fork does not ship.
+#
+# Verified at EVERY patch `.github/duckdb-versions` publishes, not just one -
+# v1.5.3 and v1.5.5 both `set(CMAKE_CXX_STANDARD "11" ...)`. If a future patch
+# raises it, this line silently starts testing a different translation unit than
+# the one that ships, so re-check it when adding a patch there.
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(NOT CMAKE_BUILD_TYPE)
@@ -97,3 +102,24 @@ target_include_directories(
 find_package(Threads REQUIRED)
 target_link_libraries(crypta_test "${DUCKDB_LIBRARY}" Threads::Threads)
 set_target_properties(crypta_test PROPERTIES BUILD_RPATH "${DUCKDB_BUILD_DIR}/src")
+
+# Opt-in coverage for THIS binary, mirroring DUCKLAKE_ENABLE_COVERAGE in the
+# top-level CMakeLists but scoped to the two files under test.
+#
+# It has to be separate, because the two builds are separate: the extension
+# coverage build instruments src/crypta/ as compiled into `unittest`, and this
+# project compiles the same sources into a standalone binary against
+# libduckdb.so. Only the latter runs the refusal cases, so only the latter can
+# measure them - the refusal branches are unreachable from anything the
+# `unittest` binary runs, which is the whole premise of this suite.
+#
+# -O0 -g for the same reason the other block gives: once the optimiser has
+# inlined and reordered, gcov's line attribution stops meaning anything.
+option(CRYPTA_TEST_COVERAGE "Instrument the crypta sources under test for gcov" OFF)
+if(CRYPTA_TEST_COVERAGE)
+  if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    message(FATAL_ERROR "CRYPTA_TEST_COVERAGE is GCC-only, got '${CMAKE_CXX_COMPILER_ID}'")
+  endif()
+  target_compile_options(crypta_test PRIVATE --coverage -O0 -g -fprofile-update=atomic)
+  target_link_options(crypta_test PRIVATE --coverage)
+endif()
