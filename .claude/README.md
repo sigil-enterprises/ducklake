@@ -431,11 +431,23 @@ both are on issue #1 with the reproductions.
    - **Rows already inlined before crypta was configured are not scrubbed.** This
      is write-side only. Remediation is an explicit
      `CALL ducklake_flush_inlined_data(...)`; nothing warns about it at ATTACH.
-   - **Deleting rows that live in a pre-existing inlined table still writes their
-     positions in cleartext** to `ducklake_inlined_delete_<table_id>`, via the
-     ungated `INLINED_DATA` branch at `src/storage/ducklake_delete.cpp:497-500`.
-     Unreachable on a lake that was crypta-configured from its first write, since
-     no inlined data can exist there.
+   - **Deleting rows in a pre-existing inlined table takes an ungated branch**
+     (`src/storage/ducklake_delete.cpp:497-500`). It stamps `end_snapshot` on rows
+     that already exist in `ducklake_inlined_data_<id>_<v>` (via
+     `WriteNewInlinedDeletes`, `ducklake_metadata_manager.cpp:2812-2830`). It writes
+     **no new cleartext** and does **not** touch `ducklake_inlined_delete_*` - that
+     table is reached only through the *gated* `AddNewInlinedFileDeletes` at
+     `ducklake_delete.cpp:512`. Unreachable on a lake crypta-configured from its
+     first write, since no inlined data can exist there.
+   - **`SET ducklake_default_data_inlining_row_limit = N` still succeeds silently**
+     on a crypta lake. It is process-wide, so refusing it would break a non-crypta
+     lake attached in the same process; the read-path guard makes it harmless, and
+     `options()` is where the effective value can be seen.
+   - **Small deletes now cost a Parquet delete file and a `WrapKeys` call.** Forcing
+     the limit to 0 also disables inlined *file* deletions, so a single-row DELETE
+     on a crypta lake writes an enveloped delete file where it previously wrote rows
+     into `ducklake_inlined_delete_*`. Correct - the delete file is enveloped, the
+     inlined positions were not - but it is real per-delete I/O that did not exist.
 
    Proven by `test/sql/crypta/crypta_inlining_refusals.test`, which carries its own
    positive control - the same insert on a non-crypta lake must still show the
