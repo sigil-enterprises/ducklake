@@ -26,7 +26,9 @@
 #include <csignal>
 #include <pthread.h>
 #include <sys/resource.h>
+#include <sys/wait.h>
 #include <thread>
+#include <unistd.h>
 
 using namespace duckdb;              // NOLINT
 using namespace ducklake_crypta_test; // NOLINT
@@ -416,6 +418,99 @@ TEST_CASE("crypta: a socket write failure is refused", "[crypta][refusal][io]") 
 	}
 	REQUIRE_THAT(ThrownMessage([&]() { client.UnwrapBatch(identities, blobs); }),
 	             Catch::Contains("crypta write failed"));
+}
+
+namespace {
+
+//! The exit codes the forked child below reports its outcome with. They are
+//! distinct on purpose: "it threw the WRONG exception" must not be readable as
+//! success, because a request that slips past the write and dies on the READ
+//! instead would otherwise turn this case into a green that proves nothing
+//! about SIGPIPE.
+enum SigpipeChildOutcome : int {
+	CHILD_WRITE_FAILURE_RAISED = 0,
+	CHILD_NO_THROW = 2,
+	CHILD_WRONG_EXCEPTION = 3,
+	CHILD_UNKNOWN_EXCEPTION = 4,
+};
+
+//! Fill a batch big enough that the request cannot vanish into the socket
+//! buffer - the same reason the case above needs one.
+void FillOversizedBatch(vector<CryptaFileIdentity> &identities, vector<string> &blobs) {
+	for (int i = 0; i < 8000; i++) {
+		identities.push_back(SampleIdentity("table/file_" + std::to_string(i) + ".parquet"));
+		blobs.push_back("RExLblob" + std::to_string(i));
+	}
+}
+
+} // namespace
+
+// mutant: no_sigpipe_suppression
+TEST_CASE("crypta: a socket write failure does not kill a host that leaves SIGPIPE at its default",
+          "[crypta][refusal][io][sigpipe]") {
+	// The case above proves the client RAISES on a write failure. It cannot prove
+	// the host lives long enough to see it, because `crypta_test_main.cpp` ignores
+	// SIGPIPE process-wide so the branch is observable at all - which is exactly
+	// the production disposition an embedding host does NOT have.
+	//
+	// So this case forks, restores SIG_DFL in the child, and asserts on how the
+	// child DIED. A client that lets the signal fire kills the child (WIFSIGNALED,
+	// WTERMSIG == SIGPIPE); a client that suppresses it locally raises the
+	// IOException and the child exits 0. Nothing observable inside the runner can
+	// tell those two apart - only the wait status can.
+	FakeCryptaServer server;
+
+	// The fork happens BEFORE Start(), while this process is still single-
+	// threaded: forking a process with a live accept thread would give the child a
+	// heap whose allocator lock may be held by a thread that does not exist in it.
+	// connect() succeeds against a listening socket that nobody has accepted yet,
+	// so the child does not need the server thread to be running first.
+	auto child = fork();
+	REQUIRE(child >= 0);
+	if (child == 0) {
+		// CHILD. No Catch2 assertions past this point - it does not own the
+		// reporter - and _exit rather than exit, so no parent destructor (the
+		// server's socket unlink among them) runs twice.
+		signal(SIGPIPE, SIG_DFL);
+		// A client that neither raises nor dies would otherwise hang the suite.
+		alarm(60);
+		int outcome = CHILD_NO_THROW;
+		try {
+			CryptaClient client(server.Path());
+			vector<CryptaFileIdentity> identities;
+			vector<string> blobs;
+			FillOversizedBatch(identities, blobs);
+			client.UnwrapBatch(identities, blobs);
+		} catch (const std::exception &e) {
+			outcome = std::string(e.what()).find("crypta write failed") != std::string::npos
+			              ? CHILD_WRITE_FAILURE_RAISED
+			              : CHILD_WRONG_EXCEPTION;
+		} catch (...) {
+			outcome = CHILD_UNKNOWN_EXCEPTION;
+		}
+		_exit(outcome);
+	}
+
+	server.Start([](FakeConnection &connection, int) {
+		connection.CloseWithoutReading();
+		std::this_thread::sleep_for(std::chrono::milliseconds(200));
+	});
+	int status = 0;
+	auto waited = waitpid(child, &status, 0);
+	server.Stop();
+	REQUIRE(waited == child);
+
+	// Reported rather than merely asserted: on the pre-fix client the useful fact
+	// is WHICH signal killed the child, and Catch2 prints these only on failure.
+	INFO("WIFSIGNALED=" << (WIFSIGNALED(status) ? 1 : 0)
+	                    << " WTERMSIG=" << (WIFSIGNALED(status) ? WTERMSIG(status) : 0) << " (SIGPIPE is "
+	                    << SIGPIPE << ") WIFEXITED=" << (WIFEXITED(status) ? 1 : 0)
+	                    << " WEXITSTATUS=" << (WIFEXITED(status) ? WEXITSTATUS(status) : -1));
+	REQUIRE_FALSE(WIFSIGNALED(status));
+	REQUIRE(WIFEXITED(status));
+	// Not merely "it survived": 3 would mean the write slipped through and the
+	// read raised instead, which would leave the write path unproven.
+	REQUIRE(WEXITSTATUS(status) == CHILD_WRITE_FAILURE_RAISED);
 }
 
 //===----------------------------------------------------------------------===//
