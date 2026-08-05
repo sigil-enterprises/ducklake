@@ -214,6 +214,30 @@ MUTANTS = [
         "reddens": ["crypta: a socket write failure is refused"],
     },
     {
+        "name": "no_sigpipe_suppression",
+        "file": "crypta_client.cpp",
+        "why": "the LOCAL suppression of SIGPIPE on the write path. Both platform "
+               "arms go at once - MSG_NOSIGNAL on the send and SO_NOSIGPIPE on "
+               "the socket - so the mutant is the pre-fix behaviour on Linux AND "
+               "on macOS, not just on whichever one the runner happens to be",
+        "old": '#ifdef SO_NOSIGPIPE\n'
+               '\tint enabled = 1;\n'
+               '\tsetsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled));\n'
+               '#else\n'
+               '\t(void)fd;\n'
+               '#endif\n'
+               '#ifdef MSG_NOSIGNAL\n'
+               '\treturn MSG_NOSIGNAL;\n'
+               '#else\n'
+               '\treturn 0;\n'
+               '#endif',
+        "new": '\t(void)fd;\n'
+               '\treturn 0;',
+        "reddens": [
+            "crypta: a socket write failure does not kill a host that leaves SIGPIPE at its default"
+        ],
+    },
+    {
         "name": "no_eintr_retry_read",
         "file": "crypta_client.cpp",
         "why": "the EINTR retry on the read side",
