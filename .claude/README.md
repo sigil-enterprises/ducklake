@@ -58,6 +58,263 @@ CI. Deliberate: forcing amd64 locally means QEMU and an all-day build for a bina
 nobody ships. **CI is the only artifact source.** Confirm anything
 architecture-sensitive on a CI run, never here.
 
+## Coverage - opt-in, and off means off
+
+`kaoyan` ingests C++ coverage as gcovr's Cobertura XML, and gcovr needs an
+**instrumented** build. This tree had none, which is why coverage was the one
+open acceptance box in kaoyan#197 / kaoyan PR #199. Issue #14 here.
+
+The switch is `DUCKLAKE_ENABLE_COVERAGE`, default **OFF**, in the top-level
+`CMakeLists.txt`. Two fenced `FORK-LOCAL` blocks in that one file; nothing else
+in the tree knows about it. Keep it that way - see the upstream-hygiene rule
+above. **GCC only**: Clang's coverage runtime is `libclang_rt.profile`, not
+`libgcov`, so a Clang build would configure and then fail at link; the guard
+refuses it rather than advertising a path nothing has compiled.
+
+**No CI job sets it.** Checkable: `-DDUCKLAKE_ENABLE_COVERAGE` appears nowhere
+under `.github/`, and neither does `EXT_FLAGS`. There is exactly one `EXT_FLAGS`
+in the reusable workflow this fork calls
+(`extension-ci-tools/.github/workflows/_extension_distribution.yml:949`) and it
+sets only ccache launchers, on the `shell: cmd` Windows job that
+`MainDistributionPipeline.yml` excludes anyway.
+
+### Build it in its OWN directory - `build/coverage`, never `build/release`
+
+`make release` hardcodes `build/release`, so `EXT_FLAGS=-D...=ON make release`
+reconfigures the release tree **in place**. And a CMake cache entry is sticky:
+`option()` never overrides one that already exists, so a later plain
+`make release` in that directory stays instrumented until somebody passes an
+explicit `=OFF`. Forget that and you have shipped an `-O0 --coverage` binary
+called "release".
+
+So do not use `EXT_FLAGS` for this. Configure a separate build directory, which
+removes the failure class rather than documenting it. The one-time
+`build/extension_configuration` (the merged vcpkg manifest) comes from an
+ordinary `make release`, so run that once first if the tree is fresh.
+
+```bash
+# 0. once, if build/extension_configuration does not exist yet
+docker compose run --rm --entrypoint bash app -lc \
+  'BUILD_EXTENSION_TEST_DEPS=full make release'
+
+# 1. instrumented build, in its own directory. Same flags make release uses,
+#    plus the option. build/release is never touched.
+docker compose run --rm --entrypoint bash app -lc '
+  cmake -G Ninja -DEXTENSION_STATIC_BUILD=1 \
+    -DDUCKDB_EXTENSION_CONFIGS=/app/extension_config.cmake \
+    -DCORE_EXTENSIONS=";httpfs" -DVCPKG_BUILD=1 \
+    -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
+    -DUNITTEST_ROOT_DIRECTORY=/app/ -DBENCHMARK_ROOT_DIRECTORY=/app/ \
+    -DENABLE_UNITTEST_CPP_TESTS=FALSE -DBUILD_EXTENSION_TEST_DEPS=full \
+    -DVCPKG_MANIFEST_DIR=/app/build/extension_configuration \
+    -DCMAKE_BUILD_TYPE=Release -DDUCKLAKE_ENABLE_COVERAGE=ON \
+    -S ./duckdb/ -B build/coverage
+  cmake --build build/coverage'
+
+# 2. run the suite - this is what writes the .gcda counters
+docker compose run --rm --entrypoint bash app -lc \
+  './build/coverage/test/unittest "test/sql/*"'
+
+# 3. Cobertura for kaoyan. The --json-summary/--txt are not decoration: the
+#    function rate is NOT in the Cobertura XML (gcovr emits <methods/> empty),
+#    so without them it exists only in stdout that nobody kept.
+docker compose run --rm --entrypoint bash app -lc \
+  'gcovr --gcov-executable gcov-14 --root /app --filter /app/src/ \
+     build/coverage/extension/ducklake \
+     --cobertura /app/build/coverage.xml --cobertura-pretty \
+     --json-summary /app/build/coverage-summary.json \
+     --txt /app/build/coverage.txt --print-summary'
+```
+
+There is no step 4. `build/release` was never instrumented, so there is nothing
+to undo; `rm -rf build/coverage` when you are finished with it.
+
+### "Off means off" is measured, not asserted
+
+Three checks, all run on this change:
+
+1. **Configure the pristine tree and the tree carrying the block with the option
+   unset, then diff every emitted build command.** All **713** identical -
+   `sha256 78a43f8c708bcd3bd1a8c2d14e9c15dea998ff6df0e2a10ebd6df797f2721e2c` for
+   both command sets. Zero `--coverage`, zero `-lgcov`, zero `-fprofile`, zero
+   `.gcno`.
+2. **Compare the whole generated build system, not just the commands.**
+   `build.ninja` identical, `cmake_install.cmake` identical, and **1068 of 1077**
+   generated files identical after normalising the build-dir name. The 9 that
+   differ are environmental noise plus the cache entry itself: `CMakeCache.txt`,
+   `CMakeFiles/CMakeOutput.log` (random `cmTC_*` try-compile ids),
+   `third_party/re2/DartConfiguration.tcl` (hostname),
+   `vcpkg-manifest-install.log` (timings), a `.ninja_log`, and four `.git`
+   metadata files of the fetched `httpfs` clone. The `CMakeCache.txt` diff is
+   three lines - the `DUCKLAKE_ENABLE_COVERAGE:BOOL=OFF` entry with its comment,
+   and the container's own `SITE:STRING=` hostname. Nothing else.
+3. **A positive control on the absence check itself.** "Zero `--coverage`" is an
+   absence assertion, and a broken grep and a genuinely clean scan both report
+   zero. `grep -cE -- "--coverage|-lgcov|-fprofile"` over the three command
+   sets: **73** on the option-ON `build/coverage`, **0** on `build/release`,
+   **0** on the pristine tree. It is shown firing on a known-instrumented input
+   before either zero is believed.
+
+And because the coverage build now lives in its own directory, `build/release`
+is not merely restored afterwards - it is **never touched**. Measured across a
+full instrumented build and suite run: `libducklake_extension.a` still
+`e010f577...`, `ducklake.duckdb_extension` still `d8a0f387...`, and zero `.gcno`
+under `build/release` against 68 under `build/coverage`.
+
+### The three ways this goes wrong
+
+1. **`--gcov-executable gcov-14` is not optional.** gcov and the compiler that
+   wrote the `.gcno` share a format version; the image's default `gcov` is 11
+   and the build is GCC 14. Measured, not assumed: omitting the flag makes
+   `gcov` **segfault** on every `.gcda` (`GCOV returncode was -11`), and gcovr
+   then aborts and writes **no file at all**. That is the good outcome - it
+   fails loudly. Do not "fix" it with `--gcov-ignore-errors`, which is what
+   turns this into the silent, well-formed, entirely-empty report.
+2. **`-O0` is part of the instrumentation, not a preference.** gcov attributes
+   hits to line numbers; at `-O3` the optimiser has inlined and reordered them
+   and the attribution is fiction. The block appends `-O0 -g` after the
+   build-type flags so they win, for ducklake's own translation units only.
+3. **`-fprofile-update=atomic` likewise.** DuckDB's runner is multi-threaded and
+   non-atomic counter updates lose hits and can corrupt a `.gcda` outright.
+
+### Scope, and why the numbers are about this repo
+
+The options are **directory-scoped** - they reach this `CMakeLists.txt` and
+everything under `src/`, and nothing else. Measured on the instrumented compile
+database: of 672 compile entries, exactly **68** carry `--coverage`, **all** of
+them under `/app/src`, and the other **604** - DuckDB's own - carry none. So the
+report covers this repo, not the engine it links against.
+
+The static extension is *archived*, never linked, so `add_link_options` never
+reaches it. `libgcov` has to arrive at whatever binary consumes the archive -
+DuckDB's `unittest` - which is what the second fenced block does, via the plain
+`target_link_libraries` signature's usage-requirement propagation.
+
+### What it measured, 2026-08-05, at `06296c89` + this change
+
+`./build/coverage/test/unittest "test/sql/*"` - **all 481 files green**, 473
+test cases, 95419 assertions, 8 skipped (postgres_scanner 2, sqlite_scanner 2,
+spatial 1, `LOCAL_EXTENSION_REPO` 1, `S3_TEST_SERVER_AVAILABLE` 2). 3m56s. The
+481 reconciles independently: 472 `.test` + 9 `.test_slow` under `test/sql`,
+nothing excluded from the glob.
+
+| | |
+|---|---|
+| lines, everything in the report | **82.3%** - 14878 / 18076, 103 files |
+| lines, the 68 `.cpp` alone | 82.2% - 14367 / 17488 |
+| lines, the 35 `.hpp` alone | 86.9% - 511 / 588 |
+| branches | 47.2% - 16971 / 35939 |
+| functions | 84.4% - 1268 / 1503 |
+
+Two caveats on that table, both mattering to a reader:
+
+- **"103 files" is 68 translation units plus 35 headers.** Headers are 3.3% of
+  measurable lines and gcov attributes their inlined code to them; that is why
+  the `.cpp`-only figure is slightly lower.
+- **The functions row is NOT in the Cobertura XML.** gcovr's Cobertura writer
+  emits `<methods/>` empty - verified, 0 `method` elements across all 103
+  classes. It exists only in gcovr's stdout, kept at
+  `build/_proof/gcovr-stdout.txt` alongside `--json-summary` and `--txt`
+  renderings. **kaoyan ingests the Cobertura XML, so it will show lines and
+  branches and no function rate.** Do not report a function rate as something
+  kaoyan measured.
+- The numbers are from an `-O0` build. That is correct for gcov and wrong for
+  anything else: **the measured binary is not the optimisation level of the
+  shipped one.**
+
+Named, so any of it is checkable against the file:
+`src/storage/ducklake_delete.cpp` **98.5%** (383/389),
+`ducklake_transaction_state.cpp` 94.3% (1094/1160),
+`ducklake_table_entry.cpp` 94.0% (943/1003),
+`ducklake_metadata_manager.cpp` 83.4% (2573/3084).
+
+**The 14 zero-hit files are the interesting result, and none of them is an
+instrumentation defect** - each has a `.gcno` and a `.gcda` (68 of each, one per
+translation unit), so they are instrumented-and-never-executed, not unmeasured.
+Seven are `.cpp`, seven are their headers. They split into two very different
+kinds, and conflating them would be dishonest:
+
+**Structurally unreachable by this suite** - no test could hit them as the tree
+stands:
+
+- `src/crypta/crypta_client.cpp` (0/167) and `ducklake_crypta.cpp` (0/36). The
+  envelope provider needs `CRYPTA_SOCKET` + `CRYPTA_LAKE_ID` on ATTACH, and
+  `grep -ril crypta test/` returns **zero files** - the suite does not mention
+  crypta at all. **The fork's own security-critical code is at 0% under the
+  standard suite.** Issue #15. `scripts/mvp_crypta_proof.sh` is the only thing
+  in the tree that exercises it - see the next section for what it measures and,
+  more importantly, what it does not.
+- `ducklake_server_side_commit.cpp` (0/622) and `ducklake_staged_commit.cpp`
+  (0/381). `test/sql/quack/server_side_commit_atomicity.test` is inside the glob
+  and does run, but under the default file-backed catalog; the server-side path
+  only engages against the quack RPC backend (`test/configs/quack.json`,
+  `quack:localhost:19999`), which is absent here. Independent corroboration of
+  the honest limit recorded under the staged-commit guard below.
+- `quack_metadata_manager.cpp` (0/97) - same reason.
+
+**Merely skipped in THIS build, and recoverable** - do not call these
+structural:
+
+- `postgres_metadata_manager.cpp` (0/97) and `sqlite_metadata_manager.cpp`
+  (0/18). Dedicated tests for them exist inside the glob -
+  `test/sql/metadata/ducklake_settings_postgres.test`,
+  `ducklake_settings_sqlite.test`, `test/sql/issues/issue_sqlite_snapshot_time.test`,
+  `test/sql/data_inlining/postgres_identifier_limit.test` - and they are exactly
+  4 of the 8 declared skips, skipped only because `postgres_scanner` and
+  `sqlite_scanner` were not built. Building with `ENABLE_POSTGRES_SCANNER` /
+  `ENABLE_SQLITE_SCANNER` (and a Postgres to talk to) recovers ~115 lines.
+
+### Measuring `src/crypta/` - and what the number does NOT prove
+
+`scripts/mvp_crypta_proof.sh` is the only thing in the tree that drives the
+envelope provider, so it is the only thing that can measure it. It now takes two
+overrides; the defaults are the stock values, so leaving them unset is
+byte-identical to before they existed:
+
+```bash
+CRYPTA_REPO=/path/to/crypta \
+DUCKLAKE_IMAGE=<the image built from THIS tree> \
+DUCKLAKE_BUILD=build/coverage \
+  sh scripts/mvp_crypta_proof.sh
+```
+
+`.gcda` counters **accumulate**, so run it after the suite and re-run gcovr. The
+delta on `src/crypta/` is attributable to the script alone, because the suite
+leaves those files at exactly zero.
+
+All eight proof cases behaved as specified against the instrumented build, with
+the real Parquet cipher and no `force_mbedtls_unsafe`: checksum 1999000 on 1, 2
+and 4, `len 228 / magic RExL` on 5, and the four refusals on 3, 6, 7 and 8.
+
+| file | suite alone | + proof script |
+|---|---|---|
+| `src/crypta/crypta_client.cpp` | 0 / 167 (0%) | **128 / 167 (76.6%)** |
+| `src/crypta/ducklake_crypta.cpp` | 0 / 36 (0%) | **30 / 36 (83.3%)** |
+| `src/include/crypta/crypta_client.hpp` | 0 / 2 | 0 / 2 - still zero |
+| whole report | 14878 / 18076 (82.3%) | 15058 / 18076 (83.3%) |
+
+**This does not mean the provider is tested, and the number must not be read
+that way.** A script-driven happy path plus four deliberate abuses is not a test
+suite. The useful part is what the 39 still-uncovered lines in
+`crypta_client.cpp` are:
+
+- **Protocol error handling** - response truncated inside a field, wrong number
+  of values returned for the items requested, connection closed mid-read, socket
+  read/write failure, `EINTR` retry, oversized frame, socket path too long,
+  empty socket path.
+- **JSON escaping** of quotes and control characters in an identity string.
+- **Empty-input early returns** on both the wrap and the unwrap batch path.
+- In `ducklake_crypta.cpp`, line 58 `return entry->second;` - **the DEK cache
+  HIT path never executes**, nor does the cache clear on line 72. That is the
+  code issue #10 is about.
+
+So the 76.6% is "the paths a working service and four deliberate abuses take".
+The uncovered quarter is "what happens when the wire is malformed or the socket
+misbehaves" - which, for a security boundary, is the half that matters most.
+**Issue #15 stays open.** Real unit tests for the refusal paths - a malformed
+blob, a wrong identity, a plaintext key row on an encrypted lake - are separate
+work. This measurement does not do that work; it makes its shape visible.
+
 ## The crypta envelope provider
 
 DuckLake stores the per-data-file key in `ducklake_data_file.encryption_key` as

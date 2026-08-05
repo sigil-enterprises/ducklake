@@ -113,6 +113,22 @@ ENV VCPKG_ROOT=/opt/vcpkg \
     CCACHE_DIR=/ccache \
     GEN=ninja
 
+# gcovr, for the opt-in coverage build (DUCKLAKE_ENABLE_COVERAGE in the
+# top-level CMakeLists.txt). Pinned, and taken from pip rather than apt.
+#
+# apt is not an option here: `apt-cache policy gcovr` on this image offers
+# 5.0-2, a 2021 release that predates GCC 14 by three years and cannot be
+# trusted to read its gcov output. (It also spells the flag `--xml`, not
+# `--cobertura` - cosmetic next to the format problem, but it means a copied
+# command line fails outright rather than quietly.)
+#
+# It must be driven with `--gcov-executable gcov-14`. gcov and the compiler that
+# wrote the .gcno share a format version, and the default `gcov` here is 11:
+# pointed at GCC 14 notes it SEGFAULTS on every .gcda and gcovr then writes no
+# report at all. That is the good outcome - loud. `--gcov-ignore-errors` is what
+# would turn it into a well-formed, entirely empty report, so do not reach for it.
+RUN pip3 install --no-cache-dir 'gcovr==7.2'
+
 WORKDIR /app
 
 ENTRYPOINT ["make"]
