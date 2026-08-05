@@ -205,11 +205,33 @@ DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options
 	// fails immediately rather than mid-scan. The self-test that proves the
 	// service is actually reachable runs in FinalizeLoad, once the catalog is
 	// usable - throwing from a constructor would leave a half-attached database.
-	if (!options.crypta_socket.empty()) {
+	//
+	// The gate is whether either crypta option was SUPPLIED, not whether the
+	// socket string is non-empty. Keying on `!crypta_socket.empty()` made two
+	// distinct misconfigurations indistinguishable from "no crypta wanted", and
+	// both then wrote the per-file keys to the catalog in PLAINTEXT without a
+	// single diagnostic - the operator asked for an envelope and got none (#19).
+	if (options.crypta_socket_supplied || options.crypta_lake_id_supplied) {
+		if (!options.crypta_socket_supplied) {
+			// The mirror of the refusal DuckLakeCryptaProvider already raises for a
+			// socket with no lake id. Only this direction was ever silent, and the
+			// two arrive by the identical route: a templated ATTACH that lost one
+			// substitution. Refusing one and ignoring the other is the asymmetry
+			// that made the fail-open case so easy to miss.
+			throw InvalidInputException(
+			    "crypta_socket must be set when crypta_lake_id is set - a half-configured envelope silently "
+			    "writes the per-file keys to the catalog in plaintext. Either set crypta_socket or drop "
+			    "crypta_lake_id");
+		}
 		if (options.encryption == DuckLakeEncryption::UNENCRYPTED) {
 			throw InvalidInputException("crypta_socket was set on an UNENCRYPTED DuckLake - there are no per-file keys "
 			                            "to wrap. Either enable ENCRYPTED or drop crypta_socket");
 		}
+		// A supplied-but-empty socket falls through to here DELIBERATELY, rather
+		// than being refused with a message of its own: CryptaClient's constructor
+		// already refuses it with "crypta socket path is empty", and that refusal
+		// was unreachable from ATTACH for exactly as long as the gate above tested
+		// emptiness. Letting it through is what makes the existing check real.
 		crypta_provider = make_uniq<DuckLakeCryptaProvider>(options.crypta_socket, options.crypta_lake_id);
 	}
 	// figure out the metadata server type
@@ -259,6 +281,32 @@ void DuckLakeCatalog::FinalizeLoad(optional_ptr<ClientContext> context) {
 	}
 	DuckLakeInitializer initializer(*context, *this, options);
 	initializer.Initialize();
+	// PRIVATE-FORK ONLY: crypta pointed at a lake that RESOLVED to unencrypted.
+	//
+	// Why this cannot live in the constructor, which is where its sibling check
+	// lives: at construction time the encryption mode is still AUTOMATIC, the
+	// DEFAULT. The constructor can only compare the RAW option, so a fresh lake
+	// with ENCRYPTED simply omitted never equals UNENCRYPTED there and slips past
+	// it - the ATTACH succeeded, the self-test passed, and NOT ONE key was
+	// written. The operator got neither an envelope nor encryption, silently
+	// (#19). Only the initializer resolves AUTOMATIC: InitializeNewDuckLake
+	// defaults a fresh lake to UNENCRYPTED, LoadExistingDuckLake adopts whatever
+	// the catalog records. So the check has to be here, immediately after it.
+	//
+	// FinalizeLoad is already the precedent for an ATTACH-time refusal the
+	// constructor cannot make - the self-test above is one, deferred for the same
+	// class of reason. It still fires while the operator is looking at the ATTACH
+	// statement, which is the property that matters.
+	//
+	// Testing the RESOLVED mode rather than banning AUTOMATIC is deliberate: an
+	// EXISTING enveloped lake re-attached without repeating ENCRYPTED resolves to
+	// ENCRYPTED and must keep working, blobs and all.
+	if (crypta_provider && Encryption() != DuckLakeEncryption::ENCRYPTED) {
+		throw InvalidInputException(
+		    "crypta_socket was set, but this DuckLake resolved to UNENCRYPTED - there are no per-file keys to "
+		    "wrap. ENCRYPTED was not specified at ATTACH and a new lake defaults to unencrypted, so nothing "
+		    "would have been encrypted and nothing wrapped. Either add ENCRYPTED or drop crypta_socket");
+	}
 	db.tags["data_path"] = DataPath();
 	if (con) {
 		con->Commit();
