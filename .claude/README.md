@@ -517,7 +517,7 @@ an empty one were both shown to stop the run.
 
 ### The cache HIT path, and 7df67912
 
-`ducklake_crypta.cpp:58` had never executed in the EXTENSION build - i.e. through
+`ducklake_crypta.cpp:135` had never executed in the EXTENSION build - i.e. through
 a real ATTACH. (The standalone cache suite covers it too; the looser claim
 "never executed in this tree" is false once that suite exists, and was corrected
 after a review caught it.) Every unwrap in the proof is a MISS,
@@ -548,12 +548,16 @@ not-ok. The fake emits compact JSON for that reason.
 Six defects, every one FILED rather than changed here - this suite tests the
 envelope, it does not modify it. The PR carrying it touches no `src/`.
 
-| # | issue | what |
-|---|-------|------|
-| 2 | [#18](https://github.com/sigil-enterprises/ducklake/issues/18) | SECURITY - the cache key delimiter is ambiguous |
-| 3,4,5 | [#19](https://github.com/sigil-enterprises/ducklake/issues/19) | three ATTACH-time fail-opens |
-| 1 | [#20](https://github.com/sigil-enterprises/ducklake/issues/20) | an unconfigured reader dies on an assertion, not a diagnostic |
-| - | [#21](https://github.com/sigil-enterprises/ducklake/issues/21) | SIGPIPE kills an embedding host |
+| # | issue | what | state |
+|---|-------|------|-------|
+| 2 | [#18](https://github.com/sigil-enterprises/ducklake/issues/18) | SECURITY - the cache key delimiter is ambiguous | **FIXED** |
+| 3,4,5 | [#19](https://github.com/sigil-enterprises/ducklake/issues/19) | three ATTACH-time fail-opens | open |
+| 1 | [#20](https://github.com/sigil-enterprises/ducklake/issues/20) | an unconfigured reader dies on an assertion, not a diagnostic | open |
+| - | [#21](https://github.com/sigil-enterprises/ducklake/issues/21) | SIGPIPE kills an embedding host | open |
+
+Number 2 has since been FIXED, in its own change (this one) with its own
+red-first cases and its own mutant - so that row is the one place in this section
+where `src/` did move. The rest are still open.
 
 1. **A wrapped lake read by an UNCONFIGURED reader is not refused - it hits an
    assertion failure.** ([#20](https://github.com/sigil-enterprises/ducklake/issues/20)) `crypta_client.hpp` says `LooksWrapped` fails closed "in
@@ -563,18 +567,37 @@ envelope, it does not modify it. The PR carrying it touches no `src/`.
    for GCM` and a stack trace, not a diagnostic. That is the most likely operator
    mistake there is - forgetting the options on re-attach. Found by review, not
    by this suite; no test added, because the fix changes behaviour.
-2. **The cache key delimiter is ambiguous** (`ducklake_crypta.cpp:51`,
-   [#18](https://github.com/sigil-enterprises/ducklake/issues/18) - the most
-   important result here). The key
-   joins the identity fields and the blob with a bare `|` and escapes nothing, so
-   a path ending `|RExLZZZZ` and a blob beginning `RExLZZZZ|` produce the SAME
-   key - reintroducing, through the delimiter, the exact bypass the
-   (identity, blob) keying exists to prevent. On reachability, precisely: a `|`
-   does NOT arrive via a table name - `stored_path` is the generated basename and
-   the table name lands in the stripped directory part, so the justification
-   comment at `crypta_client.cpp:48` is wrong about this field. The route that
-   does reach it is `ducklake_add_data_files`, which stores an operator-supplied
-   path verbatim (measured).
+2. **FIXED - the cache key delimiter was ambiguous**
+   ([#18](https://github.com/sigil-enterprises/ducklake/issues/18) - the most
+   important result here). The
+   key joined the identity fields and the blob with a bare `|` and escaped
+   nothing, so a path ending `|RExLZZZZ` and a blob beginning `RExLZZZZ|`
+   produced the SAME key - reintroducing, through the delimiter, the exact bypass
+   the (identity, blob) keying exists to prevent. On reachability the route is
+   catalog write access itself: the attacker sets `path` and a wrapped
+   `encryption_key` on the same `ducklake_data_file` row, which is full control of
+   `stored_path`. Three plausible-sounding routes are NOT it, and #18's own
+   reachability paragraph got this wrong - a table name (`CanGeneratePathFromName`
+   substitutes the table UUID, so the name reaches the path nowhere),
+   `ducklake_add_data_files` (stores a path verbatim, but the row carries no
+   encryption key and a keyless row throws in `ReadDataFile` before an identity is
+   built, so it never reaches the cache), and a hive partition value
+   (`HivePartitioning::Escape` is `StringUtil::URLEncode`). Fixed by
+   LENGTH-PREFIXING each of the five components as
+   `<decimal-byte-length>:<raw-bytes>` and concatenating them with no separator
+   at all - injective by construction, because a decoder consumes each component
+   BY COUNT instead of scanning for a delimiter, so no field content can be
+   re-read as structure. Not escaping (that invites the next escaping bug) and
+   not a rarer separator (no byte is safe when the field is operator-supplied).
+   Carried by two cases in `crypta_cache_test.cpp` and by the
+   `cache_key_unprefixed_join` mutant, which restores the bare join and must
+   redden both. The completeness half of the property is `wire-set == key-set`:
+   `CryptaFileIdentity` has exactly four fields, `IdentityJson` puts exactly those
+   four on the wire, and the five components are those four plus the blob - so a
+   field crypta binds to cannot be silently missing from the key. The
+   justification comment at `crypta_client.cpp` was corrected in the same change,
+   and then corrected AGAIN once the `ducklake_add_data_files` route was measured
+   and found dead.
 3. **`CRYPTA_SOCKET ''` disables the envelope instead of being refused.**
    ([#19](https://github.com/sigil-enterprises/ducklake/issues/19), with 4 and 5)
    `DuckLakeCatalog` guards the block with `!crypta_socket.empty()`, so an unset
@@ -601,19 +624,46 @@ its assertions. Each turns red the day its defect is fixed, which is the point.
 
 | file | before | now | still dark |
 |------|--------|-----|------------|
-| `src/crypta/crypta_client.cpp` | 128/167 | **166/167** | `:79` |
-| `src/crypta/ducklake_crypta.cpp` | 30/36 | **35/36** | `:66` |
+| `src/crypta/crypta_client.cpp` | 128/167 | **166/167** | `:98` |
+| `src/crypta/ducklake_crypta.cpp` | 30/36 | **35/36** | `:143` |
+
+Both ratios were measured BEFORE the #18 cache-key fix and have NOT been
+re-measured since. They are left as the last real measurement rather than
+adjusted by hand, because the fix adds executable lines to `ducklake_crypta.cpp`
+(the `AppendLengthPrefixed` helper and its five calls), so that row's denominator
+has certainly moved and its numerator probably has. Treat `35/36` as historical
+until `measure_crypta_refusal_coverage.sh` is re-run; the `still dark` column IS
+current, re-derived against the fixed files.
 
 Every number there is a PAIR, because gcov's `.gcda` counters accumulate and a
 lone non-zero proves nothing about which run produced it:
 
-- **the cache HIT** (`ducklake_crypta.cpp:58`) reads **0** with only
+- **the cache HIT** (`ducklake_crypta.cpp:135`) reads **0** with only
   `crypta_attach_refusals.test` run - which exercises the same file, so the
   instrument is demonstrably live - and **4** with the full SQL group. It moves
   when and only when the cache case runs.
 - **the dark-line check** is a subset test with its own positive control: with
-  the unreachable list emptied it flags `:79` and `:66`, with the list in place
+  the unreachable list emptied it flags `:98` and `:143`, with the list in place
   it passes. A check that cannot fail is not a check.
+
+There are **three** hardcoded line pins in that script and they drift
+independently - `CACHE_HIT_LINE` at the top, plus the two in the `UNREACHABLE`
+dict. The #18 fix moved all three (`58 -> 135`, `79 -> 98`, `66 -> 143`) and
+repaired all three; repairing only the dict is the easy mistake, because
+`CACHE_HIT_LINE` is 130 lines away from it. What a stale pin actually does is
+worth stating precisely, since it is not silent:
+
+- the `UNREACHABLE` dict is a subset test (`unexpected = dark - UNREACHABLE`), so
+  a stale entry **always** false-flags the real line once it moves off the list -
+  a visible red. It excuses the line now at the stale number only if that line is
+  itself dark, which is a coincidence rather than the default.
+- a stale `CACHE_HIT_LINE` also fails loud, but **with a misleading diagnosis**.
+  If it lands on a comment, gcovr never reports the line, `line_count` returns the
+  string `unreachable`, and the negative arm's `!= "0"` trips. The message used to
+  offer only "a stale `.gcda`" or "something else reaches that line" - neither
+  true - so the reader chases a phantom. The message now names the drift first.
+  Credit to the #24 branch for finding this one; the first pass here fixed the
+  dict and missed it.
 
 Two traps this script exists to document, both of which it walked into first:
 
@@ -627,11 +677,11 @@ Two traps this script exists to document, both of which it walked into first:
 
 Two things are honestly NOT proven and were not contrived into looking proven:
 
-- `ducklake_crypta.cpp:66` (`crypta returned N keys for one file`) is
+- `ducklake_crypta.cpp:142-144` (`crypta returned N keys for one file`) is
   **unreachable**. `ExtractBase64Field` already enforces exactly-`expected`
   values and `UnwrapKey` always requests one, so no response can reach it. It is
   defence in depth, and it stays dark.
-- `crypta_client.cpp:79`, the closing brace of `JsonEscape`, is its
+- `crypta_client.cpp:98`, the closing brace of `JsonEscape`, is its
   exception-unwind block. gcov counts a closing brace on both the return and the
   unwind path - measured, not assumed: `ExtractBase64Field`'s brace reads 4143
   against 4131 returns, the excess being its throws unwinding through. Nothing in
