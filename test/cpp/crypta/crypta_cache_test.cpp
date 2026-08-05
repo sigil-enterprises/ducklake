@@ -200,6 +200,27 @@ TEST_CASE("crypta provider: a plaintext key row is refused, never used", "[crypt
 		             Catch::Contains("carries a plaintext encryption key"));
 	}
 
+	// THE SECOND CALLER OF THE LENGTH FLOOR.
+	//
+	// The floor in LooksWrapped was added for the UNCONFIGURED direction, where a
+	// plaintext DEK that happens to start with the magic would be refused forever
+	// as wrapped. But LooksWrapped serves BOTH directions, so the floor changes
+	// this caller's answer too, and a guard shared by two callers needs a case on
+	// each rather than one case plus the assumption that the function is the same
+	// function.
+	//
+	// Here the change is an improvement and this pins it: a 44-character value
+	// with a correct RExL prefix is a plaintext DEK wearing a blob's hat. Without
+	// the floor it reads as wrapped and is sent to crypta - a socket call on a
+	// value that is not a blob. With it, the downgrade is refused BEFORE the
+	// socket, which the connection assertion below then proves.
+	SECTION("a 44-character plaintext DEK that happens to carry the magic") {
+		const string dek_wearing_the_magic = "RExL" + string(40, 'A');
+		REQUIRE(dek_wearing_the_magic.size() == 44);
+		REQUIRE_THAT(ThrownMessage([&]() { provider.UnwrapKey(identity, dek_wearing_the_magic); }),
+		             Catch::Contains("carries a plaintext encryption key"));
+	}
+
 	// It refused before the socket, so nothing was asked of crypta.
 	std::this_thread::sleep_for(std::chrono::milliseconds(60));
 	REQUIRE(server.Connections() == 0);

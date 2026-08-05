@@ -214,6 +214,31 @@ MUTANTS = [
         "reddens": ["crypta: a socket write failure is refused"],
     },
     {
+        # A SEMANTIC mutant, not a presence-only one. Deleting a call proves only
+        # that the caller CONSULTS the guard; it never proves what the guard
+        # ANSWERS. This one leaves LooksWrapped called and changes its JUDGEMENT -
+        # it strips the length floor so the decision reverts to the 4-character
+        # prefix alone, which is exactly the over-refusing behaviour the floor was
+        # added to remove.
+        "name": "no_plaintext_length_floor",
+        "file": "crypta_client.cpp",
+        "why": "the length floor that stops a plaintext DEK being misread as a "
+               "wrapped blob. Without it a 44-character key beginning 'RExL' is "
+               "refused forever on a lake that never had crypta, with advice that "
+               "does not apply - an unrecoverable false positive on the upstream "
+               "path, which is the worst shape this change could have taken",
+        "old": 'static constexpr idx_t MAX_PLAINTEXT_KEY_BASE64 = 44;\n'
+               '\tif (base64_value.size() <= MAX_PLAINTEXT_KEY_BASE64) {\n'
+               '\t\treturn false;\n'
+               '\t}\n'
+               '\treturn StringUtil::StartsWith(base64_value, WRAPPED_PREFIX);',
+        "new": '\treturn StringUtil::StartsWith(base64_value, WRAPPED_PREFIX);',
+        "reddens": [
+            "crypta: LooksWrapped does not misread a plaintext DEK that happens to start with the magic",
+            "crypta provider: a plaintext key row is refused, never used",
+        ],
+    },
+    {
         "name": "no_sigpipe_suppression",
         "file": "crypta_client.cpp",
         "why": "the LOCAL suppression of SIGPIPE on the write path. Both platform "
