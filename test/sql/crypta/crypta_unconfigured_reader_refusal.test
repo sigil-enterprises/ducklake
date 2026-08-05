@@ -75,6 +75,22 @@ SELECT count(*), count(*) FILTER (WHERE encryption_key LIKE 'RExL%') FROM lake_m
 ----
 2	2
 
+# The delete file gets its own denominator, on its own table. The data-file
+# count above says nothing about delete files, so without this the file's claim
+# to cover the delete path rested on nothing being asserted at all.
+#
+# Honest limit, stated here rather than implied: the refusals below are reached
+# through the DATA file, which is read first. This assertion proves a wrapped
+# delete-file row EXISTS and would be refused by the same guard via
+# ReadDeleteFile's delegation to ReadDataFile - it does not prove that branch
+# was executed. The flush path, which reads a delete-file key WITHOUT going
+# through ReadDataFile at all, is covered separately and behaviourally in
+# crypta_flush_unconfigured_refusal.test.
+query II
+SELECT count(*), count(*) FILTER (WHERE encryption_key LIKE 'RExL%') FROM lake_meta.ducklake_delete_file
+----
+1	1
+
 statement ok
 DETACH lake
 

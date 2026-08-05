@@ -1,0 +1,139 @@
+# name: test/sql/crypta/crypta_flush_unconfigured_refusal.test
+# description: The SECOND decode site - the inlined-deletion flush path - also refuses a wrapped key
+# group: [crypta]
+#
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# crypta_unconfigured_reader_refusal.test covers the unwrap choke point in
+# DuckLakeMetadataManager::ReadDataFile. That is NOT the only place a stored
+# encryption key is base64-decoded and handed to the Parquet reader.
+#
+# ducklake_flush_inlined_data.cpp reads `existing_del.encryption_key` straight
+# out of ducklake_delete_file with its own hand-written SQL query, decodes it
+# with Blob::FromBase64, and passes it to DuckLakeDeleteFilter::ScanDeleteFile.
+# It never goes near ReadDataFile, so the refusal there does not cover it. An
+# unconfigured reader that flushes inlined deletions over an existing delete
+# file got the same INTERNAL assertion failure #20 was filed about:
+#
+#   INTERNAL Error: Invalid AES key length for GCM
+#
+# Reaching it needs a specific but entirely ordinary shape: an ENCRYPTED lake
+# with crypta, DATA_INLINING_ROW_LIMIT > 0, deletions flushed once to create a
+# delete file, then MORE deletions still inlined when the lake is re-attached
+# without the crypta options.
+#
+# NOTE on why the second flush happens on the UNCONFIGURED attach and not the
+# configured one: the same site is ALSO broken for a CONFIGURED crypta lake -
+# WriteNewDeleteFiles wraps delete-file keys but this read path calls no
+# UnwrapKey, so a wrapped blob is used as the footer key. That is a separate,
+# PRE-EXISTING data-path defect with its own issue, and it is deliberately NOT
+# what this file tests. The sequence below is arranged so it is never triggered.
+
+require ducklake
+
+require parquet
+
+require httpfs
+
+require-env DUCKLAKE_FAKE_CRYPTA_SOCKET
+
+# --------------------------------------------------------------------------
+# Fixture: an enveloped lake with inlining, carrying a delete FILE whose key is
+# wrapped, plus further deletions still inlined and unflushed
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_flush.db' AS lake (DATA_PATH '__TEST_DIR__/crypta_flush_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 100, METADATA_CATALOG 'lake_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'sql-fixture')
+
+statement ok
+CREATE TABLE lake.alpha AS SELECT i AS id FROM range(50) t(i)
+
+# Push the inlined rows out into a real Parquet data file, so the deletions
+# below are deletions OF A FILE rather than of inlined rows.
+statement ok
+CALL ducklake_flush_inlined_data('lake')
+
+statement ok
+DELETE FROM lake.alpha WHERE id < 5
+
+# This flush is what creates the delete FILE, with a wrapped key.
+statement ok
+CALL ducklake_flush_inlined_data('lake')
+
+# The instrument, shown LIVE, and on the RIGHT TABLE. The sibling file's
+# denominator counts ducklake_data_file, which says nothing about delete files -
+# this case is entirely about a delete-file key, so the denominator has to be
+# ducklake_delete_file or it is measuring the wrong column.
+query II
+SELECT count(*), count(*) FILTER (WHERE encryption_key LIKE 'RExL%') FROM lake_meta.ducklake_delete_file
+----
+1	1
+
+# And it is a real blob, not the 44-character base64 of a raw DEK.
+query I
+SELECT bool_and(length(encryption_key) > 64) FROM lake_meta.ducklake_delete_file
+----
+true
+
+# More deletions, left INLINED - not flushed. These are what the unconfigured
+# reader will try to flush, forcing it to read the existing delete file above.
+statement ok
+DELETE FROM lake.alpha WHERE id > 45
+
+statement ok
+DETACH lake
+
+# --------------------------------------------------------------------------
+# The case: re-attach WITHOUT the crypta options and flush
+#
+# No DELETE is issued here on purpose. A DELETE would have to scan the data
+# file, and that read refuses at ReadDataFile - the refusal already covered by
+# crypta_unconfigured_reader_refusal.test - so the flush path would never be
+# reached and this file would silently be re-testing the other one. The
+# deletions are already inlined from the configured session; the flush alone
+# drives the second decode site.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_flush.db' AS unconfigured (DATA_PATH '__TEST_DIR__/crypta_flush_files', DATA_INLINING_ROW_LIMIT 100, METADATA_CATALOG 'unconf_meta')
+
+statement error
+CALL ducklake_flush_inlined_data('unconfigured')
+----
+carries a crypta-wrapped encryption key
+
+statement error
+CALL ducklake_flush_inlined_data('unconfigured')
+----
+CRYPTA_SOCKET
+
+statement error
+CALL ducklake_flush_inlined_data('unconfigured')
+----
+Re-attach with the crypta options
+
+statement ok
+DETACH unconfigured
+
+# --------------------------------------------------------------------------
+# CONTROL: the same lake, WITH the crypta options, still ATTACHES and reads
+#
+# Scoped deliberately narrowly. It asserts that the fixture lake is intact and
+# readable by a configured reader - so the refusals above are attributable to
+# the missing options and not to a lake this fixture broke. It does NOT flush,
+# because flushing over an existing delete file with crypta configured hits the
+# separate pre-existing defect noted in the header, which is out of scope here.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_flush.db' AS configured (DATA_PATH '__TEST_DIR__/crypta_flush_files', DATA_INLINING_ROW_LIMIT 100, METADATA_CATALOG 'configured_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'sql-fixture')
+
+# 50 rows minus ids 0-4 (flushed to the delete file) minus ids 46-49 (still
+# inlined) = 41 rows, sum 1225 - 10 - 190 = 1025.
+query II
+SELECT count(*), sum(id) FROM configured.alpha
+----
+41	1025
+
+statement ok
+DETACH configured
