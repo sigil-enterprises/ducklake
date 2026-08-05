@@ -524,16 +524,78 @@ TEST_CASE("crypta provider: a '|' in a path cannot be re-read as the cache-key s
 	REQUIRE(provider.UnwrapKey(identity_a, blob_a) == dek_a);
 	REQUIRE(server.Connections() == 1);
 
-	REQUIRE_THAT(ThrownMessage([&]() { provider.UnwrapKey(identity_b, blob_b); }),
-	             Catch::Contains("not valid for this KEK and file identity"));
-	REQUIRE(server.Connections() == 2);
+	// TWO independent guards now stand between B and A's cache entry, and this
+	// case pins the OUTER one. Both landed separately; neither subsumes the other.
+	//
+	// This case used to assert the collision happening: B was handed DEK-A out of
+	// A's cache entry, with crypta never consulted. It no longer reaches that
+	// far, because #24 added a base64-ALPHABET guard to `UnwrapKey` and B's blob
+	// carries a '|', which is not in the base64 alphabet. B is refused before the
+	// cache key is even built - so the assertion here is a LOCAL refusal with the
+	// connection count unmoved, not a trip to crypta.
+	//
+	// Why that does NOT make #18's length-prefixing redundant - this is the half
+	// that matters, and an earlier draft of this comment got it wrong in the
+	// dangerous direction:
+	//
+	//   * THIS route is closed - a '|' supplied by the BLOB. With blobs
+	//     guaranteed '|'-free, `...|stored_path|blob` decomposes uniquely at the
+	//     LAST '|', so the blob can no longer be made to absorb the delimiter.
+	//   * THE lake_id ROUTE IS UNTOUCHED BY THIS GUARD, which never even looks at
+	//     it. `IsBase64` inspects the blob only. Precisely which field can still
+	//     supply the ambiguity, because an earlier draft said "lake_id and
+	//     stored_path both" and that is wrong in a way that would point a fixer at
+	//     the wrong field: with the blob '|'-free, the LAST '|' always separates
+	//     it, so the blob is determined; table_id is `%lld`, i.e. `-?[0-9]+`, so
+	//     it is determined as the token up to the next '|'; file_kind is one of
+	//     two '|'-free words, so it is determined; and stored_path is TERMINAL -
+	//     it absorbs every remaining '|' and can never be re-read as a delimiter.
+	//     With lake_id held constant the bare-'|' key is therefore INJECTIVE.
+	//     lake_id is the only non-terminal field that is neither '|'-free by
+	//     construction nor drawn from a fixed vocabulary, so it is the only one
+	//     that breaks injectivity. Concretely, with two perfectly base64-clean
+	//     blobs:
+	//
+	//       A: lake_id "a",         table_id 1, data,   path "b|2|delete|c"
+	//       B: lake_id "a|1|data|b", table_id 2, delete, path "c"
+	//
+	//     both join to `a|1|data|b|2|delete|c|<blob>`. Same key, different files.
+	//     A base64 guard on the blob cannot see that collision at all.
+	//   * So #24 does NOT subsume #18. #18's length-prefixed cache key is the
+	//     INNER guard and the actual fix for that route - it removes the
+	//     dependence on an unenforced cross-file invariant (that
+	//     `DuckLakeCatalog::CryptaIdentity` is the sole construction site and
+	//     stamps lake_id from the per-ATTACH option) rather than narrowing one
+	//     route into it. It is present in this tree and MUST STAY. Do NOT delete
+	//     #18's length-prefixing as redundant on the strength of this guard; that
+	//     would reopen key confusion to tidy up. The case immediately below is
+	//     the one that proves it, and it is the one that reddens if you try:
+	//     measured with the prefixes deleted, it fails with `ThrownMessage`
+	//     returning "" - D served C's DEK straight out of the cache, which is the
+	//     bypass itself.
+	//
+	// And note which mutant proves THIS case, because it moved: not
+	// `cache_key_unprefixed_join` but `no_blob_alphabet_check`. Measured - with
+	// the length prefixes deleted this case still PASSES, because the '|' in its
+	// blob is refused by `IsBase64` before the cache key is built, so it never
+	// reaches the join at all. It is listed under the alphabet mutant for that
+	// reason. Do not "restore" it to the length-prefixing mutant's roster: it
+	// would pass there while claiming to prove that guard.
+	//
+	// Asserted positively, for the same reason the original was: under
+	// [!shouldfail] a server that never started would look identical to a defect
+	// that is still there.
+	auto message = ThrownMessage([&]() { provider.UnwrapKey(identity_b, blob_b); });
+	REQUIRE_THAT(message, Catch::Contains("is not base64"));
+	// And crypta was still never consulted - B was refused locally, not served.
+	REQUIRE(server.Connections() == 1);
 
-	// The other half: A's own row must STILL be served from cache. A key that
-	// never matches would satisfy everything above while quietly turning every
-	// unwrap into a round trip, so the count staying at 2 is what says the fix
-	// separated these two entries rather than simply breaking the cache.
+	// The other half: A's own row must STILL be served from cache. A guard that
+	// refused everything would satisfy everything above while quietly breaking
+	// every unwrap, so A staying a HIT - count unmoved at 1 - is what says the
+	// refusal was targeted rather than total.
 	REQUIRE(provider.UnwrapKey(identity_a, blob_a) == dek_a);
-	REQUIRE(server.Connections() == 2);
+	REQUIRE(server.Connections() == 1);
 }
 
 TEST_CASE("crypta provider: a '|' in an identity field cannot shift a cache-key boundary",

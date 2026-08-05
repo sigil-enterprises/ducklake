@@ -82,7 +82,87 @@ MUTANTS = [
         "why": "JSON escaping of the identity",
         "old": '\tstring out;\n\tout.reserve(input.size() + 8);',
         "new": '\tstring out;\n\treturn input;\n\tout.reserve(input.size() + 8);',
-        "reddens": ["crypta: quotes and control characters in an identity are escaped on the wire"],
+        # Since #24 the blob goes through JsonEscape too, so early-returning from
+        # it strips BOTH escapings and this mutant reddens the injection cases as
+        # well. Listed, because a roster that understates what a mutant does is a
+        # positive control that has drifted from the thing it controls.
+        "reddens": [
+            "crypta: quotes and control characters in an identity are escaped on the wire",
+            "crypta: a quote in a wrapped blob is escaped on the wire, not spliced into the request",
+            "crypta: an array element injected by a wrapped blob does not become a second request item",
+            "crypta: an injected element does not break the unwrap of the other rows in its batch",
+        ],
+    },
+    {
+        "name": "no_backslash_escape",
+        "file": "crypta_client.cpp",
+        "why": "the BACKSLASH arm of JsonEscape, leaving the quote arm intact - a "
+               "SEMANTIC mutant where no_json_escape is presence-only. Without it "
+               "nothing in the roster described changing WHICH characters the "
+               "escaper handles, and a trailing backslash escapes the format "
+               "string's own closing quote",
+        "old": "\t\tcase '\\\\':\n\t\t\tout += \"\\\\\\\\\";\n\t\t\tbreak;\n",
+        "new": "",
+        "reddens": [
+            "crypta: quotes and control characters in an identity are escaped on the wire",
+            "crypta: a blob ending in a backslash cannot escape its own closing quote",
+        ],
+    },
+    {
+        "name": "no_blob_escape",
+        "file": "crypta_client.cpp",
+        "why": "JSON escaping of the WRAPPED BLOB in an unwrap request - issue #24. "
+               "The identity beside it was escaped and the blob was not, so a "
+               "catalog value could write protocol into the frame",
+        "old": '\t\tbody += StringUtil::Format("{\\"identity\\":%s,\\"wrapped\\":\\"%s\\"}", IdentityJson(identities[i]),\n'
+               '\t\t                           JsonEscape(blobs[i]));',
+        "new": '\t\tbody += StringUtil::Format("{\\"identity\\":%s,\\"wrapped\\":\\"%s\\"}", IdentityJson(identities[i]), blobs[i]);',
+        "reddens": [
+            "crypta: a quote in a wrapped blob is escaped on the wire, not spliced into the request",
+            "crypta: an array element injected by a wrapped blob does not become a second request item",
+            "crypta: an injected element does not break the unwrap of the other rows in its batch",
+        ],
+    },
+    {
+        "name": "widened_base64_alphabet",
+        "file": "crypta_client.cpp",
+        "why": "the EDGES of the base64 alphabet - issue #24 review. Widens the "
+               "letter range to 'A'..'z', which silently admits the six bytes "
+               "between 'Z' and 'a' including the BACKSLASH, one of the exactly "
+               "two characters that can break a JSON string. Distinct from "
+               "no_blob_alphabet_check, which deletes the CALL and so proves only "
+               "that the provider consults the guard, never what it answers - "
+               "before this mutant existed the whole suite stayed green with the "
+               "range widened",
+        "old": "\t\tbool in_alphabet = (u >= 'A' && u <= 'Z') || (u >= 'a' && u <= 'z') || (u >= '0' && u <= '9') || u == '+' ||\n"
+               "\t\t                   u == '/' || u == '=';",
+        "new": "\t\tbool in_alphabet = (u >= 'A' && u <= 'z') || (u >= '0' && u <= '9') || u == '+' ||\n"
+               "\t\t                   u == '/' || u == '=';",
+        "reddens": ["crypta: the base64 alphabet is exactly the base64 alphabet, at its edges"],
+    },
+    {
+        "name": "no_blob_alphabet_check",
+        "file": "ducklake_crypta.cpp",
+        "why": "the base64-alphabet validation of a catalog key value - issue #24. "
+               "Its own mutant rather than a section of no_blob_escape, because "
+               "the two are SEPARATE LAYERS: the escaping keeps the frame "
+               "well-formed for any caller of the client, this keeps a value that "
+               "could never decode off the wire at all. A guard whose only "
+               "evidence is another guard's test is not tested",
+        "old": '\tif (!CryptaClient::IsBase64(base64_value)) {',
+        "new": '\tif (false) {',
+        # The second name arrived here when #24 merged into #18's branch, and it
+        # is a TRANSFER, not an addition: the "'|' in a path" case was written as
+        # #18 evidence and listed under `cache_key_unprefixed_join`, but its blob
+        # carries a '|', so with both guards present this guard refuses it first
+        # and it stopped depending on the length prefixes entirely. MEASURED both
+        # ways: it survives `cache_key_unprefixed_join` (rc 0) and reddens here
+        # (rc 1). The case still tests something real - it just tests THIS layer
+        # now, so it is proven where it is actually load-bearing.
+        "reddens": [
+            "crypta provider: a wrapped key that is not base64 is refused before it reaches crypta",
+            "crypta provider: a '|' in a path cannot be re-read as the cache-key separator",
+        ],
     },
     {
         "name": "no_error_status_check",
@@ -389,8 +469,24 @@ MUTANTS = [
                '\t                               identity.is_delete_file ? "delete" : "data", '
                'identity.stored_path) +\n'
                '\t            "|" + base64_value;',
+        # ONE case, not two, and the missing one is the interesting part.
+        #
+        # This list used to name the "'|' in a path" case as well. MEASURED after
+        # #24 merged: that case SURVIVES this mutant - rc 0, 6 assertions, green
+        # with the length prefixes deleted. Its blob is `RExLZZZZ|RExLAAAA`, and
+        # `IsBase64` now refuses a '|' before the cache key is ever built, so the
+        # case never reaches the code this mutant edits. It is proven by
+        # `no_blob_alphabet_check` instead, where it is now listed.
+        #
+        # Leaving it here would have been invisible rather than loud: the runner
+        # builds ONE Catch spec from this whole list and only checks the combined
+        # exit status, so the identity-field case below reddens, the run is
+        # non-zero, and the mutant reports RED while a case it claims to prove
+        # quietly proves nothing. That is the shared-guard blind spot - a mutant
+        # that reddens off one caller hides a second caller that stopped
+        # depending on the guard. Verify a multi-name roster PER CASE, never by
+        # the combined status.
         "reddens": [
-            "crypta provider: a '|' in a path cannot be re-read as the cache-key separator",
             "crypta provider: a '|' in an identity field cannot shift a cache-key boundary",
         ],
     },

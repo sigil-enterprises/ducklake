@@ -62,6 +62,12 @@ public:
 	//! unconfigured reader, and a plaintext row served to a configured one.
 	static bool LooksWrapped(const string &base64_value);
 
+	//! True when every character of `value` is in the base64 alphabet. The
+	//! validation `LooksWrapped` is not: a value outside the alphabet can never
+	//! decode to a wrapped key, so it has no business reaching the wire.
+	//! Alphabet only - length and padding are crypta's to judge.
+	static bool IsBase64(const string &value);
+
 private:
 	string socket_path;
 
