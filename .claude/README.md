@@ -654,6 +654,40 @@ two constructor-level #19 refusals were deliberately put there rather than with
 the rest of #19, which is why they are covered by the generic jobs as well as by
 `CryptaRefusals.yml`.
 
+Enumerated from the workflows, the `unittest` invocations that reach this repo's
+`test/sql/*` are `Catalogs.yml` (`sqlite.json` AND `postgres.json`, `--test-dir
+./`), `MinIO.yml`, `DeletionVectors.yml`, `NoInline.yml`, and `Debug.yml`.
+`ConfigTests.yml` does NOT: it passes `--test-dir duckdb`, so it runs DuckDB's own
+suite under an attach config and never sees this directory. Expect it to stay
+green on a commit where the others are red - that is correct, not a config in
+which a refusal fails to fire.
+
+### The two arms of `CryptaRefusals.yml` are sequential steps, and that hid an arm
+
+A step with no `if:` defaults to `success()`. The SQL step had none, so when the
+C++ step went red the SQL step was marked **`skipped`** and the job reported
+nothing whatsoever about the SQL refusals.
+
+Measured from the jobs API, not inferred from a log - on run `30977945298`,
+step 9 `Unit refusals` = `failure`, step 10 `SQL refusals` = `skipped`:
+
+```
+gh api repos/sigil-enterprises/ducklake/actions/jobs/<id> \
+  --jq '.steps[] | "\(.number) \(.conclusion) \(.name)"'
+```
+
+That is not cosmetic. Both `require-env` files skip in every generic job for want
+of a key service, so that one step is the ONLY place they can red - which made
+those refusals structurally incapable of producing gated red-first evidence on
+any commit where the C++ arm was also red.
+
+Fixed here with `if: '!cancelled()'` on the SQL step. `!cancelled()` rather than
+`always()`, so a cancelled run still stops instead of burning a runner; a failure
+in the step still fails the job, because `if:` governs whether a step RUNS, not
+whether it counts. General rule for this gate: **independent arms belong in
+independent jobs, or every later step needs its own `if:`** - otherwise the
+missing arm's silence is indistinguishable from its passing.
+
 ### Measuring it honestly - both arms, or the number is not evidence
 
 `scripts/measure_crypta_refusal_coverage.sh`, against the opt-in
