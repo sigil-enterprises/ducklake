@@ -1059,6 +1059,32 @@ DuckLakeFileData DuckLakeMetadataManager::ReadDataFile(DuckLakeTableEntry &table
 			auto identity = transaction.GetCatalog().CryptaIdentity(table.GetTableId(), path.path, is_delete_file);
 			data.encryption_key = crypta->UnwrapKey(identity, stored_key);
 		} else {
+			// The OTHER direction of the same invariant, and the one that had no
+			// check at all: a WRAPPED lake read by an UNCONFIGURED reader. This is
+			// the null-provider branch, so it is reached exactly when the crypta
+			// options were absent from the ATTACH - the likeliest operator mistake
+			// there is, since a re-attach or a second tool can easily drop them.
+			//
+			// Without this the 208-byte blob was base64-decoded and handed to the
+			// Parquet reader AS IF IT WERE A KEY, and mbedtls asserted on the
+			// length: "INTERNAL Error: Invalid AES key length for GCM", with a
+			// stack trace. That is fail-closed by ACCIDENT, not by design - it
+			// stopped because the length happened to be invalid, not because
+			// anything checked, and a blob whose length happened to be a valid key
+			// length would have been TRIED. An INTERNAL error is also the class
+			// DuckDB reserves for "this should be impossible", so the operator had
+			// no way to tell a dropped option from data corruption (#20).
+			//
+			// LooksWrapped's header claims it fails closed "in both directions".
+			// Until this call site existed that claim was untrue: its only caller
+			// was DuckLakeCryptaProvider::UnwrapKey, which only exists when crypta
+			// IS configured. This is the direction the comment named first.
+			if (CryptaClient::LooksWrapped(stored_key)) {
+				throw IOException(
+				    "file %s carries a crypta-wrapped encryption key, but this lake was attached without "
+				    "CRYPTA_SOCKET / CRYPTA_LAKE_ID. Re-attach with the crypta options",
+				    data.path);
+			}
 			data.encryption_key = Blob::FromBase64(string_t(stored_key));
 		}
 	}

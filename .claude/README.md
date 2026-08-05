@@ -358,8 +358,24 @@ it to `GetFileSelectList` shifts positional column indices in 8+ queries.
 
 1. **Fail closed, always.** No crypta -> no lake. `FinalizeLoad` self-tests at
    ATTACH so a down service surfaces there, not as apparent corruption mid-scan.
+   Read this narrowly - it used to be read as covering more than it did (#20).
+   It covers a configured lake whose service is DOWN. The case where the options
+   are ABSENT is invariant 6, and until #20 it had no check at all.
 2. **A plaintext key row on a crypta lake is refused**, never used. That is the
    downgrade attack.
+6. **A wrapped key row on a lake attached WITHOUT crypta is refused**, by name.
+   The mirror of invariant 2, and the other half of `LooksWrapped`'s "fails
+   closed in both directions". Enforced in `ReadDataFile`'s null-provider
+   branch. Without it the wrapped blob reaches the Parquet reader as a key and
+   surfaces as `INTERNAL Error: Invalid AES key length for GCM` - fail-closed by
+   accident, since it stops on the length rather than on a check.
+7. **A half-configured envelope is refused at ATTACH, in either direction** -
+   `CRYPTA_SOCKET` without `CRYPTA_LAKE_ID` and `CRYPTA_LAKE_ID` without
+   `CRYPTA_SOCKET`, plus a supplied-but-empty socket (an unexpanded `${VAR}`).
+   Each of these used to write PLAINTEXT per-file keys silently (#19). The
+   encryption check tests the RESOLVED mode, so an `AUTOMATIC` lake that
+   resolves to unencrypted is caught while an existing enveloped lake
+   re-attached under `AUTOMATIC` still works.
 3. **Delete files bind with `file_kind=delete`.** Their key rows must not be
    interchangeable with data-file rows.
 4. **Wrap the whole commit in one call** wherever a `vector` of files exists.
