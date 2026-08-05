@@ -69,6 +69,11 @@ require httpfs
 
 require-env DUCKLAKE_FAKE_CRYPTA_SOCKET
 
+# Case 3 asserts that the ATTACH refusal fires BEFORE the key service is
+# consulted, which is a claim about a call that did not happen and needs an
+# instrument rather than another substring of the same message.
+require-env DUCKLAKE_FAKE_CRYPTA_OPLOG
+
 # --------------------------------------------------------------------------
 # Case 1 - the naive case, and the headline defect
 #
@@ -331,6 +336,25 @@ DETACH tablescope
 # deliberately, and because a refused ATTACH still consumed the alias.
 # --------------------------------------------------------------------------
 
+# The refusal must fire BEFORE the key service is consulted - it is a
+# configuration contradiction, decidable from the options alone, and a lake that
+# is misconfigured this way should be refused whether or not crypta happens to be
+# reachable. That is a claim about a call that did NOT happen, so it needs the
+# oplog instrument, not another substring of the same message. The fake logs one
+# line per request; the count must not move across the three refused ATTACHes
+# below.
+statement ok
+CREATE TABLE inline_ops_before AS SELECT count(*) AS n FROM read_csv('${DUCKLAKE_FAKE_CRYPTA_OPLOG}', columns={'op': 'VARCHAR', 'items': 'BIGINT'}, header=false)
+
+# The instrument has to be shown LIVE before "it did not move" means anything: a
+# log that was never written would also never move, and the delta assertion below
+# would pass having measured nothing. Case 1 and case 2 above already attached
+# successfully against this socket, so the count is non-zero by now.
+query I
+SELECT n > 0 FROM inline_ops_before
+----
+true
+
 statement error
 ATTACH 'ducklake:__TEST_DIR__/crypta_inline_attach_opt.db' AS attachopt (DATA_PATH '__TEST_DIR__/crypta_inline_attach_opt_files', ENCRYPTED, METADATA_CATALOG 'attachopt_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'inline-attach-opt', DATA_INLINING_ROW_LIMIT 10)
 ----
@@ -347,6 +371,15 @@ statement error
 ATTACH 'ducklake:__TEST_DIR__/crypta_inline_attach_opt3.db' AS attachopt3 (DATA_PATH '__TEST_DIR__/crypta_inline_attach_opt3_files', ENCRYPTED, METADATA_CATALOG 'attachopt3_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'inline-attach-opt3', DATA_INLINING_ROW_LIMIT 1)
 ----
 crypta
+
+# Not one request crossed the socket for any of the three. The refusal is
+# structural - it is decided in the DuckLakeCatalog constructor, before
+# FinalizeLoad runs the crypta health self-test - rather than a consequence of
+# anything the key service said.
+query I
+SELECT (SELECT count(*) FROM read_csv('${DUCKLAKE_FAKE_CRYPTA_OPLOG}', columns={'op': 'VARCHAR', 'items': 'BIGINT'}, header=false)) - (SELECT n FROM inline_ops_before)
+----
+0
 
 # --------------------------------------------------------------------------
 # Case 4 - set_option is REFUSED, at every scope
