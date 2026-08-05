@@ -6,6 +6,9 @@ duckdb_unittest_tempdir/
 .DS_Store
 testext
 test/python/__pycache__/
+# mutants.py is an importable module, so running the crypta suite drops a
+# __pycache__ beside it in test/cpp/crypta/. Ignore them wherever they land.
+__pycache__/
 .Rhistory
 scripts/data/
 duckdb_benchmark_data/
