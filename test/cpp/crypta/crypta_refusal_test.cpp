@@ -940,10 +940,44 @@ TEST_CASE("crypta: a well-formed response round-trips", "[crypta][happy]") {
 }
 
 TEST_CASE("crypta: LooksWrapped tells a blob from a plaintext key", "[crypta][happy]") {
-	REQUIRE(CryptaClient::LooksWrapped("RExLMQAAAA"));
+	// A real wrapped blob is ~208-280 base64 characters. Nothing shorter than a
+	// raw DEK's 44 can be one, so the prefix alone is not the test - see the
+	// length-floor case below for why that matters.
+	REQUIRE(CryptaClient::LooksWrapped("RExLMQAAAA" + string(256, 'A')));
 	REQUIRE_FALSE(CryptaClient::LooksWrapped(""));
 	REQUIRE_FALSE(CryptaClient::LooksWrapped("RExK"));
 	REQUIRE_FALSE(CryptaClient::LooksWrapped("REx"));
 	// A 24-character plaintext key, the shape a pre-envelope lake stores.
 	REQUIRE_FALSE(CryptaClient::LooksWrapped("AAAAAAAAAAAAAAAAAAAAAA=="));
+}
+
+TEST_CASE("crypta: LooksWrapped does not misread a plaintext DEK that happens to "
+          "start with the magic",
+          "[crypta][refusal]") {
+	// THE OVER-REFUSAL THIS FLOOR EXISTS TO PREVENT.
+	//
+	// LooksWrapped is now called on EVERY stored key of EVERY plain-ENCRYPTED
+	// lake - the upstream, no-crypta path - because that is where the
+	// unconfigured-reader refusal lives. A prefix-only test therefore has a
+	// false-positive rate on random key material: a 32-byte CSPRNG DEK whose
+	// first three bytes are 0x44 0x4C 0x4B base64-encodes to "RExL...", and
+	// would be refused forever as "crypta-wrapped" on a lake that has no crypta
+	// and never had any. The advice in that refusal - re-attach with the crypta
+	// options - would be wrong AND unactionable, and the file unreadable.
+	//
+	// ~6e-8 per file is small and is NOT zero, and the failure is unrecoverable,
+	// so the discriminator must be more than four characters.
+	//
+	// 44 characters is base64 of exactly 32 bytes, the largest DEK this fork
+	// mints (94144c31). Anything at or below that cannot be a wrapped blob.
+	const string plaintext_dek_that_looks_wrapped = "RExL" + string(40, 'A');
+	REQUIRE(plaintext_dek_that_looks_wrapped.size() == 44);
+	REQUIRE_FALSE(CryptaClient::LooksWrapped(plaintext_dek_that_looks_wrapped));
+
+	// The 24-character pre-envelope shape, same prefix, same answer.
+	REQUIRE_FALSE(CryptaClient::LooksWrapped("RExL" + string(20, 'A')));
+
+	// One character past the floor is admitted: the floor must not be so greedy
+	// that it starts rejecting genuine blobs.
+	REQUIRE(CryptaClient::LooksWrapped("RExL" + string(41, 'A')));
 }
