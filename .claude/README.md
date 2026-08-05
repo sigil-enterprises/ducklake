@@ -688,6 +688,27 @@ whether it counts. General rule for this gate: **independent arms belong in
 independent jobs, or every later step needs its own `if:`** - otherwise the
 missing arm's silence is indistinguishable from its passing.
 
+**This fix belongs on the BASE, not only on the branch that happened to find
+it.** Tracked as [#36](https://github.com/sigil-enterprises/ducklake/issues/36),
+where the `!cancelled()`-over-`always()` reasoning is recorded: `always()` also
+runs a step while a run is being CANCELLED, and with `cancel-in-progress: true`
+firing constantly against ~50-minute cold builds that spends a runner slot
+finishing work nobody reads. Until it lands on `release/v1.5-variegata`, every
+other in-flight branch still carries the masked arm and still cannot produce
+gated evidence for its second arm.
+
+Two things `!cancelled()` does NOT fix, so it is not read as closing #36:
+
+- Both arms stay in ONE job, so the job-level verdict still collapses several
+  independent claims into a single bit. Splitting into independent jobs is the
+  better shape and is still open.
+- The mutant masking is untouched. `run_crypta_tests.sh:27` is `set -euo
+  pipefail` with the suite invoked bare, so a failing suite still aborts before
+  `--mutants`. Refusal evidence and roster evidence therefore live on DIFFERENT
+  commits by construction: the red run proves the defects, a green run proves
+  the roster. A missing mutant summary on a RED run is expected; on a GREEN run
+  it is a finding.
+
 ### Measuring it honestly - both arms, or the number is not evidence
 
 `scripts/measure_crypta_refusal_coverage.sh`, against the opt-in
