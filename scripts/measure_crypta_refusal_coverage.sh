@@ -58,7 +58,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COVERAGE_BUILD="${ROOT}/build/coverage"
 UNITTEST="${COVERAGE_BUILD}/test/unittest"
 TARGET_FILE="src/crypta/ducklake_crypta.cpp"
-CACHE_HIT_LINE=58
+# `return entry->second;` - the cache HIT. A LINE NUMBER, so it moves whenever
+# anything above it in that file grows, and it is a SEPARATE pin from the
+# UNREACHABLE dict further down: repairing one and not the other leaves a stale
+# pin behind. The #18 cache-key fix moved this 58 -> 135. Re-derive it, do not
+# transcribe it:
+#   grep -n 'return entry->second;' src/crypta/ducklake_crypta.cpp
+CACHE_HIT_LINE=135
 
 if [ ! -x "${UNITTEST}" ]; then
   echo "no instrumented unittest at ${UNITTEST}." >&2
@@ -123,8 +129,8 @@ clear_counters
 # crypta_attach_refusals.test needs no key service and never unwraps anything,
 # so it exercises this FILE (the provider is constructed and refuses) without
 # ever reaching the cache. That is what makes this arm discriminating rather
-# than vacuous: the instrument is demonstrably live on the file, and line 58 is
-# still zero.
+# than vacuous: the instrument is demonstrably live on the file, and
+# ${CACHE_HIT_LINE} is still zero.
 "${UNITTEST}" "test/sql/crypta/crypta_attach_refusals.test" > /dev/null
 report_for /tmp/crypta_cov_negative.json "${COVERAGE_BUILD}"
 negative="$(line_count /tmp/crypta_cov_negative.json "${TARGET_FILE}" "${CACHE_HIT_LINE}")"
@@ -170,7 +176,25 @@ report_for /tmp/crypta_cov_cpp.json "${CPP_BUILD}"
 # The two lines below are asserted UNREACHABLE, not merely uncovered, and the
 # check is a subset test: they may stay dark, anything NEW going dark fails.
 #
-#   crypta_client.cpp:79     the closing brace of JsonEscape. gcov counts a
+# Both are LINE NUMBERS, so they drift whenever the file above them grows, and
+# nothing here detects that. Be precise about what a stale entry actually does,
+# because the two halves are not equally likely and the check is a SUBSET test
+# (`unexpected = dark - UNREACHABLE`):
+#
+#   - it ALWAYS false-flags the real line. Once the genuinely-unreachable line
+#     moves off this list it lands in `unexpected` and the run FAILS - loudly,
+#     which is the good case.
+#   - it excuses the line now sitting at the stale number ONLY IF that line is
+#     itself dark. A stale number naming a covered or unreported line subtracts
+#     nothing and is inert.
+#
+# So the usual outcome is a visible red, not a silent pass; silent excusal needs
+# the coincidence of the stale number landing on a dark line. Worth guarding
+# against, not the default. The #18 cache-key fix moved both (79 -> 98, 66 -> 143)
+# and they are updated here in the same change. Re-derive them, do not assume them
+# - and note CACHE_HIT_LINE above is a THIRD pin that drifts independently.
+#
+#   crypta_client.cpp:98     the closing brace of JsonEscape. gcov counts a
 #                            function's closing brace on BOTH the return path and
 #                            the exception-unwind path - measured, not assumed:
 #                            ExtractBase64Field's brace reads 4143 against 4131
@@ -181,7 +205,7 @@ report_for /tmp/crypta_cov_cpp.json "${CPP_BUILD}"
 #                            rather than dismissing: the same signal on Health's
 #                            brace was a REAL missing case - a health probe
 #                            answered with an error frame - and is now covered.)
-#   ducklake_crypta.cpp:66   `crypta returned N keys for one file`. Dead by
+#   ducklake_crypta.cpp:143  `crypta returned N keys for one file`. Dead by
 #                            construction: ExtractBase64Field already refuses any
 #                            count other than the requested one, and UnwrapKey
 #                            always requests exactly one. No response can reach
@@ -193,7 +217,7 @@ cpp_arm=0
 python3 - /tmp/crypta_cov_cpp.json <<'PY' || cpp_arm=$?
 import json, sys
 
-UNREACHABLE = {"crypta_client.cpp": {79}, "ducklake_crypta.cpp": {66}}
+UNREACHABLE = {"crypta_client.cpp": {98}, "ducklake_crypta.cpp": {143}}
 
 data = json.load(open(sys.argv[1]))
 files = data.get("files", [])
@@ -245,7 +269,15 @@ echo "=============================================================="
 failed=0
 if [ "${negative}" != "0" ]; then
   echo "  FAIL  negative arm read '${negative}', expected 0."
-  echo "        Either a stale .gcda survived the clear, or something other than"
+  echo "        CHECK THIS FIRST: has CACHE_HIT_LINE (${CACHE_HIT_LINE}) drifted off"
+  echo "        \`return entry->second;\`? It is a hardcoded line number, so any change"
+  echo "        above it in ${TARGET_FILE} moves it, and nothing here"
+  echo "        detects that. Re-derive:"
+  echo "          grep -n 'return entry->second;' ${TARGET_FILE}"
+  echo "        A pin landing on a COMMENT reads '${negative}' as the literal string"
+  echo "        'unreachable' (gcovr never reports comment lines); one landing on"
+  echo "        another executable line reads that line's count instead."
+  echo "        Only then: a stale .gcda survived the clear, or something other than"
   echo "        the cache test is reaching that line - and the positive arm below"
   echo "        proves nothing until that is explained."
   failed=1
