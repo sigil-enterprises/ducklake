@@ -23,7 +23,12 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "${HERE}/../../.." && pwd)"
-UNITTEST="${ROOT}/build/release/test/unittest"
+# Overridable so the coverage measurement can point this at the INSTRUMENTED
+# build. It is not a convenience: hardcoding build/release meant
+# `measure_crypta_refusal_coverage.sh` ran an uninstrumented binary and wrote no
+# counters at all, and its "positive" arm read LOWER than its negative one. The
+# two-arm discipline caught it; one arm would have reported a plausible zero.
+UNITTEST="${DUCKLAKE_UNITTEST:-${ROOT}/build/release/test/unittest}"
 
 if [ ! -x "${UNITTEST}" ]; then
   echo "no unittest binary at ${UNITTEST} - run 'BUILD_EXTENSION_TEST_DEPS=full make release' first" >&2
