@@ -170,7 +170,13 @@ report_for /tmp/crypta_cov_cpp.json "${CPP_BUILD}"
 # The two lines below are asserted UNREACHABLE, not merely uncovered, and the
 # check is a subset test: they may stay dark, anything NEW going dark fails.
 #
-#   crypta_client.cpp:79     the closing brace of JsonEscape. gcov counts a
+# Both are LINE NUMBERS, so they drift whenever the file above them grows, and
+# nothing here detects that: a stale entry silently excuses whatever line now sits
+# at that number while flagging the real one as newly dark. The #18 cache-key fix
+# moved both (79 -> 98, 66 -> 143) and they are updated here in the same change.
+# Re-derive them, do not assume them.
+#
+#   crypta_client.cpp:98     the closing brace of JsonEscape. gcov counts a
 #                            function's closing brace on BOTH the return path and
 #                            the exception-unwind path - measured, not assumed:
 #                            ExtractBase64Field's brace reads 4143 against 4131
@@ -181,7 +187,7 @@ report_for /tmp/crypta_cov_cpp.json "${CPP_BUILD}"
 #                            rather than dismissing: the same signal on Health's
 #                            brace was a REAL missing case - a health probe
 #                            answered with an error frame - and is now covered.)
-#   ducklake_crypta.cpp:66   `crypta returned N keys for one file`. Dead by
+#   ducklake_crypta.cpp:143  `crypta returned N keys for one file`. Dead by
 #                            construction: ExtractBase64Field already refuses any
 #                            count other than the requested one, and UnwrapKey
 #                            always requests exactly one. No response can reach
@@ -193,7 +199,7 @@ cpp_arm=0
 python3 - /tmp/crypta_cov_cpp.json <<'PY' || cpp_arm=$?
 import json, sys
 
-UNREACHABLE = {"crypta_client.cpp": {79}, "ducklake_crypta.cpp": {66}}
+UNREACHABLE = {"crypta_client.cpp": {98}, "ducklake_crypta.cpp": {143}}
 
 data = json.load(open(sys.argv[1]))
 files = data.get("files", [])
