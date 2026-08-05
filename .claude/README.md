@@ -644,9 +644,26 @@ lone non-zero proves nothing about which run produced it:
   when and only when the cache case runs.
 - **the dark-line check** is a subset test with its own positive control: with
   the unreachable list emptied it flags `:98` and `:143`, with the list in place
-  it passes. A check that cannot fail is not a check. Both are line NUMBERS and
-  drift with the file - the fix moved them from `:79` and `:66`, and nothing in
-  the script would have noticed.
+  it passes. A check that cannot fail is not a check.
+
+There are **three** hardcoded line pins in that script and they drift
+independently - `CACHE_HIT_LINE` at the top, plus the two in the `UNREACHABLE`
+dict. The #18 fix moved all three (`58 -> 135`, `79 -> 98`, `66 -> 143`) and
+repaired all three; repairing only the dict is the easy mistake, because
+`CACHE_HIT_LINE` is 130 lines away from it. What a stale pin actually does is
+worth stating precisely, since it is not silent:
+
+- the `UNREACHABLE` dict is a subset test (`unexpected = dark - UNREACHABLE`), so
+  a stale entry **always** false-flags the real line once it moves off the list -
+  a visible red. It excuses the line now at the stale number only if that line is
+  itself dark, which is a coincidence rather than the default.
+- a stale `CACHE_HIT_LINE` also fails loud, but **with a misleading diagnosis**.
+  If it lands on a comment, gcovr never reports the line, `line_count` returns the
+  string `unreachable`, and the negative arm's `!= "0"` trips. The message used to
+  offer only "a stale `.gcda`" or "something else reaches that line" - neither
+  true - so the reader chases a phantom. The message now names the drift first.
+  Credit to the #24 branch for finding this one; the first pass here fixed the
+  dict and missed it.
 
 Two traps this script exists to document, both of which it walked into first:
 
