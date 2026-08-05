@@ -162,6 +162,7 @@ MUTANTS = [
         "reddens": [
             "crypta provider: a wrapped key that is not base64 is refused before it reaches crypta",
             "crypta provider: a '|' in a path cannot be re-read as the cache-key separator",
+            "crypta provider: the plaintext floor is consulted BEFORE the alphabet check",
         ],
     },
     {
@@ -444,7 +445,15 @@ MUTANTS = [
         "why": "the refusal of a plaintext key row on an enveloped lake",
         "old": '\tif (!CryptaClient::LooksWrapped(base64_value)) {',
         "new": '\tif (false) {',
-        "reddens": ["crypta provider: a plaintext key row is refused, never used"],
+        # The ordering case is named here as well as under no_blob_alphabet_check,
+        # deliberately: removing THIS guard makes the under-floor value fall
+        # through to the alphabet check, so the case's first assertion - that a
+        # short value is diagnosed as a downgrade - flips. A guard whose order is
+        # only documented in a comment is not pinned by anything.
+        "reddens": [
+            "crypta provider: a plaintext key row is refused, never used",
+            "crypta provider: the plaintext floor is consulted BEFORE the alphabet check",
+        ],
     },
     {
         "name": "no_cache_lookup",
