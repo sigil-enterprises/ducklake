@@ -1,0 +1,162 @@
+# name: test/sql/crypta/crypta_unconfigured_reader_refusal.test
+# description: A wrapped lake read by an UNCONFIGURED reader is refused by name, not by assertion failure
+# group: [crypta]
+#
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# The other direction of the same invariant, and the one that had no check at
+# all. `CryptaClient::LooksWrapped` exists precisely to tell a wrapped row from a
+# plaintext one without a service call, and its header claims it fails closed
+# "in both directions". It had exactly one call site - inside
+# DuckLakeCryptaProvider::UnwrapKey - and that provider only exists when crypta
+# IS configured. So the direction it names first, a wrapped lake read by an
+# UNCONFIGURED reader, went unchecked: the 208-byte wrapped blob was handed to
+# the Parquet reader as if it were a key and mbedtls asserted on the length.
+#
+# Before the fix this produced:
+#
+#   INTERNAL Error: Invalid AES key length for GCM
+#   Stack Trace: ...
+#   This error signals an assertion failure within DuckDB.
+#
+# An INTERNAL error is the class DuckDB reserves for "this should be
+# impossible". Reaching it from the likeliest operator mistake there is - the
+# crypta options dropped on a re-attach - is fail-closed by accident, not by
+# design: it stops because AES-GCM rejects a 208-byte key, not because anything
+# checked. A blob whose length happened to be a valid key length would be TRIED.
+#
+# The fixture half needs a REACHABLE service to write an enveloped lake, so this
+# file runs under run_sql_crypta_tests.sh. The case under test then re-attaches
+# that lake with the crypta options deliberately ABSENT.
+
+require ducklake
+
+require parquet
+
+require httpfs
+
+require-env DUCKLAKE_FAKE_CRYPTA_SOCKET
+
+# --------------------------------------------------------------------------
+# Fixture: write an enveloped lake, then detach it
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_unconfigured.db' AS lake (DATA_PATH '__TEST_DIR__/crypta_unconfigured_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'lake_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'sql-fixture')
+
+statement ok
+CREATE TABLE lake.alpha AS SELECT i AS id, 'a' || i AS label FROM range(1000) t(i)
+
+# A second table that is never deleted from. It exists so the "count(*) still
+# works" assertion below can be made on a table whose count is answerable from
+# the catalog alone - on `alpha` a deletion would drag the delete file into the
+# answer and the assertion would be measuring something else.
+statement ok
+CREATE TABLE lake.beta AS SELECT i AS id, 'b' || i AS label FROM range(500) t(i)
+
+# A delete file as well as a data file. ReadDeleteFile delegates straight to
+# ReadDataFile, so the guard covers both by construction rather than by a
+# separate branch - but a lake with only data files would not exercise the
+# delete-file column layout at all, and the fixture should look like a real one.
+statement ok
+DELETE FROM lake.alpha WHERE id < 10
+
+query II
+SELECT sum(id), min(label) FROM lake.alpha
+----
+499455	a10
+
+# The instrument, shown LIVE. Every assertion below is about what happens to a
+# WRAPPED row; if the fixture had written plaintext rows the refusal would have
+# nothing to fire on and the file would prove nothing. So: there are data-file
+# rows, and every one of them carries the wrapped-blob magic.
+query II
+SELECT count(*), count(*) FILTER (WHERE encryption_key LIKE 'RExL%') FROM lake_meta.ducklake_data_file
+----
+2	2
+
+statement ok
+DETACH lake
+
+# --------------------------------------------------------------------------
+# The case: re-attach WITHOUT the crypta options
+#
+# Note what is absent: no CRYPTA_SOCKET, no CRYPTA_LAKE_ID. ENCRYPTED is not
+# repeated either - the lake already records that it is encrypted, so it
+# resolves to ENCRYPTED from the catalog, and the reader goes looking for
+# per-file keys it has no way to unwrap.
+#
+# The ATTACH itself succeeds, and should: nothing is wrong until a wrapped key
+# is actually reached. The refusal belongs at the unwrap choke point.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_unconfigured.db' AS unconfigured (DATA_PATH '__TEST_DIR__/crypta_unconfigured_files', DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'unconfigured_meta')
+
+# count(*) is answered from `record_count` in the catalog and never opens the
+# Parquet file, so it is expected to keep working. Asserted here deliberately:
+# it fixes WHERE the refusal fires. A refusal that also broke this would be
+# firing too early, somewhere in the metadata path rather than at the unwrap.
+query I
+SELECT count(*) FROM unconfigured.beta
+----
+500
+
+# Reading a real column has to reach the key, and that is where it refuses.
+statement error
+SELECT sum(id) FROM unconfigured.alpha
+----
+carries a crypta-wrapped encryption key
+
+# It names the FILE. "Invalid AES key length" named nothing, so an operator had
+# no way to tell a configuration mistake from a corrupt file.
+statement error
+SELECT min(label) FROM unconfigured.alpha
+----
+.parquet
+
+# It names the OPTIONS that are missing, rather than only what failed.
+statement error
+SELECT sum(id) FROM unconfigured.alpha
+----
+CRYPTA_SOCKET
+
+statement error
+SELECT sum(id) FROM unconfigured.alpha
+----
+CRYPTA_LAKE_ID
+
+# And it says what to DO, which an assertion failure never did.
+statement error
+SELECT min(label) FROM unconfigured.alpha
+----
+Re-attach with the crypta options
+
+statement ok
+DETACH unconfigured
+
+# --------------------------------------------------------------------------
+# CONTROL: the same lake, WITH the crypta options, still reads
+#
+# Without this the refusals above prove nothing about configuration - a lake
+# that had simply been corrupted by the fixture would also refuse to read, for
+# entirely different reasons, and every assertion above would still pass. This
+# is the same bytes, the same files, the same catalog, differing only in the two
+# options whose absence is the thing under test.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_unconfigured.db' AS configured (DATA_PATH '__TEST_DIR__/crypta_unconfigured_files', DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'configured_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'sql-fixture')
+
+query II
+SELECT sum(id), min(label) FROM configured.alpha
+----
+499455	a10
+
+query II
+SELECT sum(id), min(label) FROM configured.beta
+----
+124750	b0
+
+statement ok
+DETACH configured
