@@ -339,15 +339,18 @@ DETACH tablescope
 # asked for inlining, and an operator whose explicit configuration is quietly
 # discarded learns nothing. The refusal will live in
 # src/storage/ducklake_catalog.cpp, in the DuckLakeCatalog constructor, beside
-# the existing "crypta_socket was set on an UNENCRYPTED DuckLake" refusal at
-# :208-214.
+# the existing "a crypta option was set on an UNENCRYPTED DuckLake" refusal at
+# src/storage/ducklake_catalog.cpp:241-247. (Both the wording and the line pin
+# moved when #19/#20/#21 merged in: that branch widened the ATTACH gate and
+# reworded the refusal, because it is reachable with an EMPTY socket where
+# naming crypta_socket as "set" would be false. Re-derive the pin by content.)
 #
 # MESSAGE MATCHING. The wording does not exist yet. Two short substrings are
 # asserted separately, in the idiom of crypta_attach_refusals.test, so a wording
 # tweak reds at most one line and names itself:
 #   - `crypta`                 - every crypta refusal in this fork spells it
 #                                lowercase ("cannot reach the crypta key
-#                                service", "crypta_socket was set on an
+#                                service", "a crypta option was set on an
 #                                UNENCRYPTED DuckLake");
 #   - `data_inlining_row_limit` - the canonical lowercase option key, as it is
 #                                spelled in `options.config_options` and in
