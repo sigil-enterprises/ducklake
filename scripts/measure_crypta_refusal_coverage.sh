@@ -6,7 +6,7 @@
 #
 # The claim being measured
 # ------------------------
-# `src/crypta/ducklake_crypta.cpp:58` - `return entry->second;`, the DEK cache
+# `src/crypta/ducklake_crypta.cpp:135` - `return entry->second;`, the DEK cache
 # HIT - had never executed in the EXTENSION build, i.e. through a real ATTACH.
 # (The standalone C++ cache suite does cover it; that is a different binary and
 # a different arm below. Stated precisely because the looser claim - "never
@@ -194,7 +194,13 @@ report_for /tmp/crypta_cov_cpp.json "${CPP_BUILD}"
 # and they are updated here in the same change. Re-derive them, do not assume them
 # - and note CACHE_HIT_LINE above is a THIRD pin that drifts independently.
 #
-#   crypta_client.cpp:98     the closing brace of JsonEscape. gcov counts a
+# Moved AGAIN by the #19/#20/#21 merge: that branch inserted 20 lines into
+# LooksWrapped, which sits ABOVE JsonEscape in this file, so 98 -> 118. Left
+# unrepaired, 98 lands on `out += "\\\\";` - an ordinary executable line inside
+# the switch - and the check both excuses a line that is not dark and flags the
+# real one. Re-derived by content: `grep -n 'return out;' crypta_client.cpp`.
+#
+#   crypta_client.cpp:118    the closing brace of JsonEscape. gcov counts a
 #                            function's closing brace on BOTH the return path and
 #                            the exception-unwind path - measured, not assumed:
 #                            ExtractBase64Field's brace reads 4143 against 4131
@@ -217,7 +223,7 @@ cpp_arm=0
 python3 - /tmp/crypta_cov_cpp.json <<'PY' || cpp_arm=$?
 import json, sys
 
-UNREACHABLE = {"crypta_client.cpp": {98}, "ducklake_crypta.cpp": {143}}
+UNREACHABLE = {"crypta_client.cpp": {118}, "ducklake_crypta.cpp": {143}}
 
 data = json.load(open(sys.argv[1]))
 files = data.get("files", [])

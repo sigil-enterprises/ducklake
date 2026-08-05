@@ -278,7 +278,14 @@ DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options
 		    Value(inlining_entry->second)
 		        .DefaultTryCastAs(LogicalType::UBIGINT, parsed_inlining_limit, &inlining_parse_error) &&
 		    !parsed_inlining_limit.IsNull() && parsed_inlining_limit.GetValue<idx_t>() > 0) {
-			throw InvalidInputException("crypta_socket was set together with data_inlining_row_limit=%s - data "
+			// "a crypta option", not "crypta_socket", for the same reason as the
+			// refusal above: the #19 gate admits a SUPPLIED-but-empty socket, so
+			// `ATTACH ... (ENCRYPTED, CRYPTA_SOCKET '', CRYPTA_LAKE_ID 'x',
+			// DATA_INLINING_ROW_LIMIT 10)` reaches here, and telling that operator
+			// crypta_socket "was set" would be false. The wording the base shipped
+			// was true under its narrower `!crypta_socket.empty()` gate and stopped
+			// being true when that gate widened.
+			throw InvalidInputException("a crypta option was set together with data_inlining_row_limit=%s - data "
 			                            "inlining writes the row values themselves as cleartext SQL literals "
 			                            "into the metadata catalog, which the crypta envelope does not protect "
 			                            "(it wraps the per-file Parquet keys only). Either set "

@@ -559,8 +559,8 @@ re-configuring a 700-target tree.
 Every case in the suite asserts a REFUSAL, and **an unrun refusal test and a
 passing one look identical**. So `mutants.py` removes exactly one guard at a
 time - the truncation check, the count check, the EINTR retry, EACH HALF of the
-cache key - rebuilds, and requires the cases naming that guard to go RED. 28
-mutants, 28 reds. A guard whose removal changes nothing means the case naming it
+cache key - rebuilds, and requires the cases naming that guard to go RED. 31
+mutants, 31 reds. A guard whose removal changes nothing means the case naming it
 is not testing it, and the runner says so by name rather than counting it.
 
 Both halves of the cache key need their own mutant, and finding out why is worth
@@ -787,16 +787,18 @@ Two things `!cancelled()` does NOT fix, so it is not read as closing #36:
 
 | file | before | now | still dark |
 |------|--------|-----|------------|
-| `src/crypta/crypta_client.cpp` | 128/167 | **166/167** | `:98` |
+| `src/crypta/crypta_client.cpp` | 128/167 | **166/167** | `:118` |
 | `src/crypta/ducklake_crypta.cpp` | 30/36 | **35/36** | `:143` |
 
-Both ratios were measured BEFORE the #18 cache-key fix and have NOT been
-re-measured since. They are left as the last real measurement rather than
-adjusted by hand, because the fix adds executable lines to `ducklake_crypta.cpp`
-(the `AppendLengthPrefixed` helper and its five calls), so that row's denominator
-has certainly moved and its numerator probably has. Treat `35/36` as historical
-until `measure_crypta_refusal_coverage.sh` is re-run; the `still dark` column IS
-current, re-derived against the fixed files.
+Both ratios are HISTORICAL and neither has been re-measured. `ducklake_crypta.cpp`
+gained executable lines from the #18 fix (the `AppendLengthPrefixed` helper and
+its five calls); `crypta_client.cpp` gained them from #20 and #21 on this branch
+(the `LooksWrapped` length floor, `SuppressSigpipe`, and its call site). Both
+denominators have certainly moved and both numerators probably have, so treat
+`166/167` and `35/36` alike as the last real measurement until
+`measure_crypta_refusal_coverage.sh` is re-run. The `still dark` column HAS been
+re-derived by content against the merged files - `:118` is `JsonEscape`'s closing
+brace, which the branch's 20 added lines in `LooksWrapped` moved down from `:98`.
 
 Every number there is a PAIR, because gcov's `.gcda` counters accumulate and a
 lone non-zero proves nothing about which run produced it:
@@ -806,7 +808,7 @@ lone non-zero proves nothing about which run produced it:
   instrument is demonstrably live - and **4** with the full SQL group. It moves
   when and only when the cache case runs.
 - **the dark-line check** is a subset test with its own positive control: with
-  the unreachable list emptied it flags `:98` and `:143`, with the list in place
+  the unreachable list emptied it flags `:118` and `:143`, with the list in place
   it passes. A check that cannot fail is not a check.
 
 There are **three** hardcoded line pins in that script and they drift
@@ -844,7 +846,7 @@ Two things are honestly NOT proven and were not contrived into looking proven:
   **unreachable**. `ExtractBase64Field` already enforces exactly-`expected`
   values and `UnwrapKey` always requests one, so no response can reach it. It is
   defence in depth, and it stays dark.
-- `crypta_client.cpp:98`, the closing brace of `JsonEscape`, is its
+- `crypta_client.cpp:118`, the closing brace of `JsonEscape`, is its
   exception-unwind block. gcov counts a closing brace on both the return and the
   unwind path - measured, not assumed: `ExtractBase64Field`'s brace reads 4143
   against 4131 returns, the excess being its throws unwinding through. Nothing in

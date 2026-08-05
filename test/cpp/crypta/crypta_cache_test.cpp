@@ -571,9 +571,9 @@ TEST_CASE("crypta provider: a '|' in an identity field cannot shift a cache-key 
 	// file_kind and stored_path boundaries at once:
 	//
 	//   C: lake_id "test-lake",            table_id 7, data,   path "t/p|9|delete|q.parquet"
-	//      -> test-lake|7|data|t/p|9|delete|q.parquet|RExLc2hhcmVk
+	//      -> test-lake|7|data|t/p|9|delete|q.parquet|<shared_blob>
 	//   D: lake_id "test-lake|7|data|t/p", table_id 9, delete, path "q.parquet"
-	//      -> test-lake|7|data|t/p|9|delete|q.parquet|RExLc2hhcmVk
+	//      -> test-lake|7|data|t/p|9|delete|q.parquet|<shared_blob>
 	//
 	// Byte-identical, while C and D disagree on the lake, the table, the file
 	// kind AND the path - so one collision confuses every component of the
@@ -589,7 +589,14 @@ TEST_CASE("crypta provider: a '|' in an identity field cannot shift a cache-key 
 	// reaches crypta, so the refusal counts only with the count at 2.
 	BindingCryptaFake crypta;
 
-	const std::string shared_blob = "RExLc2hhcmVk";
+	// WrappedBlob, not a bare "RExL..." literal: this case was written on the
+	// base, where LooksWrapped was a prefix-only test and a 12-character fixture
+	// was wrapped enough. This branch added a 44-character plaintext length
+	// floor, and UnwrapKey checks it BEFORE the cache - so the short literal is
+	// read as a plaintext DEK and refused before this case's collision is ever
+	// reached. Measured, not reasoned: it reddened in CI at 629a52f1 with
+	// `file t/p|9|delete|q.parquet carries a plaintext encryption key`.
+	const std::string shared_blob = WrappedBlob("c2hhcmVk");
 	auto identity_c = SampleIdentity("t/p|9|delete|q.parquet");
 	auto identity_d = SampleIdentity("q.parquet");
 	identity_d.lake_id = "test-lake|7|data|t/p";
