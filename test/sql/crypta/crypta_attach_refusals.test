@@ -1,0 +1,100 @@
+# name: test/sql/crypta/crypta_attach_refusals.test
+# description: The crypta envelope refusals reachable at ATTACH with no key service running
+# group: [crypta]
+#
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# Everything here is a refusal that happens BEFORE the socket is useful, so this
+# file needs no crypta and no fixture - which also makes it the only file in this
+# group that CI runs today. The refusals that need a reachable service - a
+# wrapped blob in the catalog, a plaintext key row, a substituted blob - are in
+# crypta_key_row_refusals.test, which requires one and is driven by
+# run_sql_crypta_tests.sh.
+
+require ducklake
+
+require parquet
+
+# /tmp/ducklake_crypta_absent.sock is used throughout: no socket lives there.
+# The cases below must refuse for their OWN reason, and the ones that are not
+# about reachability are ordered so that their reason is reached first.
+
+# --------------------------------------------------------------------------
+# crypta on a lake that has no per-file keys to wrap
+# --------------------------------------------------------------------------
+
+statement error
+ATTACH 'ducklake:__TEST_DIR__/crypta_unencrypted.db' AS unenc (DATA_PATH '__TEST_DIR__/crypta_unencrypted_files', ENCRYPTED false, CRYPTA_SOCKET '/tmp/ducklake_crypta_absent.sock', CRYPTA_LAKE_ID 'fixture')
+----
+crypta_socket was set on an UNENCRYPTED DuckLake
+
+# --------------------------------------------------------------------------
+# The lake id is what scopes a key to a compartment. Without it, two lakes
+# sharing one crypta would have interchangeable keys, so it is mandatory
+# whenever the socket is set.
+# --------------------------------------------------------------------------
+
+statement error
+ATTACH 'ducklake:__TEST_DIR__/crypta_no_lake_id.db' AS nolake (DATA_PATH '__TEST_DIR__/crypta_no_lake_id_files', ENCRYPTED, CRYPTA_SOCKET '/tmp/ducklake_crypta_absent.sock')
+----
+crypta_lake_id must be set when crypta_socket is set
+
+# An explicitly empty lake id is the same misconfiguration, spelled differently.
+statement error
+ATTACH 'ducklake:__TEST_DIR__/crypta_empty_lake_id.db' AS emptylake (DATA_PATH '__TEST_DIR__/crypta_empty_lake_id_files', ENCRYPTED, CRYPTA_SOCKET '/tmp/ducklake_crypta_absent.sock', CRYPTA_LAKE_ID '')
+----
+crypta_lake_id must be set when crypta_socket is set
+
+# --------------------------------------------------------------------------
+# Fail closed at ATTACH, not mid-scan. Invariant 1: no crypta, no lake.
+#
+# The self-test runs in FinalizeLoad so an operator sees this while still
+# looking at the ATTACH statement, rather than meeting it later as what looks
+# like data corruption.
+# --------------------------------------------------------------------------
+
+statement error
+ATTACH 'ducklake:__TEST_DIR__/crypta_unreachable.db' AS unreachable (DATA_PATH '__TEST_DIR__/crypta_unreachable_files', ENCRYPTED, CRYPTA_SOCKET '/tmp/ducklake_crypta_absent.sock', CRYPTA_LAKE_ID 'fixture')
+----
+cannot reach the crypta key service
+
+# The message names the socket, because "no such file" without the path is a
+# support ticket.
+statement error
+ATTACH 'ducklake:__TEST_DIR__/crypta_unreachable2.db' AS unreachable2 (DATA_PATH '__TEST_DIR__/crypta_unreachable2_files', ENCRYPTED, CRYPTA_SOCKET '/tmp/ducklake_crypta_absent.sock', CRYPTA_LAKE_ID 'fixture')
+----
+/tmp/ducklake_crypta_absent.sock
+
+# And it says what the consequence is, rather than only what failed.
+statement error
+ATTACH 'ducklake:__TEST_DIR__/crypta_unreachable3.db' AS unreachable3 (DATA_PATH '__TEST_DIR__/crypta_unreachable3_files', ENCRYPTED, CRYPTA_SOCKET '/tmp/ducklake_crypta_absent.sock', CRYPTA_LAKE_ID 'fixture')
+----
+an encrypted DuckLake cannot be read without it
+
+# A path that exists but is not a socket is refused the same way. This is the
+# operator error of pointing at the key file, or at a stale regular file left
+# where the socket used to be.
+statement ok
+COPY (SELECT 1 AS x) TO '__TEST_DIR__/not_a_socket' (FORMAT csv)
+
+statement error
+ATTACH 'ducklake:__TEST_DIR__/crypta_not_a_socket.db' AS notasocket (DATA_PATH '__TEST_DIR__/crypta_not_a_socket_files', ENCRYPTED, CRYPTA_SOCKET '__TEST_DIR__/not_a_socket', CRYPTA_LAKE_ID 'fixture')
+----
+cannot reach the crypta key service
+
+# --------------------------------------------------------------------------
+# A socket path longer than sun_path is refused rather than truncated.
+#
+# Truncation is the dangerous outcome, not a cosmetic one: a truncated path
+# names a DIFFERENT socket, so the connect can SUCCEED against something that
+# is not the configured key service.
+# --------------------------------------------------------------------------
+
+statement error
+ATTACH 'ducklake:__TEST_DIR__/crypta_long_path.db' AS longpath (DATA_PATH '__TEST_DIR__/crypta_long_path_files', ENCRYPTED, CRYPTA_SOCKET '/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.sock', CRYPTA_LAKE_ID 'fixture')
+----
+crypta socket path is too long
+
+# The two ways a crypta_socket is silently ignored rather than refused are in
+# crypta_config_fail_open.test - they are characterisations of a defect, not
+# refusals, and they do not belong in a file of refusals.
