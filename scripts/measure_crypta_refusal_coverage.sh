@@ -61,10 +61,10 @@ TARGET_FILE="src/crypta/ducklake_crypta.cpp"
 # `return entry->second;` - the cache HIT. A LINE NUMBER, so it moves whenever
 # anything above it in that file grows, and it is a SEPARATE pin from the
 # UNREACHABLE dict further down: repairing one and not the other leaves a stale
-# pin behind. The #18 cache-key fix moved this 58 -> 135. Re-derive it, do not
-# transcribe it:
+# pin behind. The #18 cache-key fix moved this 58 -> 135; merging #24's IsBase64
+# guard above it moved it again, 135 -> 148. Re-derive it, do not transcribe it:
 #   grep -n 'return entry->second;' src/crypta/ducklake_crypta.cpp
-CACHE_HIT_LINE=135
+CACHE_HIT_LINE=148
 
 if [ ! -x "${UNITTEST}" ]; then
   echo "no instrumented unittest at ${UNITTEST}." >&2
@@ -190,11 +190,13 @@ report_for /tmp/crypta_cov_cpp.json "${CPP_BUILD}"
 #
 # So the usual outcome is a visible red, not a silent pass; silent excusal needs
 # the coincidence of the stale number landing on a dark line. Worth guarding
-# against, not the default. The #18 cache-key fix moved both (79 -> 98, 66 -> 143)
-# and they are updated here in the same change. Re-derive them, do not assume them
+# against, not the default. The #18 cache-key fix moved both (79 -> 98, 66 -> 143);
+# merging #24 moved both AGAIN - IsBase64 sits above JsonEscape in crypta_client.cpp
+# (98 -> 131) and above the count check in ducklake_crypta.cpp (143 -> 156) - and
+# they are updated here in the same change. Re-derive them, do not assume them
 # - and note CACHE_HIT_LINE above is a THIRD pin that drifts independently.
 #
-#   crypta_client.cpp:98     the closing brace of JsonEscape. gcov counts a
+#   crypta_client.cpp:131    the closing brace of JsonEscape. gcov counts a
 #                            function's closing brace on BOTH the return path and
 #                            the exception-unwind path - measured, not assumed:
 #                            ExtractBase64Field's brace reads 4143 against 4131
@@ -205,7 +207,7 @@ report_for /tmp/crypta_cov_cpp.json "${CPP_BUILD}"
 #                            rather than dismissing: the same signal on Health's
 #                            brace was a REAL missing case - a health probe
 #                            answered with an error frame - and is now covered.)
-#   ducklake_crypta.cpp:143  `crypta returned N keys for one file`. Dead by
+#   ducklake_crypta.cpp:156  `crypta returned N keys for one file`. Dead by
 #                            construction: ExtractBase64Field already refuses any
 #                            count other than the requested one, and UnwrapKey
 #                            always requests exactly one. No response can reach
@@ -217,7 +219,7 @@ cpp_arm=0
 python3 - /tmp/crypta_cov_cpp.json <<'PY' || cpp_arm=$?
 import json, sys
 
-UNREACHABLE = {"crypta_client.cpp": {98}, "ducklake_crypta.cpp": {143}}
+UNREACHABLE = {"crypta_client.cpp": {131}, "ducklake_crypta.cpp": {156}}
 
 data = json.load(open(sys.argv[1]))
 files = data.get("files", [])
