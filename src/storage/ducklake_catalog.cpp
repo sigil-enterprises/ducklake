@@ -229,8 +229,20 @@ DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options
 		// DuckLakeInitializer has not yet overwritten it with the persisted lake option
 		// - which is why this catches the EXPLICIT request and not a value already
 		// stored in the catalog. A limit of 0 is the safe value and still attaches.
+		//
+		// Parsed with TryCast rather than GetValue: config_options holds the value as a
+		// STRING, and Value::ToString() renders a NULL as the literal "NULL", which
+		// GetValue<idx_t>() would turn into a ConversionException thrown out of this
+		// constructor - a stray exception type from the exact place the refusal was
+		// meant to be legible. An unparseable value instead falls through to the read
+		// path, which forces 0 on a crypta lake anyway. Fail closed either way.
 		auto inlining_entry = options.config_options.find("data_inlining_row_limit");
-		if (inlining_entry != options.config_options.end() && Value(inlining_entry->second).GetValue<idx_t>() > 0) {
+		Value parsed_inlining_limit;
+		string inlining_parse_error;
+		if (inlining_entry != options.config_options.end() &&
+		    Value(inlining_entry->second)
+		        .DefaultTryCastAs(LogicalType::UBIGINT, parsed_inlining_limit, &inlining_parse_error) &&
+		    !parsed_inlining_limit.IsNull() && parsed_inlining_limit.GetValue<idx_t>() > 0) {
 			throw InvalidInputException("crypta_socket was set together with data_inlining_row_limit=%s - data "
 			                            "inlining writes the row values themselves as cleartext SQL literals "
 			                            "into the metadata catalog, which the crypta envelope does not protect "

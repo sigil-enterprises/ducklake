@@ -205,6 +205,31 @@ SELECT bool_and(encryption_key LIKE 'RExL%') FROM persisted_meta.ducklake_data_f
 ----
 true
 
+# And the lake REPORTS the limit it is actually enforcing, not the one still
+# sitting in ducklake_metadata. This is the visibility half on the one path where
+# the refusals cannot speak: the 10 was persisted BEFORE crypta was configured, so
+# no ATTACH option and no set_option call ever named it, and both refusals are
+# silent by design. `options()` is the only surface that answers "what is this
+# lake actually doing" - if it echoed the stored 10 here, an operator checking
+# whether the lake was safe would be told the opposite of the truth.
+query II
+SELECT value, scope FROM persisted.options() WHERE option_name='data_inlining_row_limit'
+----
+0	GLOBAL
+
+# ...and it says WHY, so a bare 0 is not mistaken for something the operator set.
+query I
+SELECT description LIKE '%forced to 0%crypta%' FROM persisted.options() WHERE option_name='data_inlining_row_limit'
+----
+true
+
+# The raw row is untouched underneath - the override is a report of the effective
+# value, not a silent rewrite of the operator's stored configuration.
+query III
+SELECT value, scope, scope_id FROM persisted_meta.ducklake_metadata WHERE key='data_inlining_row_limit'
+----
+10	NULL	NULL
+
 statement ok
 DETACH persisted
 
@@ -459,6 +484,16 @@ CALL zero.set_option('data_inlining_row_limit', 0, schema => 'main')
 
 statement ok
 CALL zero.set_option('data_inlining_row_limit', 0, table_name => 'person')
+
+# The three calls above really PERSISTED, at all three scopes. Without this, a
+# degenerate fix that turned the whole data_inlining_row_limit branch into a
+# silent no-op on a crypta lake would report `statement ok` three times having
+# written nothing, and would pass every other assertion in this file. The green
+# above must not be readable two ways.
+query I
+SELECT count(*) FROM zero_meta.ducklake_metadata WHERE key='data_inlining_row_limit' AND value='0'
+----
+3
 
 # The lake still works after all of that, and still writes enveloped files.
 statement ok
