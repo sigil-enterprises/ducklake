@@ -1,0 +1,586 @@
+# ProjectRoadmapManifest@v1 - ducklake (the sigil fork of duckdb/ducklake).
+#
+# FULLY RECONSTRUCTED 2026-08-05 from forge history (11-planning/09-10). This fork
+# carried the crypta envelope work from 2026-07-28 to 2026-08-05 before any roadmap
+# existed, so EVERY milestone and epic here is derived from git log, tags/releases,
+# merged PRs and the tracker - each marked `provenance: retro-derived` with the forge
+# coordinates it was derived FROM and the derivation date.
+#
+# SCOPE NOTE. This roadmap plans the SIGIL FORK's own work only - the crypta
+# envelope-encryption provider and the fork's build/CI. It does NOT plan upstream
+# duckdb/ducklake, whose history this repo inherits. `inception_date` is therefore the
+# fork's own inception on the sigil forge (repo created 2026-07-28T18:14:36Z), not the
+# first commit reachable from HEAD, which belongs to upstream.
+#
+# INTENT HONESTY - and this repo is the UNUSUAL case, so read the reasoning.
+# Unlike most reconstructions, ducklake HAS a genuine dated plan-of-record: issue #1
+# ("Epic: HSM-rooted envelope key management - reviewed plan"), opened
+# 2026-07-28T22:49:29Z. But the plan does NOT precede all of the work it names, and the
+# gap has to be measured PER EPIC rather than once for the repo. An earlier draft of
+# this file claimed a single 32h54m gap for the whole of M1, derived from the first
+# commit on `release/v1.5-variegata`. That was WRONG: it missed the CSPRNG branch
+# entirely, whose commit is the fork's true first. Measured per epic, earliest AUTHOR
+# date of the first commit in the delivering PR against #1 at 2026-07-28T22:49:29Z:
+#
+#     E1.1  PR #4  530f9e56  2026-07-28T22:55:18Z   +5m 49s    SAME DAY  -> UNPROVEN
+#     E1.3  PR #3  201fe5a8  2026-07-30T07:43:49Z   +32h 54m   +2 days   -> proven
+#     E1.2  PR #5  d24bb67e  2026-08-03T23:52:13Z   +6d        -> proven
+#     E1.5  PR #6  c885653e  2026-08-04T12:18:41Z   +6d        -> proven
+#     E1.4  PR #9  c32eed45  2026-08-04T20:26:56Z   +6d        -> proven
+#
+# E1.1 is FIVE MINUTES AND FORTY-NINE SECONDS after the issue was opened, the same
+# calendar day in UTC (2026-07-28) and in the native +0100 (23:49 vs 23:55). That is
+# stricter than the teras-ext-pgwire 47-second precedent this file cites as its
+# standard, and stricter than the 17-minute case the sibling crypta roadmap refuses.
+# The quoted step-1 warrant is genuine text in the original body; the ORDERING is not
+# there. So E1.1 is `intent: unproven`, evidence delivery-only, no matter how neatly
+# its capability matches a numbered step. A warrant without ordering is not prior
+# intent, and this is the one node where reading the plan instead of the clock nearly
+# produced the exact fabrication this file exists to prevent.
+#
+# The other four epics clear the bar by days, so they carry `intent: proven`.
+#
+# The word ORIGINAL is doing real work there. Issue #1 has five body revisions - the
+# original plus four edits (verified via GraphQL userContentEdits):
+# 2026-07-28T22:49:29Z (creation),
+# 2026-08-03T21:46:56Z, 2026-08-04T16:09:36Z, 2026-08-04T16:10:03Z, 2026-08-04T20:20:00Z.
+# Today's body is the 2026-08-04T20:20 revision and carries scope that did NOT exist on
+# 2026-07-28 - the OMOP migration promoted onto the critical path, the reordered
+# upstream gate, the coupled rotation/crypto-shred item. Quoting today's body as
+# 2026-07-28 intent would be fabricating prior intent by edit. So every `intent: proven`
+# epic below is warranted ONLY against a numbered step present in the 07-28 ORIGINAL,
+# and the warranting step is quoted in the epic's `capability`.
+#
+# Reference-corroboration splits ALMOST the same way, and where it disagrees the clock
+# wins: PRs #3, #4, #5, #6, #7 and #9 each reference #1 in their bodies. PRs #16, #17,
+# #22, #25 and #29 reference only reactive bug issues (#13, #14, #15, #18, #19, #20,
+# #21, #24) opened minutes to hours before them in the same working session. That second
+# class is REACTIVE work, recorded as `intake` / `class: unplanned`, never a proven
+# epic. Note that PR #4 cites #1 and is STILL unproven: a PR referencing the plan is
+# evidence of topic, not of ordering. Citation never substitutes for a timestamp.
+#
+# TRACKER REFS ARE REAL, NOT BACK-CREATED. No `roadmap:reconstructed` stub was created
+# for this reconstruction. Every node points at an issue that genuinely already existed,
+# so nothing here can be mistaken for prior intent that was minted today. Where a node's
+# truthful tracker is the epic-of-record, it names `ducklake:#1` (an umbrella, shared by
+# design). `tracker_ref` records WHERE work is tracked; `evidence` records what a claim
+# RESTS on - and for every `intent: unproven` node the evidence is delivery-only or the
+# reactive issue it was derived from, never an artifact posed as prior intent.
+#
+# *** NOTHING IN THIS REPO HAS SHIPPED. *** No milestone below is `status: shipped`,
+# because this repo has no FINAL tag. Its only tag is `v1.5.3-crypta.1`, which the forge
+# reports as `prerelease: true` (measured 2026-08-05 via the releases API) and which
+# semver reads as a prerelease of 1.5.3. Recording any of it as shipped would be the
+# release-side vacuous green.
+#
+# That is not a temporary state, and it needs a human. The fork's tag scheme
+# `v<duckdb-version>-crypta.<n>` can NEVER produce a final release: promoting it means
+# tagging plain `v1.5.3`, which is upstream DuckDB's own version and is not this fork's
+# to claim. Under the current scheme no ducklake milestone can EVER be marked `shipped`.
+# The natural fix - semver build metadata, `v1.5.3+crypta.1` - is ALSO blocked: `+` is
+# outside the roadmap validator's EVIDENCE_GRAMMAR (`[A-Za-z0-9._-]`), so such a tag
+# could not be cited as evidence by its own roadmap. The remaining option, and what the
+# `version:` fields below PROPOSE, is to version the fork's provider natively (v0.1.0,
+# v0.2.0, ... GA at v1.0.0) and carry the DuckDB patch as a build dimension rather than
+# a version prefix - which is exactly how the consumer `crypta` is already versioned.
+# Every `version:` below is therefore a PROPOSAL awaiting ratification, not an
+# observation. Likewise `rc_soaked: false` everywhere: no `-rc.N` tag exists here.
+#
+# THE SAME SCHEME ALSO DISARMS THE TAG-IMMUTABILITY GUARD, and this file will not
+# pretend otherwise. `roadmap_evidence_check.py` pins every cited tag to a commit SHA in
+# `roadmap/evidence.lock` so a deleted-and-recut tag reds instead of resolving quietly.
+# Its RE_TAG is `^<repo>:(v\d+\.\d+\.\d+(-rc\.\d+)?)$`, which `v1.5.3-crypta.1` does not
+# match. So this repo's ONLY tag cannot be locked, `roadmap/evidence.lock` is literally
+# `{}`, and the gate reports "0 cited tag(s) still point at their pinned commits" and
+# goes GREEN - an absence assertion passing over an empty set, which is the precise
+# failure that script's own `milestone_version_tags` docstring was written to remove.
+# Measured 2026-08-05. The lock is committed anyway, because a lock that has never been
+# committed is indistinguishable from one that was deleted to hide a moved tag - but it
+# protects nothing here until the tag scheme is settled. That is the second reason the
+# scheme needs a decision, and it is not cosmetic.
+#
+# PROPOSED, NOT DERIVED. Derivation dates only the past. The `feature_completeness`
+# statement, the FC target, the proposed version scheme above, and every `target_date`
+# on a milestone that is not yet delivered are HUMAN-AUTHORED PROPOSALS and need the
+# human's ratification. Only M1's `target_date` is an observation (the date its last
+# constituent PR merged). M3 is `active` because one of its epics has already partly
+# landed (PR #25), but its `target_date` is still a PROPOSAL, not an observation - an
+# active milestone is not a delivered one.
+schema: ProjectRoadmapManifest@v1
+repo: ducklake
+kind: Software
+# exploratory, not plan-driven. Six of seventeen epics clear the ordering bar, against
+# fourteen intake items. A dated plan-of-record exists and four epics genuinely executed
+# off it, but the repo's working style is dominated by same-session reactive bursts, and
+# declaring plan-driven on that ratio would overstate how much of this work was planned.
+posture_declared: exploratory
+
+feature_completeness:
+  statement: "PROPOSED: the sigil ducklake fork is production-ready as the teras lake's encryption provider - every data-file key in the catalog is an identity-bound crypta-wrapped blob rooted in an HSM, the provider FAILS CLOSED on every read and write path rather than silently emitting or accepting plaintext, no cleartext patient data reaches the catalog by inlining or column statistics, the reader-side residual (DEK cache, temp spill, snapshots) is bounded and documented, a rewrap sweep makes KEK retirement survivable, and the extension loads on every DuckDB patch pinned anywhere in the fleet. GA as v1.0.0."
+  target: v1.0.0
+
+updated: 2026-08-05
+last_revision: 2026-08-05
+inception_date: 2026-07-28    # fork created on the sigil forge, 2026-07-28T18:14:36Z
+
+milestones:
+  - id: M1
+    title: "Envelope MVP: identity-bound wrapped DEKs on the existing catalog column"
+    ship_criterion: "The crypta provider extension stores every data-file key in the existing opaque `encryption_key VARCHAR` as a self-describing, identity-bound wrapped blob with zero upstream schema change; DEKs are CSPRNG-minted and 256-bit; the extension is built per DuckDB patch; and an unencrypted lake can be migrated to an encrypted one and read end to end through psql."
+    target_date: 2026-08-04     # OBSERVED: last constituent PR (#9) merged 2026-08-04T21:44:37Z
+    version: v0.1.0             # PROPOSED - no final tag exists; see the header
+    rc_soaked: false            # the only tag, v1.5.3-crypta.1, is not an -rc.N tag
+    tracker_ref: "ducklake:#1"
+    status: active
+    depends_on: ["crypta:M1"]
+    provenance: retro-derived
+    derived_at: 2026-08-05
+    evidence: ["ducklake:#1", "ducklake:#3", "ducklake:#4", "ducklake:#5", "ducklake:#9"]
+    confidence: high
+    epics:
+      - id: E1.1
+        title: "CSPRNG-minted data-file keys"
+        capability: "Data-file key bytes are drawn from a CSPRNG instead of the PCG PRNG. The nonce path is NOT covered and is not claimed here. UNPROVEN, and deliberately so: issue #1's original body does name this work at step 1, but the delivering commit 530f9e56 was authored 2026-07-28T22:55:18Z - 5m49s after #1 was opened, the same calendar day in UTC and in the native +0100 (23:49 vs 23:55). Same-session is not prior intent, whatever the plan text says, so the warranting quote is deliberately NOT reproduced here and #1 is deliberately absent from the evidence below. This epic was the one node an earlier draft got wrong, by measuring the gap from the wrong branch."
+        tracker_ref: "ducklake:#1"
+        class: planned
+        status: closed
+        depends_on: []
+        intent: unproven
+        provenance: retro-derived
+        derived_at: 2026-08-05
+        evidence: ["ducklake:#4", "ducklake@530f9e56", "ducklake@4ab2193c"]
+        confidence: low
+      - id: E1.2
+        title: "256-bit data-file keys"
+        capability: "Data-file keys are minted at 256 bits rather than a hardcoded 128. Warranted by step 2 of issue #1's ORIGINAL 2026-07-28 body, verbatim: 'AES-256 upstream - framed as \"unhardcode the 128-bit size.\" Standalone, after CSPRNG.'"
+        tracker_ref: "ducklake:#1"
+        class: planned
+        status: closed
+        depends_on: [ducklake:E1.1]
+        intent: proven
+        provenance: retro-derived
+        derived_at: 2026-08-05
+        evidence: ["ducklake:#1", "ducklake:#5", "ducklake@94144c31"]
+        confidence: high
+      - id: E1.3
+        title: "Identity-bound wrapped-blob provider on the existing column"
+        capability: "A crypta encryption provider stores wrap(DEK || identity) in the existing opaque `encryption_key VARCHAR`, with the unwrap cache keyed on (identity, blob), requiring no upstream catalog schema change. Warranted by step 4 of issue #1's ORIGINAL 2026-07-28 body, verbatim: 'Private provider extension vs the EXISTING column. Minimal diff, separate translation unit, fork pinned to a duckdb release tag (not main).'"
+        tracker_ref: "ducklake:#1"
+        class: planned
+        status: closed
+        depends_on: []
+        intent: proven
+        provenance: retro-derived
+        derived_at: 2026-08-05
+        evidence: ["ducklake:#1", "ducklake:#2", "ducklake:#3", "ducklake@49b16276", "ducklake@7df67912", "ducklake@d5f5995c"]
+        confidence: high
+      - id: E1.4
+        title: "Per-DuckDB-version extension build"
+        capability: "CI builds the extension once per DuckDB patch and stops building targets the fork never ships, because DuckDB refuses an extension built for a different patch. Warranted by step 5 of issue #1's ORIGINAL 2026-07-28 body, which names 'per-version extension builds via Nexus' among the fleet-convergence prerequisites. NOTE the partial match, stated rather than smoothed over: the original said per-version builds VIA NEXUS; what landed is a per-patch build matrix in CI, with no Nexus publish. The original's minor-vs-patch error was corrected by a 2026-08-03 EDIT to #1, which is NOT admissible as prior intent and is not relied on here."
+        tracker_ref: "ducklake:#1"
+        class: planned
+        status: closed
+        depends_on: [ducklake:E1.3]
+        intent: proven
+        provenance: retro-derived
+        derived_at: 2026-08-05
+        evidence: ["ducklake:#1", "ducklake:#9", "ducklake@06296c89"]
+        confidence: high
+      - id: E1.5
+        title: "Encrypted-lake enablement: migration path and an end-to-end proof"
+        capability: "Scripts migrate an unencrypted lake into an encrypted one, and prove a native Postgres source through an encrypted lake out to psql end to end. Warranted by step 6 of issue #1's ORIGINAL 2026-07-28 body, verbatim: 'Enable ENCRYPTED on the teras lake now (object-store-at-rest), honestly labeled.'"
+        tracker_ref: "ducklake:#1"
+        class: planned
+        status: closed
+        depends_on: [ducklake:E1.3]
+        intent: proven
+        provenance: retro-derived
+        derived_at: 2026-08-05
+        evidence: ["ducklake:#1", "ducklake:#6", "ducklake:#7", "ducklake@918fed7f", "ducklake@2bcf7859"]
+        confidence: high
+
+  - id: M2
+    title: "Fail closed on every path"
+    ship_criterion: "No configured-crypta code path can emit or accept plaintext key material. Every wrapped blob is escaped at both the read and the write splice site; a configured provider that is silently bypassed refuses instead of writing plaintext keys; an unconfigured reader of a wrapped lake is refused rather than hitting an assertion; the inlined-deletion flush unwraps the key it reads; and an unwrap reply is bound by identity rather than by position."
+    target_date: 2026-08-19     # PROPOSED - needs ratification
+    version: v0.2.0             # PROPOSED
+    rc_soaked: false
+    tracker_ref: "ducklake:#1"
+    status: planned
+    depends_on: [ducklake:M1, "crypta:M5"]
+    provenance: retro-derived
+    derived_at: 2026-08-05
+    evidence: ["ducklake:#19", "ducklake:#20", "ducklake:#21", "ducklake:#24", "ducklake:#26", "ducklake:#31", "ducklake:#33"]
+    confidence: high
+    epics:
+      - id: E2.1
+        title: "Escape the wrapped blob at both splice sites"
+        capability: "The wrapped blob is escaped where it is spliced into the crypta request JSON on the read path, and where crypta's reply is spliced into SQL on the write path - the identity beside it is already escaped and the blob is not."
+        tracker_ref: "ducklake:#24"
+        class: planned
+        status: open
+        depends_on: [ducklake:E1.3]
+        intent: unproven
+        provenance: retro-derived
+        derived_at: 2026-08-05
+        evidence: ["ducklake:#24", "ducklake:#33", "ducklake:#28"]
+        confidence: low
+      - id: E2.2
+        title: "The envelope refuses rather than writing plaintext"
+        capability: "The three paths on which a configured crypta is silently ignored are closed so the lake cannot write plaintext keys; a wrapped lake opened by an unconfigured reader is refused rather than failing an assertion; and a crypta write failure surfaces as an IOException instead of killing an embedding host under default SIGPIPE."
+        tracker_ref: "ducklake:#19"
+        class: planned
+        status: open
+        depends_on: [ducklake:E1.3]
+        intent: unproven
+        provenance: retro-derived
+        derived_at: 2026-08-05
+        evidence: ["ducklake:#19", "ducklake:#20", "ducklake:#21", "ducklake:#34", "ducklake:#41"]
+        confidence: low
+      - id: E2.3
+        title: "Inlined-deletion flush unwraps the key it reads"
+        capability: "The inlined-deletion flush path unwraps a delete file's crypta-wrapped key instead of consuming it wrapped."
+        tracker_ref: "ducklake:#26"
+        class: planned
+        status: open
+        depends_on: [ducklake:E1.3]
+        intent: unproven
+        provenance: retro-derived
+        derived_at: 2026-08-05
+        evidence: ["ducklake:#26"]
+        confidence: low
+      - id: E2.4
+        title: "Bind the unwrap reply by identity, not by position"
+        capability: "The unwrap reply is matched against the identity crypta echoes rather than zipped by array position, so an injected or reordered element cannot hand a caller the wrong DEK."
+        tracker_ref: "ducklake:#31"
+        class: planned
+        status: open
+        depends_on: [ducklake:E1.3]
+        intent: unproven
+        provenance: retro-derived
+        derived_at: 2026-08-05
+        evidence: ["ducklake:#31", "crypta:#13", "crypta:#14"]
+        confidence: low
+
+  - id: M3
+    title: "Bound the reader-side residual"
+    ship_criterion: "Every residual channel the envelope does not cover is either bounded or documented as unbounded with its reason: the DEK cache has a TTL and zeroizes, DuckDB temp spill is encrypted on a build that supports it, a rewrap sweep exists so a KEK retirement does not strand live rows, and the catalog carries no cleartext patient data by inlining or column statistics."
+    target_date: 2026-09-02     # PROPOSED - needs ratification
+    version: v0.3.0             # PROPOSED
+    rc_soaked: false
+    tracker_ref: "ducklake:#1"
+    status: active
+    depends_on: [ducklake:M2, "crypta:M3"]
+    provenance: retro-derived
+    derived_at: 2026-08-05
+    evidence: ["ducklake:#10", "ducklake:#11", "ducklake:#12", "ducklake:#13", "ducklake:#25", "ducklake@37b5007d"]
+    confidence: high
+    epics:
+      - id: E3.1
+        title: "Bounded, zeroizing DEK cache"
+        capability: "The crypta DEK cache acquires a TTL and zeroizes on eviction, so the reader-side residual the envelope explicitly does not defend is bounded in time rather than unbounded."
+        tracker_ref: "ducklake:#10"
+        class: planned
+        status: open
+        depends_on: [ducklake:E1.3]
+        intent: unproven
+        provenance: retro-derived
+        derived_at: 2026-08-05
+        evidence: ["ducklake:#10"]
+        confidence: low
+      - id: E3.2
+        title: "Encrypted DuckDB temp spill"
+        capability: "Temp-file encryption is enabled on the pinned DuckDB build, which already supports it, closing the cheapest plaintext residual channel."
+        tracker_ref: "ducklake:#11"
+        class: planned
+        status: open
+        depends_on: []
+        intent: unproven
+        provenance: retro-derived
+        derived_at: 2026-08-05
+        evidence: ["ducklake:#11"]
+        confidence: low
+      - id: E3.3
+        title: "Rewrap sweep for KEK retirement"
+        capability: "A sweep rewraps live rows onto the active KEK - covering `ducklake_delete_file` and `end_snapshot` rows, not only data files - so retiring a KEK expires stale copies instead of stranding live data."
+        tracker_ref: "ducklake:#12"
+        class: planned
+        status: open
+        depends_on: [ducklake:E1.3]
+        intent: unproven
+        provenance: retro-derived
+        derived_at: 2026-08-05
+        evidence: ["ducklake:#12", "crypta:#1"]
+        confidence: low
+      - id: E3.4
+        title: "No cleartext patient data in the catalog"
+        capability: "Data inlining and cleartext column statistics are prevented on an encrypted lake, so the catalog carries no plaintext patient rows. Partially delivered: the inlining refusal landed in PR #25; column statistics remain cleartext and are not claimed."
+        tracker_ref: "ducklake:#13"
+        class: planned
+        status: open
+        depends_on: [ducklake:E1.3]
+        intent: unproven
+        provenance: retro-derived
+        derived_at: 2026-08-05
+        evidence: ["ducklake:#13", "ducklake:#25", "ducklake:#30", "ducklake@37b5007d"]
+        confidence: low
+
+  - id: M4
+    title: "A gate that proves what it claims"
+    ship_criterion: "The repo's own CI cannot report a green it has not earned: every named refusal case is proven to redden independently, refusal arms run as separate jobs so the first red cannot mask a later arm, no assertion is pinned by line number, a conflicting PR cannot silently lose the Crypta gate, and inherited upstream workflows neither double-trigger builds nor make outbound calls to duckdb/duckdblabs on this fork's activity."
+    target_date: 2026-08-26     # PROPOSED - needs ratification
+    version: v0.4.0             # PROPOSED
+    rc_soaked: false
+    tracker_ref: "ducklake:#1"
+    status: planned
+    depends_on: [ducklake:M1]
+    provenance: retro-derived
+    derived_at: 2026-08-05
+    evidence: ["ducklake:#27", "ducklake:#32", "ducklake:#35", "ducklake:#36", "ducklake:#38", "ducklake:#39", "ducklake:#40", "ducklake:#41"]
+    confidence: high
+    epics:
+      - id: E4.1
+        title: "Refusal gate integrity"
+        capability: "The mutant runner proves that EVERY named refusal case reddens, not merely that at least one does; each refusal arm runs as its own job so the first red cannot mask the arms behind it; no assertion is pinned by source line number; and a conflicting PR cannot silently drop the base-only Crypta gate, because a missing check is not a failing check."
+        tracker_ref: "ducklake:#27"
+        class: planned
+        status: open
+        depends_on: []
+        intent: unproven
+        provenance: retro-derived
+        derived_at: 2026-08-05
+        evidence: ["ducklake:#27", "ducklake:#36", "ducklake:#37", "ducklake:#38", "ducklake:#40", "ducklake:#41"]
+        confidence: low
+      - id: E4.2
+        title: "Inherited upstream workflows contained"
+        capability: "Workflows inherited from upstream stop double-triggering on in-repo branches (racing two extension builds into arm64 OOM), stop making outbound calls to duckdb/duckdblabs on this fork's own issue activity, and the closing-keyword gap is closed - PRs merge to a non-default branch here, so `Closes #N` silently does nothing."
+        tracker_ref: "ducklake:#32"
+        class: planned
+        status: open
+        depends_on: []
+        intent: unproven
+        provenance: retro-derived
+        derived_at: 2026-08-05
+        evidence: ["ducklake:#32", "ducklake:#35", "ducklake:#39"]
+        confidence: low
+
+  - id: M5
+    title: "Fleet-convergence gate"
+    ship_criterion: "Before any fleet rollout: every consumer (pgwire, luma, vero, lypto) is converged onto one exact DuckDB patch or the extension is published per patch; extension signing is provisioned or `allow_unsigned` is set fleet-wide; and each reader runs a boot-time self-test - LOAD plus one encrypted read - before serving."
+    target_date: 2026-09-16     # PROPOSED - needs ratification
+    version: v0.5.0             # PROPOSED
+    rc_soaked: false
+    tracker_ref: "ducklake:#1"
+    status: planned
+    depends_on: [ducklake:M1, ducklake:M2]
+    provenance: retro-derived
+    derived_at: 2026-08-05
+    evidence: ["ducklake:#1"]
+    confidence: high
+    epics:
+      - id: E5.1
+        title: "DuckDB patch convergence and signed extension provisioning"
+        capability: "Warranted by step 5 of issue #1's ORIGINAL 2026-07-28 body, verbatim: 'Fleet-convergence gate (before any fleet rollout). Converge pgwire/luma/vero/lypto onto one DuckDB minor; provision extension signing (own key) or allow_unsigned fleet-wide; per-version extension builds via Nexus; boot-time self-test (LOAD + one encrypted read before serving).' The per-version build half landed as E1.4; convergence, signing and the boot self-test have not. The minor-vs-patch correction is a later edit and is not relied on for intent."
+        tracker_ref: "ducklake:#1"
+        class: planned
+        status: open
+        depends_on: [ducklake:E1.4]
+        intent: proven
+        provenance: retro-derived
+        derived_at: 2026-08-05
+        evidence: ["ducklake:#1"]
+        confidence: high
+
+  - id: M6
+    title: "Upstream contribution and the RFC interface"
+    ship_criterion: "The standalone upstream-eligible changes (CSPRNG, 256-bit keys) are submitted to duckdb/ducklake from a dedicated public upstream-only fork, and the new-columns spec change is submitted only if Labs engages on the RFC. Gated on an explicit human exception to the no-public-repos rule."
+    target_date: 2026-10-14     # PROPOSED - needs ratification
+    version: v0.6.0             # PROPOSED
+    rc_soaked: false
+    tracker_ref: "ducklake:#1"
+    status: planned
+    depends_on: [ducklake:M1]
+    provenance: retro-derived
+    derived_at: 2026-08-05
+    evidence: ["ducklake:#1"]
+    confidence: high
+    epics:
+      - id: E6.1
+        title: "Upstream-only public fork and the RFC interface"
+        capability: "Warranted by step 7 of issue #1's ORIGINAL 2026-07-28 body, verbatim: 'RFC interface upstream bakes in parallel - never blocks delivery. Submit the new-columns PR only if Labs engages; migrate the private MVP to the richer schema if accepted.' A 2026-08-04 EDIT to #1 additionally gates upstreaming on the completed OMOP migration; that reordering is NOT admissible as 2026-07-28 intent and is recorded here only as context, not as warrant."
+        tracker_ref: "ducklake:#1"
+        class: planned
+        status: open
+        depends_on: [ducklake:E1.1, ducklake:E1.2]
+        intent: proven
+        provenance: retro-derived
+        derived_at: 2026-08-05
+        evidence: ["ducklake:#1"]
+        confidence: high
+
+# REACTIVE WORK. Everything below arrived from outside the 2026-07-28 plan-of-record -
+# a defect found while building, a gap in the fork's own measurement - and is dated at
+# its FIRST evidence. None of it is laundered into a planned epic. The ordering is
+# knowable in every case and it is reactive in every case: each issue was opened minutes
+# to hours before its own fix, inside the same working session, and the implementing PR
+# cites the issue rather than #1.
+#
+# `disposition: pending` on an item whose fix has MERGED means exactly what it says
+# here: the work landed on release/v1.5-variegata but is carried by NO final tag,
+# because this repo has none (see the header). It is not a claim that the work is
+# unfinished, and it is not a claim that it shipped.
+intake:
+  - id: I1
+    tracker_ref: "ducklake:#14"
+    class: unplanned
+    precedence: normal
+    origin: ops
+    admitted: 2026-08-04
+    disposition: "pending"
+    provenance: retro-derived
+    derived_at: 2026-08-05
+    evidence: ["ducklake:#14", "ducklake:#16", "ducklake@48b1a5b7"]
+    confidence: high
+  - id: I2
+    tracker_ref: "ducklake:#15"
+    class: unplanned
+    precedence: normal
+    origin: ops
+    admitted: 2026-08-04
+    disposition: "pending"
+    provenance: retro-derived
+    derived_at: 2026-08-05
+    evidence: ["ducklake:#15", "ducklake:#17", "ducklake:#22", "ducklake@ac4f3928", "ducklake@65fa09e6"]
+    confidence: high
+  - id: I3
+    tracker_ref: "ducklake:#18"
+    class: unplanned
+    precedence: normal
+    origin: bug
+    admitted: 2026-08-05
+    disposition: "pending"
+    provenance: retro-derived
+    derived_at: 2026-08-05
+    evidence: ["ducklake:#18", "ducklake:#29", "ducklake@c6187029"]
+    confidence: high
+  - id: I4
+    tracker_ref: "ducklake:#13"
+    class: unplanned
+    precedence: normal
+    origin: bug
+    admitted: 2026-08-04
+    disposition: "promoted:E3.4"
+    provenance: retro-derived
+    derived_at: 2026-08-05
+    evidence: ["ducklake:#13", "ducklake:#25", "ducklake@37b5007d"]
+    confidence: high
+  - id: I5
+    tracker_ref: "ducklake:#24"
+    class: unplanned
+    precedence: normal
+    origin: bug
+    admitted: 2026-08-05
+    disposition: "promoted:E2.1"
+    provenance: retro-derived
+    derived_at: 2026-08-05
+    evidence: ["ducklake:#24", "ducklake:#33", "ducklake:#28"]
+    confidence: high
+  - id: I6
+    tracker_ref: "ducklake:#19"
+    class: unplanned
+    precedence: normal
+    origin: bug
+    admitted: 2026-08-05
+    disposition: "promoted:E2.2"
+    provenance: retro-derived
+    derived_at: 2026-08-05
+    evidence: ["ducklake:#19", "ducklake:#20", "ducklake:#21", "ducklake:#34"]
+    confidence: high
+  - id: I7
+    tracker_ref: "ducklake:#26"
+    class: unplanned
+    precedence: normal
+    origin: bug
+    admitted: 2026-08-05
+    disposition: "promoted:E2.3"
+    provenance: retro-derived
+    derived_at: 2026-08-05
+    evidence: ["ducklake:#26"]
+    confidence: high
+  - id: I8
+    tracker_ref: "ducklake:#31"
+    class: unplanned
+    precedence: normal
+    origin: bug
+    admitted: 2026-08-05
+    disposition: "promoted:E2.4"
+    provenance: retro-derived
+    derived_at: 2026-08-05
+    evidence: ["ducklake:#31"]
+    confidence: high
+  - id: I9
+    tracker_ref: "ducklake:#10"
+    class: unplanned
+    precedence: normal
+    origin: bug
+    admitted: 2026-08-04
+    disposition: "promoted:E3.1"
+    provenance: retro-derived
+    derived_at: 2026-08-05
+    evidence: ["ducklake:#10"]
+    confidence: high
+  - id: I10
+    tracker_ref: "ducklake:#11"
+    class: unplanned
+    precedence: normal
+    origin: bug
+    admitted: 2026-08-04
+    disposition: "promoted:E3.2"
+    provenance: retro-derived
+    derived_at: 2026-08-05
+    evidence: ["ducklake:#11"]
+    confidence: high
+  - id: I11
+    tracker_ref: "ducklake:#12"
+    class: unplanned
+    precedence: normal
+    origin: bug
+    admitted: 2026-08-04
+    disposition: "promoted:E3.3"
+    provenance: retro-derived
+    derived_at: 2026-08-05
+    evidence: ["ducklake:#12"]
+    confidence: high
+  - id: I12
+    tracker_ref: "ducklake:#27"
+    class: unplanned
+    precedence: normal
+    origin: ops
+    admitted: 2026-08-05
+    disposition: "promoted:E4.1"
+    provenance: retro-derived
+    derived_at: 2026-08-05
+    evidence: ["ducklake:#27", "ducklake:#36", "ducklake:#37", "ducklake:#38", "ducklake:#40", "ducklake:#41"]
+    confidence: high
+  - id: I13
+    tracker_ref: "ducklake:#32"
+    class: unplanned
+    precedence: normal
+    origin: ops
+    admitted: 2026-08-05
+    disposition: "promoted:E4.2"
+    provenance: retro-derived
+    derived_at: 2026-08-05
+    evidence: ["ducklake:#32", "ducklake:#35", "ducklake:#39"]
+    confidence: high
+  - id: I14
+    tracker_ref: "ducklake:#8"
+    class: unplanned
+    precedence: deferred
+    origin: client-request
+    admitted: 2026-08-04
+    disposition: "deferred"
+    provenance: retro-derived
+    derived_at: 2026-08-05
+    evidence: ["ducklake:#8"]
+    confidence: high
