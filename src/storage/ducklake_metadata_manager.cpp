@@ -6,6 +6,9 @@
 #include "duckdb/common/types/blob.hpp"
 #include "duckdb/common/type_visitor.hpp"
 #include "storage/ducklake_catalog.hpp"
+// PRIVATE-FORK ONLY: crypta envelope encryption. Direct rather than relying on
+// ducklake_catalog.hpp pulling it in transitively - this file names CryptaClient.
+#include "crypta/crypta_client.hpp"
 #include "common/ducklake_types.hpp"
 #include "storage/ducklake_schema_entry.hpp"
 #include "storage/ducklake_table_entry.hpp"
@@ -1049,11 +1052,21 @@ DuckLakeFileData DuckLakeMetadataManager::ReadDataFile(DuckLakeTableEntry &table
 		auto stored_key = row.template GetValue<string>(col_idx++);
 		// PRIVATE-FORK ONLY: crypta envelope encryption.
 		//
-		// THE unwrap choke point - every read of every encrypted file funnels
-		// through here. The identity is built from the path AS STORED (`path.path`
-		// above, before FromRelativePath resolved it into `data.path`) plus the
-		// table id and the file kind, and crypta verifies it. A key row moved from
-		// one file onto another therefore fails here rather than decrypting.
+		// The unwrap choke point for the SCAN path: every read of an encrypted
+		// file that goes through the file-list queries funnels through here,
+		// data files and delete files alike (ReadDeleteFile delegates straight to
+		// this function). The identity is built from the path AS STORED
+		// (`path.path` above, before FromRelativePath resolved it into
+		// `data.path`) plus the table id and the file kind, and crypta verifies
+		// it. A key row moved from one file onto another therefore fails here
+		// rather than decrypting.
+		//
+		// NOT the only place a stored key is decoded, and this comment used to
+		// claim otherwise ("every read of every encrypted file"). It is not true:
+		// ducklake_flush_inlined_data.cpp queries ducklake_delete_file with its
+		// own SQL and decodes the key itself, bypassing this function entirely.
+		// Anything that adds another such site must carry the same guard - which
+		// is why the refusal below lives on DuckLakeCatalog rather than here.
 		auto crypta = transaction.GetCatalog().CryptaProvider();
 		if (crypta) {
 			auto identity = transaction.GetCatalog().CryptaIdentity(table.GetTableId(), path.path, is_delete_file);
@@ -1075,16 +1088,9 @@ DuckLakeFileData DuckLakeMetadataManager::ReadDataFile(DuckLakeTableEntry &table
 			// DuckDB reserves for "this should be impossible", so the operator had
 			// no way to tell a dropped option from data corruption (#20).
 			//
-			// LooksWrapped's header claims it fails closed "in both directions".
-			// Until this call site existed that claim was untrue: its only caller
-			// was DuckLakeCryptaProvider::UnwrapKey, which only exists when crypta
-			// IS configured. This is the direction the comment named first.
-			if (CryptaClient::LooksWrapped(stored_key)) {
-				throw IOException(
-				    "file %s carries a crypta-wrapped encryption key, but this lake was attached without "
-				    "CRYPTA_SOCKET / CRYPTA_LAKE_ID. Re-attach with the crypta options",
-				    data.path);
-			}
+			// Shared with the flush path rather than inlined - see the helper's
+			// own comment for why one check in this function is not enough.
+			transaction.GetCatalog().RefuseWrappedKeyWithoutCrypta(data.path, stored_key);
 			data.encryption_key = Blob::FromBase64(string_t(stored_key));
 		}
 	}

@@ -479,8 +479,31 @@ LEFT JOIN (
 					file_info.existing_delete_path_is_relative = chunk->GetValue(7, row_idx).GetValue<bool>();
 					file_info.existing_delete_begin_snapshot = chunk->GetValue(8, row_idx).GetValue<idx_t>();
 					if (!chunk->GetValue(9, row_idx).IsNull()) {
-						file_info.existing_delete_encryption_key =
-						    Blob::FromBase64(chunk->GetValue(9, row_idx).GetValue<string>());
+						auto stored_delete_key = chunk->GetValue(9, row_idx).GetValue<string>();
+						// PRIVATE-FORK ONLY: crypta envelope encryption.
+						//
+						// THE SECOND DECODE SITE. This path reads
+						// existing_del.encryption_key out of ducklake_delete_file with
+						// the hand-written query above and decodes it right here - it
+						// never passes through DuckLakeMetadataManager::ReadDataFile, so
+						// the refusal there does not cover it. Reached by an ENCRYPTED
+						// lake with crypta, DATA_INLINING_ROW_LIMIT > 0, deletions
+						// already flushed once into a delete file, and further deletions
+						// still inlined when the lake is re-attached without the crypta
+						// options - at which point the wrapped blob went to the Parquet
+						// reader as a key and produced the same INTERNAL assertion
+						// failure #20 was filed about.
+						auto resolved_delete_path = file_info.existing_delete_path_is_relative
+						                                ? table.DataPath() + file_info.existing_delete_path
+						                                : file_info.existing_delete_path;
+						catalog.RefuseWrappedKeyWithoutCrypta(resolved_delete_path, stored_delete_key);
+						// NOT unwrapped when crypta IS configured, deliberately: this
+						// path has never called UnwrapKey, and WriteNewDeleteFiles DOES
+						// wrap delete-file keys, so a configured lake is broken here too.
+						// That is a separate pre-existing data-path defect with its own
+						// issue - fixing it silently inside a fail-closed change would
+						// hide it. Only the unconfigured refusal is added here.
+						file_info.existing_delete_encryption_key = Blob::FromBase64(stored_delete_key);
 					}
 					if (!chunk->GetValue(10, row_idx).IsNull()) {
 						file_info.existing_delete_format =

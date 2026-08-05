@@ -220,7 +220,7 @@ TEST_CASE("crypta provider: a repeated unwrap hits the cache and does not re-ask
 	});
 	DuckLakeCryptaProvider provider(server.Path(), "test-lake");
 	auto identity = SampleIdentity("t/a.parquet");
-	const std::string blob = "RExLQUFBQQ";
+	const std::string blob = WrappedBlob("QUFBQQ");
 
 	auto first = provider.UnwrapKey(identity, blob);
 	REQUIRE(first == dek);
@@ -249,7 +249,7 @@ TEST_CASE("crypta provider: the cache is cleared wholesale when the cap is hit",
 	DuckLakeCryptaProvider provider(server.Path(), "test-lake");
 
 	auto identity_for = [](int i) { return SampleIdentity("t/file_" + std::to_string(i) + ".parquet"); };
-	auto blob_for = [](int i) { return "RExL" + std::to_string(i); };
+	auto blob_for = [](int i) { return WrappedBlob(std::to_string(i)); };
 
 	// Fill the cache exactly to the cap. No clear has happened yet.
 	for (int i = 0; i < MAX_CACHED_KEYS; i++) {
@@ -289,7 +289,7 @@ TEST_CASE("crypta provider: two identities sharing one blob do not collide in th
 	// Keying the cache on the blob alone: read file A, caching blob -> DEK-A; then
 	// paste blob A onto file B's row; the next read of B hits the cache and gets
 	// DEK-A back WITHOUT crypta ever seeing the mismatched identity.
-	const std::string shared_blob = "RExLc2hhcmVk";
+	const std::string shared_blob = WrappedBlob("c2hhcmVk");
 
 	auto dek_a = DekFor("A");
 	auto dek_b = DekFor("B");
@@ -315,7 +315,7 @@ TEST_CASE("crypta provider: two identities sharing one blob do not collide in th
 // mutant: cache_key_blob_only
 TEST_CASE("crypta provider: every component of the identity is part of the cache key",
           "[crypta][cache][key_confusion]") {
-	const std::string shared_blob = "RExLc2hhcmVk";
+	const std::string shared_blob = WrappedBlob("c2hhcmVk");
 	auto base = SampleIdentity("t/a.parquet");
 
 	struct Variation {
@@ -383,9 +383,9 @@ TEST_CASE("crypta provider: one identity with two blobs does not collide in the 
 	DuckLakeCryptaProvider provider(server.Path(), "test-lake");
 	auto identity = SampleIdentity("t/a.parquet");
 
-	REQUIRE(provider.UnwrapKey(identity, "RExLb25l") == dek_one);
+	REQUIRE(provider.UnwrapKey(identity, WrappedBlob("b25l")) == dek_one);
 	REQUIRE(server.Connections() == 1);
-	REQUIRE(provider.UnwrapKey(identity, "RExLdHdv") == dek_two);
+	REQUIRE(provider.UnwrapKey(identity, WrappedBlob("dHdv")) == dek_two);
 	REQUIRE(server.Connections() == 2);
 }
 
@@ -399,8 +399,8 @@ TEST_CASE("crypta provider: a substituted key row is refused by crypta, not serv
 	BindingCryptaFake crypta;
 	auto identity_a = SampleIdentity("t/a.parquet");
 	auto identity_b = SampleIdentity("t/b.parquet");
-	const std::string blob_a = "RExLYQ";
-	const std::string blob_b = "RExLYg";
+	const std::string blob_a = WrappedBlob("YQ");
+	const std::string blob_b = WrappedBlob("Yg");
 	auto dek_a = DekFor("A");
 	auto dek_b = DekFor("B");
 	crypta.Issue(identity_a, blob_a, dek_a);
@@ -438,10 +438,15 @@ TEST_CASE("crypta provider: the cache key delimiter is ambiguous - REPORTED, not
 	//
 	// Nothing escapes the fields, so two DIFFERENT (identity, blob) pairs can
 	// produce the SAME key whenever a '|' inside a path can be re-read as the
-	// delimiter. Below, A's path ends with "|RExLZZZZ" and B's blob begins with
-	// "RExLZZZZ|"; both join to
+	// delimiter. Below, A's path ends with "|RExLZZZZ" and B's blob is exactly
+	// "RExLZZZZ|" followed by A's blob; both therefore join to
 	//
-	//   test-lake|7|data|t/p|RExLZZZZ|RExLAAAA
+	//   test-lake|7|data|t/p|RExLZZZZ|<blob_a>
+	//
+	// blob_a is built with WrappedBlob so it clears LooksWrapped's length floor
+	// - a 44-character-or-shorter fixture would be refused as plaintext before
+	// the cache is reached, and this case would silently stop testing the
+	// collision. blob_b inherits the "RExL" prefix and is longer still.
 	//
 	// so B's read hits A's cache entry and gets DEK-A back without crypta ever
 	// seeing the mismatched identity. That is the exact bypass the (identity,
@@ -467,9 +472,9 @@ TEST_CASE("crypta provider: the cache key delimiter is ambiguous - REPORTED, not
 	BindingCryptaFake crypta;
 
 	auto identity_a = SampleIdentity("t/p|RExLZZZZ");
-	const std::string blob_a = "RExLAAAA";
+	const std::string blob_a = WrappedBlob("AAAA");
 	auto identity_b = SampleIdentity("t/p");
-	const std::string blob_b = "RExLZZZZ|RExLAAAA";
+	const std::string blob_b = "RExLZZZZ|" + blob_a;
 
 	auto dek_a = DekFor("A");
 	crypta.Issue(identity_a, blob_a, dek_a);

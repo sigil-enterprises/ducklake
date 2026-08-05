@@ -42,6 +42,7 @@ static void HandleDuckLakeOption(DuckLakeOptions &options, const string &option,
 		options.crypta_socket = value.ToString();
 		options.crypta_socket_supplied = true;
 	} else if (lcase == "crypta_lake_id") {
+		// PRIVATE-FORK ONLY. Same _supplied reasoning as crypta_socket above.
 		options.crypta_lake_id = value.ToString();
 		options.crypta_lake_id_supplied = true;
 	} else if (lcase == "data_inlining_row_limit") {

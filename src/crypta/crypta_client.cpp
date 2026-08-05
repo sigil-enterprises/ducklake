@@ -40,6 +40,26 @@ CryptaClient::CryptaClient(string socket_path_p) : socket_path(std::move(socket_
 }
 
 bool CryptaClient::LooksWrapped(const string &base64_value) {
+	// The prefix ALONE is not enough, and the reason is a false positive on
+	// random key material rather than anything about crypta.
+	//
+	// This is now called on every stored key of every plain-ENCRYPTED lake - the
+	// upstream, no-crypta path - because that is where the unconfigured-reader
+	// refusal lives. A 32-byte CSPRNG DEK whose first three bytes happen to be
+	// 0x44 0x4C 0x4B ("DLK") base64-encodes to "RExL..." like a real blob does.
+	// On a prefix-only test such a file would be refused forever as
+	// crypta-wrapped, on a lake that has no crypta and never had any, with
+	// advice to re-attach with options that do not apply. ~6e-8 per file: small,
+	// not zero, and unrecoverable for whoever draws it.
+	//
+	// So require a length no plaintext key can reach. MAX_PLAINTEXT_KEY_BASE64 is
+	// base64 of 32 bytes, the largest DEK this fork mints (94144c31); a real
+	// wrapped blob runs 208-280 characters, so the two ranges do not overlap and
+	// the floor costs nothing.
+	static constexpr idx_t MAX_PLAINTEXT_KEY_BASE64 = 44;
+	if (base64_value.size() <= MAX_PLAINTEXT_KEY_BASE64) {
+		return false;
+	}
 	return StringUtil::StartsWith(base64_value, WRAPPED_PREFIX);
 }
 

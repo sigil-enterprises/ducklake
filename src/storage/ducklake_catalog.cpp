@@ -196,6 +196,21 @@ CryptaFileIdentity DuckLakeCatalog::CryptaIdentity(TableIndex table_id, const st
 	return identity;
 }
 
+// PRIVATE-FORK ONLY: crypta envelope encryption.
+void DuckLakeCatalog::RefuseWrappedKeyWithoutCrypta(const string &file_path, const string &stored_key) const {
+	if (crypta_provider) {
+		// A configured lake unwraps rather than refuses; that is the caller's job.
+		return;
+	}
+	if (!CryptaClient::LooksWrapped(stored_key)) {
+		// A plaintext key on a lake with no crypta is the ordinary upstream case.
+		return;
+	}
+	throw IOException("file %s carries a crypta-wrapped encryption key, but this lake was attached without "
+	                  "CRYPTA_SOCKET / CRYPTA_LAKE_ID. Re-attach with the crypta options",
+	                  file_path);
+}
+
 DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options_p)
     : Catalog(db_p), options(std::move(options_p)), last_uncommitted_catalog_version(TRANSACTION_ID_START),
       instance_id(UUID::ToString(UUID::GenerateRandomUUID())) {
@@ -224,8 +239,11 @@ DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options
 			    "crypta_lake_id");
 		}
 		if (options.encryption == DuckLakeEncryption::UNENCRYPTED) {
-			throw InvalidInputException("crypta_socket was set on an UNENCRYPTED DuckLake - there are no per-file keys "
-			                            "to wrap. Either enable ENCRYPTED or drop crypta_socket");
+			// "a crypta option", not "crypta_socket", because this is reachable
+			// with an EMPTY socket (ENCRYPTED false + CRYPTA_SOCKET '' + a lake id),
+			// where naming crypta_socket as "set" would be false.
+			throw InvalidInputException("a crypta option was set on an UNENCRYPTED DuckLake - there are no per-file "
+			                            "keys to wrap. Either enable ENCRYPTED or drop the crypta options");
 		}
 		// A supplied-but-empty socket falls through to here DELIBERATELY, rather
 		// than being refused with a message of its own: CryptaClient's constructor
