@@ -129,6 +129,30 @@ static unique_ptr<FunctionData> DuckLakeSetOptionBind(ClientContext &context, Ta
 		auto data_inlining_row_limit = val.DefaultCastAs(LogicalType::UBIGINT).GetValue<idx_t>();
 		value = to_string(data_inlining_row_limit);
 		if (data_inlining_row_limit > 0) {
+			// >>> FORK-LOCAL (sigil-enterprises): crypta forbids data inlining. >>>
+			// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+			//
+			// DuckLakeCatalog::DataInliningRowLimit() already forces 0 on a crypta lake,
+			// so setting this option there would be inert rather than dangerous. Inert is
+			// exactly the problem: ducklake_set_option returns Success, and the operator
+			// walks away believing small writes are being inlined. Refuse, so an explicit
+			// request is never silently dropped.
+			//
+			// This sits in the VALUE branch, which runs before the scope is read further
+			// down this function, so the one check covers global, schema and table scope
+			// alike. Setting the limit to 0 is the safe value and still succeeds - the
+			// guard is on enabling inlining, not on turning it off.
+			if (catalog.Cast<DuckLakeCatalog>().CryptaProvider()) {
+				throw InvalidInputException("data_inlining_row_limit cannot be set to %llu on a DuckLake configured "
+				                            "for crypta envelope encryption - data inlining writes the row values "
+				                            "themselves as cleartext SQL literals into the metadata catalog, which "
+				                            "the crypta envelope does not protect (it wraps the per-file Parquet "
+				                            "keys only). Either set data_inlining_row_limit to 0, or re-attach this "
+				                            "lake without crypta_socket if cleartext rows in the metadata catalog "
+				                            "are acceptable for it",
+				                            data_inlining_row_limit);
+			}
+			// <<< FORK-LOCAL (sigil-enterprises) <<<
 			ValidateNoReservedInliningColumns(context, catalog, input);
 		}
 	} else if (option == "require_commit_message") {

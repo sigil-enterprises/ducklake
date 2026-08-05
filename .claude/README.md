@@ -408,7 +408,39 @@ both are on issue #1 with the reproductions.
    `encrypted = true`, zero data files, and the value readable with an ordinary
    `SELECT`. On teras the catalog is Postgres, so that is plaintext PHI in
    Postgres, the WAL, every replica and every backup. **crypta cannot help** -
-   there is no key involved. Set `DATA_INLINING_ROW_LIMIT 0`.
+   there is no key involved.
+
+   **A crypta lake now forces this off itself** (issue #13 item 1). When
+   `CRYPTA_SOCKET` is set, both `DuckLakeCatalog::DataInliningRowLimit` overloads
+   return 0, so no option at any scope - table, schema, catalog-global, persisted,
+   ATTACH, or the process-wide `SET` - can re-enable inlining. The guard is at the
+   **read**, not at the write, because the write paths cannot be exhaustively
+   guarded: `DuckLakeInitializer` overwrites the ATTACH-supplied value with the
+   persisted lake option in the same map *after* the catalog is constructed
+   (`src/storage/ducklake_initializer.cpp:213`), and `ducklake_set_option` can set
+   it at any scope at any time. Asking for a non-zero limit explicitly - at ATTACH
+   or through `set_option` - is a hard error rather than a silent no-op, so nobody
+   learns a request took effect when it did not. Setting it to 0 still works.
+
+   Three things this does **not** do, named so nobody assumes otherwise:
+   - **An `ENCRYPTED` lake attached *without* `CRYPTA_SOCKET` still inlines
+     cleartext.** The guard keys on crypta, not on `ENCRYPTED`, because upstream
+     `test/sql/data_inlining/data_inlining_encryption.test` deliberately combines
+     `ENCRYPTED` with inlining. There, `DATA_INLINING_ROW_LIMIT 0` is still yours
+     to set.
+   - **Rows already inlined before crypta was configured are not scrubbed.** This
+     is write-side only. Remediation is an explicit
+     `CALL ducklake_flush_inlined_data(...)`; nothing warns about it at ATTACH.
+   - **Deleting rows that live in a pre-existing inlined table still writes their
+     positions in cleartext** to `ducklake_inlined_delete_<table_id>`, via the
+     ungated `INLINED_DATA` branch at `src/storage/ducklake_delete.cpp:497-500`.
+     Unreachable on a lake that was crypta-configured from its first write, since
+     no inlined data can exist there.
+
+   Proven by `test/sql/crypta/crypta_inlining_refusals.test`, which carries its own
+   positive control - the same insert on a non-crypta lake must still show the
+   sentinel readable as cleartext out of the catalog. If that case goes quiet,
+   every absence assertion in the file is worthless.
 2. **Encrypted Parquet writes require `httpfs`** (the full mbedtls crypto
    module). Without it the write fails closed, which is right. But
    `force_mbedtls_unsafe` exists and would produce a lake that claims encryption
