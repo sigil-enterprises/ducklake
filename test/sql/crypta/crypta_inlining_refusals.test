@@ -1,0 +1,596 @@
+# name: test/sql/crypta/crypta_inlining_refusals.test
+# description: A crypta-enveloped lake never inlines row values into the metadata catalog
+# group: [crypta]
+#
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# WHAT THIS FILE PROVES, AND WHY IT EXISTS.
+#
+# `ducklake_default_data_inlining_row_limit` defaults to 10
+# (src/ducklake_extension.cpp:34). Any INSERT, UPDATE or MERGE of <= 10 rows is
+# not written to Parquet at all: the row VALUES are formatted as plaintext SQL
+# literals and inserted into a metadata-catalog table
+# `ducklake_inlined_data_<table_id>_<schema_version>`
+# (src/storage/ducklake_metadata_manager.cpp:2488 for the name, 2786-2809 for
+# the write). ENCRYPTED does not touch that path - it governs the Parquet writer
+# only - and crypta wraps only the per-file DEKs, of which an inlined write has
+# none. So on a lake that is ENCRYPTED, enveloped, and self-tested against a live
+# crypta, a three-row insert of patient data lands in the catalog in CLEARTEXT.
+# On teras that catalog is Postgres, so it is cleartext PHI in Postgres, its WAL,
+# every replica and every backup. This is finding 1 in `.claude/README.md`.
+#
+# THE CONTRACT ASSERTED HERE. When `CryptaProvider()` is non-null - i.e.
+# CRYPTA_SOCKET was given at ATTACH - then:
+#
+#   1. both `DuckLakeCatalog::DataInliningRowLimit` overloads return 0
+#      unconditionally, so NO inlining happens whatever any option at any scope
+#      says;
+#   2. `ATTACH ... (CRYPTA_SOCKET ..., DATA_INLINING_ROW_LIMIT n)` with n > 0 is
+#      a hard error;
+#   3. `CALL <lake>.set_option('data_inlining_row_limit', n)` with n > 0 is a
+#      hard error, at global, schema and table scope alike.
+#
+# Setting the limit to 0 stays legal at both surfaces. The refusal is for
+# ENABLING the leak, not for naming the option.
+#
+# READ CASE 2 BEFORE ANY OTHER. Refusing the ATTACH option and refusing
+# set_option is the easy half and covers nothing that matters, because the
+# PERSISTED lake option is applied to `options.config_options` at
+# src/storage/ducklake_initializer.cpp:213 - AFTER the catalog constructor has
+# run, and it OVERWRITES whatever the ATTACH statement asked for. An operator who
+# writes a correct ATTACH today still gets inlining if anyone ever persisted a
+# non-zero limit into `ducklake_metadata`, and there is no diagnostic. A fix that
+# passes case 1 and fails case 2 is worse than no fix at all, because it will be
+# believed. Case 1 is the headline; case 2 is the one that decides whether the
+# fix is real.
+#
+# ON ABSENCE ASSERTIONS. Every "no inlined data in the catalog" query below
+# passes trivially if the insert never happened or if the query is looking in the
+# wrong place - a broken instrument and a clean lake report the same zero. That
+# is why each crypta case also asserts LIVENESS (the rows read back, and a data
+# file exists carrying a wrapped key), and why case 6 - the positive control - is
+# not optional: it runs the identical DDL and insert on a lake with no crypta and
+# proves the introspection FIRES.
+#
+# NOTE on reading, inherited from crypta_key_row_refusals.test: count(*) on a
+# DuckLake table is answered from `record_count` in the catalog and never touches
+# the Parquet file, so it exercises no decryption. Every read of table data below
+# sums or mins a real column on purpose.
+
+require ducklake
+
+require parquet
+
+# Encrypted Parquet writes need the full mbedtls crypto module. Without it the
+# write fails closed, which is correct but would red this file for the wrong
+# reason. `force_mbedtls_unsafe` is forbidden here (.claude/README.md) - build
+# the deps instead.
+require httpfs
+
+require-env DUCKLAKE_FAKE_CRYPTA_SOCKET
+
+# Case 3 asserts that the ATTACH refusal fires BEFORE the key service is
+# consulted, which is a claim about a call that did not happen and needs an
+# instrument rather than another substring of the same message.
+require-env DUCKLAKE_FAKE_CRYPTA_OPLOG
+
+# --------------------------------------------------------------------------
+# Case 1 - the naive case, and the headline defect
+#
+# The operator does everything the fork asks: ENCRYPTED, a reachable crypta, a
+# lake id. They say nothing about inlining, because nothing tells them to, so the
+# default of 10 applies and a three-row insert never reaches Parquet.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_inline_naive.db' AS naive (DATA_PATH '__TEST_DIR__/crypta_inline_naive_files', ENCRYPTED, METADATA_CATALOG 'naive_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'inline-naive')
+
+statement ok
+CREATE TABLE naive.person(person_id BIGINT, person_source_value VARCHAR)
+
+statement ok
+INSERT INTO naive.person VALUES (1, 'PT-000042-SENTINEL'), (2, 'PT-000043-SENTINEL'), (3, 'PT-000044-SENTINEL')
+
+# Liveness first. Without this the whole case could pass on an insert that never
+# happened, and every assertion under it would be measuring an empty lake.
+query III
+SELECT sum(person_id), min(person_source_value), max(person_source_value) FROM naive.person
+----
+6	PT-000042-SENTINEL	PT-000044-SENTINEL
+
+# No inlined-data table was registered. This is the registry created at
+# src/storage/ducklake_metadata_manager.cpp:213.
+query I
+SELECT count(*) FROM naive_meta.ducklake_inlined_data_tables
+----
+0
+
+# And none was created WITHOUT being registered, which is a different failure and
+# would leave the registry count honest while the rows sat in a table beside it.
+# `ducklake_inlined_data_tables` is itself matched by the LIKE, so it is excluded
+# by name rather than by a narrower pattern that would depend on the table id.
+query I
+SELECT count(*) FROM duckdb_tables() WHERE database_name='naive_meta' AND table_name LIKE 'ducklake_inlined_data%' AND table_name <> 'ducklake_inlined_data_tables'
+----
+0
+
+# The rows went somewhere: a Parquet data file exists. An absence assertion pair
+# above plus a lake with no data at all would also read green.
+query I
+SELECT count(*) > 0 FROM naive_meta.ducklake_data_file
+----
+true
+
+# And that file is genuinely enveloped - its key row carries the wrapped-blob
+# magic, not a plaintext DEK. This is what distinguishes "crypta is on" from the
+# fail-open configurations characterised in crypta_config_fail_open.test, where
+# the operator asks for an envelope and silently gets none.
+query I
+SELECT bool_and(encryption_key LIKE 'RExL%') FROM naive_meta.ducklake_data_file
+----
+true
+
+statement ok
+DETACH naive
+
+# --------------------------------------------------------------------------
+# Case 2 - THE PERSISTED OPTION OVERRIDE. Read the header note on this case.
+#
+# The lake carries a non-zero `data_inlining_row_limit` in `ducklake_metadata`,
+# persisted by someone, at some point, on an attach that had nothing to do with
+# crypta. `LoadExistingDuckLake` writes every persisted tag into
+# `options.config_options` at src/storage/ducklake_initializer.cpp:213 - after
+# the DuckLakeCatalog constructor, and overwriting the ATTACH statement. So a
+# refusal wired only into the constructor and into set_option never sees this
+# value, and the lake inlines with a perfectly correct-looking ATTACH.
+# --------------------------------------------------------------------------
+
+# Seed the persisted option on a lake with NO crypta. DATA_INLINING_ROW_LIMIT 0
+# here is deliberate: ATTACH options are never persisted (they only populate
+# `options.config_options` in memory, src/storage/ducklake_storage.cpp:41), and
+# with the default of 10 the CREATE TABLE below would register an inlined table
+# in the seed attach, which would then be counted against the crypta attach and
+# make the case red forever for the wrong reason.
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_inline_persisted.db' AS seed (DATA_PATH '__TEST_DIR__/crypta_inline_persisted_files', ENCRYPTED, METADATA_CATALOG 'seed_meta', DATA_INLINING_ROW_LIMIT 0)
+
+statement ok
+CREATE TABLE seed.person(person_id BIGINT, person_source_value VARCHAR)
+
+statement ok
+CALL seed.set_option('data_inlining_row_limit', 10)
+
+# The premise of this whole case, asserted rather than assumed: the value really
+# is in `ducklake_metadata`, at global scope. If this ever stops holding, the
+# crypta assertions below become vacuous and would pass on a fix that does
+# nothing.
+query III
+SELECT value, scope, scope_id FROM seed_meta.ducklake_metadata WHERE key='data_inlining_row_limit'
+----
+10	NULL	NULL
+
+statement ok
+DETACH seed
+
+# Re-attach the SAME lake with crypta, saying nothing about inlining - which is
+# what an operator who read the crypta documentation would write.
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_inline_persisted.db' AS persisted (DATA_PATH '__TEST_DIR__/crypta_inline_persisted_files', ENCRYPTED, METADATA_CATALOG 'persisted_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'inline-persisted')
+
+statement ok
+INSERT INTO persisted.person VALUES (1, 'PT-000042-SENTINEL'), (2, 'PT-000043-SENTINEL'), (3, 'PT-000044-SENTINEL')
+
+query III
+SELECT sum(person_id), min(person_source_value), max(person_source_value) FROM persisted.person
+----
+6	PT-000042-SENTINEL	PT-000044-SENTINEL
+
+query I
+SELECT count(*) FROM persisted_meta.ducklake_inlined_data_tables
+----
+0
+
+query I
+SELECT count(*) FROM duckdb_tables() WHERE database_name='persisted_meta' AND table_name LIKE 'ducklake_inlined_data%' AND table_name <> 'ducklake_inlined_data_tables'
+----
+0
+
+query I
+SELECT count(*) > 0 FROM persisted_meta.ducklake_data_file
+----
+true
+
+query I
+SELECT bool_and(encryption_key LIKE 'RExL%') FROM persisted_meta.ducklake_data_file
+----
+true
+
+# And the lake REPORTS the limit it is actually enforcing, not the one still
+# sitting in ducklake_metadata. This is the visibility half on the one path where
+# the refusals cannot speak: the 10 was persisted BEFORE crypta was configured, so
+# no ATTACH option and no set_option call ever named it, and both refusals are
+# silent by design. `options()` is the only surface that answers "what is this
+# lake actually doing" - if it echoed the stored 10 here, an operator checking
+# whether the lake was safe would be told the opposite of the truth.
+query II
+SELECT value, scope FROM persisted.options() WHERE option_name='data_inlining_row_limit'
+----
+0	GLOBAL
+
+# ...and it says WHY, so a bare 0 is not mistaken for something the operator set.
+query I
+SELECT description LIKE '%forced to 0%crypta%' FROM persisted.options() WHERE option_name='data_inlining_row_limit'
+----
+true
+
+# The raw row is untouched underneath - the override is a report of the effective
+# value, not a silent rewrite of the operator's stored configuration.
+query III
+SELECT value, scope, scope_id FROM persisted_meta.ducklake_metadata WHERE key='data_inlining_row_limit'
+----
+10	NULL	NULL
+
+statement ok
+DETACH persisted
+
+# Case 2 continued - the same lake, attached with an EXPLICIT
+# DATA_INLINING_ROW_LIMIT 0.
+#
+# This is the sharpest form of the override and the reason the case is worth its
+# own file: the operator does not merely omit the option, they explicitly set it
+# to the safe value, and initializer.cpp:213 overwrites their 0 with the
+# persisted 10 anyway. A fix that reads the ATTACH options and stops there passes
+# everything above this line and fails here.
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_inline_persisted.db' AS overridden (DATA_PATH '__TEST_DIR__/crypta_inline_persisted_files', ENCRYPTED, METADATA_CATALOG 'overridden_meta', DATA_INLINING_ROW_LIMIT 0, CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'inline-persisted')
+
+statement ok
+INSERT INTO overridden.person VALUES (4, 'PT-000045-SENTINEL'), (5, 'PT-000046-SENTINEL'), (6, 'PT-000047-SENTINEL')
+
+query III
+SELECT sum(person_id), min(person_source_value), max(person_source_value) FROM overridden.person
+----
+21	PT-000042-SENTINEL	PT-000047-SENTINEL
+
+query I
+SELECT count(*) FROM overridden_meta.ducklake_inlined_data_tables
+----
+0
+
+query I
+SELECT count(*) FROM duckdb_tables() WHERE database_name='overridden_meta' AND table_name LIKE 'ducklake_inlined_data%' AND table_name <> 'ducklake_inlined_data_tables'
+----
+0
+
+statement ok
+DETACH overridden
+
+# --------------------------------------------------------------------------
+# Case 2b - the TABLE-SCOPED persisted option
+#
+# Table scope is consulted before schema scope and before global scope
+# (`TryGetConfigOption`, src/storage/ducklake_catalog.cpp:1009-1021), so a
+# table-scoped limit shadows every broader setting including an explicit
+# DATA_INLINING_ROW_LIMIT 0 on the ATTACH statement. One row in
+# `ducklake_metadata` with scope='table' is enough to put one table's rows in the
+# clear on an otherwise correctly configured lake.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_inline_tablescope.db' AS seedtbl (DATA_PATH '__TEST_DIR__/crypta_inline_tablescope_files', ENCRYPTED, METADATA_CATALOG 'seedtbl_meta', DATA_INLINING_ROW_LIMIT 0)
+
+statement ok
+CREATE TABLE seedtbl.person(person_id BIGINT, person_source_value VARCHAR)
+
+statement ok
+CALL seedtbl.set_option('data_inlining_row_limit', 10, table_name => 'person')
+
+# The premise again, and note the scope columns: this is a table-scoped row, not
+# a global one. scope_id is the table id, which is 1 for the first table in a
+# fresh lake.
+query III
+SELECT value, scope, scope_id FROM seedtbl_meta.ducklake_metadata WHERE key='data_inlining_row_limit'
+----
+10	table	1
+
+statement ok
+DETACH seedtbl
+
+# Note the explicit 0 on this ATTACH. The operator asked for no inlining, at the
+# only surface they control, and the table-scoped row overrides them.
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_inline_tablescope.db' AS tablescope (DATA_PATH '__TEST_DIR__/crypta_inline_tablescope_files', ENCRYPTED, METADATA_CATALOG 'tablescope_meta', DATA_INLINING_ROW_LIMIT 0, CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'inline-tablescope')
+
+statement ok
+INSERT INTO tablescope.person VALUES (1, 'PT-000042-SENTINEL'), (2, 'PT-000043-SENTINEL'), (3, 'PT-000044-SENTINEL')
+
+query III
+SELECT sum(person_id), min(person_source_value), max(person_source_value) FROM tablescope.person
+----
+6	PT-000042-SENTINEL	PT-000044-SENTINEL
+
+query I
+SELECT count(*) FROM tablescope_meta.ducklake_inlined_data_tables
+----
+0
+
+query I
+SELECT count(*) FROM duckdb_tables() WHERE database_name='tablescope_meta' AND table_name LIKE 'ducklake_inlined_data%' AND table_name <> 'ducklake_inlined_data_tables'
+----
+0
+
+query I
+SELECT count(*) > 0 FROM tablescope_meta.ducklake_data_file
+----
+true
+
+query I
+SELECT bool_and(encryption_key LIKE 'RExL%') FROM tablescope_meta.ducklake_data_file
+----
+true
+
+statement ok
+DETACH tablescope
+
+# --------------------------------------------------------------------------
+# Case 3 - an explicit DATA_INLINING_ROW_LIMIT at ATTACH is REFUSED
+#
+# Silently clamping the limit to 0 would be worse than refusing it: the operator
+# asked for inlining, and an operator whose explicit configuration is quietly
+# discarded learns nothing. The refusal will live in
+# src/storage/ducklake_catalog.cpp, in the DuckLakeCatalog constructor, beside
+# the existing "crypta_socket was set on an UNENCRYPTED DuckLake" refusal at
+# :208-214.
+#
+# MESSAGE MATCHING. The wording does not exist yet. Two short substrings are
+# asserted separately, in the idiom of crypta_attach_refusals.test, so a wording
+# tweak reds at most one line and names itself:
+#   - `crypta`                 - every crypta refusal in this fork spells it
+#                                lowercase ("cannot reach the crypta key
+#                                service", "crypta_socket was set on an
+#                                UNENCRYPTED DuckLake");
+#   - `data_inlining_row_limit` - the canonical lowercase option key, as it is
+#                                spelled in `options.config_options` and in
+#                                `ducklake_set_option.cpp`. If the fix names the
+#                                option in its ATTACH-parameter spelling
+#                                (DATA_INLINING_ROW_LIMIT) instead, reconcile
+#                                THIS line to that spelling - the assertion is
+#                                that the message names the option, not that it
+#                                picks one casing.
+# Distinct paths and aliases per attempt because the group does that
+# deliberately, and because a refused ATTACH still consumed the alias.
+# --------------------------------------------------------------------------
+
+# The refusal must fire BEFORE the key service is consulted - it is a
+# configuration contradiction, decidable from the options alone, and a lake that
+# is misconfigured this way should be refused whether or not crypta happens to be
+# reachable. That is a claim about a call that did NOT happen, so it needs the
+# oplog instrument, not another substring of the same message. The fake logs one
+# line per request; the count must not move across the three refused ATTACHes
+# below.
+statement ok
+CREATE TABLE inline_ops_before AS SELECT count(*) AS n FROM read_csv('${DUCKLAKE_FAKE_CRYPTA_OPLOG}', columns={'op': 'VARCHAR', 'items': 'BIGINT'}, header=false)
+
+# The instrument has to be shown LIVE before "it did not move" means anything: a
+# log that was never written would also never move, and the delta assertion below
+# would pass having measured nothing. Case 1 and case 2 above already attached
+# successfully against this socket, so the count is non-zero by now.
+query I
+SELECT n > 0 FROM inline_ops_before
+----
+true
+
+statement error
+ATTACH 'ducklake:__TEST_DIR__/crypta_inline_attach_opt.db' AS attachopt (DATA_PATH '__TEST_DIR__/crypta_inline_attach_opt_files', ENCRYPTED, METADATA_CATALOG 'attachopt_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'inline-attach-opt', DATA_INLINING_ROW_LIMIT 10)
+----
+crypta
+
+statement error
+ATTACH 'ducklake:__TEST_DIR__/crypta_inline_attach_opt2.db' AS attachopt2 (DATA_PATH '__TEST_DIR__/crypta_inline_attach_opt2_files', ENCRYPTED, METADATA_CATALOG 'attachopt2_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'inline-attach-opt2', DATA_INLINING_ROW_LIMIT 10)
+----
+data_inlining_row_limit
+
+# A limit of 1 is refused for the same reason as 10. The threshold is not a
+# safety margin - one row of PHI in the catalog is the whole defect.
+statement error
+ATTACH 'ducklake:__TEST_DIR__/crypta_inline_attach_opt3.db' AS attachopt3 (DATA_PATH '__TEST_DIR__/crypta_inline_attach_opt3_files', ENCRYPTED, METADATA_CATALOG 'attachopt3_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'inline-attach-opt3', DATA_INLINING_ROW_LIMIT 1)
+----
+crypta
+
+# Not one request crossed the socket for any of the three. The refusal is
+# structural - it is decided in the DuckLakeCatalog constructor, before
+# FinalizeLoad runs the crypta health self-test - rather than a consequence of
+# anything the key service said.
+query I
+SELECT (SELECT count(*) FROM read_csv('${DUCKLAKE_FAKE_CRYPTA_OPLOG}', columns={'op': 'VARCHAR', 'items': 'BIGINT'}, header=false)) - (SELECT n FROM inline_ops_before)
+----
+0
+
+# --------------------------------------------------------------------------
+# Case 4 - set_option is REFUSED, at every scope
+#
+# The other half of case 3, and the surface that WRITES the persisted row case 2
+# is about. This refusal will live in src/functions/ducklake_set_option.cpp, in
+# the `data_inlining_row_limit` branch of DuckLakeSetOptionBind at :128-133,
+# where the existing `ValidateNoReservedInliningColumns` guard already fires on
+# a non-zero value. Same two substrings, same reconciliation note as case 3.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_inline_setopt.db' AS setopt (DATA_PATH '__TEST_DIR__/crypta_inline_setopt_files', ENCRYPTED, METADATA_CATALOG 'setopt_meta', DATA_INLINING_ROW_LIMIT 0, CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'inline-setopt')
+
+statement ok
+CREATE TABLE setopt.person(person_id BIGINT, person_source_value VARCHAR)
+
+statement error
+CALL setopt.set_option('data_inlining_row_limit', 10)
+----
+crypta
+
+statement error
+CALL setopt.set_option('data_inlining_row_limit', 10)
+----
+data_inlining_row_limit
+
+# Schema scope.
+statement error
+CALL setopt.set_option('data_inlining_row_limit', 10, schema => 'main')
+----
+crypta
+
+# Table scope - the one that shadows everything else, and the one case 2b shows
+# is enough on its own to put a table in the clear.
+statement error
+CALL setopt.set_option('data_inlining_row_limit', 10, table_name => 'person')
+----
+crypta
+
+statement error
+CALL setopt.set_option('data_inlining_row_limit', 10, table_name => 'person')
+----
+data_inlining_row_limit
+
+# Nothing was persisted by any of the refused calls. A refusal that throws after
+# writing the row would leave the lake in exactly the state case 2 is about.
+query I
+SELECT count(*) FROM setopt_meta.ducklake_metadata WHERE key='data_inlining_row_limit'
+----
+0
+
+statement ok
+DETACH setopt
+
+# --------------------------------------------------------------------------
+# Case 5 - setting the limit to 0 still WORKS
+#
+# The refusal is for ENABLING the leak, not for naming the option. A blunt fix
+# that errors on any mention of `data_inlining_row_limit` would break every
+# existing crypta ATTACH in this repository - every other file in this group
+# passes DATA_INLINING_ROW_LIMIT 0 - and would leave an operator no way to state
+# the safe value explicitly.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_inline_zero.db' AS zero (DATA_PATH '__TEST_DIR__/crypta_inline_zero_files', ENCRYPTED, METADATA_CATALOG 'zero_meta', DATA_INLINING_ROW_LIMIT 0, CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'inline-zero')
+
+statement ok
+CREATE TABLE zero.person(person_id BIGINT, person_source_value VARCHAR)
+
+statement ok
+CALL zero.set_option('data_inlining_row_limit', 0)
+
+statement ok
+CALL zero.set_option('data_inlining_row_limit', 0, schema => 'main')
+
+statement ok
+CALL zero.set_option('data_inlining_row_limit', 0, table_name => 'person')
+
+# The three calls above really PERSISTED, at all three scopes. Without this, a
+# degenerate fix that turned the whole data_inlining_row_limit branch into a
+# silent no-op on a crypta lake would report `statement ok` three times having
+# written nothing, and would pass every other assertion in this file. The green
+# above must not be readable two ways.
+query I
+SELECT count(*) FROM zero_meta.ducklake_metadata WHERE key='data_inlining_row_limit' AND value='0'
+----
+3
+
+# The lake still works after all of that, and still writes enveloped files.
+statement ok
+INSERT INTO zero.person VALUES (1, 'PT-000042-SENTINEL'), (2, 'PT-000043-SENTINEL'), (3, 'PT-000044-SENTINEL')
+
+query III
+SELECT sum(person_id), min(person_source_value), max(person_source_value) FROM zero.person
+----
+6	PT-000042-SENTINEL	PT-000044-SENTINEL
+
+query I
+SELECT count(*) FROM zero_meta.ducklake_inlined_data_tables
+----
+0
+
+query I
+SELECT bool_and(encryption_key LIKE 'RExL%') FROM zero_meta.ducklake_data_file
+----
+true
+
+statement ok
+DETACH zero
+
+# --------------------------------------------------------------------------
+# Case 6 - THE POSITIVE CONTROL. It is not optional.
+#
+# Every assertion above that reads 0 out of the metadata catalog is an ABSENCE
+# assertion, and an absence assertion cannot tell a clean lake from a broken
+# instrument: a query pointed at the wrong catalog, a registry that moved, an
+# insert that silently did nothing, all report exactly the same zero. IF THIS
+# CASE EVER GOES QUIET - if it stops finding the sentinel in the catalog - THEN
+# EVERY OTHER ASSERTION IN THIS FILE IS WORTHLESS, and the file must be fixed
+# before its green is read as anything at all.
+#
+# So: the identical DDL and the identical three-row insert, on a lake attached
+# WITHOUT crypta and at the default limit, asserting that the inlined table IS
+# registered and the sentinel IS readable as cleartext out of the metadata
+# catalog. The lake is ENCRYPTED, which is the point - ENCRYPTED governs the
+# Parquet path only, so it changes nothing here.
+#
+# HOW THE TABLE NAME WAS DERIVED. `InlinedTableNameFor(table_id, schema_version)`
+# formats "ducklake_inlined_data_%d_%d"
+# (src/storage/ducklake_metadata_manager.cpp:2488-2489). This is the first table
+# in a fresh lake, so table_id is 1, and the CREATE TABLE commit that registers
+# it is schema version 1 - hence `ducklake_inlined_data_1_1`, the same name
+# test/sql/data_inlining/basic_data_inlining.test and
+# data_inlining_update_inline_verification.test read. The name is not guessed:
+# the registry row is asserted in full immediately below, so if the derivation is
+# wrong THAT assertion fails first and names the real value. The crypta cases
+# above deliberately do not hard-code any name - they assert on the registry and
+# on duckdb_tables(), which hold whatever the name turns out to be.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_inline_control.db' AS control (DATA_PATH '__TEST_DIR__/crypta_inline_control_files', ENCRYPTED, METADATA_CATALOG 'control_meta')
+
+statement ok
+CREATE TABLE control.person(person_id BIGINT, person_source_value VARCHAR)
+
+statement ok
+INSERT INTO control.person VALUES (1, 'PT-000042-SENTINEL'), (2, 'PT-000043-SENTINEL'), (3, 'PT-000044-SENTINEL')
+
+query III
+SELECT sum(person_id), min(person_source_value), max(person_source_value) FROM control.person
+----
+6	PT-000042-SENTINEL	PT-000044-SENTINEL
+
+# The registry the crypta cases assert is EMPTY is populated here, and this row
+# is what pins the hard-coded table name used in the next query.
+query III
+SELECT table_id, table_name, schema_version FROM control_meta.ducklake_inlined_data_tables
+----
+1	ducklake_inlined_data_1_1	1
+
+# The instrument fires: the patient identifier is sitting in the metadata catalog
+# in cleartext, on a lake whose `encrypted` flag is true, readable with an
+# ordinary SELECT by anyone who can read the catalog.
+query I
+SELECT person_source_value FROM control_meta.ducklake_inlined_data_1_1 ORDER BY row_id
+----
+PT-000042-SENTINEL
+PT-000043-SENTINEL
+PT-000044-SENTINEL
+
+# ENCRYPTED is on, and it changed nothing about the line above.
+query I
+SELECT value FROM control_meta.ducklake_metadata WHERE key='encrypted'
+----
+true
+
+# And no Parquet file was written at all - the rows exist ONLY as SQL literals in
+# the catalog. This is the mirror of the "a data file exists" liveness assertion
+# in every crypta case above.
+query I
+SELECT count(*) FROM control_meta.ducklake_data_file
+----
+0
+
+statement ok
+DETACH control
