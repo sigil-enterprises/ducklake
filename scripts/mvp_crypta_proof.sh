@@ -26,6 +26,13 @@
 set -eu
 
 CRYPTA_REPO=${CRYPTA_REPO:-../crypta}
+# Overridable so the proof can be run against an INSTRUMENTED build without
+# forking the script. Defaults are the stock ones, so leaving both unset gives
+# byte-identical behaviour to before they existed. See the coverage section of
+# .claude/README.md - this script is the only thing in the tree that exercises
+# src/crypta/, so it is also the only thing that can measure it.
+DUCKLAKE_IMAGE=${DUCKLAKE_IMAGE:-ducklake-app}
+DUCKLAKE_BUILD=${DUCKLAKE_BUILD:-build/release}
 SOCK_VOLUME=crypta-mvp-sock
 LAKE_VOLUME=ducklake-mvp-lake
 # The SoftHSM token and the root-wrapped KEK blob live here, OUTSIDE the
@@ -107,8 +114,8 @@ emit inspect.sql "SELECT length(encryption_key) AS len, substr(encryption_key,1,
 
 dl() {
 	docker run --rm -v "$(pwd)":/app -v "$SOCK_VOLUME":/run/crypta -v "$LAKE_VOLUME":/lake \
-		-v "$SCRATCH/$1":/q.sql:ro --entrypoint sh ducklake-app \
-		-c 'mkdir -p /lake/data && ./build/release/duckdb -unsigned < /q.sql' 2>&1
+		-v "$SCRATCH/$1":/q.sql:ro --entrypoint sh "$DUCKLAKE_IMAGE" \
+		-c "mkdir -p /lake/data && ./$DUCKLAKE_BUILD/duckdb -unsigned < /q.sql" 2>&1
 }
 
 docker rm -f crypta-mvp >/dev/null 2>&1 || true
