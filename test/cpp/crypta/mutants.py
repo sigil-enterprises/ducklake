@@ -33,6 +33,18 @@ import sys
 
 SOURCES = ["crypta_client.cpp", "ducklake_crypta.cpp"]
 
+# The five length-prefixed appends that BUILD the cache key. Three mutants below
+# rewrite exactly this block - one keeping only the blob, one keeping only the
+# identity, one restoring the bare-'|' join - so the pattern is written once here
+# rather than copied three times and drifting apart.
+CACHE_KEY_COMPOSITION = (
+    '\tAppendLengthPrefixed(cache_key, identity.lake_id);\n'
+    '\tAppendLengthPrefixed(cache_key, table_id_text);\n'
+    '\tAppendLengthPrefixed(cache_key, file_kind);\n'
+    '\tAppendLengthPrefixed(cache_key, identity.stored_path);\n'
+    '\tAppendLengthPrefixed(cache_key, base64_value);'
+)
+
 # Every `old` below is matched EXACTLY and must occur EXACTLY once. A mutant
 # whose pattern drifts out of the source is an error, never a silent skip - a
 # mutant that quietly applied nothing would report the unmutated build as red-
@@ -311,7 +323,18 @@ MUTANTS = [
         "why": "the cache lookup itself",
         "old": '\t\tif (entry != unwrap_cache.end()) {',
         "new": '\t\tif (false) {',
-        "reddens": ["crypta provider: a repeated unwrap hits the cache and does not re-ask crypta"],
+        # The two key-confusion composition cases belong here too, and listing them
+        # is what VERIFIES the claim their comments make. Each ends by re-reading
+        # the legitimate row and requiring the connection count not to move, so a
+        # cache that never serves must redden them. A refusal-only case would
+        # survive this mutant - which is precisely the over-refusal blind spot the
+        # second half of each case exists to close, so the roster has to prove the
+        # half is load-bearing rather than take the comment's word for it.
+        "reddens": [
+            "crypta provider: a repeated unwrap hits the cache and does not re-ask crypta",
+            "crypta provider: a '|' in a path cannot be re-read as the cache-key separator",
+            "crypta provider: a '|' in an identity field cannot shift a cache-key boundary",
+        ],
     },
     {
         "name": "no_cache_clear",
@@ -326,12 +349,8 @@ MUTANTS = [
         "file": "ducklake_crypta.cpp",
         "why": "THE key-confusion guard - commit 7df67912. Keys the cache on the "
                "wrapped blob alone, which is the hole that commit closed",
-        "old": '\tauto cache_key = StringUtil::Format("%s|%lld|%s|%s", identity.lake_id, '
-               'static_cast<long long>(identity.table_id),\n'
-               '\t                                    identity.is_delete_file ? "delete" : "data", '
-               'identity.stored_path) +\n'
-               '\t                 "|" + base64_value;',
-        "new": '\tauto cache_key = base64_value;',
+        "old": CACHE_KEY_COMPOSITION,
+        "new": '\tcache_key = base64_value;',
         "reddens": [
             "crypta provider: two identities sharing one blob do not collide in the cache",
             "crypta provider: every component of the identity is part of the cache key",
@@ -346,16 +365,34 @@ MUTANTS = [
                "case: with the key reduced to the blob alone, two DIFFERENT blobs "
                "still give two different keys, so the case passes unmutated and "
                "would have been left claiming red-first evidence it did not have",
-        "old": '\tauto cache_key = StringUtil::Format("%s|%lld|%s|%s", identity.lake_id, '
-               'static_cast<long long>(identity.table_id),\n'
-               '\t                                    identity.is_delete_file ? "delete" : "data", '
-               'identity.stored_path) +\n'
-               '\t                 "|" + base64_value;',
-        "new": '\tauto cache_key = StringUtil::Format("%s|%lld|%s|%s", identity.lake_id, '
-               'static_cast<long long>(identity.table_id),\n'
-               '\t                                    identity.is_delete_file ? "delete" : "data", '
-               'identity.stored_path);',
+        "old": CACHE_KEY_COMPOSITION,
+        "new": '\tAppendLengthPrefixed(cache_key, identity.lake_id);\n'
+               '\tAppendLengthPrefixed(cache_key, table_id_text);\n'
+               '\tAppendLengthPrefixed(cache_key, file_kind);\n'
+               '\tAppendLengthPrefixed(cache_key, identity.stored_path);',
         "reddens": ["crypta provider: one identity with two blobs does not collide in the cache"],
+    },
+    {
+        "name": "cache_key_unprefixed_join",
+        "file": "ducklake_crypta.cpp",
+        "why": "the LENGTH PREFIXES that make the cache key injective, restoring the "
+               "bare-'|' join they replaced. Without a length in front of each "
+               "component nothing fixes where one ends: the boundary is found by "
+               "scanning for a separator, so a '|' inside a component is re-read as "
+               "structure and the components become readable across their own "
+               "boundaries. Two DIFFERENT (identity, blob) pairs then produce one "
+               "key, and the substituted row is served the cached DEK instead of "
+               "reaching crypta - the key-confusion bypass, back through the join",
+        "old": CACHE_KEY_COMPOSITION,
+        "new": '\tcache_key = StringUtil::Format("%s|%lld|%s|%s", identity.lake_id, '
+               'static_cast<long long>(identity.table_id),\n'
+               '\t                               identity.is_delete_file ? "delete" : "data", '
+               'identity.stored_path) +\n'
+               '\t            "|" + base64_value;',
+        "reddens": [
+            "crypta provider: a '|' in a path cannot be re-read as the cache-key separator",
+            "crypta provider: a '|' in an identity field cannot shift a cache-key boundary",
+        ],
     },
 ]
 
