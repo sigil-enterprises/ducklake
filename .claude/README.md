@@ -553,6 +553,13 @@ docker compose run --rm --entrypoint bash app -lc \
 docker compose run --rm --entrypoint bash app -lc \
   'test/sql/crypta/run_sql_crypta_tests.sh'
 
+# the red-first evidence for the guards in FULL-EXTENSION files, which the
+# standalone harness above structurally cannot reach (#45). Rebuilds the whole
+# extension per mutant, so it has its OWN cadence - see "The FULL-EXTENSION
+# roster" below. Needs a normal `make release` first.
+docker compose run --rm --entrypoint bash app -lc \
+  'test/sql/crypta/run_storage_mutants.sh'
+
 # what either suite actually reaches, both arms - see "Measuring it honestly"
 docker compose run --rm --entrypoint bash app -lc \
   'scripts/measure_crypta_refusal_coverage.sh'
@@ -626,6 +633,92 @@ silent:
 
 The first two are themselves positive-controlled: a crashing roster generator and
 an empty one were both shown to stop the run.
+
+### The FULL-EXTENSION roster - guards the standalone harness cannot reach (#45)
+
+`mutants.py` compiles a standalone project over exactly two files
+(`SOURCES = ["crypta_client.cpp", "ducklake_crypta.cpp"]`). Three crypta refusals
+do not live there. They live in `src/storage/` and `src/functions/` - full
+extension files - so the 35-mutant roster was structurally unable to reach them,
+and three .test files were asserting refusals **nothing had ever seen fire**:
+
+| guard | site | asserted by |
+| --- | --- | --- |
+| resolved-encryption at ATTACH | `ducklake_catalog.cpp` `FinalizeLoad` | `crypta_config_refusals.test` |
+| `RefuseWrappedKeyWithoutCrypta` - scan site | `ducklake_metadata_manager.cpp` | `crypta_unconfigured_reader_refusal.test` |
+| `RefuseWrappedKeyWithoutCrypta` - flush site | `ducklake_flush_inlined_data.cpp` | `crypta_flush_unconfigured_refusal.test` |
+
+`EXTENSION_MUTANTS`, in the same `mutants.py`, closes that. **Same record, same
+exactly-once guard, same `reddens` contract, same `spec`/`count` code** - one
+mechanism, two rosters, and the only thing that differs is the build. These are
+applied IN THE TREE and the whole extension is rebuilt; `reddens` names
+sqllogictest files, which are Catch cases in DuckDB's `test/unittest` binary, so
+the spec machinery is literally reused.
+
+Four mutants, all measured RED (`clean rc 0 -> mutated rc 1` on every named
+case), driven by `test/sql/crypta/run_storage_mutants.sh`:
+
+- `no_resolved_encryption_check` - reddens `crypta_config_refusals.test`
+- `no_wrapped_key_refusal_body` - reddens BOTH refusal files
+- `no_wrapped_key_refusal_on_scan` - reddens `crypta_unconfigured_reader_refusal.test`
+- `no_wrapped_key_refusal_on_flush` - reddens `crypta_flush_unconfigured_refusal.test`
+
+**One body, two callers, three mutants** - the shared-guard rule above, applied.
+The body mutant alone would redden off EITHER caller, so a caller whose test had
+rotted away would stay invisible. Each call site is therefore deleted on its own
+and must redden its own file; the body mutant stays as well, because deleting a
+call proves only that the caller CONSULTS the guard and never what it ANSWERS.
+The two call-site mutants also reproduce the original #20 symptom exactly -
+`INTERNAL Error: Invalid AES key length for GCM` - which is the defect the guard
+was added for, arriving on cue.
+
+**`redden_at`, the one field this roster adds.** A sqllogictest file is far
+bigger than a Catch case: it carries fixtures, ATTACHes, controls. "The file went
+red" is therefore weaker evidence than "this case went red" - the file could have
+died on its fixture and still be counted as evidence for a guard it never
+reached. So each mutant names a fragment of the STATEMENT it is supposed to flip,
+and the runner requires that text in the failure output. Its text, never its line
+number, which retargets silently. This is not theoretical: the first run reported
+`WRONG-RED` on `no_resolved_encryption_check`, because the marker had been copied
+verbatim from the .test file and sqllogictest EXPANDS `__TEST_DIR__` before
+echoing the statement. The check caught its own author; `mutants.py` now refuses a
+marker carrying a substitution token.
+
+**In-tree editing, made safe.** There is no `-DSRC_DIR` here - the guard is in a
+file the extension is compiled from - so the tree is edited. `unpatch` is the
+REVERSE substitution under the same exactly-once guard, a trap reverses on any
+exit, and `mutants.py verify-clean` re-reads the source before the run, after
+each mutant, and before anything is reported as proven. It reads the source
+rather than asking `git diff` because inside the devcontainer a git-WORKTREE
+checkout's `.git` file points at an absolute HOST path and git answers "not a git
+repository" - a check that errors is a check that proves nothing. The CI job asks
+git the same question afterwards, where git does work.
+
+Writing this surfaced a defect in its own first draft, which the round-trip
+control caught: a mutant that DELETED its line had `new = ""`, and the empty
+string cannot be matched exactly once - `unpatch` reported "occurs 223478 times"
+and the guard was stuck in the tree. Call-site mutants now replace the line with
+a marker comment, and an extension mutant with an empty `new` is rejected at
+import.
+
+**Cadence: `.github/workflows/StorageMutants.yml`, NOT the per-PR gate.** Each
+mutant costs a full extension build, twice (the tree is restored and rebuilt so
+the next mutant's clean control is measured against a clean binary) - nine builds
+per run. Measured warm in the devcontainer: **1m40s-2m24s for the whole run**;
+cold, the first build alone is 30-70 minutes. Charging every pull request nine
+extension builds to re-prove guards that change only when someone edits them is
+not worth it, so the trigger is narrow instead: `workflow_dispatch`,
+`repository_dispatch`, and any push or PR that TOUCHES the roster's subject - the
+three sources, the three .test files, the roster, the runner. A first step
+re-derives that subject list FROM the roster and reds if a path filter has
+drifted, so the narrow trigger cannot silently stop covering a file. There is no
+cron: `schedule` runs only on the default branch, and this fork's default branch
+tracks upstream, where none of this exists.
+
+`ducklake-bench` can now point `refuse_silently_ignored_crypta` and
+`refuse_unconfigured_reader` at `no_resolved_encryption_check` and
+`no_wrapped_key_refusal_on_scan` respectively - its schema gate greps
+`"name": "<mutant>"` out of this same `mutants.py`, so both resolve.
 
 ### The cache HIT path, and 7df67912
 
@@ -772,6 +865,13 @@ depends entirely on which job.
   prints "All tests were skipped" and EXITS ZERO. The same workflow runs
   `run_crypta_tests.sh --mutants`, so the C++ suite and its red-first evidence
   are gated too.
+- **`StorageMutants.yml`** (added by #45) runs
+  `test/sql/crypta/run_storage_mutants.sh`, which starts its own
+  `fake_crypta.py` for the same reason - two of its three files are
+  `require-env`, and a skipped file exits ZERO, so without a socket its clean
+  control would pass vacuously and every mutant would look like a survivor. It
+  is PATH-TRIGGERED, not per-PR, and does not matrix over DuckDB patches; both
+  choices are argued in the workflow's own header.
 - **The generic jobs** (`MainDistributionPipeline` and friends) invoke `unittest`
   plainly with no key service, so `require-env` files skip THERE.
 
