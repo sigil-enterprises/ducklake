@@ -72,7 +72,15 @@ private:
 	//! then paste blob A onto file B's row, and the next read of file B would hit
 	//! the cache and get DEK-A back without crypta ever seeing the mismatched
 	//! identity. The binding would be bypassed for the life of the process.
-	//! Including the identity makes a substituted row always a miss.
+	//!
+	//! Including the identity is NECESSARY for a substituted row to be a miss, but
+	//! it is not SUFFICIENT - the COMPOSITION of the components has to be
+	//! unambiguous too. Joined with a bare separator the key is not injective, so
+	//! two DIFFERENT (identity, blob) pairs can still produce one key and the
+	//! bypass returns through the join. What makes it sufficient is the encoding in
+	//! `UnwrapKey`: every component is LENGTH-PREFIXED as
+	//! `<decimal-byte-length>:<raw-bytes>`, so a boundary is fixed by a count
+	//! rather than by a delimiter and no field's content can be read as structure.
 	//!
 	//! Entries are dropped wholesale when the cap is hit - a scan re-reads the
 	//! same handful of files, so a crude cap beats an LRU's bookkeeping here.

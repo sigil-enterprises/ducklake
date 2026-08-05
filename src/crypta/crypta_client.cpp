@@ -45,8 +45,27 @@ bool CryptaClient::LooksWrapped(const string &base64_value) {
 
 //! JSON string escaping. Only the two characters that can appear in a DuckLake
 //! path and break a JSON string, plus control characters, need handling; base64
-//! never does. Paths are attacker-influenced in the sense that a table name
-//! reaches them, so this is not optional.
+//! never does. `stored_path` is attacker-influenced, so this is not optional -
+//! but be precise about HOW, because two plausible-sounding routes are both dead
+//! ends and citing either would misdescribe the threat:
+//!
+//!  - NOT a table name. Measured: a table named `weird|name` yields a generated
+//!    basename. `CanGeneratePathFromName` rejects any character outside
+//!    alphanumerics, `_` and `-`, so such a name is substituted by the table UUID
+//!    and reaches the path NOWHERE - not merely in a stripped directory part.
+//!  - NOT `ducklake_add_data_files`. It does store an operator-supplied path
+//!    verbatim, but the row it writes carries NO encryption key: `AddFileToTable`
+//!    never sets one, both wrap sites skip empty-key files, and on read
+//!    `ReadDataFile` throws "Database is encrypted, but file ... does not have an
+//!    encryption key" BEFORE the identity is built. So that row never reaches this
+//!    function at all.
+//!  - NOT a hive partition value: `HivePartitioning::Escape` is
+//!    `StringUtil::URLEncode`, which keeps only unreserved characters and `/`.
+//!
+//! The route that IS real is the threat model the envelope already assumes: an
+//! attacker with catalog write access sets both `path` and a wrapped
+//! `encryption_key` on the same `ducklake_data_file` row. That gives full control
+//! of `stored_path`, so an unescaped `"` here would inject into the request frame.
 static string JsonEscape(const string &input) {
 	string out;
 	out.reserve(input.size() + 8);
