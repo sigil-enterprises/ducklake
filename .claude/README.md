@@ -365,10 +365,21 @@ it to `GetFileSelectList` shifts positional column indices in 8+ queries.
    downgrade attack.
 6. **A wrapped key row on a lake attached WITHOUT crypta is refused**, by name.
    The mirror of invariant 2, and the other half of `LooksWrapped`'s "fails
-   closed in both directions". Enforced in `ReadDataFile`'s null-provider
-   branch. Without it the wrapped blob reaches the Parquet reader as a key and
-   surfaces as `INTERNAL Error: Invalid AES key length for GCM` - fail-closed by
-   accident, since it stops on the length rather than on a check.
+   closed in both directions". Without it the wrapped blob reaches the Parquet
+   reader as a key and surfaces as `INTERNAL Error: Invalid AES key length for
+   GCM` - fail-closed by accident, since it stops on the length rather than on a
+   check.
+
+   Enforced at **every site that decodes a stored key**, via the shared helper
+   `DuckLakeCatalog::RefuseWrappedKeyWithoutCrypta`. There are TWO, and an
+   earlier version of this invariant named only the first, which is exactly how
+   the second went uncovered: `DuckLakeMetadataManager::ReadDataFile` (the scan
+   path, covering delete files too through `ReadDeleteFile`'s delegation), and
+   `ducklake_flush_inlined_data.cpp`, which queries `ducklake_delete_file` with
+   its own SQL and never goes near `ReadDataFile`. **A new decode site must call
+   the helper** - grep for it before adding one. `LooksWrapped` carries a length
+   floor so this cannot misfire on a plaintext DEK that happens to start with
+   the magic.
 7. **A half-configured envelope is refused at ATTACH, in either direction** -
    `CRYPTA_SOCKET` without `CRYPTA_LAKE_ID` and `CRYPTA_LAKE_ID` without
    `CRYPTA_SOCKET`, plus a supplied-but-empty socket (an unexpanded `${VAR}`).
@@ -559,29 +570,30 @@ One detail that will bite: `SelfTest` looks for the literal substring
 `"ok":true`, so a health response pretty-printed as `"ok": true` is rejected as
 not-ok. The fake emits compact JSON for that reason.
 
-### What it found, and did not fix
+### What it found
 
-Six defects, every one FILED rather than changed here - this suite tests the
-envelope, it does not modify it. The PR carrying it touches no `src/`.
+Six defects. Five are now FIXED with their own red-then-green tests (#19, #20);
+the two that remain open are called out as such. The suite as originally written
+only reported these - it tested the envelope without modifying it - so the
+history reads report-then-fix rather than one change.
 
-| # | issue | what |
-|---|-------|------|
-| 2 | [#18](https://github.com/sigil-enterprises/ducklake/issues/18) | SECURITY - the cache key delimiter is ambiguous |
-| 3,4,5 | [#19](https://github.com/sigil-enterprises/ducklake/issues/19) | three ATTACH-time fail-opens |
-| 1 | [#20](https://github.com/sigil-enterprises/ducklake/issues/20) | an unconfigured reader dies on an assertion, not a diagnostic |
-| - | [#21](https://github.com/sigil-enterprises/ducklake/issues/21) | SIGPIPE kills an embedding host |
+| # | issue | what | state |
+|---|-------|------|-------|
+| 1 | [#20](https://github.com/sigil-enterprises/ducklake/issues/20) | an unconfigured reader dies on an assertion, not a diagnostic | FIXED |
+| 2 | [#18](https://github.com/sigil-enterprises/ducklake/issues/18) | SECURITY - the cache key delimiter is ambiguous | OPEN |
+| 3,4,5 | [#19](https://github.com/sigil-enterprises/ducklake/issues/19) | three ATTACH-time fail-opens | FIXED |
+| - | [#21](https://github.com/sigil-enterprises/ducklake/issues/21) | SIGPIPE kills an embedding host | FIXED |
+| - | [#26](https://github.com/sigil-enterprises/ducklake/issues/26) | the inlined-deletion flush never unwraps a CONFIGURED lake's delete-file key | OPEN |
 
-1. **A wrapped lake read by an UNCONFIGURED reader is not refused - it hits an
-   assertion failure.** ([#20](https://github.com/sigil-enterprises/ducklake/issues/20)) `crypta_client.hpp` says `LooksWrapped` fails closed "in
-   both directions", but its only call site is inside the provider, which only
-   exists when crypta is configured. Attach an enveloped lake with the crypta
-   options omitted and the read dies with `INTERNAL Error: Invalid AES key length
-   for GCM` and a stack trace, not a diagnostic. That is the most likely operator
-   mistake there is - forgetting the options on re-attach. Found by review, not
-   by this suite; no test added, because the fix changes behaviour.
-2. **The cache key delimiter is ambiguous** (`ducklake_crypta.cpp:51`,
-   [#18](https://github.com/sigil-enterprises/ducklake/issues/18) - the most
-   important result here). The key
+1. **FIXED (#20). A wrapped lake read by an UNCONFIGURED reader was not refused
+   - it hit an assertion failure.** `crypta_client.hpp` said `LooksWrapped` fails
+   closed "in both directions", but its only call site was inside the provider,
+   which only exists when crypta is configured. Attaching an enveloped lake with
+   the crypta options omitted died with `INTERNAL Error: Invalid AES key length
+   for GCM` and a stack trace, not a diagnostic. Now refused by name at BOTH
+   decode sites - see invariant 6 and the note under it, because the first fix
+   for this covered only one of them.
+2. **The cache key delimiter is ambiguous** (`ducklake_crypta.cpp:51`). The key
    joins the identity fields and the blob with a bare `|` and escapes nothing, so
    a path ending `|RExLZZZZ` and a blob beginning `RExLZZZZ|` produce the SAME
    key - reintroducing, through the delimiter, the exact bypass the
@@ -591,24 +603,56 @@ envelope, it does not modify it. The PR carrying it touches no `src/`.
    comment at `crypta_client.cpp:48` is wrong about this field. The route that
    does reach it is `ducklake_add_data_files`, which stores an operator-supplied
    path verbatim (measured).
-3. **`CRYPTA_SOCKET ''` disables the envelope instead of being refused.**
-   ([#19](https://github.com/sigil-enterprises/ducklake/issues/19), with 4 and 5)
-   `DuckLakeCatalog` guards the block with `!crypta_socket.empty()`, so an unset
-   variable expands to `''` and the lake writes 44-character PLAINTEXT keys with
-   no error. `CryptaClient`'s own empty-path refusal is unreachable from ATTACH.
-4. **`CRYPTA_LAKE_ID` with no `CRYPTA_SOCKET`** is silently ignored the same way.
-   Note the asymmetry: the opposite omission is refused, loudly.
-5. **`CRYPTA_SOCKET` on a lake that RESOLVES TO UNENCRYPTED** - a fresh lake
-   attached without `ENCRYPTED` - attaches, self-tests, and then encrypts
-   nothing. The "crypta_socket on an UNENCRYPTED DuckLake" guard only fires on an
-   explicit `ENCRYPTED false`. Stated carefully because a looser version of this
-   claim is false: re-attaching an EXISTING enveloped lake under AUTOMATIC works
-   fully, blobs and all (measured).
+3. **FIXED (#19). `CRYPTA_SOCKET ''` disabled the envelope instead of being
+   refused.** `DuckLakeCatalog` guarded the block with `!crypta_socket.empty()`,
+   so an unset variable expanded to `''` and the lake wrote 44-character
+   PLAINTEXT keys with no error, while `CryptaClient`'s own empty-path refusal
+   stayed unreachable from ATTACH. The guard now keys on whether either crypta
+   option was SUPPLIED, which both refuses this and makes that refusal reachable.
+4. **FIXED (#19). `CRYPTA_LAKE_ID` with no `CRYPTA_SOCKET`** was silently ignored
+   the same way, while the opposite omission was refused loudly. Now refused in
+   both directions.
+5. **FIXED (#19). `CRYPTA_SOCKET` on a lake that RESOLVES TO UNENCRYPTED** - a
+   fresh lake attached without `ENCRYPTED` - attached, self-tested, and then
+   encrypted nothing, because the guard only fired on an explicit
+   `ENCRYPTED false`. The check now runs on the RESOLVED mode, in `FinalizeLoad`
+   after the initializer. Stated carefully because a looser version of this claim
+   is false: re-attaching an EXISTING enveloped lake under AUTOMATIC works fully,
+   blobs and all (measured), and is asserted as a control.
 
-The three fail-opens are characterised in
-`test/sql/crypta/crypta_config_fail_open.test`, the only file in the group that
-asserts current behaviour rather than a refusal - read its header before reading
-its assertions. Each turns red the day its defect is fixed, which is the point.
+Still OPEN: item 2 (the cache-key delimiter), and the delete-file half of the
+flush path - `ducklake_flush_inlined_data.cpp` never calls `UnwrapKey`, so on a
+CONFIGURED crypta lake a wrapped delete-file key is used as the footer key. That
+one has its own issue; only its unconfigured-reader refusal was added here.
+
+The #19 refusals live in `crypta_attach_refusals.test` (the two that need no key
+service) and `crypta_config_refusals.test` (the one that does, plus the
+controls). `crypta_config_fail_open.test`, which used to characterise the
+fail-open behaviour, was deleted when the behaviour stopped existing - its own
+header instructed exactly that.
+
+### Which CI job runs what - "require-env skips in CI" depends on the JOB
+
+Corrected after being got wrong: a `require-env` file is NOT invisible to CI. It
+depends entirely on which job.
+
+- **`CryptaRefusals.yml`** (added by #22) runs `test/sql/crypta/run_sql_crypta_tests.sh`,
+  which starts `fake_crypta.py` and exports BOTH `DUCKLAKE_FAKE_CRYPTA_SOCKET`
+  and `DUCKLAKE_FAKE_CRYPTA_OPLOG` before invoking the suite. So every
+  `require-env` file in this directory DOES run there. Selection is a GLOB
+  (`"test/sql/crypta/*"`), so a new file is picked up with no workflow edit, and
+  the anti-skip guard DERIVES its list with `grep -l '^require-env'` and fails
+  unless each such file reports the word `assertions` - because a skipped file
+  prints "All tests were skipped" and EXITS ZERO. The same workflow runs
+  `run_crypta_tests.sh --mutants`, so the C++ suite and its red-first evidence
+  are gated too.
+- **The generic jobs** (`MainDistributionPipeline` and friends) invoke `unittest`
+  plainly with no key service, so `require-env` files skip THERE.
+
+`crypta_attach_refusals.test` carries no `require-env`, so it runs in both. The
+two constructor-level #19 refusals were deliberately put there rather than with
+the rest of #19, which is why they are covered by the generic jobs as well as by
+`CryptaRefusals.yml`.
 
 ### Measuring it honestly - both arms, or the number is not evidence
 

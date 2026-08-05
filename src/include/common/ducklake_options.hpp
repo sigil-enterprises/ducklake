@@ -46,6 +46,7 @@ struct DuckLakeOptions {
 	//! Compartment name that scopes every key in this lake. Required whenever
 	//! crypta_socket is set; without it keys are interchangeable between lakes.
 	string crypta_lake_id;
+	//! PRIVATE-FORK ONLY (crypta envelope encryption). Not upstream-eligible.
 	//! Whether each option was SUPPLIED at ATTACH, which is NOT the same as it
 	//! being non-empty - and the difference is the whole of #19. `CRYPTA_SOCKET
 	//! ''`, the shape an unexpanded `${VAR}` takes in a templated ATTACH, is

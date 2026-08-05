@@ -26,7 +26,7 @@ require parquet
 statement error
 ATTACH 'ducklake:__TEST_DIR__/crypta_unencrypted.db' AS unenc (DATA_PATH '__TEST_DIR__/crypta_unencrypted_files', ENCRYPTED false, CRYPTA_SOCKET '/tmp/ducklake_crypta_absent.sock', CRYPTA_LAKE_ID 'fixture')
 ----
-crypta_socket was set on an UNENCRYPTED DuckLake
+a crypta option was set on an UNENCRYPTED DuckLake
 
 # --------------------------------------------------------------------------
 # The lake id is what scopes a key to a compartment. Without it, two lakes
