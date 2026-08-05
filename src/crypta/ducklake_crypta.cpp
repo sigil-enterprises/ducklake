@@ -64,6 +64,19 @@ string DuckLakeCryptaProvider::UnwrapKey(const CryptaFileIdentity &identity, con
 		    "envelope entirely",
 		    identity.stored_path);
 	}
+	// A blob that is not base64 can never unwrap, so refusing it here is strictly
+	// better than forwarding it. `LooksWrapped` above tells a wrapped row from a
+	// plaintext one - four characters - and that is all it does; leaning on it as
+	// validation is what let a catalog value carrying JSON punctuation reach the
+	// request builder (issue #24). The builder escapes it now, so this is not the
+	// only thing standing between the column and the wire - it is the layer that
+	// stops a value that could never be a key from being sent at all.
+	if (!CryptaClient::IsBase64(base64_value)) {
+		throw IOException("file %s carries an encryption key that is not base64 - a wrapped key that cannot even be "
+		                  "decoded is either corruption or an attempt to write something other than a key into the "
+		                  "catalog, and neither is worth sending to crypta",
+		                  identity.stored_path);
+	}
 	// The cache key MUST include the identity, not just the blob - and the
 	// COMPOSITION of the components must itself be unambiguous.
 	//

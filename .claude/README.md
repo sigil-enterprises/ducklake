@@ -393,6 +393,28 @@ it to `GetFileSelectList` shifts positional column indices in 8+ queries.
 5. **Never re-encode a wrapped blob.** It arrives base64 from crypta;
    `WrappedEncryptionKeyLiteral` only quotes it. Double-encoding produces rows
    nothing can read.
+6. **Every catalog value interpolated into the request frame is escaped, and the
+   blob is a catalog value.** The `encryption_key` column is attacker-controlled
+   under exactly one route - **catalog write access**, the threat model the
+   envelope already assumes: an actor who can write `ducklake_data_file` sets
+   `encryption_key` and `stored_path` on the same row and so owns the blob bytes
+   outright. It goes through `JsonEscape` exactly like every identity field.
+   Unescaped, it closed its own JSON string and wrote a
+   second `identity` member or a whole extra array element into the frame - issue
+   #24. `LooksWrapped` does NOT prevent this and was never validation: it is a
+   four-character discriminator between a wrapped row and a plaintext one.
+   `CryptaClient::IsBase64` is the validation, and `UnwrapKey` applies it before
+   the cache. Two layers on purpose - the client is a public class and the
+   provider is not its only possible caller.
+
+   The consequence of the unescaped blob was measured, not assumed, and the
+   measurement bounds it: crypta accepts an injected array element and answers
+   with one DEK per item it parsed, because it has no count check at all. What
+   stops a file being handed another file's key is the client's own reply-count
+   check in `ExtractBase64Field` - it refuses a reply that does not carry exactly
+   one value per requested item. So the pre-fix damage was a REFUSED BATCH, not
+   key confusion. That check is load-bearing security, not tidiness; do not relax
+   it into a "take the first N".
 
 ### The staged / server-side commit path refuses, rather than degrading
 
@@ -559,9 +581,28 @@ re-configuring a 700-target tree.
 Every case in the suite asserts a REFUSAL, and **an unrun refusal test and a
 passing one look identical**. So `mutants.py` removes exactly one guard at a
 time - the truncation check, the count check, the EINTR retry, EACH HALF of the
-cache key - rebuilds, and requires the cases naming that guard to go RED. 31
-mutants, 31 reds. A guard whose removal changes nothing means the case naming it
+cache key - rebuilds, and requires the cases naming that guard to go RED. 35
+mutants, 35 reds. A guard whose removal changes nothing means the case naming it
 is not testing it, and the runner says so by name rather than counting it.
+
+**A presence mutant is the weakest one to have.** "Delete the call" only proves
+the caller CONSULTS the guard; it never proves what the guard ANSWERS. So a
+guard that makes a value judgement needs a SEMANTIC mutant that changes the
+judgement rather than removing it. `IsBase64` is the case that earned the rule:
+widening its range to `'A'..'z'` - which spans ASCII 65-122 and so admits the
+backslash at 92 - left the entire suite green, because the only mutant on it
+deleted the check outright. `widened_base64_alphabet` is that mutant, and the
+alphabet-edges case is what it reddens.
+
+**A guard shared by two callers needs a test on EACH caller.** `JsonEscape`
+serves both the identity and the wrapped blob, and its two original mutants were
+both presence-only. Nothing described changing WHICH characters it escapes, and
+no blob in the suite carried a backslash - the arm was exercised solely through
+`hostile_path` in the identity case. The guard was therefore proven, but proven
+by the other caller's test, which is proof by coincidence: the blob path is the
+one #24 names, and a blob ending in `\` escapes the format string's own closing
+quote. `no_backslash_escape` (semantic - it strips only the backslash arm and
+leaves `case '"':` standing) plus a blob fixture that ends in one close it.
 
 Both halves of the cache key need their own mutant, and finding out why is worth
 the warning: reducing the key to the blob alone cannot redden the
@@ -588,7 +629,9 @@ an empty one were both shown to stop the run.
 
 ### The cache HIT path, and 7df67912
 
-`ducklake_crypta.cpp:135` had never executed in the EXTENSION build - i.e. through
+`ducklake_crypta.cpp:146-148` (cited as `:58`, then `:71` after #24's guard, then
+`:135` after #18's length-prefixing - re-derived by content each time, never
+offset by hand) had never executed in the EXTENSION build - i.e. through
 a real ATTACH. (The standalone cache suite covers it too; the looser claim
 "never executed in this tree" is false once that suite exists, and was corrected
 after a review caught it.) Every unwrap in the proof is a MISS,
@@ -660,9 +703,21 @@ rather than one change.
    BY COUNT instead of scanning for a delimiter, so no field content can be
    re-read as structure. Not escaping (that invites the next escaping bug) and
    not a rarer separator (no byte is safe when the field is operator-supplied).
-   Carried by two cases in `crypta_cache_test.cpp` and by the
-   `cache_key_unprefixed_join` mutant, which restores the bare join and must
-   redden both. The completeness half of the property is `wire-set == key-set`:
+   Carried by ONE case in `crypta_cache_test.cpp` - `a '|' in an identity field
+   cannot shift a cache-key boundary` - and by the `cache_key_unprefixed_join`
+   mutant, which restores the bare join and must redden it. It was two cases
+   until #24 merged, and the arithmetic is worth keeping: the other case, `a '|'
+   in a path cannot be re-read as the cache-key separator`, carries the blob
+   `RExLZZZZ|RExLAAAA`, and #24's `IsBase64` now refuses that '|' before the
+   cache key is built - so with the length prefixes deleted it still PASSES
+   (measured, rc 0). It proves the alphabet guard now, and is listed under
+   `no_blob_alphabet_check`, where it reddens (measured, rc 1). Nothing was lost;
+   the case moved to the layer it actually exercises. The reason to state this
+   rather than quietly renumber: the runner builds ONE Catch spec per mutant and
+   checks only the COMBINED exit status, so a stale second name keeps reporting
+   RED off the case that does redden - a mutant reddening off one caller hides a
+   second caller that stopped depending on the guard. Verify a multi-name roster
+   PER CASE. The completeness half of the property is `wire-set == key-set`:
    `CryptaFileIdentity` has exactly four fields, `IdentityJson` puts exactly those
    four on the wire, and the five components are those four plus the blob - so a
    field crypta binds to cannot be silently missing from the key. The
@@ -797,18 +852,22 @@ its five calls); `crypta_client.cpp` gained them from #20 and #21 on this branch
 denominators have certainly moved and both numerators probably have, so treat
 `166/167` and `35/36` alike as the last real measurement until
 `measure_crypta_refusal_coverage.sh` is re-run. The `still dark` column HAS been
-re-derived by content against the merged files - `:118` is `JsonEscape`'s closing
-brace, which the branch's 20 added lines in `LooksWrapped` moved down from `:98`.
+re-derived by content against the merged files - `:151` is `JsonEscape`'s closing
+brace. It has now moved three times (`:98` on the base before either change,
+`:118` with this branch's 20 added lines in `LooksWrapped`, `:131` with #24's
+`IsBase64`, and `:151` once BOTH are present). Neither side's number survived the
+merge, which is the whole argument for re-deriving a pin rather than carrying one
+across.
 
 Every number there is a PAIR, because gcov's `.gcda` counters accumulate and a
 lone non-zero proves nothing about which run produced it:
 
-- **the cache HIT** (`ducklake_crypta.cpp:135`) reads **0** with only
+- **the cache HIT** (`ducklake_crypta.cpp:148`) reads **0** with only
   `crypta_attach_refusals.test` run - which exercises the same file, so the
   instrument is demonstrably live - and **4** with the full SQL group. It moves
   when and only when the cache case runs.
 - **the dark-line check** is a subset test with its own positive control: with
-  the unreachable list emptied it flags `:118` and `:143`, with the list in place
+  the unreachable list emptied it flags `:151` and `:156`, with the list in place
   it passes. A check that cannot fail is not a check.
 
 There are **three** hardcoded line pins in that script and they drift
@@ -842,11 +901,11 @@ Two traps this script exists to document, both of which it walked into first:
 
 Two things are honestly NOT proven and were not contrived into looking proven:
 
-- `ducklake_crypta.cpp:142-144` (`crypta returned N keys for one file`) is
+- `ducklake_crypta.cpp:155-157` (`crypta returned N keys for one file`) is
   **unreachable**. `ExtractBase64Field` already enforces exactly-`expected`
   values and `UnwrapKey` always requests one, so no response can reach it. It is
   defence in depth, and it stays dark.
-- `crypta_client.cpp:118`, the closing brace of `JsonEscape`, is its
+- `crypta_client.cpp:151`, the closing brace of `JsonEscape`, is its
   exception-unwind block. gcov counts a closing brace on both the return and the
   unwind path - measured, not assumed: `ExtractBase64Field`'s brace reads 4143
   against 4131 returns, the excess being its throws unwinding through. Nothing in

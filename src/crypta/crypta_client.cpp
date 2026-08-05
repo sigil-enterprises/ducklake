@@ -63,11 +63,44 @@ bool CryptaClient::LooksWrapped(const string &base64_value) {
 	return StringUtil::StartsWith(base64_value, WRAPPED_PREFIX);
 }
 
-//! JSON string escaping. Only the two characters that can appear in a DuckLake
-//! path and break a JSON string, plus control characters, need handling; base64
-//! never does. `stored_path` is attacker-influenced, so this is not optional -
-//! but be precise about HOW, because two plausible-sounding routes are both dead
-//! ends and citing either would misdescribe the threat:
+bool CryptaClient::IsBase64(const string &value) {
+	// The ALPHABET only, deliberately - not the length, and not the padding.
+	//
+	// `LooksWrapped` is a four-character discriminator between "wrapped" and
+	// "plaintext key", and it is fine at that job; what it is NOT is validation,
+	// and it was being leaned on as if it were. This is the validation: a value
+	// carrying a character outside the base64 alphabet can never decode to a
+	// wrapped key, so nothing is lost by refusing it - and the characters it
+	// excludes are exactly the ones that end a JSON string early.
+	//
+	// Length and padding are crypta's business. A rule here would refuse blobs
+	// that are perfectly forwardable, and over-refusal on the read path locks an
+	// operator out of their own lake.
+	for (auto c : value) {
+		auto u = static_cast<unsigned char>(c);
+		bool in_alphabet = (u >= 'A' && u <= 'Z') || (u >= 'a' && u <= 'z') || (u >= '0' && u <= '9') || u == '+' ||
+		                   u == '/' || u == '=';
+		if (!in_alphabet) {
+			return false;
+		}
+	}
+	return true;
+}
+
+//! JSON string escaping. Only the two characters that can break a JSON string,
+//! plus control characters, need handling.
+//!
+//! Applied to EVERY value interpolated into a frame, including the wrapped blob.
+//! It used to skip the blob on the reasoning that base64 needs no escaping -
+//! true of base64, and beside the point: the blob is a catalog column value, and
+//! nothing guarantees a catalog column holds base64. That is issue #24, and it
+//! is why "this value is a safe shape" is asserted by `IsBase64` where the value
+//! enters, not assumed by the encoder that writes it out.
+//!
+//! `stored_path` is the other attacker-influenced value, and it is not optional
+//! either - but be precise about HOW it is reached, because three
+//! plausible-sounding routes are all dead ends and citing any of them would
+//! misdescribe the threat:
 //!
 //!  - NOT a table name. Measured: a table named `weird|name` yields a generated
 //!    basename. `CanGeneratePathFromName` rejects any character outside
@@ -352,7 +385,13 @@ vector<string> CryptaClient::UnwrapBatch(const vector<CryptaFileIdentity> &ident
 		if (i > 0) {
 			body += ",";
 		}
-		body += StringUtil::Format("{\"identity\":%s,\"wrapped\":\"%s\"}", IdentityJson(identities[i]), blobs[i]);
+		// The blob is escaped for the same reason every identity field beside it
+		// is: it is a catalog column value, so it is attacker-influenced, and
+		// splicing it raw let it close its own JSON string and write protocol -
+		// a second `identity` member, or a whole extra array element. The caller
+		// asks for N files; the frame must say N files.
+		body += StringUtil::Format("{\"identity\":%s,\"wrapped\":\"%s\"}", IdentityJson(identities[i]),
+		                           JsonEscape(blobs[i]));
 	}
 	body += "]}";
 

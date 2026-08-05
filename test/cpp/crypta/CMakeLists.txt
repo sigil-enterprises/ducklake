@@ -65,6 +65,7 @@ add_executable(
   fake_crypta_server.cpp
   crypta_refusal_test.cpp
   crypta_cache_test.cpp
+  crypta_injection_test.cpp
   "${CRYPTA_SRC_DIR}/crypta_client.cpp"
   "${CRYPTA_SRC_DIR}/ducklake_crypta.cpp")
 
