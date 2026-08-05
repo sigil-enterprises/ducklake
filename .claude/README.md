@@ -435,7 +435,51 @@ both are on issue #1 with the reproductions.
    `encrypted = true`, zero data files, and the value readable with an ordinary
    `SELECT`. On teras the catalog is Postgres, so that is plaintext PHI in
    Postgres, the WAL, every replica and every backup. **crypta cannot help** -
-   there is no key involved. Set `DATA_INLINING_ROW_LIMIT 0`.
+   there is no key involved.
+
+   **A crypta lake now forces this off itself** (issue #13 item 1). When
+   `CRYPTA_SOCKET` is set, both `DuckLakeCatalog::DataInliningRowLimit` overloads
+   return 0, so no option at any scope - table, schema, catalog-global, persisted,
+   ATTACH, or the process-wide `SET` - can re-enable inlining. The guard is at the
+   **read**, not at the write, because the write paths cannot be exhaustively
+   guarded: `DuckLakeInitializer` overwrites the ATTACH-supplied value with the
+   persisted lake option in the same map *after* the catalog is constructed
+   (`src/storage/ducklake_initializer.cpp:213`), and `ducklake_set_option` can set
+   it at any scope at any time. Asking for a non-zero limit explicitly - at ATTACH
+   or through `set_option` - is a hard error rather than a silent no-op, so nobody
+   learns a request took effect when it did not. Setting it to 0 still works.
+
+   Three things this does **not** do, named so nobody assumes otherwise:
+   - **An `ENCRYPTED` lake attached *without* `CRYPTA_SOCKET` still inlines
+     cleartext.** The guard keys on crypta, not on `ENCRYPTED`, because upstream
+     `test/sql/data_inlining/data_inlining_encryption.test` deliberately combines
+     `ENCRYPTED` with inlining. There, `DATA_INLINING_ROW_LIMIT 0` is still yours
+     to set.
+   - **Rows already inlined before crypta was configured are not scrubbed.** This
+     is write-side only. Remediation is an explicit
+     `CALL ducklake_flush_inlined_data(...)`; nothing warns about it at ATTACH.
+   - **Deleting rows in a pre-existing inlined table takes an ungated branch**
+     (`src/storage/ducklake_delete.cpp:497-500`). It stamps `end_snapshot` on rows
+     that already exist in `ducklake_inlined_data_<id>_<v>` (via
+     `WriteNewInlinedDeletes`, `ducklake_metadata_manager.cpp:2812-2830`). It writes
+     **no new cleartext** and does **not** touch `ducklake_inlined_delete_*` - that
+     table is reached only through the *gated* `AddNewInlinedFileDeletes` at
+     `ducklake_delete.cpp:512`. Unreachable on a lake crypta-configured from its
+     first write, since no inlined data can exist there.
+   - **`SET ducklake_default_data_inlining_row_limit = N` still succeeds silently**
+     on a crypta lake. It is process-wide, so refusing it would break a non-crypta
+     lake attached in the same process; the read-path guard makes it harmless, and
+     `options()` is where the effective value can be seen.
+   - **Small deletes now cost a Parquet delete file and a `WrapKeys` call.** Forcing
+     the limit to 0 also disables inlined *file* deletions, so a single-row DELETE
+     on a crypta lake writes an enveloped delete file where it previously wrote rows
+     into `ducklake_inlined_delete_*`. Correct - the delete file is enveloped, the
+     inlined positions were not - but it is real per-delete I/O that did not exist.
+
+   Proven by `test/sql/crypta/crypta_inlining_refusals.test`, which carries its own
+   positive control - the same insert on a non-crypta lake must still show the
+   sentinel readable as cleartext out of the catalog. If that case goes quiet,
+   every absence assertion in the file is worthless.
 2. **Encrypted Parquet writes require `httpfs`** (the full mbedtls crypto
    module). Without it the write fails closed, which is right. But
    `force_mbedtls_unsafe` exists and would produce a lake that claims encryption
@@ -544,7 +588,7 @@ an empty one were both shown to stop the run.
 
 ### The cache HIT path, and 7df67912
 
-`ducklake_crypta.cpp:58` had never executed in the EXTENSION build - i.e. through
+`ducklake_crypta.cpp:135` had never executed in the EXTENSION build - i.e. through
 a real ATTACH. (The standalone cache suite covers it too; the looser claim
 "never executed in this tree" is false once that suite exists, and was corrected
 after a review caught it.) Every unwrap in the proof is a MISS,
@@ -572,15 +616,17 @@ not-ok. The fake emits compact JSON for that reason.
 
 ### What it found
 
-Six defects. Five are now FIXED with their own red-then-green tests (#19, #20);
-the two that remain open are called out as such. The suite as originally written
-only reported these - it tested the envelope without modifying it - so the
-history reads report-then-fix rather than one change.
+Six defects. Five are FIXED here with their own red-then-green tests (#19, #20,
+#21); the sixth (#18) was FIXED separately on the base and its account is kept
+below as it was written there. One further defect (#26) remains open and is
+called out as such. The suite as originally written only reported these - it
+tested the envelope without modifying it - so the history reads report-then-fix
+rather than one change.
 
 | # | issue | what | state |
 |---|-------|------|-------|
 | 1 | [#20](https://github.com/sigil-enterprises/ducklake/issues/20) | an unconfigured reader dies on an assertion, not a diagnostic | FIXED |
-| 2 | [#18](https://github.com/sigil-enterprises/ducklake/issues/18) | SECURITY - the cache key delimiter is ambiguous | OPEN |
+| 2 | [#18](https://github.com/sigil-enterprises/ducklake/issues/18) | SECURITY - the cache key delimiter is ambiguous | FIXED (on the base) |
 | 3,4,5 | [#19](https://github.com/sigil-enterprises/ducklake/issues/19) | three ATTACH-time fail-opens | FIXED |
 | - | [#21](https://github.com/sigil-enterprises/ducklake/issues/21) | SIGPIPE kills an embedding host | FIXED |
 | - | [#26](https://github.com/sigil-enterprises/ducklake/issues/26) | the inlined-deletion flush never unwraps a CONFIGURED lake's delete-file key | OPEN |
@@ -593,16 +639,39 @@ history reads report-then-fix rather than one change.
    for GCM` and a stack trace, not a diagnostic. Now refused by name at BOTH
    decode sites - see invariant 6 and the note under it, because the first fix
    for this covered only one of them.
-2. **The cache key delimiter is ambiguous** (`ducklake_crypta.cpp:51`). The key
-   joins the identity fields and the blob with a bare `|` and escapes nothing, so
-   a path ending `|RExLZZZZ` and a blob beginning `RExLZZZZ|` produce the SAME
-   key - reintroducing, through the delimiter, the exact bypass the
-   (identity, blob) keying exists to prevent. On reachability, precisely: a `|`
-   does NOT arrive via a table name - `stored_path` is the generated basename and
-   the table name lands in the stripped directory part, so the justification
-   comment at `crypta_client.cpp:48` is wrong about this field. The route that
-   does reach it is `ducklake_add_data_files`, which stores an operator-supplied
-   path verbatim (measured).
+2. **FIXED on the base - the cache key delimiter was ambiguous**
+   ([#18](https://github.com/sigil-enterprises/ducklake/issues/18)). The
+   key joined the identity fields and the blob with a bare `|` and escaped
+   nothing, so a path ending `|RExLZZZZ` and a blob beginning `RExLZZZZ|`
+   produced the SAME key - reintroducing, through the delimiter, the exact bypass
+   the (identity, blob) keying exists to prevent. On reachability the route is
+   catalog write access itself: the attacker sets `path` and a wrapped
+   `encryption_key` on the same `ducklake_data_file` row, which is full control of
+   `stored_path`. Three plausible-sounding routes are NOT it, and #18's own
+   reachability paragraph got this wrong - a table name (`CanGeneratePathFromName`
+   substitutes the table UUID, so the name reaches the path nowhere),
+   `ducklake_add_data_files` (stores a path verbatim, but the row carries no
+   encryption key and a keyless row throws in `ReadDataFile` before an identity is
+   built, so it never reaches the cache), and a hive partition value
+   (`HivePartitioning::Escape` is `StringUtil::URLEncode`). Fixed by
+   LENGTH-PREFIXING each of the five components as
+   `<decimal-byte-length>:<raw-bytes>` and concatenating them with no separator
+   at all - injective by construction, because a decoder consumes each component
+   BY COUNT instead of scanning for a delimiter, so no field content can be
+   re-read as structure. Not escaping (that invites the next escaping bug) and
+   not a rarer separator (no byte is safe when the field is operator-supplied).
+   Carried by two cases in `crypta_cache_test.cpp` and by the
+   `cache_key_unprefixed_join` mutant, which restores the bare join and must
+   redden both. The completeness half of the property is `wire-set == key-set`:
+   `CryptaFileIdentity` has exactly four fields, `IdentityJson` puts exactly those
+   four on the wire, and the five components are those four plus the blob - so a
+   field crypta binds to cannot be silently missing from the key. The
+   justification comment at `crypta_client.cpp` was corrected in the same change,
+   and then corrected AGAIN once the `ducklake_add_data_files` route was measured
+   and found dead. That fix landed in
+   [#29](https://github.com/sigil-enterprises/ducklake/pull/29) on
+   `release/v1.5-variegata`, not in this change; it is recorded here because this
+   file is the fork's single defect ledger.
 3. **FIXED (#19). `CRYPTA_SOCKET ''` disabled the envelope instead of being
    refused.** `DuckLakeCatalog` guarded the block with `!crypta_socket.empty()`,
    so an unset variable expanded to `''` and the lake wrote 44-character
@@ -620,10 +689,12 @@ history reads report-then-fix rather than one change.
    is false: re-attaching an EXISTING enveloped lake under AUTOMATIC works fully,
    blobs and all (measured), and is asserted as a control.
 
-Still OPEN: item 2 (the cache-key delimiter), and the delete-file half of the
-flush path - `ducklake_flush_inlined_data.cpp` never calls `UnwrapKey`, so on a
-CONFIGURED crypta lake a wrapped delete-file key is used as the footer key. That
-one has its own issue; only its unconfigured-reader refusal was added here.
+Still OPEN: the delete-file half of the flush path -
+`ducklake_flush_inlined_data.cpp` never calls `UnwrapKey`, so on a CONFIGURED
+crypta lake a wrapped delete-file key is used as the footer key. That one has its
+own issue (#26); only its unconfigured-reader refusal was added here. Item 2 is
+no longer open - it was fixed on the base in #29 and this branch carries that fix
+through the merge, not a fix of its own.
 
 The #19 refusals live in `crypta_attach_refusals.test` (the two that need no key
 service) and `crypta_config_refusals.test` (the one that does, plus the
@@ -716,19 +787,46 @@ Two things `!cancelled()` does NOT fix, so it is not read as closing #36:
 
 | file | before | now | still dark |
 |------|--------|-----|------------|
-| `src/crypta/crypta_client.cpp` | 128/167 | **166/167** | `:79` |
-| `src/crypta/ducklake_crypta.cpp` | 30/36 | **35/36** | `:66` |
+| `src/crypta/crypta_client.cpp` | 128/167 | **166/167** | `:98` |
+| `src/crypta/ducklake_crypta.cpp` | 30/36 | **35/36** | `:143` |
+
+Both ratios were measured BEFORE the #18 cache-key fix and have NOT been
+re-measured since. They are left as the last real measurement rather than
+adjusted by hand, because the fix adds executable lines to `ducklake_crypta.cpp`
+(the `AppendLengthPrefixed` helper and its five calls), so that row's denominator
+has certainly moved and its numerator probably has. Treat `35/36` as historical
+until `measure_crypta_refusal_coverage.sh` is re-run; the `still dark` column IS
+current, re-derived against the fixed files.
 
 Every number there is a PAIR, because gcov's `.gcda` counters accumulate and a
 lone non-zero proves nothing about which run produced it:
 
-- **the cache HIT** (`ducklake_crypta.cpp:58`) reads **0** with only
+- **the cache HIT** (`ducklake_crypta.cpp:135`) reads **0** with only
   `crypta_attach_refusals.test` run - which exercises the same file, so the
   instrument is demonstrably live - and **4** with the full SQL group. It moves
   when and only when the cache case runs.
 - **the dark-line check** is a subset test with its own positive control: with
-  the unreachable list emptied it flags `:79` and `:66`, with the list in place
+  the unreachable list emptied it flags `:98` and `:143`, with the list in place
   it passes. A check that cannot fail is not a check.
+
+There are **three** hardcoded line pins in that script and they drift
+independently - `CACHE_HIT_LINE` at the top, plus the two in the `UNREACHABLE`
+dict. The #18 fix moved all three (`58 -> 135`, `79 -> 98`, `66 -> 143`) and
+repaired all three; repairing only the dict is the easy mistake, because
+`CACHE_HIT_LINE` is 130 lines away from it. What a stale pin actually does is
+worth stating precisely, since it is not silent:
+
+- the `UNREACHABLE` dict is a subset test (`unexpected = dark - UNREACHABLE`), so
+  a stale entry **always** false-flags the real line once it moves off the list -
+  a visible red. It excuses the line now at the stale number only if that line is
+  itself dark, which is a coincidence rather than the default.
+- a stale `CACHE_HIT_LINE` also fails loud, but **with a misleading diagnosis**.
+  If it lands on a comment, gcovr never reports the line, `line_count` returns the
+  string `unreachable`, and the negative arm's `!= "0"` trips. The message used to
+  offer only "a stale `.gcda`" or "something else reaches that line" - neither
+  true - so the reader chases a phantom. The message now names the drift first.
+  Credit to the #24 branch for finding this one; the first pass here fixed the
+  dict and missed it.
 
 Two traps this script exists to document, both of which it walked into first:
 
@@ -742,11 +840,11 @@ Two traps this script exists to document, both of which it walked into first:
 
 Two things are honestly NOT proven and were not contrived into looking proven:
 
-- `ducklake_crypta.cpp:66` (`crypta returned N keys for one file`) is
+- `ducklake_crypta.cpp:142-144` (`crypta returned N keys for one file`) is
   **unreachable**. `ExtractBase64Field` already enforces exactly-`expected`
   values and `UnwrapKey` always requests one, so no response can reach it. It is
   defence in depth, and it stays dark.
-- `crypta_client.cpp:79`, the closing brace of `JsonEscape`, is its
+- `crypta_client.cpp:98`, the closing brace of `JsonEscape`, is its
   exception-unwind block. gcov counts a closing brace on both the return and the
   unwind path - measured, not assumed: `ExtractBase64Field`'s brace reads 4143
   against 4131 returns, the excess being its throws unwinding through. Nothing in

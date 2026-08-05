@@ -447,19 +447,51 @@ TEST_CASE("crypta provider: a substituted key row is refused by crypta, not serv
 }
 
 //===----------------------------------------------------------------------===//
-// A defect this suite found. Reported, not fixed here.
+// Key confusion through the COMPOSITION of the cache key
+//
+// The two cases below assert one property: the composition that builds the cache
+// key is INJECTIVE, so no two distinct (identity, blob) pairs can ever land on
+// the same entry.
+//
+// These two carry no `// mutant:` marker while every other case in this file does,
+// and that is correct AT THIS COMMIT rather than an omission: the guard they assert
+// does not exist in `src/` yet, so they are RED against the tree as it stands and
+// no mutant is needed to prove they CAN fail. The roster entry lands with the fix.
+//
+// Each case pins the property from BOTH sides. A case made only of refusals
+// cannot detect OVER-refusal: a key so broken that it NEVER matches satisfies
+// every collision assertion here, while silently sending every unwrap to crypta -
+// a performance and availability regression. Measured, not supposed: built against
+// `no_cache_lookup` (the cache lookup forced to `false`), both cases below PASSED.
+// So after the substituted row is refused, each re-reads the LEGITIMATE row and
+// requires it to still be served from cache, with the connection count NOT moving.
+//
+// The honest limit of that, stated because it is easy to overclaim: this adds no
+// DETECTION to the suite as a whole. Any build failing these added assertions also
+// fails the `[crypta][cache][hit]` case above, which is why they redden under
+// `no_cache_lookup` and under no other mutant. What they buy is per-case
+// SELF-CONTAINMENT, and that is worth having here for a concrete reason rather
+// than a hypothetical one: `run_crypta_tests.sh` drives mutants BY TEST-NAME SPEC,
+// so it really does run these two cases in isolation from the hit case - and in
+// isolation, without the second half, they would prove strictly less than they
+// appear to.
+//
+// The cost is that `no_cache_lookup` now reddens three cases where one would
+// suffice to pin its guard, so the roster is a little less precise about which
+// case pins what. That trade is deliberate.
 //===----------------------------------------------------------------------===//
 
-TEST_CASE("crypta provider: the cache key delimiter is ambiguous - REPORTED, not fixed",
-          "[crypta][cache][key_confusion][known_defect]") {
+TEST_CASE("crypta provider: a '|' in a path cannot be re-read as the cache-key separator",
+          "[crypta][cache][key_confusion]") {
 	// The cache key is built by joining the identity fields and the blob with a
 	// literal '|':
 	//
 	//   Format("%s|%lld|%s|%s", lake_id, table_id, kind, stored_path) + "|" + blob
 	//
-	// Nothing escapes the fields, so two DIFFERENT (identity, blob) pairs can
-	// produce the SAME key whenever a '|' inside a path can be re-read as the
-	// delimiter. Below, A's path ends with "|RExLZZZZ" and B's blob is exactly
+	// Nothing escapes a field and nothing prefixes it with its length, so that
+	// join is NOT injective: two DIFFERENT (identity, blob) pairs produce the
+	// SAME key whenever a '|' inside a field can be re-read as the separator.
+	// Below, A's path ends with "|RExLZZZZ" and B's blob is exactly
 	// "RExLZZZZ|" followed by A's blob; both therefore join to
 	//
 	//   test-lake|7|data|t/p|RExLZZZZ|<blob_a>
@@ -469,27 +501,36 @@ TEST_CASE("crypta provider: the cache key delimiter is ambiguous - REPORTED, not
 	// the cache is reached, and this case would silently stop testing the
 	// collision. blob_b inherits the "RExL" prefix and is longer still.
 	//
-	// so B's read hits A's cache entry and gets DEK-A back without crypta ever
-	// seeing the mismatched identity. That is the exact bypass the (identity,
-	// blob) keying exists to prevent, reintroduced through the delimiter.
+	// A is read first, so on a key like that B is handed A's cached DEK and
+	// crypta never sees the mismatched identity - the exact bypass the
+	// (identity, blob) keying exists to prevent, reintroduced through the
+	// separator.
 	//
-	// The threat model is unchanged from the one the envelope already assumes:
-	// an attacker with catalog write access, who controls both a file's path and
-	// another file's encryption_key column, and who cannot mint a valid blob.
+	// What MUST happen, and what this case asserts: B is a different file
+	// carrying a blob crypta never issued for it, so B MISSES the cache, reaches
+	// crypta, and is REFUSED. The CONNECTION COUNT is the real assertion. A
+	// refusal on its own proves nothing about the cache - only the count
+	// distinguishes "the cache was bypassed" from "the service was asked and
+	// disagreed", so the throw and `Connections() == 2` are one assertion in two
+	// halves.
 	//
-	// On reachability, precisely: a path with a '|' in it does NOT come from a
-	// table name. `stored_path` is the generated basename, and the table name
-	// lands in the directory part, which is stripped - so the comment in
-	// crypta_client.cpp:48 that justifies escaping by "a table name reaches them"
-	// is wrong about this field. The route that does reach it is
-	// `ducklake_add_data_files`, which stores an operator-supplied path verbatim.
-	// Both are reported on the issue.
+	// The threat model is the one the envelope already assumes: an attacker with
+	// catalog write access, who controls both a file's path and another file's
+	// encryption_key column, and who cannot mint a valid blob. That write access IS
+	// the route - the attacker sets `path` and a wrapped `encryption_key` on the
+	// same `ducklake_data_file` row, which is full control of `stored_path`.
 	//
-	// This asserts the collision POSITIVELY rather than carrying the refusal
-	// under Catch's [!shouldfail]. Under that tag ANY failure reads as "the
-	// defect is still there" - a server that never started would look identical.
-	// Asserted this way the case says exactly what happens, and it still turns
-	// RED the day the key is made unambiguous, which is the signal wanted.
+	// Three routes that sound plausible and are NOT it, recorded so nobody re-cites
+	// them: a table name (`CanGeneratePathFromName` substitutes the table UUID for
+	// any name outside alphanumerics/`_`/`-`, so such a name reaches the path
+	// nowhere); `ducklake_add_data_files` (it does store a path verbatim, but the
+	// row carries no encryption key and a keyless row throws in `ReadDataFile`
+	// before an identity is built, so it never reaches the cache); and a hive
+	// partition value (`HivePartitioning::Escape` is `StringUtil::URLEncode`).
+	//
+	// Asserted as a refusal rather than carried under Catch's [!shouldfail]:
+	// under that tag ANY failure reads as "the defect is still there", and a
+	// server that never started would look identical to a real collision.
 	BindingCryptaFake crypta;
 
 	auto identity_a = SampleIdentity("t/p|RExLZZZZ");
@@ -499,7 +540,8 @@ TEST_CASE("crypta provider: the cache key delimiter is ambiguous - REPORTED, not
 
 	auto dek_a = DekFor("A");
 	crypta.Issue(identity_a, blob_a, dek_a);
-	// Deliberately NOT issued for B: crypta would refuse this pair.
+	// B's pair is deliberately NOT issued: crypta must refuse it - which it can
+	// only do if it is asked at all.
 
 	FakeCryptaServer server;
 	server.Start([&](FakeConnection &connection, int) { crypta.Serve(connection); });
@@ -508,12 +550,69 @@ TEST_CASE("crypta provider: the cache key delimiter is ambiguous - REPORTED, not
 	REQUIRE(provider.UnwrapKey(identity_a, blob_a) == dek_a);
 	REQUIRE(server.Connections() == 1);
 
-	// What SHOULD happen: B is a different file carrying a blob crypta never
-	// issued for it, so the read reaches crypta and is refused.
-	// What DOES happen, asserted here: B's key collides with A's cache entry, B
-	// is handed DEK-A, and crypta is never consulted - the connection count does
-	// not move.
-	auto served = provider.UnwrapKey(identity_b, blob_b);
-	REQUIRE(served == dek_a);
+	REQUIRE_THAT(ThrownMessage([&]() { provider.UnwrapKey(identity_b, blob_b); }),
+	             Catch::Contains("not valid for this KEK and file identity"));
+	REQUIRE(server.Connections() == 2);
+
+	// The other half: A's own row must STILL be served from cache. A key that
+	// never matches would satisfy everything above while quietly turning every
+	// unwrap into a round trip, so the count staying at 2 is what says the fix
+	// separated these two entries rather than simply breaking the cache.
+	REQUIRE(provider.UnwrapKey(identity_a, blob_a) == dek_a);
+	REQUIRE(server.Connections() == 2);
+}
+
+TEST_CASE("crypta provider: a '|' in an identity field cannot shift a cache-key boundary",
+          "[crypta][cache][key_confusion]") {
+	// The same non-injective join, with the ambiguity moved OFF the path/blob
+	// boundary so the property is not pinned to one hand-built string. Both
+	// pairs here carry the SAME blob; everything that differs lives inside the
+	// identity, and the shifted separator runs across the lake_id, table_id,
+	// file_kind and stored_path boundaries at once:
+	//
+	//   C: lake_id "test-lake",            table_id 7, data,   path "t/p|9|delete|q.parquet"
+	//      -> test-lake|7|data|t/p|9|delete|q.parquet|RExLc2hhcmVk
+	//   D: lake_id "test-lake|7|data|t/p", table_id 9, delete, path "q.parquet"
+	//      -> test-lake|7|data|t/p|9|delete|q.parquet|RExLc2hhcmVk
+	//
+	// Byte-identical, while C and D disagree on the lake, the table, the file
+	// kind AND the path - so one collision confuses every component of the
+	// binding at once, and no amount of escaping applied to `stored_path` alone
+	// would close it. The fix has to make the COMPOSITION unambiguous.
+	//
+	// Reachability here is weaker than in the case above and is not claimed to
+	// be equal: `lake_id` is operator-configured, not attacker-supplied. This
+	// case asserts the composition property the fix must have, not a second live
+	// route into it.
+	//
+	// The CONNECTION COUNT is again the real assertion: D must be a miss that
+	// reaches crypta, so the refusal counts only with the count at 2.
+	BindingCryptaFake crypta;
+
+	const std::string shared_blob = "RExLc2hhcmVk";
+	auto identity_c = SampleIdentity("t/p|9|delete|q.parquet");
+	auto identity_d = SampleIdentity("q.parquet");
+	identity_d.lake_id = "test-lake|7|data|t/p";
+	identity_d.table_id = 9;
+	identity_d.is_delete_file = true;
+
+	auto dek_c = DekFor("C");
+	crypta.Issue(identity_c, shared_blob, dek_c);
+	// D's pair is deliberately NOT issued.
+
+	FakeCryptaServer server;
+	server.Start([&](FakeConnection &connection, int) { crypta.Serve(connection); });
+	DuckLakeCryptaProvider provider(server.Path(), "test-lake");
+
+	REQUIRE(provider.UnwrapKey(identity_c, shared_blob) == dek_c);
 	REQUIRE(server.Connections() == 1);
+
+	REQUIRE_THAT(ThrownMessage([&]() { provider.UnwrapKey(identity_d, shared_blob); }),
+	             Catch::Contains("not valid for this KEK and file identity"));
+	REQUIRE(server.Connections() == 2);
+
+	// And C's own row is still a HIT, for the same reason as in the case above:
+	// this must fail if the fix made the key un-matchable rather than injective.
+	REQUIRE(provider.UnwrapKey(identity_c, shared_blob) == dek_c);
+	REQUIRE(server.Connections() == 2);
 }

@@ -103,6 +103,38 @@ unique_ptr<GlobalTableFunctionState> DuckLakeOptionsInit(ClientContext &context,
 	auto result = make_uniq<DuckLakeOptionsState>();
 	auto metadata = metadata_manager.LoadDuckLake();
 
+	// >>> FORK-LOCAL (sigil-enterprises): report the EFFECTIVE inlining limit. >>>
+	// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+	//
+	// This function reads the RAW PERSISTED tags out of ducklake_metadata. On a
+	// crypta lake DuckLakeCatalog::DataInliningRowLimit() forces the limit to 0
+	// regardless of what is stored, so reporting the stored value here would tell an
+	// operator the lake inlines when it provably does not.
+	//
+	// That matters more than a cosmetic inaccuracy. ducklake_options() is the only
+	// surface that answers "what is this lake actually doing", and the refusals at
+	// ATTACH and in ducklake_set_option exist precisely so that nobody believes a
+	// limit took effect when it did not. Those refusals cannot fire for a limit that
+	// was persisted BEFORE crypta was configured - that path is silent by design -
+	// which makes this the one place such a lake can be inspected honestly.
+	//
+	// So: report the effective 0, and say why in the description rather than leaving
+	// a bare 0 that looks like the operator set it.
+	const bool crypta_forces_no_inlining = ducklake_catalog.CryptaProvider();
+	auto apply_crypta_override = [&](DuckLakeOptionInfo &option_info) {
+		if (!crypta_forces_no_inlining || !StringUtil::CIEquals(option_info.option_name, "data_inlining_row_limit")) {
+			return;
+		}
+		option_info.value = "0";
+		// description is a nullable Value, not a string: GetOptionDescription returns a
+		// NULL Value for an option it does not know. Rebuild it rather than appending.
+		const string forced_note = "forced to 0: crypta envelope encryption does not cover inlined data";
+		option_info.description = option_info.description.IsNull()
+		                              ? Value(forced_note)
+		                              : Value(option_info.description.ToString() + " (" + forced_note + ")");
+	};
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
+
 	// Global options
 	for (auto &tag : metadata.tags) {
 		DuckLakeOptionInfo option_info;
@@ -110,6 +142,7 @@ unique_ptr<GlobalTableFunctionState> DuckLakeOptionsInit(ClientContext &context,
 		option_info.value = tag.value;
 		option_info.description = GetOptionDescription(tag.key);
 		option_info.scope = "GLOBAL";
+		apply_crypta_override(option_info);
 		result->options.push_back(std::move(option_info));
 	}
 
@@ -126,6 +159,7 @@ unique_ptr<GlobalTableFunctionState> DuckLakeOptionsInit(ClientContext &context,
 		if (schema_entry) {
 			option_info.scope_entry = schema_entry->name;
 		}
+		apply_crypta_override(option_info);
 		result->options.push_back(std::move(option_info));
 	}
 
@@ -141,6 +175,7 @@ unique_ptr<GlobalTableFunctionState> DuckLakeOptionsInit(ClientContext &context,
 			auto &table_catalog_entry = table_entry->Cast<TableCatalogEntry>();
 			option_info.scope_entry = table_catalog_entry.ParentSchema().name + "." + table_entry->name;
 		}
+		apply_crypta_override(option_info);
 		result->options.push_back(std::move(option_info));
 	}
 
