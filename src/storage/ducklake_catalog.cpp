@@ -210,6 +210,36 @@ DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options
 			throw InvalidInputException("crypta_socket was set on an UNENCRYPTED DuckLake - there are no per-file keys "
 			                            "to wrap. Either enable ENCRYPTED or drop crypta_socket");
 		}
+		// >>> FORK-LOCAL (sigil-enterprises): crypta forbids data inlining. >>>
+		// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+		//
+		// Data inlining writes the row values themselves as SQL literals into
+		// ducklake_inlined_data_<table_id>_<schema_version> in the metadata catalog.
+		// The crypta envelope wraps per-file Parquet keys, so it covers none of that:
+		// on a lake whose metadata catalog is Postgres those rows are cleartext in the
+		// table, the WAL, every replica and every backup.
+		//
+		// DataInliningRowLimit() forces 0 on a crypta lake regardless (see the read
+		// chokepoint further down this file), so ATTACH would otherwise succeed while
+		// silently ignoring what was asked for. Refuse instead: an operator who spelled
+		// out a row limit has to learn that it did not take effect, rather than go on
+		// believing rows up to that limit are being inlined.
+		//
+		// config_options still holds exactly what ATTACH or the secret supplied -
+		// DuckLakeInitializer has not yet overwritten it with the persisted lake option
+		// - which is why this catches the EXPLICIT request and not a value already
+		// stored in the catalog. A limit of 0 is the safe value and still attaches.
+		auto inlining_entry = options.config_options.find("data_inlining_row_limit");
+		if (inlining_entry != options.config_options.end() && Value(inlining_entry->second).GetValue<idx_t>() > 0) {
+			throw InvalidInputException("crypta_socket was set together with data_inlining_row_limit=%s - data "
+			                            "inlining writes the row values themselves as cleartext SQL literals "
+			                            "into the metadata catalog, which the crypta envelope does not protect "
+			                            "(it wraps the per-file Parquet keys only). Either set "
+			                            "data_inlining_row_limit to 0, or drop crypta_socket if cleartext rows "
+			                            "in the metadata catalog are acceptable for this lake",
+			                            inlining_entry->second);
+		}
+		// <<< FORK-LOCAL (sigil-enterprises) <<<
 		crypta_provider = make_uniq<DuckLakeCryptaProvider>(options.crypta_socket, options.crypta_lake_id);
 	}
 	// figure out the metadata server type
@@ -1028,12 +1058,53 @@ bool DuckLakeCatalog::TryGetConfigOption(const string &option, string &result, D
 	return TryGetConfigOption(option, result, schema_id, table_id);
 }
 
+// >>> FORK-LOCAL (sigil-enterprises): crypta forces data inlining off. >>>
+// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+//
+// These two overloads are the single chokepoint every inlining decision reads:
+// INSERT/UPDATE/MERGE through GetInliningLimit, CTAS in ducklake_insert.cpp,
+// DELETE-side inlining in ducklake_delete.cpp, the commit-time
+// WriteNewInlinedTables in ducklake_metadata_manager.cpp, and the ALTER/CREATE
+// reserved-column guards. Returning 0 HERE, at the read, rather than validating
+// wherever the option is written, is deliberate - the write paths cannot be
+// exhaustively guarded. DuckLakeInitializer overwrites the ATTACH-supplied value
+// with the persisted lake option in the very same map AFTER this catalog is
+// constructed, ducklake_set_option can set it at table, schema or global scope at
+// any point in the session, and the process-wide
+// ducklake_default_data_inlining_row_limit setting applies when none of those do.
+// Forcing it at the read means no option in any scope can re-enable inlining on a
+// crypta lake.
+//
+// Refusing beats degrading because there is nothing safe to degrade to: inlined
+// rows are written as cleartext SQL literals into
+// ducklake_inlined_data_<table_id>_<schema_version> in the metadata catalog, and
+// the crypta envelope wraps per-file Parquet keys only, so it covers none of
+// them. On a Postgres metadata catalog that is cleartext row data in the table,
+// the WAL, every replica and every backup - a lake that writes its files through
+// the envelope and its small writes around it is not encrypted at all.
+//
+// This also disables DELETE-side inlining (ducklake_inlined_delete_<table_id>,
+// which stores deleted row positions in cleartext). That is intended: the
+// positions disclose which rows of an encrypted table were touched, and the
+// envelope does not cover them either.
+//
+// Silent on purpose. This is the guarantee, and it has to hold for every caller
+// including the commit path, which has no operator to talk to. The loud half
+// lives at the explicit write acts: the ATTACH refusal above, and the
+// ducklake_set_option refusal in src/functions/ducklake_set_option.cpp.
 idx_t DuckLakeCatalog::DataInliningRowLimit(SchemaIndex schema_index, TableIndex table_index) const {
+	if (crypta_provider) {
+		return 0;
+	}
 	return GetConfigOption<idx_t>("data_inlining_row_limit", schema_index, table_index, 10);
 }
 
 idx_t DuckLakeCatalog::DataInliningRowLimit(ClientContext &context, SchemaIndex schema_index,
                                             TableIndex table_index) const {
+	// Ahead of every option scope AND of the global DuckDB setting read below.
+	if (crypta_provider) {
+		return 0;
+	}
 	string value_str;
 	if (TryGetConfigOption("data_inlining_row_limit", value_str, schema_index, table_index)) {
 		return Value(value_str).GetValue<idx_t>();
@@ -1045,6 +1116,7 @@ idx_t DuckLakeCatalog::DataInliningRowLimit(ClientContext &context, SchemaIndex 
 	}
 	return 10;
 }
+// <<< FORK-LOCAL (sigil-enterprises) <<<
 
 idx_t DuckLakeCatalog::GetTargetFileSize(ClientContext &context, SchemaIndex schema_id, TableIndex table_id) const {
 	Value setting_val;
