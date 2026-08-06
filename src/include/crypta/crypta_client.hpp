@@ -82,9 +82,20 @@ private:
 
 	//! Send one framed request, return the response body.
 	string Request(const string &json_body);
-	//! Extract the base64 values of `field` from an items array, in order.
-	//! Strict: throws unless exactly `expected` values are present.
-	static vector<string> ExtractBase64Field(const string &response, const string &field, idx_t expected);
+	//! Read the base64 value of `field` out of every item of a reply, BOUND to
+	//! the identity that item echoes.
+	//!
+	//! Item `i` must echo `identities[i]` - all four fields, compared as decoded
+	//! values rather than as bytes - or the whole batch is refused. crypta
+	//! carries the identity beside every value it returns (`PlainKey`,
+	//! `WrappedKeyEntry`), so matching on it is a BINDING; matching on array
+	//! position is arithmetic, and a reordered or substituted item would hand a
+	//! file another file's key (#31). The count must still match exactly.
+	//!
+	//! ONE function for both batch paths on purpose. Two copies of this decision
+	//! is how one site grows a guard and the other does not (#26/#51).
+	static vector<string> ExtractBoundBase64Field(const string &response, const string &field,
+	                                              const vector<CryptaFileIdentity> &identities);
 	static void ThrowIfError(const string &response);
 	static string IdentityJson(const CryptaFileIdentity &identity);
 };

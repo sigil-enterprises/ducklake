@@ -108,7 +108,7 @@ public:
 			connection.WriteFrame(ErrorResponse("unwrap failed: not valid for this KEK and file identity"));
 			return;
 		}
-		connection.WriteFrame(OkUnwrapResponse({entry->second}));
+		connection.WriteFrame(OkUnwrapResponse(body, {entry->second}));
 	}
 
 private:
@@ -152,8 +152,9 @@ TEST_CASE("crypta provider: WrapKeys batches a whole commit into one call", "[cr
 	// suite would notice.
 	FakeCryptaServer server;
 	server.Start([&](FakeConnection &connection, int) {
-		server.Record(connection.ReadFrame());
-		connection.WriteFrame(OkWrapResponse({"RExLfirst", "RExLsecond"}));
+		auto request = connection.ReadFrame();
+		server.Record(request);
+		connection.WriteFrame(OkWrapResponse(request, {"RExLfirst", "RExLsecond"}));
 	});
 	DuckLakeCryptaProvider provider(server.Path(), "commit-lake");
 	vector<CryptaFileIdentity> identities {SampleIdentity("first.parquet"), SampleIdentity("second.parquet")};
@@ -180,8 +181,8 @@ TEST_CASE("crypta provider: a plaintext key row is refused, never used", "[crypt
 	// a downgrade attempt. Using it would defeat the envelope entirely.
 	FakeCryptaServer server;
 	server.Start([](FakeConnection &connection, int) {
-		connection.ReadFrame();
-		connection.WriteFrame(OkUnwrapResponse({DekFor("should-never-be-asked-for")}));
+		auto request = connection.ReadFrame();
+		connection.WriteFrame(OkUnwrapResponse(request, {DekFor("should-never-be-asked-for")}));
 	});
 	DuckLakeCryptaProvider provider(server.Path(), "test-lake");
 	auto identity = SampleIdentity("t/plaintext.parquet");
@@ -236,8 +237,8 @@ TEST_CASE("crypta provider: a repeated unwrap hits the cache and does not re-ask
 	auto dek = DekFor("A");
 	FakeCryptaServer server;
 	server.Start([&](FakeConnection &connection, int) {
-		connection.ReadFrame();
-		connection.WriteFrame(OkUnwrapResponse({dek}));
+		auto request = connection.ReadFrame();
+		connection.WriteFrame(OkUnwrapResponse(request, {dek}));
 	});
 	DuckLakeCryptaProvider provider(server.Path(), "test-lake");
 	auto identity = SampleIdentity("t/a.parquet");
@@ -264,8 +265,8 @@ TEST_CASE("crypta provider: the cache is cleared wholesale when the cap is hit",
 
 	FakeCryptaServer server;
 	server.Start([&](FakeConnection &connection, int index) {
-		connection.ReadFrame();
-		connection.WriteFrame(OkUnwrapResponse({DekFor(std::to_string(index))}));
+		auto request = connection.ReadFrame();
+		connection.WriteFrame(OkUnwrapResponse(request, {DekFor(std::to_string(index))}));
 	});
 	DuckLakeCryptaProvider provider(server.Path(), "test-lake");
 
@@ -316,8 +317,8 @@ TEST_CASE("crypta provider: two identities sharing one blob do not collide in th
 	auto dek_b = DekFor("B");
 	FakeCryptaServer server;
 	server.Start([&](FakeConnection &connection, int index) {
-		connection.ReadFrame();
-		connection.WriteFrame(OkUnwrapResponse({index == 0 ? dek_a : dek_b}));
+		auto request = connection.ReadFrame();
+		connection.WriteFrame(OkUnwrapResponse(request, {index == 0 ? dek_a : dek_b}));
 	});
 	DuckLakeCryptaProvider provider(server.Path(), "test-lake");
 
@@ -373,8 +374,8 @@ TEST_CASE("crypta provider: every component of the identity is part of the cache
 			auto dek_variant = DekFor(variation.what);
 			FakeCryptaServer server;
 			server.Start([&](FakeConnection &connection, int index) {
-				connection.ReadFrame();
-				connection.WriteFrame(OkUnwrapResponse({index == 0 ? dek_base : dek_variant}));
+				auto request = connection.ReadFrame();
+				connection.WriteFrame(OkUnwrapResponse(request, {index == 0 ? dek_base : dek_variant}));
 			});
 			DuckLakeCryptaProvider provider(server.Path(), "test-lake");
 
@@ -398,8 +399,8 @@ TEST_CASE("crypta provider: one identity with two blobs does not collide in the 
 	auto dek_two = DekFor("two");
 	FakeCryptaServer server;
 	server.Start([&](FakeConnection &connection, int index) {
-		connection.ReadFrame();
-		connection.WriteFrame(OkUnwrapResponse({index == 0 ? dek_one : dek_two}));
+		auto request = connection.ReadFrame();
+		connection.WriteFrame(OkUnwrapResponse(request, {index == 0 ? dek_one : dek_two}));
 	});
 	DuckLakeCryptaProvider provider(server.Path(), "test-lake");
 	auto identity = SampleIdentity("t/a.parquet");

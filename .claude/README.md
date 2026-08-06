@@ -430,11 +430,50 @@ it to `GetFileSelectList` shifts positional column indices in 8+ queries.
    The consequence of the unescaped blob was measured, not assumed, and the
    measurement bounds it: crypta accepts an injected array element and answers
    with one DEK per item it parsed, because it has no count check at all. What
-   stops a file being handed another file's key is the client's own reply-count
-   check in `ExtractBase64Field` - it refuses a reply that does not carry exactly
-   one value per requested item. So the pre-fix damage was a REFUSED BATCH, not
-   key confusion. That check is load-bearing security, not tidiness; do not relax
-   it into a "take the first N".
+   stopped a file being handed another file's key was the client's own
+   reply-count check - it refuses a reply that does not carry exactly one value
+   per requested item. So the pre-fix damage was a REFUSED BATCH, not key
+   confusion. That check is load-bearing security, not tidiness; do not relax it
+   into a "take the first N".
+
+   **But read what that check IS.** A count is a LENGTH check standing in for a
+   BINDING check, and it caught #24 only because that injection happens to make
+   the reply LONGER. Any misalignment that preserves the item count - a REORDER
+   above all - has exactly the right number of values and sails straight through.
+   That is issue #31, and it is now closed by invariant 8 below: the reply is
+   matched to the request by the identity crypta echoes. The count check STAYS -
+   it is what answers for a reply with nothing in it at all, where there is no
+   item to bind anything to - but it is no longer what carries the property.
+
+8. **The reply is bound to the request by the ECHOED IDENTITY, never by array
+   position** (#31). crypta's reply item is an identity BESIDE the value -
+   `PlainKey { identity, dek }` unwrapping, `WrappedKeyEntry { identity,
+   wrapped }` wrapping - and the client requires item `i` to echo `identities[i]`,
+   all four fields, before it will accept its value. A reordered or substituted
+   item is refused rather than handed to the wrong file.
+
+   Three things about it that a future change must not quietly undo:
+
+   - **ONE reader for both batch paths** (`ExtractBoundBase64Field`). Wrap and
+     unwrap each carrying their own copy of this decision is precisely how one
+     site grows a guard and the other does not - the lesson #26/#51 paid for.
+   - **The four values are compared DECODED, never as bytes.** A real service
+     re-serialises the identity it parsed: crypta's `IdentityWire::from`, and
+     `test/sql/crypta/fake_crypta.py` with `sort_keys=True`, both come back with
+     the members in a different order than this client wrote them, and serde
+     spells a backspace `\b` where `JsonEscape` writes the numeric escape. A
+     byte comparison would refuse a healthy service, and over-refusal on the read
+     path locks an operator out of their own lake.
+   - **The value and the identity come out of the SAME item, by the same walk.**
+     A binding is worth exactly what the reader's item boundaries are worth, so
+     the reader is structural: an item's value is its OWN top-level member, never
+     one nested inside the echoed identity beside it, and a duplicate member is
+     refused rather than resolved first-wins. The old flat scan for `"dek":"`
+     could be pointed at either, and the attacker would have picked.
+
+   **Both fakes had to be corrected FIRST.** Neither echoed an identity before
+   #31, and a guard that verifies an echo, tested against a fake that never
+   sends one, passes without ever running.
 
 ### The staged / server-side commit path refuses, rather than degrading
 
@@ -608,9 +647,13 @@ re-configuring a 700-target tree.
 Every case in the suite asserts a REFUSAL, and **an unrun refusal test and a
 passing one look identical**. So `mutants.py` removes exactly one guard at a
 time - the truncation check, the count check, the EINTR retry, EACH HALF of the
-cache key - rebuilds, and requires the cases naming that guard to go RED. 35
-mutants, 35 reds. A guard whose removal changes nothing means the case naming it
-is not testing it, and the runner says so by name rather than counting it.
+cache key - rebuilds, and requires the cases naming that guard to go RED. A
+guard whose removal changes nothing means the case naming it is not testing it,
+and the runner says so by name rather than counting it.
+
+The roster size is deliberately NOT quoted here. It was, and it had already
+drifted from the truth by the time anyone read it - the runner prints the real
+count on every run, and a number in a document goes stale silently.
 
 **A presence mutant is the weakest one to have.** "Delete the call" only proves
 the caller CONSULTS the guard; it never proves what the guard ANSWERS. So a
@@ -788,6 +831,14 @@ KEK, no AEAD; the "blob" is a reversible encoding. They do enforce the identity
 binding, which is the only property the refusal cases depend on. The real cipher,
 the real KEK and KEK recovery across a restart are proven by
 `scripts/mvp_crypta_proof.sh` and by nothing here.
+
+Both fakes also **echo the identity** on every reply item, because the real
+service does and because invariant 8 is unobservable against one that does not.
+That was a PRECONDITION of #31, not a follow-up: a guard driven by a fake that
+never sends the field it checks passes without running. `fake_crypta.py` echoes
+through `dumps(..., sort_keys=True)`, so its echo comes back in a DIFFERENT
+member order than the client wrote - which is exactly the shape that would red a
+reader comparing bytes instead of values.
 
 One detail that will bite: `SelfTest` looks for the literal substring
 `"ok":true`, so a health response pretty-printed as `"ok": true` is rejected as
@@ -1068,12 +1119,12 @@ Two traps this script exists to document, both of which it walked into first:
 Two things are honestly NOT proven and were not contrived into looking proven:
 
 - `ducklake_crypta.cpp:155-157` (`crypta returned N keys for one file`) is
-  **unreachable**. `ExtractBase64Field` already enforces exactly-`expected`
-  values and `UnwrapKey` always requests one, so no response can reach it. It is
-  defence in depth, and it stays dark.
+  **unreachable**. `ExtractBoundBase64Field` already enforces exactly one value
+  per requested item and `UnwrapKey` always requests one, so no response can
+  reach it. It is defence in depth, and it stays dark.
 - `crypta_client.cpp:151`, the closing brace of `JsonEscape`, is its
   exception-unwind block. gcov counts a closing brace on both the return and the
-  unwind path - measured, not assumed: `ExtractBase64Field`'s brace reads 4143
+  unwind path - measured, not assumed: the reply reader's brace reads 4143
   against 4131 returns, the excess being its throws unwinding through. Nothing in
   `JsonEscape` can throw but an allocation. Worth reading rather than dismissing,
   though: the same signal on `Health`'s brace was a REAL missing case - a health

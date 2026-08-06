@@ -281,24 +281,124 @@ MUTANTS = [
                     "crypta: a health probe answered with an error frame fails the self-test"],
     },
     {
+        # The guard MOVED in #31 and this mutant moved with it - the name is kept
+        # because the property is the same one, and renaming it would lose the
+        # link back to the case that has always proven it.
+        #
+        # It used to remove `end == string::npos` inside the field reader. Once
+        # the reader became string-aware there was nothing left for that branch to
+        # observe: an unterminated string swallows every brace after it, so the
+        # items array it sits in never closes either, and the truncation is
+        # detected one layer out. The refusal now lives in `SplitReplyItems` and
+        # this removes it there. Same fixture, same case, same fail-closed
+        # outcome - a different line.
         "name": "no_truncation_check",
         "file": "crypta_client.cpp",
-        "why": "the refusal of a value with no closing quote",
-        "old": '\t\tif (end == string::npos) {\n'
-               '\t\t\tthrow IOException("crypta response is truncated inside a %s value", field);\n'
-               '\t\t}',
-        "new": '\t\tif (false) {\n'
-               '\t\t\tthrow IOException("crypta response is truncated inside a %s value", field);\n'
-               '\t\t}',
+        "why": "the refusal of a reply whose items array never closes - the "
+               "truncation guard, which moved from the field reader to the item "
+               "splitter when the reader became structural (#31)",
+        "old": '\tif (!closed) {\n'
+               '\t\tthrow IOException("crypta response is truncated inside its items array");\n'
+               '\t}',
+        "new": '\tif (false) {\n'
+               '\t\tthrow IOException("crypta response is truncated inside its items array");\n'
+               '\t}',
         "reddens": ["crypta: a response truncated inside a value is refused"],
     },
     {
+        # The pattern moved with the reader in #31 - the check is item-wise now,
+        # so it counts ITEMS rather than values found by a scan. Same guard, same
+        # message, same case: one value per requested item, exactly.
         "name": "no_count_check",
         "file": "crypta_client.cpp",
         "why": "the requirement that the value count match the request exactly",
-        "old": '\tif (out.size() != expected) {',
+        "old": '\tif (items.size() != identities.size()) {',
         "new": '\tif (false) {',
         "reddens": ["crypta: a value count that does not match the request is refused"],
+    },
+    {
+        "name": "no_identity_echo_check",
+        "file": "crypta_client.cpp",
+        "why": "THE BINDING of a reply item to the file it was asked for - issue "
+               "#31. crypta echoes the identity beside every value it returns, and "
+               "without this the reply is zipped back onto the caller's file list "
+               "by ARRAY POSITION. The count check beside it is not a substitute "
+               "and this mutant is what shows why: a count is a LENGTH check, so a "
+               "reply with its items REORDERED has exactly the right number and "
+               "sails through, handing a file another file's DEK. That is a "
+               "wrong-key defect, not the refused-batch availability defect the "
+               "count check bounds",
+        "old": '\t\tRequireEchoedIdentity(members, identities[i], what);',
+        "new": '\t\t// MUTANT no_identity_echo_check: the reply was bound to the request here.',
+        "reddens": [
+            "crypta: a reordered unwrap reply is refused, not zipped onto the caller's file list",
+            "crypta: a reordered wrap reply is refused",
+            "crypta: a reply item echoing a different identity is refused, one field at a time",
+            "crypta: a reply item with no echoed identity is refused",
+        ],
+    },
+    {
+        # A SEMANTIC mutant, not a presence-only one, and the same discipline as
+        # widened_base64_alphabet: deleting the call proves the reader CONSULTS
+        # the binding, never what the binding ANSWERS. This one leaves it called
+        # and narrows its JUDGEMENT to the path - which is the shortcut this would
+        # plausibly regress into, because the path is the field that looks like
+        # the file. Three real substitutions survive it: two lakes can hold a
+        # table 1 with a file at the same relative path, the table id is half of
+        # what the key is bound to, and a delete file's key row and a data file's
+        # are explicitly not interchangeable.
+        "name": "identity_echo_path_only",
+        "file": "crypta_client.cpp",
+        "why": "the OTHER THREE FIELDS of the echoed identity, leaving the path "
+               "compared - the narrowed binding that still looks like a binding",
+        "old": '\tif (catalog_uuid != expected.lake_id || table_id != expected.table_id || file_kind != expected_kind ||\n'
+               '\t    file_path != expected.stored_path) {',
+        "new": '\tif (file_path != expected.stored_path) {',
+        "reddens": [
+            "crypta: a reply item echoing a different identity is refused, one field at a time",
+        ],
+    },
+    {
+        # The STRUCTURE half of #31, and it needs its own mutant for the reason
+        # the roster keeps repeating: a binding is worth exactly what the reader's
+        # item boundaries are worth, and that is a separate layer from the
+        # comparison above. Neither identity mutant can redden these two cases -
+        # the identity in both of them is the caller's own, echoed exactly - so
+        # without this the top-level-member lookup would carry no red-first
+        # evidence at all.
+        #
+        # It restores the flat scan the reader used before #31, scoped to one
+        # item. That is enough to hand the attacker both shapes back: a `dek`
+        # buried INSIDE the echoed identity object is found first, and of two
+        # `dek` members the first wins instead of the pair being refused.
+        "name": "item_field_by_flat_scan",
+        "file": "crypta_client.cpp",
+        "why": "the TOP-LEVEL-ONLY member lookup for an item's value - issue #31, "
+               "restoring the flat text scan it replaced. A value nested inside "
+               "the echoed identity, or a second one beside the first, then "
+               "becomes the attacker's to choose",
+        "old": '\t\tstring value;\n'
+               '\t\tif (!DecodeJsonString(RequiredMember(members, field, what), value)) {\n'
+               '\t\t\tthrow IOException("crypta answered %s with a %s value that is not a JSON string", what, field);\n'
+               '\t\t}',
+        "new": '\t\tstring value;\n'
+               '\t\t// MUTANT item_field_by_flat_scan: the value was the item\'s own top-level member.\n'
+               '\t\tauto flat_key = "\\"" + field + "\\":\\"";\n'
+               '\t\tauto flat_at = items[i].find(flat_key);\n'
+               '\t\tif (flat_at == string::npos) {\n'
+               '\t\t\tthrow IOException("crypta answered %s with no %s member", what, field);\n'
+               '\t\t}\n'
+               '\t\tauto flat_start = flat_at + flat_key.size();\n'
+               '\t\tauto flat_end = items[i].find(\'"\', flat_start);\n'
+               '\t\tif (flat_end == string::npos) {\n'
+               '\t\t\tthrow IOException("crypta answered %s with a %s value that is not a JSON string", what, field);\n'
+               '\t\t}\n'
+               '\t\tvalue = items[i].substr(flat_start, flat_end - flat_start);\n'
+               '\t\t(void)members;',
+        "reddens": [
+            "crypta: a dek buried inside the echoed identity is not read as the item's own",
+            "crypta: a reply item carrying two dek members is refused",
+        ],
     },
     {
         "name": "no_frame_upper_bound",
@@ -360,13 +460,15 @@ MUTANTS = [
                "carrying it. Sending the body twice leaves every returned blob "
                "correct and only the count wrong, which is exactly how this would "
                "regress in practice",
-        "old": '\tauto response = Request(body);\n'
-               '\tThrowIfError(response);\n'
-               '\treturn ExtractBase64Field(response, "wrapped", identities.size());',
+        # Anchored on the wrap path's RETURN rather than on its `Request` call:
+        # since #31 both batch paths open with the same two lines, so the old
+        # pattern matched twice and the exactly-once guard refused it. Sending the
+        # body a second time after the reply has been read is the same observable
+        # - two connections, every returned blob still correct, only the
+        # one-call-per-commit claim broken.
+        "old": '\treturn ExtractBoundBase64Field(response, "wrapped", identities);',
         "new": '\tRequest(body);\n'
-               '\tauto response = Request(body);\n'
-               '\tThrowIfError(response);\n'
-               '\treturn ExtractBase64Field(response, "wrapped", identities.size());',
+               '\treturn ExtractBoundBase64Field(response, "wrapped", identities);',
         "reddens": ["crypta: a multi-item wrap is one request with well-formed separators",
                     "crypta provider: WrapKeys batches a whole commit into one call"],
     },
