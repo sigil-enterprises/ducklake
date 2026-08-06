@@ -850,6 +850,23 @@ MUTANTS = [
 # deleted on its own and must redden its own file, and the body mutant is kept as
 # well because deleting a call proves only that the caller CONSULTS the guard and
 # never what the guard ANSWERS.
+#
+# THE RESOLUTION ASKS THREE QUESTIONS, NOT TWO (#53). `ResolveStoredEncryptionKey`
+# answers: is the column NULL on an ENCRYPTED lake, is crypta configured, is an
+# unconfigured lake's blob wrapped. Every mutant below that hand-restores the
+# branches therefore restores ALL THREE minus the one it is about - otherwise it
+# would redden a case it does not name, and be evidence for two guards while
+# claiming to be evidence for one.
+#
+# HONEST GAP, stated rather than left to be discovered: the NULL refusal
+# (`RefuseMissingEncryptionKey`) has ONE mutant here, on the FLUSH call site,
+# because that is the site the defect was on. By this roster's own shared-guard
+# rule it wants two more - a BODY mutant (what the guard ANSWERS, as opposed to
+# whether a caller consults it) and a SCAN call-site mutant. Both have a case
+# waiting for them already: `adversary_flush_null_key.test` carries the scan-path
+# refusal as its positive control, in the same file and the same run. They are
+# not written yet. Until they are, the scan site's null refusal is asserted by a
+# test that has never been shown to fail without it. Tracked at #56.
 EXTENSION_MUTANTS = [
     {
         "name": "no_resolved_encryption_check",
@@ -921,16 +938,32 @@ EXTENSION_MUTANTS = [
                "no case reddens for the wrong reason",
         "old": '\t\tdata.encryption_key = transaction.GetCatalog().ResolveStoredEncryptionKey(table.GetTableId(), path.path,\n'
                '\t\t                                                                         data.path, is_delete_file, stored_key);',
+        # The hand-restored branches carry the NULL refusal too. Since #53 the
+        # resolution answers THREE questions, not two, and a mutant that dropped
+        # the null one as well would redden `adversary_flush_null_key.test`'s scan
+        # control - a case it does not name - which is a mutant measuring two
+        # guards and attributing both to one.
         "new": '\t\t// MUTANT no_wrapped_key_refusal_on_scan: the refusal was in the resolution.\n'
-               '\t\tauto mutant_crypta = transaction.GetCatalog().CryptaProvider();\n'
-               '\t\tif (mutant_crypta) {\n'
-               '\t\t\tdata.encryption_key = mutant_crypta->UnwrapKey(\n'
-               '\t\t\t    transaction.GetCatalog().CryptaIdentity(table.GetTableId(), path.path, is_delete_file),\n'
-               '\t\t\t    stored_key);\n'
+               '\t\tif (stored_key.IsNull()) {\n'
+               '\t\t\ttransaction.GetCatalog().RefuseMissingEncryptionKey(data.path);\n'
                '\t\t} else {\n'
-               '\t\t\tdata.encryption_key = Blob::FromBase64(string_t(stored_key));\n'
-               '\t\t}\n'
-               '\t\t(void)data.path;',
+               # `.template GetValue<string>()`, not `.GetValue<string>()`.
+               # ReadDataFile is a TEMPLATE over the row type, so `stored_key` -
+               # deduced from `row.GetBaseValue(...)` - is a dependent type and
+               # g++-14 parses the bare `<` as less-than. Measured: the first run
+               # of this mutant reported `ERROR ... the mutated extension does not
+               # compile`, which is the runner refusing to count a mutant it could
+               # not build rather than absorbing it into a red.
+               '\t\t\tauto mutant_key = stored_key.template GetValue<string>();\n'
+               '\t\t\tauto mutant_crypta = transaction.GetCatalog().CryptaProvider();\n'
+               '\t\t\tif (mutant_crypta) {\n'
+               '\t\t\t\tdata.encryption_key = mutant_crypta->UnwrapKey(\n'
+               '\t\t\t\t    transaction.GetCatalog().CryptaIdentity(table.GetTableId(), path.path, is_delete_file),\n'
+               '\t\t\t\t    mutant_key);\n'
+               '\t\t\t} else {\n'
+               '\t\t\t\tdata.encryption_key = Blob::FromBase64(string_t(mutant_key));\n'
+               '\t\t\t}\n'
+               '\t\t}',
         "reddens": ["test/sql/crypta/crypta_unconfigured_reader_refusal.test"],
         "redden_at": "SELECT sum(id) FROM unconfigured.alpha",
     },
@@ -948,18 +981,25 @@ EXTENSION_MUTANTS = [
                "a mutant of the unconfigured guard alone, and the "
                "no_unwrap_on_flush mutant below covers the other direction on "
                "its own",
-        "old": '\t\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n'
-               '\t\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);',
-        "new": '\t\t\t\t\t\t// MUTANT no_wrapped_key_refusal_on_flush: the refusal was in the resolution.\n'
+        "old": '\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n'
+               '\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);',
+        # The NULL refusal is kept, for the same reason as on the scan site: this
+        # mutant removes ONE of the three questions, and a mutant that removed two
+        # would redden `adversary_flush_null_key.test` as well and be evidence for
+        # neither guard on its own.
+        "new": '\t\t\t\t\t// MUTANT no_wrapped_key_refusal_on_flush: the refusal was in the resolution.\n'
+               '\t\t\t\t\tif (stored_delete_key.IsNull()) {\n'
+               '\t\t\t\t\t\tcatalog.RefuseMissingEncryptionKey(resolved_delete_path);\n'
+               '\t\t\t\t\t} else {\n'
+               '\t\t\t\t\t\tauto mutant_key = stored_delete_key.GetValue<string>();\n'
                '\t\t\t\t\t\tauto mutant_crypta = catalog.CryptaProvider();\n'
                '\t\t\t\t\t\tif (mutant_crypta) {\n'
                '\t\t\t\t\t\t\tfile_info.existing_delete_encryption_key = mutant_crypta->UnwrapKey(\n'
-               '\t\t\t\t\t\t\t    catalog.CryptaIdentity(table_id, file_info.existing_delete_path, true),\n'
-               '\t\t\t\t\t\t\t    stored_delete_key);\n'
+               '\t\t\t\t\t\t\t    catalog.CryptaIdentity(table_id, file_info.existing_delete_path, true), mutant_key);\n'
                '\t\t\t\t\t\t} else {\n'
-               '\t\t\t\t\t\t\tfile_info.existing_delete_encryption_key = Blob::FromBase64(stored_delete_key);\n'
+               '\t\t\t\t\t\t\tfile_info.existing_delete_encryption_key = Blob::FromBase64(mutant_key);\n'
                '\t\t\t\t\t\t}\n'
-               '\t\t\t\t\t\t(void)resolved_delete_path;',
+               '\t\t\t\t\t}',
         # ONE file, and that is the finding rather than an omission:
         # `grep -rn RefuseWrappedKeyWithoutCrypta test/` finds this site named in
         # exactly one .test file. It is also a file whose state is NOT
@@ -985,14 +1025,52 @@ EXTENSION_MUTANTS = [
                "than decorative, which deleting the whole call could not - that "
                "would redden off the unconfigured arm and tell you nothing about "
                "the unwrap",
-        "old": '\t\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n'
-               '\t\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);',
-        "new": '\t\t\t\t\t\t// MUTANT no_unwrap_on_flush: the unwrap was in the resolution.\n'
-               '\t\t\t\t\t\tcatalog.RefuseWrappedKeyWithoutCrypta(resolved_delete_path, stored_delete_key);\n'
-               '\t\t\t\t\t\tfile_info.existing_delete_encryption_key = Blob::FromBase64(stored_delete_key);\n'
-               '\t\t\t\t\t\t(void)table_id;',
+        "old": '\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n'
+               '\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);',
+        "new": '\t\t\t\t\t// MUTANT no_unwrap_on_flush: the unwrap was in the resolution.\n'
+               '\t\t\t\t\tif (stored_delete_key.IsNull()) {\n'
+               '\t\t\t\t\t\tcatalog.RefuseMissingEncryptionKey(resolved_delete_path);\n'
+               '\t\t\t\t\t} else {\n'
+               '\t\t\t\t\t\tauto mutant_key = stored_delete_key.GetValue<string>();\n'
+               '\t\t\t\t\t\tcatalog.RefuseWrappedKeyWithoutCrypta(resolved_delete_path, mutant_key);\n'
+               '\t\t\t\t\t\tfile_info.existing_delete_encryption_key = Blob::FromBase64(mutant_key);\n'
+               '\t\t\t\t\t}\n'
+               '\t\t\t\t\t(void)table_id;',
         "reddens": ["test/sql/crypta/crypta_flush_configured_unwrap.test"],
         "redden_at": "CALL ducklake_flush_inlined_data('configured')",
+    },
+    {
+        "name": "no_null_key_refusal_on_flush",
+        "file": "src/functions/ducklake_flush_inlined_data.cpp",
+        "why": "#53 ITSELF, restored exactly - the shape v0.1.0-rc.1 shipped. "
+               "#26's fix moved TWO of the three questions the resolution asks "
+               "onto the catalog and left the third, 'is the column NULL on an "
+               "ENCRYPTED lake', inline in ReadDataFile. This site's own answer to "
+               "it was an `if (!chunk->GetValue(9, row_idx).IsNull())` wrapped "
+               "around the whole call, which SKIPS the resolution rather than "
+               "refusing - so an ENCRYPTED lake's delete file with no key was "
+               "refused by name on the scan path and silently accepted here, "
+               "dying inside the Parquet reader on \"is encrypted, but "
+               "'encryption_config' was not set\" (#20's shape, again). The mutant "
+               "restores exactly that `if` and nothing else: the unwrap and the "
+               "unconfigured refusal stay reachable for a non-NULL key, so this "
+               "reddens on the NULL and on nothing else. It is what makes the "
+               "UNCONDITIONAL call load-bearing rather than a tidier way of "
+               "writing the same thing",
+        "old": '\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n'
+               '\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);',
+        "new": '\t\t\t\t\t// MUTANT no_null_key_refusal_on_flush: v0.1.0-rc.1 skipped the resolve on NULL.\n'
+               '\t\t\t\t\tif (!stored_delete_key.IsNull()) {\n'
+               '\t\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n'
+               '\t\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);\n'
+               '\t\t\t\t\t}',
+        # ONE file, and it is the adversary's, written against the released tag
+        # before the fix existed. Its positive control is what makes the red mean
+        # something: the same lake, the same run, the SCAN path refusing the same
+        # NULL by name - so "the flush did not refuse" cannot be read as "no such
+        # refusal exists anywhere".
+        "reddens": ["test/sql/crypta/adversary_flush_null_key.test"],
+        "redden_at": "CALL ducklake_flush_inlined_data('flusher')",
     },
 ]
 
