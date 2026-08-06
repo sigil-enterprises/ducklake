@@ -215,9 +215,42 @@ void DuckLakeCatalog::RefuseWrappedKeyWithoutCrypta(const string &file_path, con
 }
 
 // PRIVATE-FORK ONLY: crypta envelope encryption.
+void DuckLakeCatalog::RefuseMissingEncryptionKey(const string &file_path) const {
+	if (!IsEncrypted()) {
+		// An unencrypted lake stores no per-file key, so a NULL column is what a
+		// correct row looks like. Returning here is the ordinary upstream case.
+		return;
+	}
+	// Upstream's message, character for character. It moved out of ReadDataFile
+	// rather than being rewritten there, because it is what the existing tests and
+	// the operator runbooks match on - and because the flush path must now refuse
+	// with the SAME words as the scan path. Two decode sites answering the same
+	// question in two different sentences is how an operator learns to treat one
+	// of them as noise.
+	throw InvalidInputException("Database is encrypted, but file %s does not have an encryption key", file_path);
+}
+
+// PRIVATE-FORK ONLY: crypta envelope encryption.
 string DuckLakeCatalog::ResolveStoredEncryptionKey(TableIndex table_id, const string &stored_path,
                                                    const string &resolved_path, bool is_delete_file,
-                                                   const string &stored_key) const {
+                                                   const Value &stored_key_value) const {
+	if (stored_key_value.IsNull()) {
+		// QUESTION 1 OF THREE, and the one #26's extraction left behind (#53). It
+		// has to be asked HERE and not by the caller: while it lived at the call
+		// sites, the flush site's own `if (!...IsNull())` skipped the whole
+		// resolution on a NULL instead of refusing, so an ENCRYPTED lake's
+		// missing delete-file key reached the Parquet reader and surfaced as
+		// "is encrypted, but 'encryption_config' was not set" - a reader error
+		// where the operator needed a catalog refusal naming the row (#20's
+		// shape, again).
+		RefuseMissingEncryptionKey(resolved_path);
+		// Not encrypted: no key, exactly as upstream leaves the field.
+		return string();
+	}
+	// Read as `Value::GetValue<string>()` and not `StringValue::Get` on purpose -
+	// it is the same conversion the two call sites used to do themselves, so the
+	// non-NULL path is byte-identical to what it replaced.
+	auto stored_key = stored_key_value.GetValue<string>();
 	if (crypta_provider) {
 		// The identity is built from the path AS STORED, never from one resolved
 		// against the data path, because that is what WrapKeys bound the blob to.
