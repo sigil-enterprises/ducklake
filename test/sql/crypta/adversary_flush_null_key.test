@@ -1,0 +1,201 @@
+# name: test/sql/crypta/adversary_flush_null_key.test
+# description: ADVERSARY - the SECOND decode site accepts a NULL key on an ENCRYPTED lake
+# group: [crypta]
+#
+# PRIVATE-FORK ONLY. Written against v0.1.0-rc.1 to REDDEN it.
+#
+# WHAT THIS ATTACKS
+# -----------------
+# #26's fix routes the inlined-deletion flush through
+# `DuckLakeCatalog::ResolveStoredEncryptionKey`, and the comment
+# `ducklake_metadata_manager.cpp` now carries says the decision lives once on
+# the catalog so that "a third decode site now inherits both halves or neither."
+#
+# There are not two halves. There are THREE, and the flush site inherited two.
+# `ReadDataFile` asks its question in this order:
+#
+#   1. is_encrypted && the stored key IS NULL          -> REFUSE
+#      "Database is encrypted, but file %s does not have an encryption key"
+#   2. crypta configured                               -> unwrap
+#   3. crypta absent, blob looks wrapped               -> refuse
+#
+# `ResolveStoredEncryptionKey` is (2) and (3). Step (1) never moved onto the
+# catalog - it stayed inline in `ReadDataFile` - and the flush site's own
+# equivalent is `if (!chunk->GetValue(9, row_idx).IsNull())`
+# (ducklake_flush_inlined_data.cpp), which SKIPS the resolve on NULL instead of
+# refusing.
+#
+# So on an ENCRYPTED lake a delete-file row whose `encryption_key` is NULL is:
+#
+#   * refused by the scan path, by name, with an actionable message;
+#   * silently accepted by the flush path, which then hands an EMPTY key to
+#     `DuckLakeDeleteFilter::ScanDeleteFile`.
+#
+# That is the same asymmetry between the two decode sites that #26 was opened
+# about, in the one direction the fix did not carry across - and the failure it
+# produces is the same shape #20 named: a low-level reader error where the
+# operator needed a catalog-level refusal telling them what is wrong with the
+# row.
+#
+# NO CRYPTA IS INVOLVED. Deliberately: the defect is in the ENCRYPTED-lake NULL
+# check, not in the envelope, so building it without a key service keeps the two
+# apart and makes the case runnable with no `require-env`.
+
+require ducklake
+
+require parquet
+
+require httpfs
+
+# --------------------------------------------------------------------------
+# Fixture: a plain-ENCRYPTED lake with inlining, a real delete FILE, and
+# further deletions still inlined and unflushed.
+#
+# Same construction as crypta_flush_unconfigured_refusal.test, because it is the
+# only construction that reaches the second decode site.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/adv_null.db' AS seed (DATA_PATH '__TEST_DIR__/adv_null_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 100, METADATA_CATALOG 'seed_meta')
+
+statement ok
+CREATE TABLE seed.alpha AS SELECT i AS id FROM range(50) t(i)
+
+statement ok
+CALL ducklake_flush_inlined_data('seed')
+
+statement ok
+DELETE FROM seed.alpha WHERE id < 5
+
+statement ok
+CALL ducklake_flush_inlined_data('seed')
+
+# THE INSTRUMENT, LIVE AND BEFORE ANY PLANTING. One delete file, one 44-character
+# plaintext DEK, and it is NOT NULL - so the plant below is a CHANGE.
+query III
+SELECT count(*), count(*) FILTER (WHERE length(encryption_key) = 44), count(*) FILTER (WHERE encryption_key IS NULL) FROM seed_meta.ducklake_delete_file
+----
+1	1	0
+
+# Keep the real key: the control at the end restores it and requires the flush to
+# SUCCEED, which only works if this is the true one.
+statement ok
+CREATE TABLE real_delete_key AS SELECT encryption_key AS k FROM seed_meta.ducklake_delete_file
+
+# The data file's real key, for the scan-path control.
+statement ok
+CREATE TABLE real_data_key AS SELECT encryption_key AS k FROM seed_meta.ducklake_data_file
+
+# Deletions left INLINED - unflushed. These are what forces the later flush to
+# read the existing delete file.
+statement ok
+DELETE FROM seed.alpha WHERE id > 45
+
+statement ok
+DETACH seed
+
+# --------------------------------------------------------------------------
+# POSITIVE CONTROL FIRST: the refusal this file asks the flush site for
+# DEMONSTRABLY EXISTS on the scan path, on THIS lake, in THIS run.
+#
+# Without this, "the flush did not refuse" would be indistinguishable from "no
+# such refusal exists anywhere and the request is unreasonable". This is the
+# planted known-bad the absence below is measured against.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/adv_null.db' AS nulldata (DATA_PATH '__TEST_DIR__/adv_null_files', DATA_INLINING_ROW_LIMIT 100, METADATA_CATALOG 'nulldata_meta')
+
+statement ok
+UPDATE nulldata_meta.ducklake_data_file SET encryption_key = NULL
+
+statement ok
+DETACH nulldata
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/adv_null.db' AS scanner (DATA_PATH '__TEST_DIR__/adv_null_files', DATA_INLINING_ROW_LIMIT 100, METADATA_CATALOG 'scanner_meta')
+
+# The scan path names the row and says exactly what is wrong with it.
+statement error
+SELECT sum(id) FROM scanner.alpha
+----
+does not have an encryption key
+
+statement ok
+DETACH scanner
+
+# Restore the data file's key, so the flush below fails - or does not - for the
+# DELETE file's NULL and nothing else.
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/adv_null.db' AS undo (DATA_PATH '__TEST_DIR__/adv_null_files', DATA_INLINING_ROW_LIMIT 100, METADATA_CATALOG 'undo_meta')
+
+statement ok
+UPDATE undo_meta.ducklake_data_file SET encryption_key = (SELECT k FROM real_data_key)
+
+statement ok
+DETACH undo
+
+# --------------------------------------------------------------------------
+# THE PLANT: the DELETE file's key becomes NULL. Nothing else changes.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/adv_null.db' AS planter (DATA_PATH '__TEST_DIR__/adv_null_files', DATA_INLINING_ROW_LIMIT 100, METADATA_CATALOG 'planter_meta')
+
+statement ok
+UPDATE planter_meta.ducklake_delete_file SET encryption_key = NULL
+
+# The plant took, and the data file is back to its real key.
+query II
+SELECT (SELECT count(*) FILTER (WHERE encryption_key IS NULL) FROM planter_meta.ducklake_delete_file), (SELECT count(*) FILTER (WHERE length(encryption_key) = 44) FROM planter_meta.ducklake_data_file)
+----
+1	1
+
+statement ok
+DETACH planter
+
+# --------------------------------------------------------------------------
+# THE CASE. Same lake, same call, the delete file's key NULL on an ENCRYPTED
+# lake. The flush must refuse it the way the scan path already does.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/adv_null.db' AS flusher (DATA_PATH '__TEST_DIR__/adv_null_files', DATA_INLINING_ROW_LIMIT 100, METADATA_CATALOG 'flusher_meta')
+
+statement error
+CALL ducklake_flush_inlined_data('flusher')
+----
+does not have an encryption key
+
+statement ok
+DETACH flusher
+
+# --------------------------------------------------------------------------
+# OVER-REFUSAL CONTROL. Restore the real key and the same call must SUCCEED and
+# apply the deletions correctly - so a "fix" that refused every flush lands here.
+#
+# 50 rows minus ids 0-4 minus ids 46-49 = 41 rows, sum 1225 - 10 - 190 = 1025.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/adv_null.db' AS restorer (DATA_PATH '__TEST_DIR__/adv_null_files', DATA_INLINING_ROW_LIMIT 100, METADATA_CATALOG 'restorer_meta')
+
+statement ok
+UPDATE restorer_meta.ducklake_delete_file SET encryption_key = (SELECT k FROM real_delete_key)
+
+statement ok
+DETACH restorer
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/adv_null.db' AS restored (DATA_PATH '__TEST_DIR__/adv_null_files', DATA_INLINING_ROW_LIMIT 100, METADATA_CATALOG 'restored_meta')
+
+statement ok
+CALL ducklake_flush_inlined_data('restored')
+
+query II
+SELECT count(*), sum(id) FROM restored.alpha
+----
+41	1025
+
+statement ok
+DETACH restored
