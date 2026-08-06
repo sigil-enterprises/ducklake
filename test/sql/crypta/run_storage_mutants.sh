@@ -17,7 +17,7 @@
 # The roster is one file and one vocabulary (test/cpp/crypta/mutants.py); what
 # differs is the BUILD, and it differs by two orders of magnitude.
 #
-#   run_crypta_tests.sh --mutants   35 mutants, each a STANDALONE compile of two
+#   run_crypta_tests.sh --mutants   42 mutants, each a STANDALONE compile of two
 #                                   files against a copy of src/crypta. Seconds
 #                                   per mutant. Cheap enough for the per-PR gate,
 #                                   which is where it runs.
