@@ -21,6 +21,32 @@ the fork's version number, and a runtime refuses any other patch.
 
 ### Fixed
 
+- **The crypta reply was zipped onto the caller's file list by ARRAY POSITION**
+  (#31, #54). crypta already says which file each returned value belongs to - its
+  reply item is an identity beside the value - and the client threw that identity
+  away. The reply-count check from #24 was the only thing between that and key
+  confusion, and a count is a LENGTH check standing in for a BINDING check: it
+  catches a reply with the wrong *number* of items, and a REORDER has exactly the
+  right number. Measured against the pre-fix client, a two-item reply with its
+  items swapped handed `t/alpha.parquet` the DEK crypta minted for
+  `t/beta.parquet` - a wrong-key defect, not the refused-batch availability
+  defect #28 bounded.
+
+  Both batch paths now go through one reader that walks the reply item by item
+  and requires item `i` to echo `identities[i]`, all four fields, compared as
+  decoded values rather than as bytes. The value and the identity binding it come
+  out of the same structurally delimited item, so a value nested inside the
+  echoed identity or duplicated beside it cannot be substituted for the item's
+  own. The count check stays: it is what answers for a reply with no items at
+  all. Both fakes were corrected to echo the identity first - a guard verified
+  against a fake that never sends the field it checks passes without running.
+
+  Proven red-first against the pre-fix client, then green; the standalone
+  mutation roster is 40 guards, 40 red, no survivors, and every multi-name mutant
+  was verified per case rather than by its combined exit status. That per-case
+  pass found and fixed a defect in this change's own evidence, recorded in the
+  pull request.
+
 - **The `v0.1.0-rc.1` entry below understated the release** (#52). As published
   at the `v0.1.0-rc.1` tag, that entry listed **#33** and **#26** under *Known
   limitations* while both were **already fixed at the very commit the tag points
