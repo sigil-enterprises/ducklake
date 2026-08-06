@@ -83,6 +83,7 @@ add_executable(
   crypta_refusal_test.cpp
   crypta_cache_test.cpp
   crypta_injection_test.cpp
+  crypta_identity_echo_test.cpp
   crypta_sql_injection_test.cpp
   "${CRYPTA_SRC_DIR}/crypta_client.cpp"
   "${CRYPTA_SRC_DIR}/ducklake_crypta.cpp"

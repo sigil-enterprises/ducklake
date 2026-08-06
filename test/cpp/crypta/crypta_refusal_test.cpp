@@ -83,8 +83,8 @@ TEST_CASE("crypta: an empty batch returns empty WITHOUT contacting the service",
 	server.Start([](FakeConnection &connection, int) {
 		// Any connection at all is the defect. Reply with something valid so the
 		// failure is a connection-count assertion, not a hang.
-		connection.ReadFrame();
-		connection.WriteFrame(OkUnwrapResponse({SampleDek()}));
+		auto request = connection.ReadFrame();
+		connection.WriteFrame(OkUnwrapResponse(request, {SampleDek()}));
 	});
 	CryptaClient client(server.Path());
 
@@ -114,8 +114,8 @@ TEST_CASE("crypta: an empty batch returns empty WITHOUT contacting the service",
 TEST_CASE("crypta: a batch with more keys than identities is refused", "[crypta][refusal][size_mismatch]") {
 	FakeCryptaServer server;
 	server.Start([](FakeConnection &connection, int) {
-		connection.ReadFrame();
-		connection.WriteFrame(OkUnwrapResponse({SampleDek(), SampleDek()}));
+		auto request = connection.ReadFrame();
+		connection.WriteFrame(OkUnwrapResponse(request, {SampleDek(), SampleDek()}));
 	});
 	CryptaClient client(server.Path());
 	vector<CryptaFileIdentity> two {SampleIdentity("a"), SampleIdentity("b")};
@@ -140,8 +140,8 @@ TEST_CASE("crypta: a batch with more keys than identities is refused", "[crypta]
 TEST_CASE("crypta: a batch with fewer keys than identities is refused", "[crypta][refusal][size_mismatch]") {
 	FakeCryptaServer server;
 	server.Start([](FakeConnection &connection, int) {
-		connection.ReadFrame();
-		connection.WriteFrame(OkUnwrapResponse({SampleDek()}));
+		auto request = connection.ReadFrame();
+		connection.WriteFrame(OkUnwrapResponse(request, {SampleDek()}));
 	});
 	CryptaClient client(server.Path());
 	vector<CryptaFileIdentity> two {SampleIdentity("a"), SampleIdentity("b")};
@@ -165,6 +165,22 @@ TEST_CASE("crypta: a batch with fewer keys than identities is refused", "[crypta
 
 // mutant: no_truncation_check
 TEST_CASE("crypta: a response truncated inside a value is refused", "[crypta][refusal][truncated]") {
+	// THE DIAGNOSIS MOVED, and #31 is why. It is recorded here rather than left to
+	// be rediscovered from a message that no longer matches the fixture.
+	//
+	// The old reader scanned for `"dek":"` and then for the next `"`, with no idea
+	// what a string was, so "the value's closing quote never arrived" was its own
+	// observable condition and had its own message. A string-AWARE walk cannot see
+	// it that way: an unterminated string swallows every brace and bracket after
+	// it, so the items array it sits in never closes either. The two stopped being
+	// two conditions the moment the reader started tracking string state - there
+	// is exactly one thing left to observe, and it is the array.
+	//
+	// So the refusal moved from the field reader to `SplitReplyItems`, the mutant
+	// `no_truncation_check` moved with it, and this case follows both: same
+	// fixture, same fail-closed outcome, a message that now names what was
+	// actually detected. Deleting the case instead would have retired live
+	// evidence for a guard that is still there.
 	SECTION("unwrap - the dek value never closes its quote") {
 		FakeCryptaServer server;
 		server.Start([](FakeConnection &connection, int) {
@@ -176,7 +192,7 @@ TEST_CASE("crypta: a response truncated inside a value is refused", "[crypta][re
 		});
 		CryptaClient client(server.Path());
 		REQUIRE_THAT(ThrownMessage([&]() { client.UnwrapBatch({SampleIdentity()}, {"RExLblob"}); }),
-		             Catch::Contains("truncated inside a dek value"));
+		             Catch::Contains("truncated inside its items array"));
 	}
 	SECTION("wrap - the wrapped value never closes its quote") {
 		FakeCryptaServer server;
@@ -186,7 +202,7 @@ TEST_CASE("crypta: a response truncated inside a value is refused", "[crypta][re
 		});
 		CryptaClient client(server.Path());
 		REQUIRE_THAT(ThrownMessage([&]() { client.WrapBatch({SampleIdentity()}, {SampleDek()}); }),
-		             Catch::Contains("truncated inside a wrapped value"));
+		             Catch::Contains("truncated inside its items array"));
 	}
 }
 
@@ -195,8 +211,8 @@ TEST_CASE("crypta: a value count that does not match the request is refused", "[
 	SECTION("too many - two deks for one file") {
 		FakeCryptaServer server;
 		server.Start([](FakeConnection &connection, int) {
-			connection.ReadFrame();
-			connection.WriteFrame(OkUnwrapResponse({SampleDek('a'), SampleDek('b')}));
+			auto request = connection.ReadFrame();
+			connection.WriteFrame(OkUnwrapResponse(request, {SampleDek('a'), SampleDek('b')}));
 		});
 		CryptaClient client(server.Path());
 		REQUIRE_THAT(ThrownMessage([&]() { client.UnwrapBatch({SampleIdentity()}, {"RExLblob"}); }),
@@ -205,8 +221,8 @@ TEST_CASE("crypta: a value count that does not match the request is refused", "[
 	SECTION("too few - one dek for two files") {
 		FakeCryptaServer server;
 		server.Start([](FakeConnection &connection, int) {
-			connection.ReadFrame();
-			connection.WriteFrame(OkUnwrapResponse({SampleDek('a')}));
+			auto request = connection.ReadFrame();
+			connection.WriteFrame(OkUnwrapResponse(request, {SampleDek('a')}));
 		});
 		CryptaClient client(server.Path());
 		vector<CryptaFileIdentity> identities {SampleIdentity("a"), SampleIdentity("b")};
@@ -227,8 +243,8 @@ TEST_CASE("crypta: a value count that does not match the request is refused", "[
 	SECTION("wrap - two blobs for one key") {
 		FakeCryptaServer server;
 		server.Start([](FakeConnection &connection, int) {
-			connection.ReadFrame();
-			connection.WriteFrame(OkWrapResponse({"RExLone", "RExLtwo"}));
+			auto request = connection.ReadFrame();
+			connection.WriteFrame(OkWrapResponse(request, {"RExLone", "RExLtwo"}));
 		});
 		CryptaClient client(server.Path());
 		REQUIRE_THAT(ThrownMessage([&]() { client.WrapBatch({SampleIdentity()}, {SampleDek()}); }),
@@ -278,8 +294,9 @@ TEST_CASE("crypta: a request larger than the frame limit is refused before it is
 	const size_t MAX_FRAME = 64ull * 1024 * 1024;
 	FakeCryptaServer server;
 	server.Start([&](FakeConnection &connection, int) {
-		server.Record(connection.ReadFrame());
-		connection.WriteFrame(OkUnwrapResponse({SampleDek()}));
+		auto request = connection.ReadFrame();
+		server.Record(request);
+		connection.WriteFrame(OkUnwrapResponse(request, {SampleDek()}));
 	});
 	CryptaClient client(server.Path());
 
@@ -320,8 +337,8 @@ TEST_CASE("crypta: a connection closed mid-read is refused", "[crypta][refusal][
 	SECTION("closed halfway through the body") {
 		FakeCryptaServer server;
 		server.Start([](FakeConnection &connection, int) {
-			connection.ReadFrame();
-			auto body = OkUnwrapResponse({SampleDek()});
+			auto request = connection.ReadFrame();
+			auto body = OkUnwrapResponse(request, {SampleDek()});
 			// The header promises the whole body; only half of it arrives. This is
 			// exactly the shape a crashed service produces.
 			connection.WriteLengthHeader(static_cast<uint32_t>(body.size()));
@@ -608,12 +625,12 @@ TEST_CASE("crypta: a signal during the response read is retried, not reported as
 		// signal is delivered to the thread that is actually inside read().
 		BlockSignalHere blocked;
 		server.Start([&](FakeConnection &connection, int) {
-			connection.ReadFrame();
+			auto request = connection.ReadFrame();
 			request_seen.store(true);
 			// Hold the response back so the client is parked in read() with the
 			// signals arriving.
 			std::this_thread::sleep_for(std::chrono::milliseconds(300));
-			connection.WriteFrame(OkUnwrapResponse({dek}));
+			connection.WriteFrame(OkUnwrapResponse(request, {dek}));
 		});
 		SignalPoker poker(client_thread, request_seen);
 		UnblockSignalHere();
@@ -656,8 +673,9 @@ TEST_CASE("crypta: a signal during the request write is retried, not reported as
 			// Do not drain the socket. The client fills the buffer and blocks in
 			// write(), which is the only place the write-side EINTR can happen.
 			std::this_thread::sleep_for(std::chrono::milliseconds(400));
-			connection.ReadFrame();
-			connection.WriteFrame(OkUnwrapResponse(std::vector<std::string>(deks.begin(), deks.end())));
+			auto request = connection.ReadFrame();
+			connection.WriteFrame(
+			    OkUnwrapResponse(request, std::vector<std::string>(deks.begin(), deks.end())));
 		});
 		SignalPoker poker(client_thread, accepted);
 		UnblockSignalHere();
@@ -703,11 +721,16 @@ TEST_CASE("crypta: an error status is surfaced, never parsed for keys", "[crypta
 		// The ordering matters: ThrowIfError runs BEFORE the values are read. A
 		// service that reports an error while also emitting a key must not have
 		// that key harvested.
+		// The item echoes the identity that was ASKED for, so with ThrowIfError
+		// removed the reply is one the reader would happily accept - the red is then
+		// "the dek was harvested", which is the claim, rather than a second guard
+		// objecting to a malformed item.
 		FakeCryptaServer server;
 		server.Start([](FakeConnection &connection, int) {
-			connection.ReadFrame();
-			connection.WriteFrame("{\"status\":\"error\",\"message\":\"denied\",\"items\":[{\"dek\":\"" +
-			                      Base64Encode(SampleDek()) + "\"}]}");
+			auto request = connection.ReadFrame();
+			connection.WriteFrame("{\"status\":\"error\",\"message\":\"denied\",\"items\":[{\"identity\":" +
+			                      RequestIdentities(request).at(0) + ",\"dek\":\"" + Base64Encode(SampleDek()) +
+			                      "\"}]}");
 		});
 		CryptaClient client(server.Path());
 		REQUIRE_THAT(ThrownMessage([&]() { client.UnwrapBatch({SampleIdentity()}, {"RExLblob"}); }),
@@ -740,8 +763,9 @@ TEST_CASE("crypta: a dek value that is not valid base64 is refused", "[crypta][r
 	SECTION("a value outside the ALPHABET is refused by the reader, before the decode") {
 		FakeCryptaServer server;
 		server.Start([](FakeConnection &connection, int) {
-			connection.ReadFrame();
-			connection.WriteFrame("{\"status\":\"ok\",\"items\":[{\"dek\":\"not-base64!!\"}]}");
+			auto request = connection.ReadFrame();
+			connection.WriteFrame("{\"status\":\"ok\",\"items\":[{\"identity\":" + RequestIdentities(request).at(0) +
+			                      ",\"dek\":\"not-base64!!\"}]}");
 		});
 		CryptaClient client(server.Path());
 		// Deliberately NOT the bare fragment "not base64": the decoder's message
@@ -759,8 +783,9 @@ TEST_CASE("crypta: a dek value that is not valid base64 is refused", "[crypta][r
 		// objects, and this is the case that keeps it in the picture.
 		FakeCryptaServer server;
 		server.Start([](FakeConnection &connection, int) {
-			connection.ReadFrame();
-			connection.WriteFrame("{\"status\":\"ok\",\"items\":[{\"dek\":\"QQQ\"}]}");
+			auto request = connection.ReadFrame();
+			connection.WriteFrame("{\"status\":\"ok\",\"items\":[{\"identity\":" + RequestIdentities(request).at(0) +
+			                      ",\"dek\":\"QQQ\"}]}");
 		});
 		CryptaClient client(server.Path());
 		REQUIRE_THAT(ThrownMessage([&]() { client.UnwrapBatch({SampleIdentity()}, {"RExLblob"}); }),
@@ -784,8 +809,9 @@ TEST_CASE("crypta: quotes and control characters in an identity are escaped on t
 
 	FakeCryptaServer server;
 	server.Start([&](FakeConnection &connection, int) {
-		server.Record(connection.ReadFrame());
-		connection.WriteFrame(OkUnwrapResponse({SampleDek()}));
+		auto request = connection.ReadFrame();
+		server.Record(request);
+		connection.WriteFrame(OkUnwrapResponse(request, {SampleDek()}));
 	});
 	CryptaClient client(server.Path());
 
@@ -794,7 +820,17 @@ TEST_CASE("crypta: quotes and control characters in an identity are escaped on t
 	identity.table_id = 42;
 	identity.is_delete_file = true;
 	identity.stored_path = hostile_path;
-	client.UnwrapBatch({identity}, {"RExLblob"});
+	// The call is ALLOWED to throw, and that is not tolerance - it is what keeps
+	// this case's evidence pointed at its own subject.
+	//
+	// Every assertion below is about the FRAME, which is recorded either way. With
+	// the escaping removed the frame is malformed, so the fake echoes a broken
+	// identity and the reply reader (#31) refuses it - and an unguarded call would
+	// then die on THAT exception with not one frame assertion executed. The mutant
+	// would still report RED while proving nothing about escaping, and a later
+	// regression in the assertions below would be invisible. Same pattern, same
+	// reason, as the injection cases.
+	ThrownMessage([&]() { client.UnwrapBatch({identity}, {"RExLblob"}); });
 
 	auto requests = server.Requests();
 	REQUIRE(requests.size() == 1);
@@ -843,8 +879,9 @@ TEST_CASE("crypta: the delete-file kind is carried on the wire", "[crypta][refus
 	// service at all.
 	FakeCryptaServer server;
 	server.Start([&](FakeConnection &connection, int) {
-		server.Record(connection.ReadFrame());
-		connection.WriteFrame(OkUnwrapResponse({SampleDek()}));
+		auto request = connection.ReadFrame();
+		server.Record(request);
+		connection.WriteFrame(OkUnwrapResponse(request, {SampleDek()}));
 	});
 	CryptaClient client(server.Path());
 
@@ -939,8 +976,9 @@ TEST_CASE("crypta: a multi-item wrap is one request with well-formed separators"
 	// ordinary case, not an edge one - WrapKeys batches a whole commit.
 	FakeCryptaServer server;
 	server.Start([&](FakeConnection &connection, int) {
-		server.Record(connection.ReadFrame());
-		connection.WriteFrame(OkWrapResponse({"RExLone", "RExLtwo"}));
+		auto request = connection.ReadFrame();
+		server.Record(request);
+		connection.WriteFrame(OkWrapResponse(request, {"RExLone", "RExLtwo"}));
 	});
 	CryptaClient client(server.Path());
 	vector<CryptaFileIdentity> identities {SampleIdentity("a.parquet"), SampleIdentity("b.parquet")};
@@ -964,8 +1002,9 @@ TEST_CASE("crypta: a well-formed response round-trips", "[crypta][happy]") {
 	auto dek_b = SampleDek('b');
 	FakeCryptaServer server;
 	server.Start([&](FakeConnection &connection, int) {
-		server.Record(connection.ReadFrame());
-		connection.WriteFrame(OkUnwrapResponse({dek_a, dek_b}));
+		auto request = connection.ReadFrame();
+		server.Record(request);
+		connection.WriteFrame(OkUnwrapResponse(request, {dek_a, dek_b}));
 	});
 	CryptaClient client(server.Path());
 	vector<CryptaFileIdentity> identities {SampleIdentity("a"), SampleIdentity("b")};

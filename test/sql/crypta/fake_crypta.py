@@ -134,8 +134,22 @@ def handle(body):
         return dumps({"schema": WIRE_SCHEMA, "status": "ok", "ok": True, "root": "fake-crypta-for-sql-fixtures"})
 
     items = request.get("items", [])
+    # Every reply item ECHOES the identity it answers for, exactly as the real
+    # service does - crypta's reply item is a `WrappedKeyEntry` / `PlainKey`, an
+    # identity beside the value (src/server.rs). Until #31 this fake emitted the
+    # bare value, and that made it useless as a fixture for the client's
+    # reply-side binding: a guard that checks an echoed identity, driven by a
+    # service that never echoes one, passes without ever running.
+    #
+    # `dumps` here uses sort_keys=True, so the echo comes back with its members
+    # in a DIFFERENT order than the client wrote them. That is deliberate and it
+    # is load-bearing: it is what requires the client to compare the four VALUES
+    # rather than the bytes it sent, and a byte comparison would refuse this
+    # fixture on every single ATTACH.
     if operation == "wrap_batch":
-        wrapped = [{"wrapped": wrap(item["identity"], item["dek"])} for item in items]
+        wrapped = [
+            {"identity": item["identity"], "wrapped": wrap(item["identity"], item["dek"])} for item in items
+        ]
         return dumps({"schema": WIRE_SCHEMA, "status": "ok", "items": wrapped})
 
     if operation == "unwrap_batch":
@@ -144,7 +158,7 @@ def handle(body):
             dek = unwrap(item["identity"], item["wrapped"])
             if dek is None:
                 return error("unwrap failed: not valid for this KEK and file identity")
-            results.append({"dek": dek})
+            results.append({"identity": item["identity"], "dek": dek})
         return dumps({"schema": WIRE_SCHEMA, "status": "ok", "items": results})
 
     return error("unsupported op: %s" % operation)

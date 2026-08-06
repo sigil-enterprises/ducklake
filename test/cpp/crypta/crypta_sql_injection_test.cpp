@@ -83,27 +83,40 @@ namespace {
 //! The count check is not a validator, and this is the value that shows it.
 const char *const SPLICES_A_ROW = "RExLAAAA',NULL),(9999,1,1,'evil.parquet";
 
-//! A value whose out-of-alphabet byte is a BACKSLASH rather than a quote.
+//! A value whose out-of-alphabet byte is a BACKSLASH rather than a quote,
+//! spelled as the JSON ESCAPE a reply has to use to carry one.
 //!
 //! Kept because the alphabet is the guard, not the quote: a reader that special
 //! -cased `'` would pass the case above and fail this one. `\` is also the byte
 //! `widened_base64_alphabet` proves `IsBase64` must exclude, so the two rosters
 //! agree on what the alphabet is.
-const char *const ENDS_IN_A_BACKSLASH = "RExLAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\\";
-
-//! A wrap reply carrying exactly these `wrapped` values, verbatim.
 //!
-//! `OkWrapResponse` from the fake server does the same thing and is used where
-//! it fits; this is here for the cases that need the value spliced in with no
-//! encoding of any kind, because encoding the fixture would remove the very
-//! bytes under test.
-std::string WrapReply(const std::vector<std::string> &values) {
+//! It used to be spliced in RAW, and #31 is what stopped that reaching the
+//! guard. A raw trailing backslash escapes the value's OWN closing quote, so
+//! with a string-aware reader the frame never terminates its items array and the
+//! refusal comes from the STRUCTURE rather than from the alphabet. Fail-closed
+//! either way - but this case exists to prove the ALPHABET check, and a case
+//! proven by a different guard than the one it names is not proven. Escaped, the
+//! DECODED value ends in a real backslash and `IsBase64` is what refuses it,
+//! which is the diagnosis this case is named for.
+const char *const ENDS_IN_A_BACKSLASH = "RExLAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\\\\";
+
+//! A wrap reply carrying exactly these `wrapped` values, verbatim, each beside
+//! the echoed identity of the file it belongs to.
+//!
+//! `OkWrapResponse` from the fake server echoes the identity out of the REQUEST;
+//! this is here for the cases that need the VALUE spliced in with no encoding of
+//! any kind, because encoding the fixture would remove the very bytes under
+//! test. The identity beside it is not optional since #31: a reply item with no
+//! identity is refused before the alphabet is ever consulted, and these cases
+//! would then be proven by the wrong guard.
+std::string WrapReply(const std::vector<std::string> &identities, const std::vector<std::string> &values) {
 	std::string out = "{\"schema\":\"CryptaWireManifest@v2\",\"status\":\"ok\",\"items\":[";
 	for (size_t i = 0; i < values.size(); i++) {
 		if (i > 0) {
 			out += ",";
 		}
-		out += "{\"wrapped\":\"" + values[i] + "\"}";
+		out += "{\"identity\":" + identities[i % identities.size()] + ",\"wrapped\":\"" + values[i] + "\"}";
 	}
 	out += "]}";
 	return out;
@@ -135,7 +148,7 @@ TEST_CASE("crypta: a wrap reply carrying a value outside the base64 alphabet is 
 	// the guard has to be this one.
 	SECTION("a value that closes the SQL literal and opens a new row") {
 		FakeCryptaServer server;
-		auto reply = WrapReply({SPLICES_A_ROW});
+		auto reply = WrapReply({IdentityEcho(SampleIdentity("t/victim.parquet"))}, {SPLICES_A_ROW});
 		server.Start([&](FakeConnection &connection, int) { ServeCannedReply(server, connection, reply); });
 		CryptaClient client(server.Path());
 
@@ -147,7 +160,7 @@ TEST_CASE("crypta: a wrap reply carrying a value outside the base64 alphabet is 
 
 	SECTION("a value ending in a backslash") {
 		FakeCryptaServer server;
-		auto reply = WrapReply({ENDS_IN_A_BACKSLASH});
+		auto reply = WrapReply({IdentityEcho(SampleIdentity("t/victim.parquet"))}, {ENDS_IN_A_BACKSLASH});
 		server.Start([&](FakeConnection &connection, int) { ServeCannedReply(server, connection, reply); });
 		CryptaClient client(server.Path());
 
@@ -161,7 +174,9 @@ TEST_CASE("crypta: a wrap reply carrying a value outside the base64 alphabet is 
 	// failure than refusing the transaction.
 	SECTION("one bad value in a batch refuses the batch") {
 		FakeCryptaServer server;
-		auto reply = WrapReply({WrappedBlob("good"), SPLICES_A_ROW});
+		auto reply = WrapReply({IdentityEcho(SampleIdentity("t/innocent.parquet")),
+		                        IdentityEcho(SampleIdentity("t/victim.parquet"))},
+		                       {WrappedBlob("good"), SPLICES_A_ROW});
 		server.Start([&](FakeConnection &connection, int) { ServeCannedReply(server, connection, reply); });
 		CryptaClient client(server.Path());
 
@@ -238,7 +253,9 @@ TEST_CASE("crypta: a wrap reply of legitimate base64 punctuation is served, not 
 	const std::string second = WrappedBlob("plain");
 
 	FakeCryptaServer server;
-	auto reply = WrapReply({first, second});
+	auto reply = WrapReply({IdentityEcho(SampleIdentity("t/one.parquet")),
+	                        IdentityEcho(SampleIdentity("t/two.parquet"))},
+	                       {first, second});
 	server.Start([&](FakeConnection &connection, int) { ServeCannedReply(server, connection, reply); });
 	CryptaClient client(server.Path());
 

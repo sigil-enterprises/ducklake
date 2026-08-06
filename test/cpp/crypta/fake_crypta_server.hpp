@@ -132,10 +132,42 @@ private:
 //! invisible.
 std::string Base64Encode(const std::string &raw);
 
-//! A well-formed unwrap_batch response carrying these raw DEKs, in order.
-std::string OkUnwrapResponse(const std::vector<std::string> &raw_deks);
-//! A well-formed wrap_batch response carrying these already-base64 blobs.
-std::string OkWrapResponse(const std::vector<std::string> &base64_blobs);
+//! The RAW `identity` value of every top-level item in a REQUEST frame, in
+//! order - the JSON object exactly as the client wrote it.
+//!
+//! Exposed rather than kept private because REORDERING or REPLACING one of these
+//! before handing it back is the only way to exercise the reply-side binding
+//! (#31), and a test that built the reply's identities from scratch would be
+//! testing its own spelling rather than the client's.
+//!
+//! An item with no `identity` member contributes the empty string, which is the
+//! shape that reddens the binding rather than crashing the fake.
+std::vector<std::string> RequestIdentities(const std::string &request);
+
+//! A well-formed unwrap_batch response: one item per DEK, each carrying the
+//! identity slice at the same position beside it.
+//!
+//! When there are fewer identities than values the identities CYCLE, and that is
+//! for the count cases alone - a reply with more items than the request had is
+//! refused on the count before any identity is looked at, so what the surplus
+//! items echo is not what those cases are measuring.
+std::string UnwrapResponse(const std::vector<std::string> &identities, const std::vector<std::string> &raw_deks);
+//! The same, for a wrap_batch reply carrying already-base64 blobs.
+std::string WrapResponse(const std::vector<std::string> &identities, const std::vector<std::string> &base64_blobs);
+
+//! A well-formed unwrap_batch response carrying these raw DEKs, in order, each
+//! echoing the identity of the REQUEST item at the same position.
+//!
+//! The echo is what the real service does - crypta's reply item is a `PlainKey`,
+//! an identity beside the dek (`sigil-enterprises/crypta` src/server.rs) - and
+//! until #31 neither fake here echoed anything. A reply-side binding tested
+//! against a fake that never echoes an identity passes without ever running the
+//! guard, so correcting the fakes is a PRECONDITION of the guard, not a
+//! follow-up.
+std::string OkUnwrapResponse(const std::string &request, const std::vector<std::string> &raw_deks);
+//! A well-formed wrap_batch response carrying these already-base64 blobs, each
+//! echoing the identity of the REQUEST item at the same position.
+std::string OkWrapResponse(const std::string &request, const std::vector<std::string> &base64_blobs);
 //! The error shape crypta emits when a binding does not hold.
 std::string ErrorResponse(const std::string &message);
 

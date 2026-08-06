@@ -220,7 +220,7 @@ void ServeParsedItems(FakeCryptaServer &server, FakeConnection &connection) {
 		}
 		deks.push_back(DekForPath(path));
 	}
-	connection.WriteFrame(OkUnwrapResponse(deks));
+	connection.WriteFrame(OkUnwrapResponse(body, deks));
 }
 
 //! A blob that closes its own JSON string and opens a whole new array element.

@@ -12,8 +12,11 @@
 #include "crypta/crypta_client.hpp"
 #include "fake_crypta_server.hpp"
 
+#include <cstdio>
 #include <functional>
+#include <sstream>
 #include <string>
+#include <vector>
 
 namespace ducklake_crypta_test {
 
@@ -43,6 +46,63 @@ inline duckdb::CryptaFileIdentity SampleIdentity(const std::string &path = "t/f.
 	identity.is_delete_file = false;
 	identity.stored_path = path;
 	return identity;
+}
+
+//! The `identity` object a reply echoes beside its value, spelled INDEPENDENTLY
+//! of the client's own encoder.
+//!
+//! Two things about it are deliberate rather than incidental:
+//!
+//!   * The four members come out in a DIFFERENT ORDER than
+//!     `CryptaClient::IdentityJson` writes them. A real service re-serialises the
+//!     identity it parsed - crypta's `IdentityWire::from`, and the SQL fixture's
+//!     python stand-in with `sort_keys=True` - so member order is not a property
+//!     of the wire. A reader that compared the reply's BYTES to the bytes it
+//!     sent would refuse both of them, and over-refusal on the read path locks
+//!     an operator out of their own lake. Every canned reply built here
+//!     therefore doubles as the control against that.
+//!   * It escapes with its own escaper. Building the expectation with the
+//!     client's own encoder would make a bug in that encoder invisible - the
+//!     same reason `Base64Encode` above is written out by hand.
+inline std::string JsonEscapeForEcho(const std::string &input) {
+	std::string out;
+	for (size_t i = 0; i < input.size(); i++) {
+		auto c = static_cast<unsigned char>(input[i]);
+		if (c == '"') {
+			out += "\\\"";
+		} else if (c == '\\') {
+			out += "\\\\";
+		} else if (c == '\b') {
+			// `\b` and `\f` on purpose: these are the two control characters serde
+			// writes as a SHORT escape where this client writes the six-character
+			// numeric one. If the reader ever compared spellings, they are the
+			// bytes that would show it.
+			out += "\\b";
+		} else if (c == '\f') {
+			out += "\\f";
+		} else if (c == '\n') {
+			out += "\\n";
+		} else if (c == '\r') {
+			out += "\\r";
+		} else if (c == '\t') {
+			out += "\\t";
+		} else if (c < 0x20) {
+			char buffer[8];
+			snprintf(buffer, sizeof(buffer), "\\u%04x", static_cast<int>(c));
+			out += buffer;
+		} else {
+			out += static_cast<char>(c);
+		}
+	}
+	return out;
+}
+
+inline std::string IdentityEcho(const duckdb::CryptaFileIdentity &identity) {
+	std::ostringstream out;
+	out << "{\"file_path\":\"" << JsonEscapeForEcho(identity.stored_path) << "\",\"file_kind\":\""
+	    << (identity.is_delete_file ? "delete" : "data") << "\",\"table_id\":" << identity.table_id
+	    << ",\"catalog_uuid\":\"" << JsonEscapeForEcho(identity.lake_id) << "\"}";
+	return out.str();
 }
 
 //! 32 raw bytes, the size this fork mints (see commit 94144c31).
