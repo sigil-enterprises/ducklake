@@ -486,24 +486,33 @@ LEFT JOIN (
 						// existing_del.encryption_key out of ducklake_delete_file with
 						// the hand-written query above and decodes it right here - it
 						// never passes through DuckLakeMetadataManager::ReadDataFile, so
-						// the refusal there does not cover it. Reached by an ENCRYPTED
-						// lake with crypta, DATA_INLINING_ROW_LIMIT > 0, deletions
-						// already flushed once into a delete file, and further deletions
-						// still inlined when the lake is re-attached without the crypta
-						// options - at which point the wrapped blob went to the Parquet
-						// reader as a key and produced the same INTERNAL assertion
-						// failure #20 was filed about.
+						// nothing that function does covers it.
+						//
+						// BOTH directions are wrong without the call below, and only one
+						// of them was ever fixed here first:
+						//
+						//   unconfigured reader - a wrapped blob base64-decoded and
+						//     handed to the Parquet reader as if it were a key, which
+						//     mbedtls rejects on length. Fail-closed by accident (#20).
+						//   CONFIGURED lake - WriteNewDeleteFiles DOES wrap delete-file
+						//     keys, and this site never called UnwrapKey, so the
+						//     configured-and-correct path produced the SAME assertion
+						//     failure on its own data (#26).
+						//
+						// One call now answers both, because they are one question: what
+						// IS this stored value on THIS lake. Splitting it into a refusal
+						// here and an unwrap somewhere else is precisely how this site
+						// ended up carrying one half.
+						//
+						// The identity inputs are all in scope: the STORED delete path is
+						// column 6 (resolved separately, for the error message only),
+						// `table_id` is the table being flushed, and a delete file binds
+						// with file_kind=delete.
 						auto resolved_delete_path = file_info.existing_delete_path_is_relative
 						                                ? table.DataPath() + file_info.existing_delete_path
 						                                : file_info.existing_delete_path;
-						catalog.RefuseWrappedKeyWithoutCrypta(resolved_delete_path, stored_delete_key);
-						// NOT unwrapped when crypta IS configured, deliberately: this
-						// path has never called UnwrapKey, and WriteNewDeleteFiles DOES
-						// wrap delete-file keys, so a configured lake is broken here too.
-						// That is a separate pre-existing data-path defect with its own
-						// issue - fixing it silently inside a fail-closed change would
-						// hide it. Only the unconfigured refusal is added here.
-						file_info.existing_delete_encryption_key = Blob::FromBase64(stored_delete_key);
+						file_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(
+						    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);
 					}
 					if (!chunk->GetValue(10, row_idx).IsNull()) {
 						file_info.existing_delete_format =

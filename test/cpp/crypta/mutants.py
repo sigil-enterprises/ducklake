@@ -745,33 +745,59 @@ EXTENSION_MUTANTS = [
     {
         "name": "no_wrapped_key_refusal_on_scan",
         "file": "src/storage/ducklake_metadata_manager.cpp",
-        "why": "the CALL at the scan site - ReadDataFile's null-provider branch, "
-               "reached exactly when the crypta options were absent from the "
-               "ATTACH. Without it the 208-byte wrapped blob is base64-decoded and "
-               "handed to the Parquet reader AS IF IT WERE A KEY, and mbedtls "
-               "asserts on the length (#20) - fail-closed by accident, and a blob "
-               "whose length happened to be valid would have been TRIED. "
-               "`data.path` and `stored_key` are both used on the next line, so "
-               "the call deletes cleanly with nothing left dangling",
-        "old": '\t\t\ttransaction.GetCatalog().RefuseWrappedKeyWithoutCrypta(data.path, stored_key);',
-        "new": '\t\t\t// MUTANT no_wrapped_key_refusal_on_scan: the call was here.',
+        "why": "the REFUSAL half of the resolution at the scan site - "
+               "ReadDataFile's null-provider branch, reached exactly when the "
+               "crypta options were absent from the ATTACH. Without it the "
+               "wrapped blob is base64-decoded and handed to the Parquet reader "
+               "AS IF IT WERE A KEY, and mbedtls asserts on the length (#20) - "
+               "fail-closed by accident, and a blob whose length happened to be "
+               "valid would have been TRIED. Since #26 the site calls "
+               "ResolveStoredEncryptionKey rather than the refusal directly, so "
+               "the mutant restores the two branches BY HAND with only the "
+               "refusal missing. That is deliberate and it keeps this mutant's "
+               "meaning exactly what it always was: it removes the refusal at "
+               "THIS site and nothing else - a configured lake still unwraps, so "
+               "no case reddens for the wrong reason",
+        "old": '\t\tdata.encryption_key = transaction.GetCatalog().ResolveStoredEncryptionKey(table.GetTableId(), path.path,\n'
+               '\t\t                                                                         data.path, is_delete_file, stored_key);',
+        "new": '\t\t// MUTANT no_wrapped_key_refusal_on_scan: the refusal was in the resolution.\n'
+               '\t\tauto mutant_crypta = transaction.GetCatalog().CryptaProvider();\n'
+               '\t\tif (mutant_crypta) {\n'
+               '\t\t\tdata.encryption_key = mutant_crypta->UnwrapKey(\n'
+               '\t\t\t    transaction.GetCatalog().CryptaIdentity(table.GetTableId(), path.path, is_delete_file),\n'
+               '\t\t\t    stored_key);\n'
+               '\t\t} else {\n'
+               '\t\t\tdata.encryption_key = Blob::FromBase64(string_t(stored_key));\n'
+               '\t\t}\n'
+               '\t\t(void)data.path;',
         "reddens": ["test/sql/crypta/crypta_unconfigured_reader_refusal.test"],
         "redden_at": "SELECT sum(id) FROM unconfigured.alpha",
     },
     {
         "name": "no_wrapped_key_refusal_on_flush",
         "file": "src/functions/ducklake_flush_inlined_data.cpp",
-        "why": "the CALL at the SECOND decode site - the inlined-deletion flush "
-               "path, which reads a delete-file key with its own hand-written "
-               "query and never passes through ReadDataFile. The original fix "
-               "called ReadDataFile 'THE unwrap choke point'; that was false, and "
-               "this is the site that proves it. `resolved_delete_path` is used "
-               "NOWHERE else, so the call cannot simply be deleted without "
-               "orphaning it - the (void) casts keep the deletion of the CALL the "
-               "only change, exactly as no_error_status_check does above",
-        "old": '\t\t\t\t\t\tcatalog.RefuseWrappedKeyWithoutCrypta(resolved_delete_path, stored_delete_key);',
-        "new": '\t\t\t\t\t\t// MUTANT no_wrapped_key_refusal_on_flush: the call was here.\n'
-               '\t\t\t\t\t\t(void)catalog;\n'
+        "why": "the REFUSAL half of the resolution at the SECOND decode site - "
+               "the inlined-deletion flush path, which reads a delete-file key "
+               "with its own hand-written query and never passes through "
+               "ReadDataFile. The original fix called ReadDataFile 'THE unwrap "
+               "choke point'; that was false, and this is the site that proves "
+               "it. Since #26 the site calls ResolveStoredEncryptionKey, so the "
+               "mutant restores the two branches by hand with only the refusal "
+               "missing - the CONFIGURED direction is left intact so this stays "
+               "a mutant of the unconfigured guard alone, and the "
+               "no_unwrap_on_flush mutant below covers the other direction on "
+               "its own",
+        "old": '\t\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n'
+               '\t\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);',
+        "new": '\t\t\t\t\t\t// MUTANT no_wrapped_key_refusal_on_flush: the refusal was in the resolution.\n'
+               '\t\t\t\t\t\tauto mutant_crypta = catalog.CryptaProvider();\n'
+               '\t\t\t\t\t\tif (mutant_crypta) {\n'
+               '\t\t\t\t\t\t\tfile_info.existing_delete_encryption_key = mutant_crypta->UnwrapKey(\n'
+               '\t\t\t\t\t\t\t    catalog.CryptaIdentity(table_id, file_info.existing_delete_path, true),\n'
+               '\t\t\t\t\t\t\t    stored_delete_key);\n'
+               '\t\t\t\t\t\t} else {\n'
+               '\t\t\t\t\t\t\tfile_info.existing_delete_encryption_key = Blob::FromBase64(stored_delete_key);\n'
+               '\t\t\t\t\t\t}\n'
                '\t\t\t\t\t\t(void)resolved_delete_path;',
         # ONE file, and that is the finding rather than an omission:
         # `grep -rn RefuseWrappedKeyWithoutCrypta test/` finds this site named in
@@ -782,6 +808,30 @@ EXTENSION_MUTANTS = [
         # site has.
         "reddens": ["test/sql/crypta/crypta_flush_unconfigured_refusal.test"],
         "redden_at": "CALL ducklake_flush_inlined_data('unconfigured')",
+    },
+    {
+        "name": "no_unwrap_on_flush",
+        "file": "src/functions/ducklake_flush_inlined_data.cpp",
+        "why": "#26 ITSELF, restored exactly - the UNWRAP half of the resolution "
+               "at the flush site, with the refusal left fully in place. This is "
+               "the code that shipped before the fix: a CONFIGURED crypta lake "
+               "base64-decoding a wrapped delete-file key and handing the bytes "
+               "to the Parquet reader, dying on 'INTERNAL Error: Invalid AES key "
+               "length for GCM'. It is the mirror of no_wrapped_key_refusal_on_"
+               "flush above and the reason the two halves are one call: with the "
+               "refusal alone, this site was HALF guarded and read as guarded. "
+               "The mutant proves the configured direction is load-bearing rather "
+               "than decorative, which deleting the whole call could not - that "
+               "would redden off the unconfigured arm and tell you nothing about "
+               "the unwrap",
+        "old": '\t\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n'
+               '\t\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);',
+        "new": '\t\t\t\t\t\t// MUTANT no_unwrap_on_flush: the unwrap was in the resolution.\n'
+               '\t\t\t\t\t\tcatalog.RefuseWrappedKeyWithoutCrypta(resolved_delete_path, stored_delete_key);\n'
+               '\t\t\t\t\t\tfile_info.existing_delete_encryption_key = Blob::FromBase64(stored_delete_key);\n'
+               '\t\t\t\t\t\t(void)table_id;',
+        "reddens": ["test/sql/crypta/crypta_flush_configured_unwrap.test"],
+        "redden_at": "CALL ducklake_flush_inlined_data('configured')",
     },
 ]
 

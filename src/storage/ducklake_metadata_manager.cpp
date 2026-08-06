@@ -1065,34 +1065,19 @@ DuckLakeFileData DuckLakeMetadataManager::ReadDataFile(DuckLakeTableEntry &table
 		// claim otherwise ("every read of every encrypted file"). It is not true:
 		// ducklake_flush_inlined_data.cpp queries ducklake_delete_file with its
 		// own SQL and decodes the key itself, bypassing this function entirely.
-		// Anything that adds another such site must carry the same guard - which
-		// is why the refusal below lives on DuckLakeCatalog rather than here.
-		auto crypta = transaction.GetCatalog().CryptaProvider();
-		if (crypta) {
-			auto identity = transaction.GetCatalog().CryptaIdentity(table.GetTableId(), path.path, is_delete_file);
-			data.encryption_key = crypta->UnwrapKey(identity, stored_key);
-		} else {
-			// The OTHER direction of the same invariant, and the one that had no
-			// check at all: a WRAPPED lake read by an UNCONFIGURED reader. This is
-			// the null-provider branch, so it is reached exactly when the crypta
-			// options were absent from the ATTACH - the likeliest operator mistake
-			// there is, since a re-attach or a second tool can easily drop them.
-			//
-			// Without this the 208-byte blob was base64-decoded and handed to the
-			// Parquet reader AS IF IT WERE A KEY, and mbedtls asserted on the
-			// length: "INTERNAL Error: Invalid AES key length for GCM", with a
-			// stack trace. That is fail-closed by ACCIDENT, not by design - it
-			// stopped because the length happened to be invalid, not because
-			// anything checked, and a blob whose length happened to be a valid key
-			// length would have been TRIED. An INTERNAL error is also the class
-			// DuckDB reserves for "this should be impossible", so the operator had
-			// no way to tell a dropped option from data corruption (#20).
-			//
-			// Shared with the flush path rather than inlined - see the helper's
-			// own comment for why one check in this function is not enough.
-			transaction.GetCatalog().RefuseWrappedKeyWithoutCrypta(data.path, stored_key);
-			data.encryption_key = Blob::FromBase64(string_t(stored_key));
-		}
+		//
+		// So the DECISION does not live here any more. It lives once, on the
+		// catalog, and BOTH sites call it. This function used to carry its own
+		// copy - unwrap when configured, refuse a wrapped blob when not - and the
+		// flush site carried half of that copy: the refusal, and never the unwrap.
+		// A CONFIGURED lake therefore handed a wrapped blob to mbedtls as a key
+		// and died on "INTERNAL Error: Invalid AES key length for GCM" (#26), the
+		// class DuckDB reserves for "this should be impossible", which left the
+		// operator no way to tell a dropped option from data corruption (#20).
+		// Duplicating the decision is what allowed one copy to be half-written;
+		// a third decode site now inherits both halves or neither.
+		data.encryption_key = transaction.GetCatalog().ResolveStoredEncryptionKey(table.GetTableId(), path.path,
+		                                                                         data.path, is_delete_file, stored_key);
 	}
 	return data;
 }
