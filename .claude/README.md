@@ -342,7 +342,7 @@ a crypta with the same id would have interchangeable keys.
 
 | site | file:line | what happens |
 |---|---|---|
-| **unwrap (the choke point)** | `ducklake_metadata_manager.cpp` `ReadDataFile` | every read of every encrypted file funnels here |
+| **key resolution (the choke point)** | `ducklake_catalog.cpp` `ResolveStoredEncryptionKey` | the ONE place a stored `encryption_key` becomes key bytes. **TWO** call sites reach it and neither is the choke point itself: `ducklake_metadata_manager.cpp` `ReadDataFile` (the scan path) and `ducklake_flush_inlined_data.cpp` (the inlined-deletion flush, its own SQL). This row used to name `ReadDataFile` as "the choke point"; that was false and cost #26 and #53 |
 | wrap, data files (SQL) | `ducklake_metadata_manager.cpp` `WriteNewDataFilesSqlBatch` | whole commit wrapped in ONE call |
 | wrap, delete files (SQL) | `ducklake_metadata_manager.cpp` `WriteNewDeleteFiles` | same, `file_kind=delete` |
 | wrap, appender path | `ducklake_metadata_manager.cpp` `WriteNewDataFilesWithAppender` | per-file; the appender loop has no batch shape |
@@ -380,6 +380,26 @@ it to `GetFileSelectList` shifts positional column indices in 8+ queries.
    the helper** - grep for it before adding one. `LooksWrapped` carries a length
    floor so this cannot misfire on a plaintext DEK that happens to start with
    the magic.
+8. **An ENCRYPTED lake refuses a file whose stored key is NULL**, by name, at
+   BOTH decode sites and in the SAME words -
+   `DuckLakeCatalog::RefuseMissingEncryptionKey`, carrying upstream's message
+   character for character.
+
+   This is invariant 6's sibling and it was missing on one site for exactly one
+   release (#53). The interesting part is not the refusal - upstream has always
+   had it in `ReadDataFile` - but WHY the flush site did not: #26's fix extracted
+   the OTHER two questions onto the catalog and left this one inline, so the
+   flush site kept its own answer, an `if (!...IsNull())` that skipped the
+   resolution rather than refusing.
+
+   **The signature is the guard now.** `ResolveStoredEncryptionKey` takes the
+   nullable **column value**, not a `string` a caller has already decided is
+   present, so a call site has no `if` to get this wrong with. Read that as the
+   general rule for this file: when a decision is extracted, extract ALL of it,
+   and make the signature refuse the partial form. A partial extraction that is
+   documented as a total one - which is what the comment at the scan site claimed
+   - is worse than no extraction, because it tells the next author there is
+   nothing left to check.
 7. **A half-configured envelope is refused at ATTACH, in either direction** -
    `CRYPTA_SOCKET` without `CRYPTA_LAKE_ID` and `CRYPTA_LAKE_ID` without
    `CRYPTA_SOCKET`, plus a supplied-but-empty socket (an unexpanded `${VAR}`).
@@ -655,13 +675,19 @@ applied IN THE TREE and the whole extension is rebuilt; `reddens` names
 sqllogictest files, which are Catch cases in DuckDB's `test/unittest` binary, so
 the spec machinery is literally reused.
 
-Four mutants, all measured RED (`clean rc 0 -> mutated rc 1` on every named
+**Six** mutants, all measured RED (`clean rc 0 -> mutated rc 1` on every named
 case), driven by `test/sql/crypta/run_storage_mutants.sh`:
 
 - `no_resolved_encryption_check` - reddens `crypta_config_refusals.test`
 - `no_wrapped_key_refusal_body` - reddens BOTH refusal files
 - `no_wrapped_key_refusal_on_scan` - reddens `crypta_unconfigured_reader_refusal.test`
 - `no_wrapped_key_refusal_on_flush` - reddens `crypta_flush_unconfigured_refusal.test`
+- `no_unwrap_on_flush` (#26) - reddens `crypta_flush_configured_unwrap.test`
+- `no_null_key_refusal_on_flush` (#53) - reddens `adversary_flush_null_key.test`
+
+The count was written here as "four" through two roster growths; it is derived
+from `python3 test/cpp/crypta/mutants.py names --extension`, and that is the way
+to read it rather than this list.
 
 **One body, two callers, three mutants** - the shared-guard rule above, applied.
 The body mutant alone would redden off EITHER caller, so a caller whose test had
@@ -671,6 +697,23 @@ call proves only that the caller CONSULTS the guard and never what it ANSWERS.
 The two call-site mutants also reproduce the original #20 symptom exactly -
 `INTERNAL Error: Invalid AES key length for GCM` - which is the defect the guard
 was added for, arriving on cue.
+
+**The last two are the two halves #26 and #53 each left behind**, and they are
+worth reading as a pair. `no_unwrap_on_flush` restores the code that shipped
+before #26 - the refusal present, the unwrap missing. `no_null_key_refusal_on_flush`
+restores the code that shipped AT `v0.1.0-rc.1`, after #26 - both of those
+present, and the NULL question answered by the call site's own
+`if (!...IsNull())`, which skips the resolution instead of refusing. Two
+successive fixes, each leaving the site looking closed. That is the argument for
+the resolution taking the nullable COLUMN VALUE: the mutants can restore a
+partial inheritance only by writing the `if` back by hand, because the signature
+no longer offers one.
+
+**The NULL refusal has ONE mutant where the rule above wants three** - a body
+mutant and a scan call-site mutant are missing, and `adversary_flush_null_key.test`
+already carries the scan-path case they would redden, as its own positive
+control. Stated here rather than left to be found; tracked at
+[#56](https://github.com/sigil-enterprises/ducklake/issues/56).
 
 **`redden_at`, the one field this roster adds.** A sqllogictest file is far
 bigger than a Catch case: it carries fixtures, ATTACHes, controls. "The file went
@@ -754,10 +797,13 @@ not-ok. The fake emits compact JSON for that reason.
 
 Six defects. Five are FIXED here with their own red-then-green tests (#19, #20,
 #21); the sixth (#18) was FIXED separately on the base and its account is kept
-below as it was written there. One further defect (#26) remains open and is
-called out as such. The suite as originally written only reported these - it
-tested the envelope without modifying it - so the history reads report-then-fix
-rather than one change.
+below as it was written there. The suite as originally written only reported
+these - it tested the envelope without modifying it - so the history reads
+report-then-fix rather than one change.
+
+Two further defects on the SECOND decode site are recorded below the original
+six, because they arrived one after the other and each one made the site look
+closed to the fix that followed it.
 
 | # | issue | what | state |
 |---|-------|------|-------|
@@ -765,7 +811,24 @@ rather than one change.
 | 2 | [#18](https://github.com/sigil-enterprises/ducklake/issues/18) | SECURITY - the cache key delimiter is ambiguous | FIXED (on the base) |
 | 3,4,5 | [#19](https://github.com/sigil-enterprises/ducklake/issues/19) | three ATTACH-time fail-opens | FIXED |
 | - | [#21](https://github.com/sigil-enterprises/ducklake/issues/21) | SIGPIPE kills an embedding host | FIXED |
-| - | [#26](https://github.com/sigil-enterprises/ducklake/issues/26) | the inlined-deletion flush never unwraps a CONFIGURED lake's delete-file key | OPEN |
+| - | [#26](https://github.com/sigil-enterprises/ducklake/issues/26) | the inlined-deletion flush never unwraps a CONFIGURED lake's delete-file key | FIXED (PR #51, at `v0.1.0-rc.1`) |
+| - | [#53](https://github.com/sigil-enterprises/ducklake/issues/53) | #26's fix moved TWO of the THREE questions onto the catalog; the flush site SKIPS the resolution on a NULL key instead of refusing | FIXED |
+
+**Read those last two rows together.** #26's fix extracted the unwrap and the
+unconfigured refusal into `DuckLakeCatalog::ResolveStoredEncryptionKey` and left
+the third question - "the lake is ENCRYPTED and the column is NULL" - inline in
+`ReadDataFile`. The flush site therefore kept its own answer to it, an
+`if (!...IsNull())` that skipped the whole resolution, and shipped in
+`v0.1.0-rc.1` refusing a missing delete-file key on the scan path while silently
+accepting it on the flush path (#53). Found by adversarial review of the released
+tag, red-first, with the failing test carrying its own positive control.
+
+The lesson is not "check the flush site" - that had already been learnt twice.
+It is that a PARTIAL extraction is more dangerous than none, and that the fix is
+structural: the resolver takes the nullable **column value**, so there is no
+`if` left at a call site for the next question to be answered wrongly with. The
+comment #26 added asserting "both halves or neither" is corrected in the same
+change; it was false when it was written.
 
 1. **FIXED (#20). A wrapped lake read by an UNCONFIGURED reader was not refused
    - it hit an assertion failure.** `crypta_client.hpp` said `LooksWrapped` fails
@@ -837,12 +900,15 @@ rather than one change.
    is false: re-attaching an EXISTING enveloped lake under AUTOMATIC works fully,
    blobs and all (measured), and is asserted as a control.
 
-Still OPEN: the delete-file half of the flush path -
-`ducklake_flush_inlined_data.cpp` never calls `UnwrapKey`, so on a CONFIGURED
-crypta lake a wrapped delete-file key is used as the footer key. That one has its
-own issue (#26); only its unconfigured-reader refusal was added here. Item 2 is
-no longer open - it was fixed on the base in #29 and this branch carries that fix
-through the merge, not a fix of its own.
+This paragraph used to read "Still OPEN: the delete-file half of the flush path"
+and it is no longer true, so it is rewritten rather than left standing. When it
+was written, `ducklake_flush_inlined_data.cpp` never called `UnwrapKey`, so on a
+CONFIGURED crypta lake a wrapped delete-file key was used as the footer key
+(#26); only the unconfigured-reader refusal had been added at that point. #26 is
+FIXED, in PR #51, at `v0.1.0-rc.1`. Its fix was PARTIAL in a way nothing detected
+for a release - see #53 in the table above - and both are now closed. Item 2 was
+fixed on the base in #29 and this branch carries that fix through the merge, not
+a fix of its own.
 
 The #19 refusals live in `crypta_attach_refusals.test` (the two that need no key
 service) and `crypta_config_refusals.test` (the one that does, plus the

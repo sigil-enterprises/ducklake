@@ -17,6 +17,51 @@ place - nothing was retagged or deleted.
 Which DuckDB version an artifact is built for is carried by the build, not by
 the fork's version number, and a runtime refuses any other patch.
 
+## [Unreleased]
+
+Toward `v0.1.0-rc.2`. `v0.1.0-rc.1` is untouched - nothing was retagged.
+
+### Fixed
+
+- **The inlined-deletion flush refuses a NULL key on an ENCRYPTED lake instead
+  of skipping the resolution** (#53). `ReadDataFile` asks three questions of a
+  stored `encryption_key`, and #26's fix (PR #51) moved only two of them onto
+  `DuckLakeCatalog::ResolveStoredEncryptionKey`. The third - "this lake is
+  encrypted and the column is NULL" - stayed inline in `ReadDataFile`, so the
+  second decode site kept its own answer to it: an `if (!...IsNull())` that
+  **skipped the whole resolution** rather than refusing. A delete file with no
+  key was therefore refused by name on the scan path and silently accepted on
+  the flush path, dying inside the Parquet reader on `is encrypted, but
+  'encryption_config' was not set` - a reader error where the operator needed a
+  catalog refusal naming the row, which is exactly the shape #20 was about.
+
+  All three questions now live on the catalog and the SIGNATURE is what enforces
+  it: the resolver takes the nullable **column value**, so no call site has an
+  `if` left to answer question 1 with. The refusal is
+  `DuckLakeCatalog::RefuseMissingEncryptionKey`, and it carries upstream's
+  message character for character, so both decode sites now refuse in the same
+  words.
+
+  Found by adversarial review of the released tag, with the failing test written
+  before the fix (`test/sql/crypta/adversary_flush_null_key.test`, carrying its
+  own positive control and an over-refusal control). The storage-mutant roster
+  grows to six with `no_null_key_refusal_on_flush`, which restores `rc.1`'s
+  behaviour exactly and must redden that test.
+
+- **A comment that asserted something false is corrected.** #26's fix left
+  `ducklake_metadata_manager.cpp` claiming "a third decode site now inherits
+  both halves or neither". There were never two halves; there are three
+  questions, and the extraction took two. A comment claiming a total extraction
+  where a partial one happened is worse than no comment, because it tells the
+  next author there is nothing left to check.
+
+### Known limitations
+
+- The NULL-key refusal has **one** mutant, on the flush call site. This roster's
+  own shared-guard rule wants three - a body mutant and a scan call-site mutant
+  as well. Tracked at #56; both have a case waiting for them in the adversary
+  test already.
+
 ## [v0.1.0-rc.1] - 2026-08-06
 
 Pre-release. Milestone **M1 - Envelope MVP: identity-bound wrapped DEKs on the

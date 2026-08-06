@@ -27,9 +27,14 @@
 // It is NOT "an operator adds a data file". That claim was in this comment and
 // is FALSE - `ducklake_add_data_files` never sets `encryption_key` at all, both
 // wrap sites `continue` past a row whose key is empty
-// (ducklake_metadata_manager.cpp:3782, :3949), and on an encrypted lake
-// `ReadDataFile` throws "does not have an encryption key" at :1044-1047 BEFORE
-// the identity is built. A row added that way never reaches `UnwrapKey`.
+// (ducklake_metadata_manager.cpp:3782, :3949), and on an encrypted lake the
+// resolution throws "does not have an encryption key" BEFORE the identity is
+// built. A row added that way never reaches `UnwrapKey`. That throw used to be
+// cited by line number inside `ReadDataFile`; it now lives on the catalog, as
+// `DuckLakeCatalog::RefuseMissingEncryptionKey`, reached through
+// `ResolveStoredEncryptionKey` from BOTH decode sites (#53). Named rather than
+// numbered on purpose - a line-number citation retargets silently, which is
+// exactly what this one did.
 //
 // Two more dead routes, recorded so nobody re-walks them: a table name cannot
 // carry the metacharacter (`CanGeneratePathFromName` admits only alphanumerics,

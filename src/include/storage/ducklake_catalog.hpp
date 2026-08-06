@@ -214,37 +214,62 @@ public:
 	//! was incomplete. Any NEW decode site must call this too.
 	//!
 	//! Deliberately NOT an unwrap: it only refuses the unconfigured case. It is
-	//! the unconfigured HALF of ResolveStoredEncryptionKey below, which is what
-	//! every decode site should call - this stays a separate function only
-	//! because the refusal is worth being able to mutate on its own.
+	//! ONE THIRD of ResolveStoredEncryptionKey below, which is what every decode
+	//! site should call - this stays a separate function only because the refusal
+	//! is worth being able to mutate on its own.
 	void RefuseWrappedKeyWithoutCrypta(const string &file_path, const string &stored_key) const;
 	//! PRIVATE-FORK ONLY (crypta envelope encryption). Not upstream-eligible.
-	//! THE key-resolution choke point. Turn a stored `encryption_key` column
-	//! value into the raw key bytes the Parquet reader wants, deciding by THIS
-	//! lake's configuration which of the two things it is:
+	//! Throw if THIS lake is ENCRYPTED and the stored `encryption_key` column is
+	//! NULL - a file that must have a key and has none. On an unencrypted lake a
+	//! NULL is the ordinary case and this returns.
 	//!
-	//!   - crypta configured  -> unwrap it through the provider, which also
-	//!                           verifies the identity binding and refuses a
-	//!                           PLAINTEXT row (a downgrade attempt, or a
-	//!                           leftover from before the envelope);
-	//!   - no crypta          -> refuse a WRAPPED blob (the operator dropped the
-	//!                           options), otherwise base64-decode it exactly as
-	//!                           upstream does.
+	//! The message is upstream's, character for character, because it is what
+	//! every existing test and every operator runbook greps for.
+	//!
+	//! Another third of ResolveStoredEncryptionKey, split out for the same reason
+	//! as the refusal above: a guard nothing can remove on its own is a guard
+	//! nothing can prove.
+	void RefuseMissingEncryptionKey(const string &file_path) const;
+	//! PRIVATE-FORK ONLY (crypta envelope encryption). Not upstream-eligible.
+	//! THE key-resolution choke point. Turn a stored `encryption_key` column
+	//! value into the raw key bytes the Parquet reader wants. It asks THREE
+	//! questions, in this order, and a caller inherits all three or none:
+	//!
+	//!   1. the column is NULL   -> refuse if this lake is ENCRYPTED (the file
+	//!                              must have a key and has none); otherwise
+	//!                              there is no key, and that is correct.
+	//!   2. crypta configured    -> unwrap it through the provider, which also
+	//!                              verifies the identity binding and refuses a
+	//!                              PLAINTEXT row (a downgrade attempt, or a
+	//!                              leftover from before the envelope);
+	//!   3. no crypta            -> refuse a WRAPPED blob (the operator dropped
+	//!                              the options), otherwise base64-decode it
+	//!                              exactly as upstream does.
+	//!
+	//! `stored_key` is the COLUMN VALUE, nullable, and not a `string` a caller has
+	//! already decided is present. That is the whole point of the signature and it
+	//! is not a convenience: while question 1 lived at the call sites, a site could
+	//! - and one did - guard the call with its own `IsNull()` test and so inherit
+	//! two questions of three. There is no `if` for a call site to get wrong now.
 	//!
 	//! `stored_path` MUST be the path as PERSISTED in the catalog - the identity
-	//! crypta verifies is built from it. `resolved_path` is for the refusal's
-	//! error message only, so an operator is told which file on disk to look at.
+	//! crypta verifies is built from it. `resolved_path` is for the refusals'
+	//! error messages only, so an operator is told which file on disk to look at.
 	//!
-	//! Every site that reads an `encryption_key` column calls THIS, not one half
-	//! of it. Two sites read that column and they do NOT share a code path -
+	//! Every site that reads an `encryption_key` column calls THIS, not a part of
+	//! it. Two sites read that column and they do NOT share a code path -
 	//! ReadDataFile, and ducklake_flush_inlined_data.cpp, which queries
 	//! ducklake_delete_file with its own SQL. Each having its own copy of the
-	//! decision is how #26 happened: the flush site carried the refusal and
-	//! never grew the unwrap, so a CONFIGURED lake handed a wrapped blob to
-	//! mbedtls as a key. One function is what makes a third site inherit both
-	//! halves instead of one.
+	//! decision is how #26 happened: the flush site carried the refusal and never
+	//! grew the unwrap, so a CONFIGURED lake handed a wrapped blob to mbedtls as a
+	//! key. Extracting only PART of the decision is how #53 happened right after
+	//! it: questions 2 and 3 moved here, question 1 stayed inline in ReadDataFile,
+	//! and the flush site skipped the call entirely on a NULL - so an ENCRYPTED
+	//! lake's missing delete-file key was refused by the scan path and accepted by
+	//! the flush path. One function, all three questions, is what makes a third
+	//! decode site inherit the whole decision instead of a part of it.
 	string ResolveStoredEncryptionKey(TableIndex table_id, const string &stored_path, const string &resolved_path,
-	                                  bool is_delete_file, const string &stored_key) const;
+	                                  bool is_delete_file, const Value &stored_key) const;
 
 	bool IsCommitInfoRequired() const {
 		auto require = GetConfigOption<string>("require_commit_message", {}, {}, "false");
