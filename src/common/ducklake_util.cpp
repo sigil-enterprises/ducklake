@@ -441,11 +441,27 @@ string DuckLakeUtil::EncryptionKeyLiteral(const string &key) {
 // The already-wrapped form. The blob arrives base64 from crypta, so this only
 // quotes it - deliberately NOT re-encoding, which would double-encode and
 // produce a row nothing can read.
+//
+// ESCAPING IS NOT RE-ENCODING, and the two must not be confused: the sentence
+// above still holds, and `SQLLiteralToString` is what makes it hold SAFELY. It
+// doubles the `'` in the value and touches nothing else, so a legitimate base64
+// blob - whose alphabet has no quote in it - comes out byte for byte identical
+// to what the old `"'" + value + "'"` produced. What changes is only the case
+// the old form got wrong.
+//
+// It was the one unescaped value on an INSERT where every sibling is escaped
+// (#33, #24's defect on the write path): `path.path` beside it on the same row
+// goes through `SQLString(...)` -> this same function. The value is crypta's
+// reply, read off a socket, and while `CryptaClient::ExtractBase64Field` now
+// validates that reply's alphabet - so no value reaching here can carry a quote
+// at all - this function is a public static utility with no promise that its
+// caller pre-validated anything. A defence applied everywhere except one line is
+// the one that gets found.
 string DuckLakeUtil::WrappedEncryptionKeyLiteral(const string &wrapped_base64) {
 	if (wrapped_base64.empty()) {
 		return "NULL";
 	}
-	return "'" + wrapped_base64 + "'";
+	return SQLLiteralToString(wrapped_base64);
 }
 
 const char *DuckLakeUtil::BoolLiteral(bool v) {
