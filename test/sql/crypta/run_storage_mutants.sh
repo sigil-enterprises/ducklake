@@ -17,19 +17,31 @@
 # The roster is one file and one vocabulary (test/cpp/crypta/mutants.py); what
 # differs is the BUILD, and it differs by two orders of magnitude.
 #
-#   run_crypta_tests.sh --mutants   42 mutants, each a STANDALONE compile of two
-#                                   files against a copy of src/crypta. Seconds
-#                                   per mutant. Cheap enough for the per-PR gate,
-#                                   which is where it runs.
+#   run_crypta_tests.sh --mutants   the STANDALONE roster - `python3
+#                                   test/cpp/crypta/mutants.py names`. Each is a
+#                                   compile of two files against a copy of
+#                                   src/crypta. Seconds per mutant. Cheap enough
+#                                   for the per-PR gate, which is where it runs.
 #
-#   this                            4 mutants, each an in-tree edit to a file the
-#                                   whole extension is compiled from, so each one
-#                                   costs a full `make release` - and TWO of them,
+#   this                            the EXTENSION roster - `python3
+#                                   test/cpp/crypta/mutants.py names --extension`.
+#                                   Each is an in-tree edit to a file the whole
+#                                   extension is compiled from, so each one costs
+#                                   a full `make release` - and TWO of them,
 #                                   because the tree is restored and rebuilt
 #                                   afterwards so the next mutant's clean control
-#                                   is measured against a clean binary.
+#                                   is measured against a clean binary. 2N + 1
+#                                   builds per run.
 #
-# Bolting these onto the per-PR gate would multiply every pull request by eight
+# NEITHER COUNT IS WRITTEN HERE, and that is the fix rather than the omission.
+# This header said "35 standalone" while the roster held 40, and "4 in-tree"
+# while it held 5, and then 6 - a number restated in a comment drifts every time
+# the roster grows and nothing reds when it does. The runner PRINTS the derived
+# count on every run ("All N full-extension guards were removed"), so the honest
+# place to read it is the output or the roster, never prose. `.github/workflows/
+# StorageMutants.yml` refuses a literal count in either file for the same reason.
+#
+# Bolting these onto the per-PR gate would multiply every pull request by 2N + 1
 # extension builds to re-prove guards that only change when someone edits them.
 # So this has its own runner, its own workflow, and its own cadence: scheduled
 # and on demand, plus on any push that TOUCHES one of the files the roster edits.
