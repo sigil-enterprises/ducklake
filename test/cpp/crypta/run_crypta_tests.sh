@@ -45,18 +45,25 @@ if [ ! -f "${DUCKDB_BUILD_DIR}/src/libduckdb.so" ]; then
   exit 1
 fi
 
+# TWO source directories since #33, both of them knobs for the same reason: the
+# mutant copy has to be able to replace EITHER, or the guard living in the one
+# that stayed hardcoded could never be removed. `mutants.py apply` lays a copy of
+# both out under these two names (SOURCE_DIRS there), so a mutant build is never
+# half copy and half live tree.
 configure_and_build() {
   local build_dir="$1"
-  local src_dir="$2"
+  local crypta_src="$2"
+  local common_src="$3"
   cmake -S "${HERE}" -B "${build_dir}" -GNinja \
     -DDUCKLAKE_ROOT="${ROOT}" \
     -DDUCKDB_BUILD_DIR="${DUCKDB_BUILD_DIR}" \
-    -DCRYPTA_SRC_DIR="${src_dir}" > /dev/null
+    -DCRYPTA_SRC_DIR="${crypta_src}" \
+    -DDUCKLAKE_COMMON_SRC_DIR="${common_src}" > /dev/null
   cmake --build "${build_dir}" > /dev/null
 }
 
-echo "=== building the suite against the real src/crypta ==="
-configure_and_build "${BUILD_DIR}" "${ROOT}/src/crypta"
+echo "=== building the suite against the real src/crypta and src/common ==="
+configure_and_build "${BUILD_DIR}" "${ROOT}/src/crypta" "${ROOT}/src/common"
 
 echo "=== running the suite ==="
 "${BUILD_DIR}/crypta_test"
@@ -122,7 +129,7 @@ while read -r mutant; do
   src_dir="${MUTANT_ROOT}/src-${mutant}"
   build_dir="${MUTANT_ROOT}/build-${mutant}"
   python3 "${HERE}/mutants.py" apply "${mutant}" "${src_dir}" > /dev/null
-  if ! configure_and_build "${build_dir}" "${src_dir}" 2>/dev/null; then
+  if ! configure_and_build "${build_dir}" "${src_dir}/crypta" "${src_dir}/common" 2>/dev/null; then
     echo "  ERROR  ${mutant}: the mutated client does not compile"
     failures=$((failures + 1))
     continue

@@ -715,19 +715,57 @@ TEST_CASE("crypta: an error status is surfaced, never parsed for keys", "[crypta
 	}
 }
 
+// mutant: no_reply_alphabet_check
 TEST_CASE("crypta: a dek value that is not valid base64 is refused", "[crypta][refusal][base64]") {
-	FakeCryptaServer server;
-	server.Start([](FakeConnection &connection, int) {
-		connection.ReadFrame();
-		connection.WriteFrame("{\"status\":\"ok\",\"items\":[{\"dek\":\"not-base64!!\"}]}");
-	});
-	CryptaClient client(server.Path());
-	// The assertion names the DECODER on purpose. "it threw something" would pass
-	// for an unrelated reason - swap the reply for `{"items":[]}` and the count
-	// check throws instead, with nothing base64 anywhere in the picture, and a
-	// bare non-empty check would still be green.
-	REQUIRE_THAT(ThrownMessage([&]() { client.UnwrapBatch({SampleIdentity()}, {"RExLblob"}); }),
-	             Catch::Contains("as base64"));
+	// THE ORDER, WRITTEN DOWN - and it MOVED, which is why this case is now two
+	// sections instead of one assertion.
+	//
+	// It used to name `Blob::FromBase64` alone, and that was the whole story: the
+	// reader returned any bytes it found and the DECODER was the first thing to
+	// object. #33 put an alphabet check in `ExtractBase64Field`, upstream of the
+	// decode, because the WRAP reply's value is decoded by nobody - it goes to the
+	// catalog as SQL text - so the reader had to become the guard. The unwrap path
+	// inherits it, and the diagnosis on this path therefore changed hands.
+	//
+	// Both guards are still load-bearing and the discriminator is exact: the
+	// reader owns the ALPHABET, the decoder owns LENGTH and PADDING, which
+	// `IsBase64` deliberately says nothing about. Pinning the pair here means the
+	// next guard added to this path changes a RED test rather than quietly
+	// stealing the other's coverage.
+	//
+	// The assertions name their guard rather than testing that "it threw
+	// something": swap either reply for `{"items":[]}` and the COUNT check throws
+	// instead, with nothing base64 anywhere in the picture, and a bare non-empty
+	// check would still be green.
+	SECTION("a value outside the ALPHABET is refused by the reader, before the decode") {
+		FakeCryptaServer server;
+		server.Start([](FakeConnection &connection, int) {
+			connection.ReadFrame();
+			connection.WriteFrame("{\"status\":\"ok\",\"items\":[{\"dek\":\"not-base64!!\"}]}");
+		});
+		CryptaClient client(server.Path());
+		// Deliberately NOT the bare fragment "not base64": the decoder's message
+		// quotes the offending VALUE back, and this fixture's own bytes read
+		// `not-base64!!`, so a loose match would find the fixture inside the OTHER
+		// guard's message and pass whichever guard answered.
+		REQUIRE_THAT(ThrownMessage([&]() { client.UnwrapBatch({SampleIdentity()}, {"RExLblob"}); }),
+		             Catch::Contains("crypta returned a dek value that is not base64"));
+	}
+
+	SECTION("a value INSIDE the alphabet but of an impossible length is refused by the decoder") {
+		// Three characters: every one of them in the alphabet, so `IsBase64` says
+		// yes and must - length and padding are crypta's business, and a rule here
+		// would refuse blobs that are perfectly forwardable. The decode is what
+		// objects, and this is the case that keeps it in the picture.
+		FakeCryptaServer server;
+		server.Start([](FakeConnection &connection, int) {
+			connection.ReadFrame();
+			connection.WriteFrame("{\"status\":\"ok\",\"items\":[{\"dek\":\"QQQ\"}]}");
+		});
+		CryptaClient client(server.Path());
+		REQUIRE_THAT(ThrownMessage([&]() { client.UnwrapBatch({SampleIdentity()}, {"RExLblob"}); }),
+		             Catch::Contains("as base64: length must be a multiple of 4"));
+	}
 }
 
 //===----------------------------------------------------------------------===//

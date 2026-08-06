@@ -18,25 +18,32 @@ a known-bad build before believing its clean run.
 TWO ROSTERS, ONE VOCABULARY
 ---------------------------
 Every mutant, in either roster, is the same record: `{name, file, why, old, new,
-reddens}`, `old` matched EXACTLY and required to occur EXACTLY once, `reddens`
-naming the test cases that must go red. `spec` and `count` answer for a mutant in
-either roster, and both rosters share one substitution routine, so there is one
-mechanism here and not two. What differs is the BUILD a mutant needs, and that is
-the only reason they are separate lists:
+reddens}` - plus, in MUTANTS, an optional `src` naming which source directory
+`file` lives in. `old` is matched EXACTLY and required to occur EXACTLY once, and
+`reddens` names the test cases that must go red. `spec` and `count` answer for a
+mutant in either roster, and both rosters share one substitution routine, so
+there is one mechanism here and not two. What differs is the BUILD a mutant
+needs, and that is the only reason they are separate lists:
 
-  MUTANTS            the crypta client and provider - `src/crypta/`. Each mutant
-                     edits a COPY of that directory, never the tree, and the copy
-                     is handed to the STANDALONE test project through
-                     `-DCRYPTA_SRC_DIR`. Nothing here can change what ships, and
-                     a mutant costs seconds. Driven by
+  MUTANTS            everything the STANDALONE test project compiles - the crypta
+                     client and provider in `src/crypta/`, and since #33
+                     `src/common/ducklake_util.cpp` for the SQL literal that
+                     writes crypta's reply into the catalog. Each mutant edits a
+                     COPY of those directories, never the tree, and the copies are
+                     handed to the project through `-DCRYPTA_SRC_DIR` and
+                     `-DDUCKLAKE_COMMON_SRC_DIR` (SOURCE_DIRS below). Nothing here
+                     can change what ships, and a mutant costs seconds. Driven by
                      `test/cpp/crypta/run_crypta_tests.sh --mutants`, in the
                      per-PR gate.
 
   EXTENSION_MUTANTS  guards in `src/storage/` and `src/functions/` - ATTACH- and
                      read-time refusals that live in full-extension files. The
-                     standalone project compiles two files and cannot reach them;
-                     pulling `ducklake_catalog.cpp` into it would drag in the
-                     whole catalog layer. So these are applied IN THE TREE and
+                     standalone project compiles a handful of leaf translation
+                     units and cannot reach them; pulling `ducklake_catalog.cpp`
+                     into it would drag in the whole catalog layer, which is
+                     exactly what `ducklake_util.cpp` does NOT do (it links with
+                     no undefined DuckLake symbol at all). So these are applied
+                     IN THE TREE and
                      the whole extension is rebuilt, their `reddens` names
                      sqllogictest files rather than Catch cases (the unittest
                      binary is Catch2 too, so the spec and the exactly-N-cases
@@ -66,7 +73,25 @@ import os
 import shutil
 import sys
 
-SOURCES = ["crypta_client.cpp", "ducklake_crypta.cpp"]
+# The tree directories the STANDALONE project compiles, and the copy-directory
+# name each one is handed to it under.
+#
+# `src/crypta` is the whole of it up to #33. `src/common/ducklake_util.cpp` joined
+# because `WrappedEncryptionKeyLiteral` - the function that puts crypta's reply
+# into the metadata catalog's INSERT text - has no reachable end-to-end red: the
+# reader validates the reply's alphabet first, and nothing that clears the base64
+# alphabet can carry a quote, so an end-to-end case would go green off the reader
+# and prove nothing about the literal. It is therefore called directly, which
+# needs the translation unit compiled into this binary and mutable by the same
+# copy-then-edit mechanism as everything else.
+#
+# A mutant names its directory with `src`, defaulting to "crypta" - which is
+# every mutant written before #33, so none of them had to change.
+SOURCE_DIRS = {
+    "crypta": ("src/crypta", ["crypta_client.cpp", "ducklake_crypta.cpp"]),
+    "common": ("src/common", ["ducklake_util.cpp"]),
+}
+DEFAULT_SRC = "crypta"
 
 # The five length-prefixed appends that BUILD the cache key. Three mutants below
 # rewrite exactly this block - one keeping only the blob, one keeping only the
@@ -174,6 +199,52 @@ MUTANTS = [
         "new": "\t\tbool in_alphabet = (u >= 'A' && u <= 'z') || (u >= '0' && u <= '9') || u == '+' ||\n"
                "\t\t                   u == '/' || u == '=';",
         "reddens": ["crypta: the base64 alphabet is exactly the base64 alphabet, at its edges"],
+    },
+    {
+        "name": "no_reply_alphabet_check",
+        "file": "crypta_client.cpp",
+        "why": "the base64-alphabet validation of a value read out of crypta's "
+               "REPLY - issue #33. The mirror image of no_blob_alphabet_check, "
+               "which validates a value going the other way: this one is the only "
+               "guard in front of a `wrapped` value, because that value is decoded "
+               "by NOBODY - it goes to the catalog as SQL text. The reader "
+               "enforced the reply's COUNT and never its ALPHABET, so a hostile or "
+               "squatted socket could answer with `RExLAAAA',NULL),(...` and write "
+               "arbitrary rows into the metadata catalog",
+        "old": '\t\tif (!IsBase64(value)) {',
+        "new": '\t\tif (false) {',
+        # The second name is a TRANSFER of diagnosis, recorded rather than left to
+        # be rediscovered. `a dek value that is not valid base64 is refused`
+        # predates #33 and named `Blob::FromBase64` - on the UNWRAP path the
+        # decoder was the first thing to object, so that path was fail-closed by
+        # accident. This guard sits upstream of the decode and now answers first,
+        # so the case had to be rewritten to pin the new order: the reader owns the
+        # ALPHABET, the decoder still owns LENGTH and PADDING, and the case has a
+        # section for each. Only the alphabet section reddens here; the padding
+        # section passes under this mutant, which is the point of keeping both.
+        "reddens": [
+            "crypta: a wrap reply carrying a value outside the base64 alphabet is refused",
+            "crypta: a dek value that is not valid base64 is refused",
+        ],
+    },
+    {
+        "name": "no_wrapped_key_literal_escape",
+        "file": "ducklake_util.cpp",
+        "src": "common",
+        "why": "the SQL escaping of the wrapped key on the metadata INSERT - issue "
+               "#33, and the FIRST mutant in this roster outside src/crypta. It "
+               "restores exactly the pre-fix line, `\"'\" + value + \"'\"`, which is "
+               "the one unescaped value on a row where `path.path` beside it goes "
+               "through SQLString -> SQLLiteralToString. Its own mutant rather than "
+               "a section of no_reply_alphabet_check because the two are SEPARATE "
+               "LAYERS - and here the outer layer is SUFFICIENT, so this one has no "
+               "reachable end-to-end red at all and is proven by a direct call. A "
+               "guard whose only evidence is another guard's test is not tested",
+        "old": '\treturn SQLLiteralToString(wrapped_base64);',
+        "new": '\treturn "\'" + wrapped_base64 + "\'";',
+        "reddens": [
+            "ducklake: a wrapped key literal escapes its quotes instead of splicing them into the SQL",
+        ],
     },
     {
         "name": "no_blob_alphabet_check",
@@ -714,6 +785,25 @@ EXTENSION_MUTANTS = [
     },
 ]
 
+# A standalone mutant must name a file the standalone project actually compiles.
+# Checked at IMPORT rather than when `apply` happens to run: a mutant pointing at
+# a file no build contains would otherwise surface as a copy-time IOError deep
+# inside a runner loop, and the loop's own report would have to guess what it
+# meant.
+for _mutant in MUTANTS:
+    _where = _mutant.get("src", DEFAULT_SRC)
+    if _where not in SOURCE_DIRS:
+        raise SystemExit(
+            "mutant %s names source directory '%s', which is not one the "
+            "standalone project compiles (%s)"
+            % (_mutant["name"], _where, ", ".join(sorted(SOURCE_DIRS)))
+        )
+    if _mutant["file"] not in SOURCE_DIRS[_where][1]:
+        raise SystemExit(
+            "mutant %s names %s in '%s', which that directory does not carry (%s)"
+            % (_mutant["name"], _mutant["file"], _where, ", ".join(SOURCE_DIRS[_where][1]))
+        )
+
 BY_NAME = {mutant["name"]: mutant for mutant in MUTANTS}
 for _mutant in EXTENSION_MUTANTS:
     # Names are the roster's public handles - `spec`, `count`, and
@@ -844,14 +934,22 @@ def apply_mutant(name, destination):
             % (name, mutant["file"])
         )
 
-    source_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "src", "crypta"))
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
     if os.path.isdir(destination):
         shutil.rmtree(destination)
-    os.makedirs(destination)
-    for filename in SOURCES:
-        shutil.copyfile(os.path.join(source_dir, filename), os.path.join(destination, filename))
+    # EVERY source directory is copied, not just the mutant's own. The standalone
+    # project compiles all of them, and pointing one knob at a copy while the
+    # other still pointed into the tree would build a binary that is half mutant
+    # and half live source - which is also the shape that would silently start
+    # editing the tree if a copy went missing.
+    for key, (relative, filenames) in SOURCE_DIRS.items():
+        target_dir = os.path.join(destination, key)
+        os.makedirs(target_dir)
+        for filename in filenames:
+            shutil.copyfile(os.path.join(repo_root, relative, filename), os.path.join(target_dir, filename))
 
-    substitute_exactly_once(os.path.join(destination, mutant["file"]), name, mutant["old"], mutant["new"])
+    where = mutant.get("src", DEFAULT_SRC)
+    substitute_exactly_once(os.path.join(destination, where, mutant["file"]), name, mutant["old"], mutant["new"])
     return destination
 
 

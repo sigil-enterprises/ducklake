@@ -52,6 +52,23 @@ endif()
 if(NOT DEFINED CRYPTA_SRC_DIR)
   set(CRYPTA_SRC_DIR "${DUCKLAKE_ROOT}/src/crypta")
 endif()
+# The SECOND source directory, and a second knob for the same reason (#33).
+#
+# `src/common/ducklake_util.cpp` is not a crypta file, but it holds
+# `WrappedEncryptionKeyLiteral` - the function that puts crypta's reply into the
+# metadata catalog's INSERT text. That guard has no reachable end-to-end red:
+# the reader validates the reply's alphabet first, and no value that clears the
+# base64 alphabet can carry a quote, so an end-to-end case would only ever
+# re-prove the reader. The literal is therefore exercised by a DIRECT call,
+# which needs the translation unit linked in here.
+#
+# It links cleanly and is cheap: the only DuckLake type it touches is
+# `DuckLakeMetadataManager`, and only through virtual calls on a reference, so
+# nothing of the catalog layer has to come with it (measured with `nm -u` - the
+# object file has no undefined DuckLake symbol at all).
+if(NOT DEFINED DUCKLAKE_COMMON_SRC_DIR)
+  set(DUCKLAKE_COMMON_SRC_DIR "${DUCKLAKE_ROOT}/src/common")
+endif()
 
 set(DUCKDB_DIR "${DUCKLAKE_ROOT}/duckdb")
 find_library(DUCKDB_LIBRARY NAMES duckdb PATHS "${DUCKDB_BUILD_DIR}/src" NO_DEFAULT_PATH)
@@ -66,8 +83,10 @@ add_executable(
   crypta_refusal_test.cpp
   crypta_cache_test.cpp
   crypta_injection_test.cpp
+  crypta_sql_injection_test.cpp
   "${CRYPTA_SRC_DIR}/crypta_client.cpp"
-  "${CRYPTA_SRC_DIR}/ducklake_crypta.cpp")
+  "${CRYPTA_SRC_DIR}/ducklake_crypta.cpp"
+  "${DUCKLAKE_COMMON_SRC_DIR}/ducklake_util.cpp")
 
 # Mirrors the flags the extension build uses for these exact files (taken from
 # build/release/compile_commands.json). DUCKDB_BUILD_LIBRARY in particular
@@ -105,7 +124,7 @@ target_link_libraries(crypta_test "${DUCKDB_LIBRARY}" Threads::Threads)
 set_target_properties(crypta_test PROPERTIES BUILD_RPATH "${DUCKDB_BUILD_DIR}/src")
 
 # Opt-in coverage for THIS binary, mirroring DUCKLAKE_ENABLE_COVERAGE in the
-# top-level CMakeLists but scoped to the two files under test.
+# top-level CMakeLists but scoped to the sources under test.
 #
 # It has to be separate, because the two builds are separate: the extension
 # coverage build instruments src/crypta/ as compiled into `unittest`, and this

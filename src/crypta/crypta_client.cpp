@@ -182,7 +182,17 @@ vector<string> CryptaClient::ExtractBase64Field(const string &response, const st
 	// It is safe for exactly this input because the values it reads are base64,
 	// whose alphabet (A-Za-z0-9+/=) contains neither a quote nor a backslash - so
 	// there is no escape sequence to mishandle and no way for a value to end its
-	// own string early. Everything else about the response is ignored.
+	// own string early.
+	//
+	// That sentence used to be an assumption about the PEER, and it is now an
+	// assertion about the VALUE: every value is `IsBase64`-checked below before
+	// it is returned (#33). Nothing else in this client trusts crypta's reply -
+	// MAX_FRAME, the 1..MAX_FRAME response-length check, `ThrowIfError` and the
+	// count check are all there because it does not - and the alphabet was the
+	// one place that posture was dropped. It mattered on the WRITE path: a
+	// `wrapped` value is decoded by nobody, it goes to the catalog as SQL text,
+	// so the reader is the only thing in front of it. Everything else about the
+	// response is ignored.
 	//
 	// The strictness below is what makes it trustworthy: the count must match the
 	// request exactly, and any surprise throws. Results are positional, matching
@@ -202,7 +212,16 @@ vector<string> CryptaClient::ExtractBase64Field(const string &response, const st
 		if (end == string::npos) {
 			throw IOException("crypta response is truncated inside a %s value", field);
 		}
-		out.push_back(response.substr(start, end - start));
+		auto value = response.substr(start, end - start);
+		// Fails CLOSED, and refuses the WHOLE batch rather than dropping the bad
+		// value: a partial answer would leave some files keyed and the rest not,
+		// which is a worse outcome than a refused commit.
+		if (!IsBase64(value)) {
+			throw IOException("crypta returned a %s value that is not base64 - the reply is either corrupt or is not "
+			                  "crypta on the other end of this socket, and neither is worth writing to the catalog",
+			                  field);
+		}
+		out.push_back(value);
 		at = end;
 	}
 	if (out.size() != expected) {
