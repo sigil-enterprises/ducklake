@@ -19,6 +19,9 @@
 #include "storage/ducklake_transaction_manager.hpp"
 #include "storage/ducklake_view_entry.hpp"
 #include "duckdb/main/database_path_and_type.hpp"
+// PRIVATE-FORK ONLY: crypta envelope encryption - ResolveStoredEncryptionKey
+// decodes the unconfigured lake's plaintext key exactly as ReadDataFile did.
+#include "duckdb/common/types/blob.hpp"
 #include "duckdb/parser/parser.hpp"
 #include "duckdb/parser/parsed_data/create_index_info.hpp"
 #include "duckdb/parser/parsed_data/alter_table_info.hpp"
@@ -209,6 +212,22 @@ void DuckLakeCatalog::RefuseWrappedKeyWithoutCrypta(const string &file_path, con
 	throw IOException("file %s carries a crypta-wrapped encryption key, but this lake was attached without "
 	                  "CRYPTA_SOCKET / CRYPTA_LAKE_ID. Re-attach with the crypta options",
 	                  file_path);
+}
+
+// PRIVATE-FORK ONLY: crypta envelope encryption.
+string DuckLakeCatalog::ResolveStoredEncryptionKey(TableIndex table_id, const string &stored_path,
+                                                   const string &resolved_path, bool is_delete_file,
+                                                   const string &stored_key) const {
+	if (crypta_provider) {
+		// The identity is built from the path AS STORED, never from one resolved
+		// against the data path, because that is what WrapKeys bound the blob to.
+		// UnwrapKey carries the other direction of the same invariant: it refuses
+		// a PLAINTEXT row on an enveloped lake, so a downgrade cannot be smuggled
+		// past by writing a bare key into the catalog.
+		return crypta_provider->UnwrapKey(CryptaIdentity(table_id, stored_path, is_delete_file), stored_key);
+	}
+	RefuseWrappedKeyWithoutCrypta(resolved_path, stored_key);
+	return Blob::FromBase64(string_t(stored_key));
 }
 
 DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options_p)

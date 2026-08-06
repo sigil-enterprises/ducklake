@@ -1,0 +1,339 @@
+# name: test/sql/crypta/crypta_flush_configured_unwrap.test
+# description: The SECOND decode site UNWRAPS a delete-file key on a CONFIGURED crypta lake
+# group: [crypta]
+#
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# WHAT THIS FILE PROVES, AND WHAT IS PLANTED
+# -------------------------------------------
+# The CONFIGURED half of #26, and it is the opposite direction from
+# crypta_flush_unconfigured_refusal.test. That file proves the flush site REFUSES
+# a wrapped key when there is no provider. This one proves it RESOLVES one when
+# there is - because before #26 was fixed it did neither: it base64-decoded the
+# wrapped blob and handed the bytes to the Parquet reader as if they were the
+# key.
+#
+# The subject under test is CRYPTOGRAPHICALLY GENUINE end to end. Nothing about
+# the key is faked or planted:
+#
+#   - the data file's key is minted by DuckLake and wrapped by the real
+#     WriteNewDataFiles path, through the real provider, over the real socket;
+#   - the delete file's key - THE value this file is about - is minted and
+#     wrapped by the real WriteNewDeleteFiles path, bound to its own identity
+#     with file_kind=delete;
+#   - the unwrap the fix adds must return the TRUE DEK, because the flush then
+#     DECRYPTS that delete file and merges its contents. A wrong key cannot
+#     produce the row set asserted below; it throws or it loses the deletions.
+#
+# ONE thing is planted, and it is not cryptographic: the PENDING INLINED
+# DELETIONS. Those are three BIGINT columns of bookkeeping
+# (file_id, row_id, begin_snapshot) written by DuckLake itself when a DELETE is
+# inlined, and the values planted here are byte-identical in shape to what it
+# writes - measured against a plain-ENCRYPTED lake with inlining enabled, which
+# produces exactly (file_id, 46..49, <current snapshot>) for
+# `DELETE FROM alpha WHERE id > 45`.
+#
+# WHY IT HAS TO BE PLANTED
+# -------------------------
+# Because #25 makes the state unreachable, and that is MEASURED here rather than
+# argued - the assertion below that no inlined-deletion table exists after a
+# single-row DELETE on a crypta lake is that measurement, taken live in this run.
+#
+#   - `DuckLakeCatalog::DataInliningRowLimit` returns 0 whenever crypta_provider
+#     is set, ahead of every option scope and of the process-wide setting, so a
+#     configured lake cannot inline a deletion at all;
+#   - the ATTACH option is refused outright (crypta_inlining_refusals.test);
+#   - an UNCONFIGURED session cannot do it either: its DELETE must scan the data
+#     file, whose key is wrapped, and that read refuses at ReadDataFile;
+#   - and seeding the lake plain-ENCRYPTED first does not help, because a
+#     plain-ENCRYPTED lake mints PLAINTEXT keys - there is no wrapped delete-file
+#     key to be wrong about, and a crypta session cannot then produce one,
+#     because every read of that lake's files refuses on the plaintext key.
+#
+# So the shape this file builds is the one #26 names: a lake that HAD inlining
+# when its keys were being wrapped. Every lake that inlined before #25 landed is
+# one, and it is the shape the guard exists for. Recorded at #41.
+#
+# THE KEY SERVICE IS REQUIRED HERE, unlike the unconfigured file
+# ---------------------------------------------------------------
+# That file plants a wrapped-LOOKING string and never unwraps anything, so it
+# needs no socket. This one does: the wrap must be real for the unwrap to be a
+# real round trip, so `require-env` is genuine here and
+# `run_sql_crypta_tests.sh` DERIVES its skip guard from it.
+
+require ducklake
+
+require parquet
+
+require httpfs
+
+require-env DUCKLAKE_FAKE_CRYPTA_SOCKET
+
+# --------------------------------------------------------------------------
+# Phase 1: a NATURAL crypta lake - a wrapped data file and a wrapped delete file
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_flush_cfg.db' AS lake (DATA_PATH '__TEST_DIR__/crypta_flush_cfg_files', ENCRYPTED, METADATA_CATALOG 'lake_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'sql-fixture')
+
+statement ok
+CREATE TABLE lake.alpha AS SELECT i AS id FROM range(50) t(i)
+
+# The DELETE that mints the delete FILE and its own key. Inlining is off (it
+# cannot be on), so this goes straight to a file rather than to the metadata
+# catalog.
+statement ok
+DELETE FROM lake.alpha WHERE id < 5
+
+# THE INSTRUMENT, SHOWN LIVE AND BEFORE ANYTHING IS PLANTED. Exactly one data
+# file and one delete file, and BOTH keys carry the wrap: the 'RExL' magic
+# `CryptaClient::LooksWrapped` keys on, and a length past the 44-character floor
+# no plaintext DEK can reach. These values were produced by the write path in
+# this run - they are not written by this file.
+query III
+SELECT count(*), count(*) FILTER (WHERE starts_with(encryption_key, 'RExL')), count(*) FILTER (WHERE length(encryption_key) > 44) FROM lake_meta.ducklake_data_file
+----
+1	1	1
+
+query III
+SELECT count(*), count(*) FILTER (WHERE starts_with(encryption_key, 'RExL')), count(*) FILTER (WHERE length(encryption_key) > 44) FROM lake_meta.ducklake_delete_file
+----
+1	1	1
+
+# The table id, asserted rather than assumed, because the inlined-deletion table
+# planted below is named after it - `ducklake_inlined_delete_<table_id>`. A
+# fixture that hardcoded the name without pinning the id would plant into a table
+# nothing reads, and every assertion after it would pass vacuously.
+query I
+SELECT table_id FROM lake_meta.ducklake_table WHERE table_name = 'alpha'
+----
+1
+
+# --------------------------------------------------------------------------
+# #25's interlock, MEASURED - this is why the deletions have to be planted
+#
+# A DELETE of ONE row, which any inlining limit would swallow - the shipped
+# default is 10 - on a crypta lake. It does NOT inline: no inlined-deletion table
+# exists afterwards, for any table in this lake. That is DataInliningRowLimit()
+# returning 0 whenever crypta_provider is set, observed rather than quoted, and
+# it is the whole reason this file cannot build its fixture out of public
+# operations.
+#
+# Deliberately on a SECOND table. Measuring the interlock on `alpha` would leave
+# it with a superseded delete file to be unpicked by hand, and a fixture that
+# needs unpicking is a fixture whose starting state is uncertain.
+# --------------------------------------------------------------------------
+
+statement ok
+CREATE TABLE lake.beta AS SELECT i AS id FROM range(50) t(i)
+
+statement ok
+DELETE FROM lake.beta WHERE id = 49
+
+query I
+SELECT count(*) FROM duckdb_tables() WHERE database_name = 'lake_meta' AND table_name LIKE 'ducklake_inlined_delete%'
+----
+0
+
+# That DELETE went to a delete FILE instead, which is what "cannot inline" means
+# concretely - and alpha's own delete file is still the single live one bound to
+# its data file, untouched by any of it.
+query III
+SELECT count(*), count(*) FILTER (WHERE starts_with(encryption_key, 'RExL')), count(*) FILTER (WHERE end_snapshot IS NULL) FROM lake_meta.ducklake_delete_file WHERE table_id = 1
+----
+1	1	1
+
+# --------------------------------------------------------------------------
+# Plant the PENDING INLINED DELETIONS - the one step current code cannot produce
+#
+# Three BIGINT columns of bookkeeping, in the exact shape and with the exact
+# column types DuckLakeMetadataManager::WriteNewInlinedFileDeletesSqlBatch
+# creates. row_id is the file-local row position, which is what
+# `FlushInlinedFileDeletions` copies into `PositionWithSnapshot::position`.
+# --------------------------------------------------------------------------
+
+statement ok
+CREATE TABLE lake_meta.ducklake_inlined_delete_1(file_id BIGINT, row_id BIGINT, begin_snapshot BIGINT)
+
+statement ok
+INSERT INTO lake_meta.ducklake_inlined_delete_1 SELECT (SELECT data_file_id FROM lake_meta.ducklake_data_file WHERE table_id = 1), r, (SELECT max(snapshot_id) FROM lake_meta.ducklake_snapshot) FROM range(46, 50) t(r)
+
+# The plant took, and it points at the real data file rather than at nothing.
+query III
+SELECT count(*), count(*) FILTER (WHERE file_id = (SELECT data_file_id FROM lake_meta.ducklake_data_file WHERE table_id = 1)), min(row_id) FROM lake_meta.ducklake_inlined_delete_1
+----
+4	4	46
+
+statement ok
+DETACH lake
+
+# --------------------------------------------------------------------------
+# THE CASE: re-attach WITH crypta and flush
+#
+# `CALL ducklake_flush_inlined_data` reaches FlushInlinedFileDeletions, which
+# reads existing_del.encryption_key out of ducklake_delete_file with its own
+# hand-written SQL - the wrapped blob above - and must RESOLVE it before handing
+# it to DuckLakeDeleteFilter::ScanDeleteFile.
+#
+# Before the fix this statement failed with
+#
+#   INTERNAL Error: Invalid AES key length for GCM
+#
+# the undiagnosable assertion #20 exists to eliminate, and fail-closed only by
+# the accident of the blob's length.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_flush_cfg.db' AS configured (DATA_PATH '__TEST_DIR__/crypta_flush_cfg_files', METADATA_CATALOG 'configured_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'sql-fixture')
+
+# The row set BEFORE the flush, so the assertion after it is a comparison rather
+# than a lone number. The pending inlined deletions are already honoured by the
+# scan path, so the flush must not change what anyone sees - only where the
+# deletions live.
+query IIII
+SELECT count(*), sum(id), min(id), max(id) FROM configured.alpha
+----
+41	1025	5	45
+
+statement ok
+CALL ducklake_flush_inlined_data('configured')
+
+# THE LOAD-BEARING ASSERTION. Not "it did not throw": the flush DECRYPTED the old
+# delete file with the unwrapped key, merged its four-plus-five positions with the
+# planted ones, and wrote a new delete file. A key that unwrapped to the wrong
+# bytes cannot land here - it throws. A resolution that silently produced an
+# EMPTY existing-deletion set cannot land here either: rows 0-4 would come back
+# and this would read 45 / 1215 / 0 / 45.
+query IIII
+SELECT count(*), sum(id), min(id), max(id) FROM configured.alpha
+----
+41	1025	5	45
+
+# And the flush actually ran rather than skipping: the inlined rows are consumed,
+# and the delete file that replaced the old one is itself wrapped, because the
+# write path put it back through the envelope.
+query I
+SELECT count(*) FROM configured_meta.ducklake_inlined_delete_1
+----
+0
+
+query II
+SELECT count(*), count(*) FILTER (WHERE starts_with(encryption_key, 'RExL')) FROM configured_meta.ducklake_delete_file WHERE table_id = 1 AND end_snapshot IS NULL
+----
+1	1
+
+statement ok
+DETACH configured
+
+# --------------------------------------------------------------------------
+# CONTROL 1 - the resolution must not fire on a lake that has no crypta
+#
+# The blast-radius control for routing BOTH decode sites through one resolver: a
+# plain-ENCRYPTED lake, no crypta anywhere, inlining ON, deletions inlined and
+# flushed entirely by public operations - no planting of any kind. Its keys are
+# plaintext and must be used AS THEY ARE.
+#
+# A resolver that unwrapped unconditionally, or that refused a plaintext key
+# whatever the lake, would pass every assertion above this one and fail here.
+# That is the whole point of putting it in this file rather than trusting the
+# other one: an over-refusal on the read path locks an operator out of their own
+# lake, and it is upstream's ordinary behaviour that would break.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_flush_plain.db' AS plain (DATA_PATH '__TEST_DIR__/crypta_flush_plain_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 100, METADATA_CATALOG 'plain_meta')
+
+statement ok
+CREATE TABLE plain.alpha AS SELECT i AS id FROM range(50) t(i)
+
+statement ok
+CALL ducklake_flush_inlined_data('plain')
+
+statement ok
+DELETE FROM plain.alpha WHERE id < 5
+
+statement ok
+CALL ducklake_flush_inlined_data('plain')
+
+statement ok
+DELETE FROM plain.alpha WHERE id > 45
+
+# The keys really are plaintext - 44 characters, no magic - so this control sits
+# exactly on the boundary the resolver must pass through untouched.
+query II
+SELECT count(*) FILTER (WHERE length(encryption_key) = 44), count(*) FILTER (WHERE starts_with(encryption_key, 'RExL')) FROM plain_meta.ducklake_delete_file
+----
+1	0
+
+statement ok
+CALL ducklake_flush_inlined_data('plain')
+
+query IIII
+SELECT count(*), sum(id), min(id), max(id) FROM plain.alpha
+----
+41	1025	5	45
+
+statement ok
+DETACH plain
+
+# --------------------------------------------------------------------------
+# CONTROL 2 - a PLAINTEXT key on a CONFIGURED lake is refused at the flush too
+#
+# The deliberate consequence of routing this site through the same resolution the
+# scan path uses, stated as an assertion rather than left to be discovered.
+#
+# Measured on the unfixed build: a legacy plain-ENCRYPTED lake re-attached WITH
+# crypta could not be READ at all - any real scan of it dies at ReadDataFile with
+# "carries a plaintext encryption key ... Refusing to use it" - and yet its
+# inlined deletions FLUSHED without a murmur, because the flush site decoded the
+# key raw and never asked the provider anything. One lake, two answers.
+#
+# After the fix the flush answers what the scan already answered. Nothing is lost
+# by that: the lake was already unreadable, so the flush's success was never a
+# capability anyone could use - it was the same missing call that made #26 a
+# defect in the other direction.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_flush_legacy.db' AS legacy (DATA_PATH '__TEST_DIR__/crypta_flush_legacy_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 100, METADATA_CATALOG 'legacy_meta')
+
+statement ok
+CREATE TABLE legacy.alpha AS SELECT i AS id FROM range(50) t(i)
+
+statement ok
+CALL ducklake_flush_inlined_data('legacy')
+
+statement ok
+DELETE FROM legacy.alpha WHERE id < 5
+
+statement ok
+CALL ducklake_flush_inlined_data('legacy')
+
+statement ok
+DELETE FROM legacy.alpha WHERE id > 45
+
+query II
+SELECT count(*) FILTER (WHERE length(encryption_key) = 44), (SELECT count(*) FROM legacy_meta.ducklake_inlined_delete_1) FROM legacy_meta.ducklake_delete_file
+----
+1	4
+
+statement ok
+DETACH legacy
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_flush_legacy.db' AS enveloped (DATA_PATH '__TEST_DIR__/crypta_flush_legacy_files', METADATA_CATALOG 'enveloped_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'sql-fixture')
+
+# The scan's answer, first - so the flush's answer below is shown to MATCH it
+# rather than to be an invention of this fix.
+statement error
+SELECT sum(id) FROM enveloped.alpha
+----
+carries a plaintext encryption key
+
+statement error
+CALL ducklake_flush_inlined_data('enveloped')
+----
+carries a plaintext encryption key
+
+statement ok
+DETACH enveloped

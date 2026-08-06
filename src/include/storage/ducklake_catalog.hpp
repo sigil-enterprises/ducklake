@@ -213,10 +213,38 @@ public:
 	//! near it. That second site is exactly how the first version of this guard
 	//! was incomplete. Any NEW decode site must call this too.
 	//!
-	//! Deliberately NOT an unwrap: it only refuses the unconfigured case. A site
-	//! that must actually unwrap for a CONFIGURED lake still has to call
-	//! CryptaProvider()->UnwrapKey itself.
+	//! Deliberately NOT an unwrap: it only refuses the unconfigured case. It is
+	//! the unconfigured HALF of ResolveStoredEncryptionKey below, which is what
+	//! every decode site should call - this stays a separate function only
+	//! because the refusal is worth being able to mutate on its own.
 	void RefuseWrappedKeyWithoutCrypta(const string &file_path, const string &stored_key) const;
+	//! PRIVATE-FORK ONLY (crypta envelope encryption). Not upstream-eligible.
+	//! THE key-resolution choke point. Turn a stored `encryption_key` column
+	//! value into the raw key bytes the Parquet reader wants, deciding by THIS
+	//! lake's configuration which of the two things it is:
+	//!
+	//!   - crypta configured  -> unwrap it through the provider, which also
+	//!                           verifies the identity binding and refuses a
+	//!                           PLAINTEXT row (a downgrade attempt, or a
+	//!                           leftover from before the envelope);
+	//!   - no crypta          -> refuse a WRAPPED blob (the operator dropped the
+	//!                           options), otherwise base64-decode it exactly as
+	//!                           upstream does.
+	//!
+	//! `stored_path` MUST be the path as PERSISTED in the catalog - the identity
+	//! crypta verifies is built from it. `resolved_path` is for the refusal's
+	//! error message only, so an operator is told which file on disk to look at.
+	//!
+	//! Every site that reads an `encryption_key` column calls THIS, not one half
+	//! of it. Two sites read that column and they do NOT share a code path -
+	//! ReadDataFile, and ducklake_flush_inlined_data.cpp, which queries
+	//! ducklake_delete_file with its own SQL. Each having its own copy of the
+	//! decision is how #26 happened: the flush site carried the refusal and
+	//! never grew the unwrap, so a CONFIGURED lake handed a wrapped blob to
+	//! mbedtls as a key. One function is what makes a third site inherit both
+	//! halves instead of one.
+	string ResolveStoredEncryptionKey(TableIndex table_id, const string &stored_path, const string &resolved_path,
+	                                  bool is_delete_file, const string &stored_key) const;
 
 	bool IsCommitInfoRequired() const {
 		auto require = GetConfigOption<string>("require_commit_message", {}, {}, "false");
