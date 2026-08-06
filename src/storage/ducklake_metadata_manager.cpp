@@ -3827,7 +3827,14 @@ string DuckLakeMetadataManager::WriteNewDataFilesSqlBatch(optional_ptr<const Duc
 		    file.begin_snapshot.IsValid() ? to_string(file.begin_snapshot.GetIndex()) : "{SNAPSHOT_ID}";
 		auto data_file_index = file.id.index;
 		auto table_id = file.table_id.index;
-		auto encryption_key = crypta ? DuckLakeUtil::WrappedEncryptionKeyLiteral(crypta_wrapped_keys[i])
+		// `file.encryption_key` is the discriminator, not `crypta_wrapped_keys[i]`
+		// (#55). The wrap loop above SKIPS files with no key, so an empty entry
+		// here means either "this file has no key" - correct, and it becomes NULL -
+		// or "this file has a key and its wrapped form went missing", which is
+		// silent, permanent data loss and must not be written. Only the plaintext
+		// key tells the two apart, so it is what the literal is asked about.
+		auto encryption_key = crypta ? DuckLakeUtil::WrappedEncryptionKeyLiteral(crypta_wrapped_keys[i],
+		                                                                        !file.encryption_key.empty())
 		                             : DuckLakeUtil::EncryptionKeyLiteral(file.encryption_key);
 		string partial_max = DuckLakeUtil::OptionalIdxOrNull(file.max_partial_file_snapshot);
 		string footer_size = DuckLakeUtil::OptionalIdxOrNull(file.footer_size);
@@ -3990,7 +3997,10 @@ string DuckLakeMetadataManager::WriteNewDeleteFiles(optional_ptr<const DuckLakeC
 		auto delete_file_index = file.id.index;
 		auto table_id = file.table_id.index;
 		auto data_file_index = file.data_file_id.index;
-		auto encryption_key = crypta ? DuckLakeUtil::WrappedEncryptionKeyLiteral(crypta_wrapped_keys[i])
+		// The delete-file half of the same discrimination (#55) - see the note at
+		// the data-file site above.
+		auto encryption_key = crypta ? DuckLakeUtil::WrappedEncryptionKeyLiteral(crypta_wrapped_keys[i],
+		                                                                        !file.encryption_key.empty())
 		                             : DuckLakeUtil::EncryptionKeyLiteral(file.encryption_key);
 		// Use explicit begin_snapshot if set (for flush operations), otherwise use commit snapshot
 		string begin_snapshot_str =

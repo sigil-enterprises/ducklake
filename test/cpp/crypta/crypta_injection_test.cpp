@@ -584,9 +584,29 @@ TEST_CASE("crypta: the base64 alphabet is exactly the base64 alphabet, at its ed
 	// is over the WHOLE value, not a prefix.
 	REQUIRE(CryptaClient::IsBase64("RExLMQAAAAB2YWxpZC1sb29raW5nLWJsb2I="));
 	REQUIRE_FALSE(CryptaClient::IsBase64("RExLMQAAAAB2YWxpZC1sb29raW5nLWJsb2I=\\"));
-	// Empty is vacuously in the alphabet. `LooksWrapped` is what rejects it, and
-	// it runs first - asserted here so nobody "fixes" this into a length rule.
-	REQUIRE(CryptaClient::IsBase64(""));
+	// EMPTY is refused, and it is refused HERE - issue #55.
+	//
+	// The empty string is vacuously "in the alphabet": the loop above never
+	// executes on it, so the predicate used to fall through to `return true`. That
+	// vacuous true was the first link in a silent data-loss chain on the WRITE
+	// path. `ExtractBoundBase64Field` accepted an empty `wrapped`,
+	// `WrappedEncryptionKeyLiteral` turned it into the SQL literal `NULL`, and the
+	// commit reported SUCCESS - on a file that had been written encrypted with a
+	// real DEK whose wrapped form was then discarded. No error, no warning, and
+	// the file is unreadable forever by anyone, including the operator who wrote
+	// it.
+	//
+	// This is NOT the length rule the old comment here warned against, and the
+	// difference is worth stating rather than trusting: LENGTH and PADDING remain
+	// crypta's business, because a rule about either would refuse blobs that are
+	// perfectly forwardable and lock an operator out of their own lake. What this
+	// asserts is narrower and total - the empty string is not a base64 encoding of
+	// ANYTHING, so it can never be a key, and no caller of this predicate should
+	// have to remember that separately.
+	//
+	// `LooksWrapped` also rejects it, and that is precisely why the empty case
+	// survived #33: the write path never consults `LooksWrapped`.
+	REQUIRE_FALSE(CryptaClient::IsBase64(""));
 	REQUIRE_FALSE(CryptaClient::LooksWrapped(""));
 }
 

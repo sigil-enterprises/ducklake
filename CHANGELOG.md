@@ -21,6 +21,40 @@ the fork's version number, and a runtime refuses any other patch.
 
 ### Fixed
 
+- **An EMPTY wrapped key was accepted, written as SQL `NULL`, and the data file
+  lost forever** (#55). `CryptaClient::IsBase64("")` returned `true` - the loop
+  that validates the alphabet never executes on a zero-length string, so the
+  predicate fell out the bottom as *vacuously* in the alphabet. That was the one
+  input #33's alphabet check admitted, and the only value that reached
+  `DuckLakeUtil::WrappedEncryptionKeyLiteral`'s `return "NULL"` branch.
+
+  The outcome was worse than the injection class #33 closed, because an
+  injection is loud. Here the data file was written to storage **encrypted with
+  a real DEK**, the wrapped form of that DEK was **discarded**, the row was
+  written with no key, and **the commit reported success**. No error, no
+  warning; the only symptom is a read that fails later, long after the key is
+  gone. The existing empty-batch guards (`no_empty_shortcut_wrap`,
+  `no_empty_shortcut_unwrap`) are on the **request** side and never saw it, and
+  `LooksWrapped` - which would have rejected it - is not consulted on the write
+  path at all.
+
+  Two guards, both failing closed, one per layer. `IsBase64` now refuses the
+  empty string, in the **predicate** rather than at one call site, so every
+  caller present and future inherits the refusal; the reply reader's existing
+  behaviour then covers it unchanged, refusing the **whole batch** rather than
+  dropping the bad value. `WrappedEncryptionKeyLiteral` now **throws** instead of
+  writing `NULL` when the file has a key, and takes an explicit `file_has_key`
+  from the caller because an empty value means two different rows: a file with no
+  key at all - `ducklake_add_data_files` never sets one - still writes `NULL`,
+  and that path is unchanged.
+
+  Proven red-first: the three cases were pushed failing against the unfixed tree
+  (`06e0be5b`) before the guards landed. Each guard has its own mutant in the
+  standalone roster - `no_empty_reply_value_refusal` and
+  `no_empty_wrapped_key_refusal` - and every multi-name mutant was verified per
+  case rather than by its combined exit status. Found in adversarial review of
+  the `v0.1.0-rc.1` release candidate.
+
 - **The crypta reply was zipped onto the caller's file list by ARRAY POSITION**
   (#31, #54). crypta already says which file each returned value belongs to - its
   reply item is an identity beside the value - and the client threw that identity

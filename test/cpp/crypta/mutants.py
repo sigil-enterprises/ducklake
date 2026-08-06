@@ -201,6 +201,36 @@ MUTANTS = [
         "reddens": ["crypta: the base64 alphabet is exactly the base64 alphabet, at its edges"],
     },
     {
+        "name": "no_empty_reply_value_refusal",
+        "file": "crypta_client.cpp",
+        "why": "the refusal of the EMPTY value inside IsBase64 - issue #55, and "
+               "the one input #33's alphabet check admitted. A zero-length value "
+               "never enters the alphabet loop, so the predicate fell out the "
+               "bottom as `true`, an empty `wrapped` was accepted from crypta's "
+               "reply, and `WrappedEncryptionKeyLiteral` turned it into the SQL "
+               "literal NULL: the data file written encrypted with a real DEK, the "
+               "wrapped form of that DEK discarded, and the commit reporting "
+               "SUCCESS. Its own mutant rather than a section of "
+               "no_reply_alphabet_check, which deletes the CALL and so proves only "
+               "that the reader CONSULTS the predicate and never what the "
+               "predicate ANSWERS - the same discipline widened_base64_alphabet "
+               "applies to the alphabet's other edge",
+        "old": '\tif (value.empty()) {\n'
+               '\t\treturn false;\n'
+               '\t}',
+        "new": '\tif (false) {\n'
+               '\t\treturn false;\n'
+               '\t}',
+        # BOTH, and listing both is the point rather than housekeeping. The edges
+        # case pins what the PREDICATE answers by calling it directly; the reply
+        # case pins that the answer actually reaches the write path. Either alone
+        # would leave the other layer claiming evidence it does not have.
+        "reddens": [
+            "crypta: the base64 alphabet is exactly the base64 alphabet, at its edges",
+            "crypta: a wrap reply carrying an EMPTY value is refused, batch and all",
+        ],
+    },
+    {
         "name": "no_reply_alphabet_check",
         "file": "crypta_client.cpp",
         "why": "the base64-alphabet validation of a value read out of crypta's "
@@ -222,9 +252,16 @@ MUTANTS = [
         # ALPHABET, the decoder still owns LENGTH and PADDING, and the case has a
         # section for each. Only the alphabet section reddens here; the padding
         # section passes under this mutant, which is the point of keeping both.
+        # The third name arrived with #55 and is a straight consequence of what
+        # this mutant does: with the CALL deleted, an empty `wrapped` is accepted
+        # too, so the empty-value case reddens here as well as under
+        # no_empty_reply_value_refusal. Listed because a roster that understates
+        # what a mutant does is a positive control that has drifted from the thing
+        # it controls.
         "reddens": [
             "crypta: a wrap reply carrying a value outside the base64 alphabet is refused",
             "crypta: a dek value that is not valid base64 is refused",
+            "crypta: a wrap reply carrying an EMPTY value is refused, batch and all",
         ],
     },
     {
@@ -244,6 +281,28 @@ MUTANTS = [
         "new": '\treturn "\'" + wrapped_base64 + "\'";',
         "reddens": [
             "ducklake: a wrapped key literal escapes its quotes instead of splicing them into the SQL",
+        ],
+    },
+    {
+        "name": "no_empty_wrapped_key_refusal",
+        "file": "ducklake_util.cpp",
+        "src": "common",
+        "why": "the refusal to write a SQL NULL for a file that HAS a key - issue "
+               "#55, and the inner layer of the same defect "
+               "no_empty_reply_value_refusal covers at the entry. The literal "
+               "opened with `if (wrapped_base64.empty()) { return \"NULL\"; }` for "
+               "every caller alike, which is what turned an accepted empty reply "
+               "into SILENT loss rather than a refused commit: the row said the "
+               "file had no key while the file on disk was encrypted with one, and "
+               "the transaction succeeded. The mutant KEEPS the empty branch and "
+               "removes only the discrimination, so what it restores is exactly "
+               "the pre-fix behaviour and not a refuse-nothing stub - the keyless "
+               "row still gets its NULL, which is what stops the case going red "
+               "for the wrong reason",
+        "old": '\t\tif (file_has_key) {',
+        "new": '\t\tif (false) {',
+        "reddens": [
+            "ducklake: a wrapped key literal refuses to write NULL for a file that HAS a key",
         ],
     },
     {

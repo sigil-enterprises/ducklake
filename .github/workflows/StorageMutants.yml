@@ -8,7 +8,7 @@
 # Cost, and only cost. The roster is one file and one vocabulary
 # (test/cpp/crypta/mutants.py); the difference is what a mutant costs to run.
 #
-#   CryptaRefusals   35 standalone mutants, each a two-file compile against a
+#   CryptaRefusals   42 standalone mutants, each a two-file compile against a
 #                    COPY of src/crypta. Seconds apiece. It runs on every push
 #                    and every pull request, and it should.
 #

@@ -76,6 +76,30 @@ bool CryptaClient::IsBase64(const string &value) {
 	// Length and padding are crypta's business. A rule here would refuse blobs
 	// that are perfectly forwardable, and over-refusal on the read path locks an
 	// operator out of their own lake.
+	//
+	// EMPTY IS NOT IN THE ALPHABET, and that is not the length rule the paragraph
+	// above rules out sneaking back in - issue #55. The loop below never executes
+	// on a zero-length value, so without this the function fell out the bottom as
+	// `true`: vacuously "every character is in the alphabet" over no characters at
+	// all. That vacuous true was the one input #33's check admitted, and it was
+	// the single worst one to admit, because it is the only value that reached
+	// `WrappedEncryptionKeyLiteral`'s `return "NULL"` branch. The data file went
+	// out ENCRYPTED with a real DEK, the wrapped form of that DEK was discarded,
+	// and the commit reported SUCCESS - a file unreadable forever by anyone,
+	// including the operator who wrote it, with no error and no warning.
+	//
+	// A length RULE would be a claim about how long a blob may be, which this
+	// client has no business making. This is a claim about what base64 IS: the
+	// empty string is not an encoding of anything, so it can never be a key, for
+	// any caller, now or later. Put here rather than in the reply reader for that
+	// reason - the predicate is what every caller consults, and a guard bolted
+	// onto one call site leaves the next one to rediscover the hole.
+	//
+	// `LooksWrapped` also rejects an empty value, and that is exactly why this
+	// survived #33: the WRITE path never consults `LooksWrapped`.
+	if (value.empty()) {
+		return false;
+	}
 	for (auto c : value) {
 		auto u = static_cast<unsigned char>(c);
 		bool in_alphabet = (u >= 'A' && u <= 'Z') || (u >= 'a' && u <= 'z') || (u >= '0' && u <= '9') || u == '+' ||
