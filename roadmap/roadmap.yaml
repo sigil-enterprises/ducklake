@@ -212,11 +212,11 @@ milestones:
   - id: M2
     title: "Fail closed on every path"
     ship_criterion: "No configured-crypta code path can emit or accept plaintext key material. Every wrapped blob is escaped at both the read and the write splice site; a configured provider that is silently bypassed refuses instead of writing plaintext keys; an unconfigured reader of a wrapped lake is refused rather than hitting an assertion; the inlined-deletion flush unwraps the key it reads; and an unwrap reply is bound by identity rather than by position."
-    target_date: 2026-08-19     # PROPOSED - needs ratification
-    version: v0.2.0             # PROPOSED
-    rc_soaked: false
+    target_date: 2026-08-10     # DELIVERED: v0.1.0 tagged from c9908480, proven by ducklake-bench
+    version: v0.1.0             # shipped in v0.1.0 alongside M1 — the fixes were reactive and landed together
+    rc_soaked: true             # v0.1.0-rc.1 soaked since 2026-08-04, rc.2 since 2026-08-10
     tracker_ref: "ducklake:#1"
-    status: planned
+    status: active              # delivered in v0.1.0; NOT shipped because crypta:M5 is still planned
     depends_on: [ducklake:M1, "crypta:M5"]
     provenance: retro-derived
     derived_at: 2026-08-05
@@ -228,48 +228,48 @@ milestones:
         capability: "The wrapped blob is escaped where it is spliced into the crypta request JSON on the read path, and where crypta's reply is spliced into SQL on the write path - the identity beside it is already escaped and the blob is not."
         tracker_ref: "ducklake:#24"
         class: planned
-        status: open
+        status: closed          # delivered: JsonEscape in crypta_client.cpp:146, WrappedEncryptionKeyLiteral routes through SQLLiteralToString (ducklake_util.cpp:489). Bench proves via refuse_injected_blob (is not base64). Tracker issue bench#73 CLOSED.
         depends_on: [ducklake:E1.3]
         intent: unproven
         provenance: retro-derived
         derived_at: 2026-08-05
-        evidence: ["ducklake:#24", "ducklake:#33", "ducklake:#28"]
+        evidence: ["ducklake:#24", "ducklake:#33", "ducklake:#28", "ducklake@d3d81692", "ducklake@d8e5bb51"]
         confidence: low
       - id: E2.2
         title: "The envelope refuses rather than writing plaintext"
         capability: "The three paths on which a configured crypta is silently ignored are closed so the lake cannot write plaintext keys; a wrapped lake opened by an unconfigured reader is refused rather than failing an assertion; and a crypta write failure surfaces as an IOException instead of killing an embedding host under default SIGPIPE."
         tracker_ref: "ducklake:#19"
         class: planned
-        status: open
+        status: closed          # delivered: ATTACH-time refusal gate widened (ducklake_catalog.cpp:281), RefuseWrappedKeyWithoutCrypta (ducklake_catalog.cpp:203), SuppressSigpipe (crypta_client.cpp:683), DataInliningRowLimit forced to 0. Bench proves via 4 refusal use-cases. Tracker issue bench#70 CLOSED.
         depends_on: [ducklake:E1.3]
         intent: unproven
         provenance: retro-derived
         derived_at: 2026-08-05
-        evidence: ["ducklake:#19", "ducklake:#20", "ducklake:#21", "ducklake:#34", "ducklake:#41"]
+        evidence: ["ducklake:#19", "ducklake:#20", "ducklake:#21", "ducklake:#34", "ducklake:#41", "ducklake@4669e975", "ducklake@82df7b2a", "ducklake@7259550c", "ducklake@d9ea64c7"]
         confidence: low
       - id: E2.3
         title: "Inlined-deletion flush unwraps the key it reads"
         capability: "The inlined-deletion flush path unwraps a delete file's crypta-wrapped key instead of consuming it wrapped."
         tracker_ref: "ducklake:#26"
         class: planned
-        status: open
+        status: closed          # delivered: FlushInlinedFileDeletions calls ResolveStoredEncryptionKey unconditionally (ducklake_flush_inlined_data.cpp:517). NULL-key refusal moved into ResolveStoredEncryptionKey (ducklake_catalog.cpp:237). Bench proves via refuse_unconfigured_reader (flush site). Tracker issue bench#74 CLOSED.
         depends_on: [ducklake:E1.3]
         intent: unproven
         provenance: retro-derived
         derived_at: 2026-08-05
-        evidence: ["ducklake:#26"]
+        evidence: ["ducklake:#26", "ducklake@ba0761e6", "ducklake@8cc16a42", "ducklake@1391f123"]
         confidence: low
       - id: E2.4
         title: "Bind the unwrap reply by identity, not by position"
         capability: "The unwrap reply is matched against the identity crypta echoes rather than zipped by array position, so an injected or reordered element cannot hand a caller the wrong DEK."
         tracker_ref: "ducklake:#31"
         class: planned
-        status: open
+        status: closed          # delivered: ExtractBoundBase64Field with RequireEchoedIdentity (crypta_client.cpp:581), structural SplitReplyItems (crypta_client.cpp:514). 40 guard mutants, 40 red, 0 survivors. Bench proves via refuse_key_confusion. Tracker issue bench#76 CLOSED.
         depends_on: [ducklake:E1.3]
         intent: unproven
         provenance: retro-derived
         derived_at: 2026-08-05
-        evidence: ["ducklake:#31", "crypta:#13", "crypta:#14"]
+        evidence: ["ducklake:#31", "crypta:#13", "crypta:#14", "ducklake@a0a5d825", "ducklake@8cdd839f"]
         confidence: low
 
   - id: M3
