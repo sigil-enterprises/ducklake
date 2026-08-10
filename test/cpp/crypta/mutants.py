@@ -201,6 +201,36 @@ MUTANTS = [
         "reddens": ["crypta: the base64 alphabet is exactly the base64 alphabet, at its edges"],
     },
     {
+        "name": "no_empty_reply_value_refusal",
+        "file": "crypta_client.cpp",
+        "why": "the refusal of the EMPTY value inside IsBase64 - issue #55, and "
+               "the one input #33's alphabet check admitted. A zero-length value "
+               "never enters the alphabet loop, so the predicate fell out the "
+               "bottom as `true`, an empty `wrapped` was accepted from crypta's "
+               "reply, and `WrappedEncryptionKeyLiteral` turned it into the SQL "
+               "literal NULL: the data file written encrypted with a real DEK, the "
+               "wrapped form of that DEK discarded, and the commit reporting "
+               "SUCCESS. Its own mutant rather than a section of "
+               "no_reply_alphabet_check, which deletes the CALL and so proves only "
+               "that the reader CONSULTS the predicate and never what the "
+               "predicate ANSWERS - the same discipline widened_base64_alphabet "
+               "applies to the alphabet's other edge",
+        "old": '\tif (value.empty()) {\n'
+               '\t\treturn false;\n'
+               '\t}',
+        "new": '\tif (false) {\n'
+               '\t\treturn false;\n'
+               '\t}',
+        # BOTH, and listing both is the point rather than housekeeping. The edges
+        # case pins what the PREDICATE answers by calling it directly; the reply
+        # case pins that the answer actually reaches the write path. Either alone
+        # would leave the other layer claiming evidence it does not have.
+        "reddens": [
+            "crypta: the base64 alphabet is exactly the base64 alphabet, at its edges",
+            "crypta: a wrap reply carrying an EMPTY value is refused, batch and all",
+        ],
+    },
+    {
         "name": "no_reply_alphabet_check",
         "file": "crypta_client.cpp",
         "why": "the base64-alphabet validation of a value read out of crypta's "
@@ -222,9 +252,16 @@ MUTANTS = [
         # ALPHABET, the decoder still owns LENGTH and PADDING, and the case has a
         # section for each. Only the alphabet section reddens here; the padding
         # section passes under this mutant, which is the point of keeping both.
+        # The third name arrived with #55 and is a straight consequence of what
+        # this mutant does: with the CALL deleted, an empty `wrapped` is accepted
+        # too, so the empty-value case reddens here as well as under
+        # no_empty_reply_value_refusal. Listed because a roster that understates
+        # what a mutant does is a positive control that has drifted from the thing
+        # it controls.
         "reddens": [
             "crypta: a wrap reply carrying a value outside the base64 alphabet is refused",
             "crypta: a dek value that is not valid base64 is refused",
+            "crypta: a wrap reply carrying an EMPTY value is refused, batch and all",
         ],
     },
     {
@@ -244,6 +281,28 @@ MUTANTS = [
         "new": '\treturn "\'" + wrapped_base64 + "\'";',
         "reddens": [
             "ducklake: a wrapped key literal escapes its quotes instead of splicing them into the SQL",
+        ],
+    },
+    {
+        "name": "no_empty_wrapped_key_refusal",
+        "file": "ducklake_util.cpp",
+        "src": "common",
+        "why": "the refusal to write a SQL NULL for a file that HAS a key - issue "
+               "#55, and the inner layer of the same defect "
+               "no_empty_reply_value_refusal covers at the entry. The literal "
+               "opened with `if (wrapped_base64.empty()) { return \"NULL\"; }` for "
+               "every caller alike, which is what turned an accepted empty reply "
+               "into SILENT loss rather than a refused commit: the row said the "
+               "file had no key while the file on disk was encrypted with one, and "
+               "the transaction succeeded. The mutant KEEPS the empty branch and "
+               "removes only the discrimination, so what it restores is exactly "
+               "the pre-fix behaviour and not a refuse-nothing stub - the keyless "
+               "row still gets its NULL, which is what stops the case going red "
+               "for the wrong reason",
+        "old": '\t\tif (file_has_key) {',
+        "new": '\t\tif (false) {',
+        "reddens": [
+            "ducklake: a wrapped key literal refuses to write NULL for a file that HAS a key",
         ],
     },
     {
@@ -281,24 +340,124 @@ MUTANTS = [
                     "crypta: a health probe answered with an error frame fails the self-test"],
     },
     {
+        # The guard MOVED in #31 and this mutant moved with it - the name is kept
+        # because the property is the same one, and renaming it would lose the
+        # link back to the case that has always proven it.
+        #
+        # It used to remove `end == string::npos` inside the field reader. Once
+        # the reader became string-aware there was nothing left for that branch to
+        # observe: an unterminated string swallows every brace after it, so the
+        # items array it sits in never closes either, and the truncation is
+        # detected one layer out. The refusal now lives in `SplitReplyItems` and
+        # this removes it there. Same fixture, same case, same fail-closed
+        # outcome - a different line.
         "name": "no_truncation_check",
         "file": "crypta_client.cpp",
-        "why": "the refusal of a value with no closing quote",
-        "old": '\t\tif (end == string::npos) {\n'
-               '\t\t\tthrow IOException("crypta response is truncated inside a %s value", field);\n'
-               '\t\t}',
-        "new": '\t\tif (false) {\n'
-               '\t\t\tthrow IOException("crypta response is truncated inside a %s value", field);\n'
-               '\t\t}',
+        "why": "the refusal of a reply whose items array never closes - the "
+               "truncation guard, which moved from the field reader to the item "
+               "splitter when the reader became structural (#31)",
+        "old": '\tif (!closed) {\n'
+               '\t\tthrow IOException("crypta response is truncated inside its items array");\n'
+               '\t}',
+        "new": '\tif (false) {\n'
+               '\t\tthrow IOException("crypta response is truncated inside its items array");\n'
+               '\t}',
         "reddens": ["crypta: a response truncated inside a value is refused"],
     },
     {
+        # The pattern moved with the reader in #31 - the check is item-wise now,
+        # so it counts ITEMS rather than values found by a scan. Same guard, same
+        # message, same case: one value per requested item, exactly.
         "name": "no_count_check",
         "file": "crypta_client.cpp",
         "why": "the requirement that the value count match the request exactly",
-        "old": '\tif (out.size() != expected) {',
+        "old": '\tif (items.size() != identities.size()) {',
         "new": '\tif (false) {',
         "reddens": ["crypta: a value count that does not match the request is refused"],
+    },
+    {
+        "name": "no_identity_echo_check",
+        "file": "crypta_client.cpp",
+        "why": "THE BINDING of a reply item to the file it was asked for - issue "
+               "#31. crypta echoes the identity beside every value it returns, and "
+               "without this the reply is zipped back onto the caller's file list "
+               "by ARRAY POSITION. The count check beside it is not a substitute "
+               "and this mutant is what shows why: a count is a LENGTH check, so a "
+               "reply with its items REORDERED has exactly the right number and "
+               "sails through, handing a file another file's DEK. That is a "
+               "wrong-key defect, not the refused-batch availability defect the "
+               "count check bounds",
+        "old": '\t\tRequireEchoedIdentity(members, identities[i], what);',
+        "new": '\t\t// MUTANT no_identity_echo_check: the reply was bound to the request here.',
+        "reddens": [
+            "crypta: a reordered unwrap reply is refused, not zipped onto the caller's file list",
+            "crypta: a reordered wrap reply is refused",
+            "crypta: a reply item echoing a different identity is refused, one field at a time",
+            "crypta: a reply item with no echoed identity is refused",
+        ],
+    },
+    {
+        # A SEMANTIC mutant, not a presence-only one, and the same discipline as
+        # widened_base64_alphabet: deleting the call proves the reader CONSULTS
+        # the binding, never what the binding ANSWERS. This one leaves it called
+        # and narrows its JUDGEMENT to the path - which is the shortcut this would
+        # plausibly regress into, because the path is the field that looks like
+        # the file. Three real substitutions survive it: two lakes can hold a
+        # table 1 with a file at the same relative path, the table id is half of
+        # what the key is bound to, and a delete file's key row and a data file's
+        # are explicitly not interchangeable.
+        "name": "identity_echo_path_only",
+        "file": "crypta_client.cpp",
+        "why": "the OTHER THREE FIELDS of the echoed identity, leaving the path "
+               "compared - the narrowed binding that still looks like a binding",
+        "old": '\tif (catalog_uuid != expected.lake_id || table_id != expected.table_id || file_kind != expected_kind ||\n'
+               '\t    file_path != expected.stored_path) {',
+        "new": '\tif (file_path != expected.stored_path) {',
+        "reddens": [
+            "crypta: a reply item echoing a different identity is refused, one field at a time",
+        ],
+    },
+    {
+        # The STRUCTURE half of #31, and it needs its own mutant for the reason
+        # the roster keeps repeating: a binding is worth exactly what the reader's
+        # item boundaries are worth, and that is a separate layer from the
+        # comparison above. Neither identity mutant can redden these two cases -
+        # the identity in both of them is the caller's own, echoed exactly - so
+        # without this the top-level-member lookup would carry no red-first
+        # evidence at all.
+        #
+        # It restores the flat scan the reader used before #31, scoped to one
+        # item. That is enough to hand the attacker both shapes back: a `dek`
+        # buried INSIDE the echoed identity object is found first, and of two
+        # `dek` members the first wins instead of the pair being refused.
+        "name": "item_field_by_flat_scan",
+        "file": "crypta_client.cpp",
+        "why": "the TOP-LEVEL-ONLY member lookup for an item's value - issue #31, "
+               "restoring the flat text scan it replaced. A value nested inside "
+               "the echoed identity, or a second one beside the first, then "
+               "becomes the attacker's to choose",
+        "old": '\t\tstring value;\n'
+               '\t\tif (!DecodeJsonString(RequiredMember(members, field, what), value)) {\n'
+               '\t\t\tthrow IOException("crypta answered %s with a %s value that is not a JSON string", what, field);\n'
+               '\t\t}',
+        "new": '\t\tstring value;\n'
+               '\t\t// MUTANT item_field_by_flat_scan: the value was the item\'s own top-level member.\n'
+               '\t\tauto flat_key = "\\"" + field + "\\":\\"";\n'
+               '\t\tauto flat_at = items[i].find(flat_key);\n'
+               '\t\tif (flat_at == string::npos) {\n'
+               '\t\t\tthrow IOException("crypta answered %s with no %s member", what, field);\n'
+               '\t\t}\n'
+               '\t\tauto flat_start = flat_at + flat_key.size();\n'
+               '\t\tauto flat_end = items[i].find(\'"\', flat_start);\n'
+               '\t\tif (flat_end == string::npos) {\n'
+               '\t\t\tthrow IOException("crypta answered %s with a %s value that is not a JSON string", what, field);\n'
+               '\t\t}\n'
+               '\t\tvalue = items[i].substr(flat_start, flat_end - flat_start);\n'
+               '\t\t(void)members;',
+        "reddens": [
+            "crypta: a dek buried inside the echoed identity is not read as the item's own",
+            "crypta: a reply item carrying two dek members is refused",
+        ],
     },
     {
         "name": "no_frame_upper_bound",
@@ -360,13 +519,15 @@ MUTANTS = [
                "carrying it. Sending the body twice leaves every returned blob "
                "correct and only the count wrong, which is exactly how this would "
                "regress in practice",
-        "old": '\tauto response = Request(body);\n'
-               '\tThrowIfError(response);\n'
-               '\treturn ExtractBase64Field(response, "wrapped", identities.size());',
+        # Anchored on the wrap path's RETURN rather than on its `Request` call:
+        # since #31 both batch paths open with the same two lines, so the old
+        # pattern matched twice and the exactly-once guard refused it. Sending the
+        # body a second time after the reply has been read is the same observable
+        # - two connections, every returned blob still correct, only the
+        # one-call-per-commit claim broken.
+        "old": '\treturn ExtractBoundBase64Field(response, "wrapped", identities);',
         "new": '\tRequest(body);\n'
-               '\tauto response = Request(body);\n'
-               '\tThrowIfError(response);\n'
-               '\treturn ExtractBase64Field(response, "wrapped", identities.size());',
+               '\treturn ExtractBoundBase64Field(response, "wrapped", identities);',
         "reddens": ["crypta: a multi-item wrap is one request with well-formed separators",
                     "crypta provider: WrapKeys batches a whole commit into one call"],
     },
@@ -689,6 +850,23 @@ MUTANTS = [
 # deleted on its own and must redden its own file, and the body mutant is kept as
 # well because deleting a call proves only that the caller CONSULTS the guard and
 # never what the guard ANSWERS.
+#
+# THE RESOLUTION ASKS THREE QUESTIONS, NOT TWO (#53). `ResolveStoredEncryptionKey`
+# answers: is the column NULL on an ENCRYPTED lake, is crypta configured, is an
+# unconfigured lake's blob wrapped. Every mutant below that hand-restores the
+# branches therefore restores ALL THREE minus the one it is about - otherwise it
+# would redden a case it does not name, and be evidence for two guards while
+# claiming to be evidence for one.
+#
+# HONEST GAP, stated rather than left to be discovered: the NULL refusal
+# (`RefuseMissingEncryptionKey`) has ONE mutant here, on the FLUSH call site,
+# because that is the site the defect was on. By this roster's own shared-guard
+# rule it wants two more - a BODY mutant (what the guard ANSWERS, as opposed to
+# whether a caller consults it) and a SCAN call-site mutant. Both have a case
+# waiting for them already: `adversary_flush_null_key.test` carries the scan-path
+# refusal as its positive control, in the same file and the same run. They are
+# not written yet. Until they are, the scan site's null refusal is asserted by a
+# test that has never been shown to fail without it. Tracked at #56.
 EXTENSION_MUTANTS = [
     {
         "name": "no_resolved_encryption_check",
@@ -760,16 +938,32 @@ EXTENSION_MUTANTS = [
                "no case reddens for the wrong reason",
         "old": '\t\tdata.encryption_key = transaction.GetCatalog().ResolveStoredEncryptionKey(table.GetTableId(), path.path,\n'
                '\t\t                                                                         data.path, is_delete_file, stored_key);',
+        # The hand-restored branches carry the NULL refusal too. Since #53 the
+        # resolution answers THREE questions, not two, and a mutant that dropped
+        # the null one as well would redden `adversary_flush_null_key.test`'s scan
+        # control - a case it does not name - which is a mutant measuring two
+        # guards and attributing both to one.
         "new": '\t\t// MUTANT no_wrapped_key_refusal_on_scan: the refusal was in the resolution.\n'
-               '\t\tauto mutant_crypta = transaction.GetCatalog().CryptaProvider();\n'
-               '\t\tif (mutant_crypta) {\n'
-               '\t\t\tdata.encryption_key = mutant_crypta->UnwrapKey(\n'
-               '\t\t\t    transaction.GetCatalog().CryptaIdentity(table.GetTableId(), path.path, is_delete_file),\n'
-               '\t\t\t    stored_key);\n'
+               '\t\tif (stored_key.IsNull()) {\n'
+               '\t\t\ttransaction.GetCatalog().RefuseMissingEncryptionKey(data.path);\n'
                '\t\t} else {\n'
-               '\t\t\tdata.encryption_key = Blob::FromBase64(string_t(stored_key));\n'
-               '\t\t}\n'
-               '\t\t(void)data.path;',
+               # `.template GetValue<string>()`, not `.GetValue<string>()`.
+               # ReadDataFile is a TEMPLATE over the row type, so `stored_key` -
+               # deduced from `row.GetBaseValue(...)` - is a dependent type and
+               # g++-14 parses the bare `<` as less-than. Measured: the first run
+               # of this mutant reported `ERROR ... the mutated extension does not
+               # compile`, which is the runner refusing to count a mutant it could
+               # not build rather than absorbing it into a red.
+               '\t\t\tauto mutant_key = stored_key.template GetValue<string>();\n'
+               '\t\t\tauto mutant_crypta = transaction.GetCatalog().CryptaProvider();\n'
+               '\t\t\tif (mutant_crypta) {\n'
+               '\t\t\t\tdata.encryption_key = mutant_crypta->UnwrapKey(\n'
+               '\t\t\t\t    transaction.GetCatalog().CryptaIdentity(table.GetTableId(), path.path, is_delete_file),\n'
+               '\t\t\t\t    mutant_key);\n'
+               '\t\t\t} else {\n'
+               '\t\t\t\tdata.encryption_key = Blob::FromBase64(string_t(mutant_key));\n'
+               '\t\t\t}\n'
+               '\t\t}',
         "reddens": ["test/sql/crypta/crypta_unconfigured_reader_refusal.test"],
         "redden_at": "SELECT sum(id) FROM unconfigured.alpha",
     },
@@ -787,18 +981,25 @@ EXTENSION_MUTANTS = [
                "a mutant of the unconfigured guard alone, and the "
                "no_unwrap_on_flush mutant below covers the other direction on "
                "its own",
-        "old": '\t\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n'
-               '\t\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);',
-        "new": '\t\t\t\t\t\t// MUTANT no_wrapped_key_refusal_on_flush: the refusal was in the resolution.\n'
+        "old": '\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n'
+               '\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);',
+        # The NULL refusal is kept, for the same reason as on the scan site: this
+        # mutant removes ONE of the three questions, and a mutant that removed two
+        # would redden `adversary_flush_null_key.test` as well and be evidence for
+        # neither guard on its own.
+        "new": '\t\t\t\t\t// MUTANT no_wrapped_key_refusal_on_flush: the refusal was in the resolution.\n'
+               '\t\t\t\t\tif (stored_delete_key.IsNull()) {\n'
+               '\t\t\t\t\t\tcatalog.RefuseMissingEncryptionKey(resolved_delete_path);\n'
+               '\t\t\t\t\t} else {\n'
+               '\t\t\t\t\t\tauto mutant_key = stored_delete_key.GetValue<string>();\n'
                '\t\t\t\t\t\tauto mutant_crypta = catalog.CryptaProvider();\n'
                '\t\t\t\t\t\tif (mutant_crypta) {\n'
                '\t\t\t\t\t\t\tfile_info.existing_delete_encryption_key = mutant_crypta->UnwrapKey(\n'
-               '\t\t\t\t\t\t\t    catalog.CryptaIdentity(table_id, file_info.existing_delete_path, true),\n'
-               '\t\t\t\t\t\t\t    stored_delete_key);\n'
+               '\t\t\t\t\t\t\t    catalog.CryptaIdentity(table_id, file_info.existing_delete_path, true), mutant_key);\n'
                '\t\t\t\t\t\t} else {\n'
-               '\t\t\t\t\t\t\tfile_info.existing_delete_encryption_key = Blob::FromBase64(stored_delete_key);\n'
+               '\t\t\t\t\t\t\tfile_info.existing_delete_encryption_key = Blob::FromBase64(mutant_key);\n'
                '\t\t\t\t\t\t}\n'
-               '\t\t\t\t\t\t(void)resolved_delete_path;',
+               '\t\t\t\t\t}',
         # ONE file, and that is the finding rather than an omission:
         # `grep -rn RefuseWrappedKeyWithoutCrypta test/` finds this site named in
         # exactly one .test file. It is also a file whose state is NOT
@@ -824,14 +1025,52 @@ EXTENSION_MUTANTS = [
                "than decorative, which deleting the whole call could not - that "
                "would redden off the unconfigured arm and tell you nothing about "
                "the unwrap",
-        "old": '\t\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n'
-               '\t\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);',
-        "new": '\t\t\t\t\t\t// MUTANT no_unwrap_on_flush: the unwrap was in the resolution.\n'
-               '\t\t\t\t\t\tcatalog.RefuseWrappedKeyWithoutCrypta(resolved_delete_path, stored_delete_key);\n'
-               '\t\t\t\t\t\tfile_info.existing_delete_encryption_key = Blob::FromBase64(stored_delete_key);\n'
-               '\t\t\t\t\t\t(void)table_id;',
+        "old": '\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n'
+               '\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);',
+        "new": '\t\t\t\t\t// MUTANT no_unwrap_on_flush: the unwrap was in the resolution.\n'
+               '\t\t\t\t\tif (stored_delete_key.IsNull()) {\n'
+               '\t\t\t\t\t\tcatalog.RefuseMissingEncryptionKey(resolved_delete_path);\n'
+               '\t\t\t\t\t} else {\n'
+               '\t\t\t\t\t\tauto mutant_key = stored_delete_key.GetValue<string>();\n'
+               '\t\t\t\t\t\tcatalog.RefuseWrappedKeyWithoutCrypta(resolved_delete_path, mutant_key);\n'
+               '\t\t\t\t\t\tfile_info.existing_delete_encryption_key = Blob::FromBase64(mutant_key);\n'
+               '\t\t\t\t\t}\n'
+               '\t\t\t\t\t(void)table_id;',
         "reddens": ["test/sql/crypta/crypta_flush_configured_unwrap.test"],
         "redden_at": "CALL ducklake_flush_inlined_data('configured')",
+    },
+    {
+        "name": "no_null_key_refusal_on_flush",
+        "file": "src/functions/ducklake_flush_inlined_data.cpp",
+        "why": "#53 ITSELF, restored exactly - the shape v0.1.0-rc.1 shipped. "
+               "#26's fix moved TWO of the three questions the resolution asks "
+               "onto the catalog and left the third, 'is the column NULL on an "
+               "ENCRYPTED lake', inline in ReadDataFile. This site's own answer to "
+               "it was an `if (!chunk->GetValue(9, row_idx).IsNull())` wrapped "
+               "around the whole call, which SKIPS the resolution rather than "
+               "refusing - so an ENCRYPTED lake's delete file with no key was "
+               "refused by name on the scan path and silently accepted here, "
+               "dying inside the Parquet reader on \"is encrypted, but "
+               "'encryption_config' was not set\" (#20's shape, again). The mutant "
+               "restores exactly that `if` and nothing else: the unwrap and the "
+               "unconfigured refusal stay reachable for a non-NULL key, so this "
+               "reddens on the NULL and on nothing else. It is what makes the "
+               "UNCONDITIONAL call load-bearing rather than a tidier way of "
+               "writing the same thing",
+        "old": '\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n'
+               '\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);',
+        "new": '\t\t\t\t\t// MUTANT no_null_key_refusal_on_flush: v0.1.0-rc.1 skipped the resolve on NULL.\n'
+               '\t\t\t\t\tif (!stored_delete_key.IsNull()) {\n'
+               '\t\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n'
+               '\t\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);\n'
+               '\t\t\t\t\t}',
+        # ONE file, and it is the adversary's, written against the released tag
+        # before the fix existed. Its positive control is what makes the red mean
+        # something: the same lake, the same run, the SCAN path refusing the same
+        # NULL by name - so "the flush did not refuse" cannot be read as "no such
+        # refusal exists anywhere".
+        "reddens": ["test/sql/crypta/adversary_flush_null_key.test"],
+        "redden_at": "CALL ducklake_flush_inlined_data('flusher')",
     },
 ]
 

@@ -457,8 +457,43 @@ string DuckLakeUtil::EncryptionKeyLiteral(const string &key) {
 // at all - this function is a public static utility with no promise that its
 // caller pre-validated anything. A defence applied everywhere except one line is
 // the one that gets found.
-string DuckLakeUtil::WrappedEncryptionKeyLiteral(const string &wrapped_base64) {
+//
+// AN EMPTY VALUE IS TWO DIFFERENT ROWS, AND THIS USED TO WRITE ONE OF THEM WRONG
+// (#55). The function opened with `if (wrapped_base64.empty()) { return "NULL"; }`
+// for every caller alike. That is right for exactly one of the two callers it
+// has:
+//
+//   - a file with NO encryption key. `ducklake_add_data_files` never sets one,
+//     and both wrap sites skip empty-key files, so the wrapped vector carries an
+//     empty entry for that row. `NULL` is the correct column value, and the read
+//     path already refuses such a file on an encrypted lake with "does not have
+//     an encryption key". This path still works, unchanged.
+//   - a file that HAS one. Then `NULL` is a LIE, and the loudest kind: the data
+//     file has already been written to storage encrypted with a real DEK, the
+//     wrapped form of that DEK is what this column exists to carry, and writing
+//     `NULL` throws it away while the commit reports SUCCESS. Nobody - not an
+//     attacker, not the operator, not crypta - can ever read that file again.
+//     There is no error and no warning; the only symptom is a read that fails
+//     later, long after the DEK is gone.
+//
+// So the empty case is not one case with one answer. It THROWS for the second
+// caller, and the throw is deliberately louder than a refused commit: by the
+// time control is here, `CryptaClient::IsBase64` has already refused an empty
+// reply value at the entry, so an empty value reaching this point is an
+// invariant that broke inside DuckLake rather than anything crypta said.
+//
+// Kept as a second layer even though the reader upstream is sufficient, for the
+// reason the escaping note above gives: this is a public static utility with no
+// promise that its caller pre-validated anything, and a defence applied
+// everywhere except one line is the one that gets found.
+string DuckLakeUtil::WrappedEncryptionKeyLiteral(const string &wrapped_base64, bool file_has_key) {
 	if (wrapped_base64.empty()) {
+		if (file_has_key) {
+			throw InternalException(
+			    "refusing to write an empty wrapped encryption key for a file that has one. The data file was "
+			    "encrypted with a real key; writing SQL NULL in its wrapped-key column would discard that key and "
+			    "leave the file unreadable forever, with the commit reporting success");
+		}
 		return "NULL";
 	}
 	return SQLLiteralToString(wrapped_base64);

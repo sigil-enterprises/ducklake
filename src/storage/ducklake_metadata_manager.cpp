@@ -1045,11 +1045,12 @@ DuckLakeFileData DuckLakeMetadataManager::ReadDataFile(DuckLakeTableEntry &table
 	}
 	col_idx++;
 	if (is_encrypted) {
-		if (row.IsNull(col_idx)) {
-			throw InvalidInputException("Database is encrypted, but file %s does not have an encryption key",
-			                            data.path);
-		}
-		auto stored_key = row.template GetValue<string>(col_idx++);
+		// The COLUMN VALUE, nullable, handed on as it is. The "is it NULL" question
+		// is no longer asked here: it is question 1 of the three
+		// ResolveStoredEncryptionKey asks, and while it lived at this site the
+		// OTHER decode site answered it differently - by skipping the resolution
+		// entirely (#53). A site that cannot decide nullness cannot get it wrong.
+		auto stored_key = row.GetBaseValue(col_idx++);
 		// PRIVATE-FORK ONLY: crypta envelope encryption.
 		//
 		// The unwrap choke point for the SCAN path: every read of an encrypted
@@ -1074,8 +1075,21 @@ DuckLakeFileData DuckLakeMetadataManager::ReadDataFile(DuckLakeTableEntry &table
 		// and died on "INTERNAL Error: Invalid AES key length for GCM" (#26), the
 		// class DuckDB reserves for "this should be impossible", which left the
 		// operator no way to tell a dropped option from data corruption (#20).
-		// Duplicating the decision is what allowed one copy to be half-written;
-		// a third decode site now inherits both halves or neither.
+		//
+		// This comment used to end "a third decode site now inherits both halves
+		// or neither", and that was FALSE when it was written (#53). There were
+		// never two halves. There are THREE questions - is the column NULL on an
+		// encrypted lake, is crypta configured, is an unconfigured lake's blob
+		// wrapped - and the extraction took the last two. The first stayed right
+		// here, as a `row.IsNull()` throw, so the flush site kept its own answer
+		// to it: an `if (!...IsNull())` that SKIPPED the resolution rather than
+		// refusing. Fixing a partial extraction with a comment claiming a total
+		// one is worse than not extracting at all, because it tells the next
+		// author there is nothing left to check.
+		//
+		// All three now live on the catalog, and the signature is what enforces
+		// it: the resolver takes the nullable COLUMN VALUE, so there is no `if`
+		// left at a call site to answer question 1 with.
 		data.encryption_key = transaction.GetCatalog().ResolveStoredEncryptionKey(table.GetTableId(), path.path,
 		                                                                         data.path, is_delete_file, stored_key);
 	}
@@ -3827,7 +3841,14 @@ string DuckLakeMetadataManager::WriteNewDataFilesSqlBatch(optional_ptr<const Duc
 		    file.begin_snapshot.IsValid() ? to_string(file.begin_snapshot.GetIndex()) : "{SNAPSHOT_ID}";
 		auto data_file_index = file.id.index;
 		auto table_id = file.table_id.index;
-		auto encryption_key = crypta ? DuckLakeUtil::WrappedEncryptionKeyLiteral(crypta_wrapped_keys[i])
+		// `file.encryption_key` is the discriminator, not `crypta_wrapped_keys[i]`
+		// (#55). The wrap loop above SKIPS files with no key, so an empty entry
+		// here means either "this file has no key" - correct, and it becomes NULL -
+		// or "this file has a key and its wrapped form went missing", which is
+		// silent, permanent data loss and must not be written. Only the plaintext
+		// key tells the two apart, so it is what the literal is asked about.
+		auto encryption_key = crypta ? DuckLakeUtil::WrappedEncryptionKeyLiteral(crypta_wrapped_keys[i],
+		                                                                        !file.encryption_key.empty())
 		                             : DuckLakeUtil::EncryptionKeyLiteral(file.encryption_key);
 		string partial_max = DuckLakeUtil::OptionalIdxOrNull(file.max_partial_file_snapshot);
 		string footer_size = DuckLakeUtil::OptionalIdxOrNull(file.footer_size);
@@ -3990,7 +4011,10 @@ string DuckLakeMetadataManager::WriteNewDeleteFiles(optional_ptr<const DuckLakeC
 		auto delete_file_index = file.id.index;
 		auto table_id = file.table_id.index;
 		auto data_file_index = file.data_file_id.index;
-		auto encryption_key = crypta ? DuckLakeUtil::WrappedEncryptionKeyLiteral(crypta_wrapped_keys[i])
+		// The delete-file half of the same discrimination (#55) - see the note at
+		// the data-file site above.
+		auto encryption_key = crypta ? DuckLakeUtil::WrappedEncryptionKeyLiteral(crypta_wrapped_keys[i],
+		                                                                        !file.encryption_key.empty())
 		                             : DuckLakeUtil::EncryptionKeyLiteral(file.encryption_key);
 		// Use explicit begin_snapshot if set (for flush operations), otherwise use commit snapshot
 		string begin_snapshot_str =

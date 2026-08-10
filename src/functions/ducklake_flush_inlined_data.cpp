@@ -478,42 +478,48 @@ LEFT JOIN (
 					file_info.existing_delete_path = chunk->GetValue(6, row_idx).GetValue<string>();
 					file_info.existing_delete_path_is_relative = chunk->GetValue(7, row_idx).GetValue<bool>();
 					file_info.existing_delete_begin_snapshot = chunk->GetValue(8, row_idx).GetValue<idx_t>();
-					if (!chunk->GetValue(9, row_idx).IsNull()) {
-						auto stored_delete_key = chunk->GetValue(9, row_idx).GetValue<string>();
-						// PRIVATE-FORK ONLY: crypta envelope encryption.
-						//
-						// THE SECOND DECODE SITE. This path reads
-						// existing_del.encryption_key out of ducklake_delete_file with
-						// the hand-written query above and decodes it right here - it
-						// never passes through DuckLakeMetadataManager::ReadDataFile, so
-						// nothing that function does covers it.
-						//
-						// BOTH directions are wrong without the call below, and only one
-						// of them was ever fixed here first:
-						//
-						//   unconfigured reader - a wrapped blob base64-decoded and
-						//     handed to the Parquet reader as if it were a key, which
-						//     mbedtls rejects on length. Fail-closed by accident (#20).
-						//   CONFIGURED lake - WriteNewDeleteFiles DOES wrap delete-file
-						//     keys, and this site never called UnwrapKey, so the
-						//     configured-and-correct path produced the SAME assertion
-						//     failure on its own data (#26).
-						//
-						// One call now answers both, because they are one question: what
-						// IS this stored value on THIS lake. Splitting it into a refusal
-						// here and an unwrap somewhere else is precisely how this site
-						// ended up carrying one half.
-						//
-						// The identity inputs are all in scope: the STORED delete path is
-						// column 6 (resolved separately, for the error message only),
-						// `table_id` is the table being flushed, and a delete file binds
-						// with file_kind=delete.
-						auto resolved_delete_path = file_info.existing_delete_path_is_relative
-						                                ? table.DataPath() + file_info.existing_delete_path
-						                                : file_info.existing_delete_path;
-						file_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(
-						    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);
-					}
+					// PRIVATE-FORK ONLY: crypta envelope encryption.
+					//
+					// THE SECOND DECODE SITE. This path reads
+					// existing_del.encryption_key out of ducklake_delete_file with the
+					// hand-written query above and decodes it right here - it never
+					// passes through DuckLakeMetadataManager::ReadDataFile, so nothing
+					// that function does covers it.
+					//
+					// THREE directions are wrong without the call below, and they were
+					// fixed one at a time, each fix leaving the next one looking closed:
+					//
+					//   unconfigured reader - a wrapped blob base64-decoded and handed
+					//     to the Parquet reader as if it were a key, which mbedtls
+					//     rejects on length. Fail-closed by accident (#20).
+					//   CONFIGURED lake - WriteNewDeleteFiles DOES wrap delete-file
+					//     keys, and this site never called UnwrapKey, so the
+					//     configured-and-correct path produced the SAME assertion
+					//     failure on its own data (#26).
+					//   ENCRYPTED lake, NULL key - this site used to be wrapped in
+					//     `if (!chunk->GetValue(9, row_idx).IsNull())`, which SKIPS the
+					//     resolution instead of refusing. The scan path refuses that row
+					//     by name; this one handed an EMPTY key to the Parquet reader
+					//     and died on "is encrypted, but 'encryption_config' was not
+					//     set" (#53). #26's fix moved two of the three questions onto
+					//     the catalog and left that `if` standing here as the third.
+					//
+					// One UNCONDITIONAL call now answers all three, because they are one
+					// question: what IS this stored value on THIS lake. There is
+					// deliberately no `if` around it. The column value goes in nullable
+					// and the catalog decides - which is exactly what a call site cannot
+					// be trusted to do, twice demonstrated.
+					//
+					// The identity inputs are all in scope: the STORED delete path is
+					// column 6 (resolved separately, for the error messages only),
+					// `table_id` is the table being flushed, and a delete file binds with
+					// file_kind=delete.
+					auto stored_delete_key = chunk->GetValue(9, row_idx);
+					auto resolved_delete_path = file_info.existing_delete_path_is_relative
+					                                ? table.DataPath() + file_info.existing_delete_path
+					                                : file_info.existing_delete_path;
+					file_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(
+					    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);
 					if (!chunk->GetValue(10, row_idx).IsNull()) {
 						file_info.existing_delete_format =
 						    DeleteFileFormatFromString(chunk->GetValue(10, row_idx).GetValue<string>());

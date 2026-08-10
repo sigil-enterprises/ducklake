@@ -76,6 +76,30 @@ bool CryptaClient::IsBase64(const string &value) {
 	// Length and padding are crypta's business. A rule here would refuse blobs
 	// that are perfectly forwardable, and over-refusal on the read path locks an
 	// operator out of their own lake.
+	//
+	// EMPTY IS NOT IN THE ALPHABET, and that is not the length rule the paragraph
+	// above rules out sneaking back in - issue #55. The loop below never executes
+	// on a zero-length value, so without this the function fell out the bottom as
+	// `true`: vacuously "every character is in the alphabet" over no characters at
+	// all. That vacuous true was the one input #33's check admitted, and it was
+	// the single worst one to admit, because it is the only value that reached
+	// `WrappedEncryptionKeyLiteral`'s `return "NULL"` branch. The data file went
+	// out ENCRYPTED with a real DEK, the wrapped form of that DEK was discarded,
+	// and the commit reported SUCCESS - a file unreadable forever by anyone,
+	// including the operator who wrote it, with no error and no warning.
+	//
+	// A length RULE would be a claim about how long a blob may be, which this
+	// client has no business making. This is a claim about what base64 IS: the
+	// empty string is not an encoding of anything, so it can never be a key, for
+	// any caller, now or later. Put here rather than in the reply reader for that
+	// reason - the predicate is what every caller consults, and a guard bolted
+	// onto one call site leaves the next one to rediscover the hole.
+	//
+	// `LooksWrapped` also rejects an empty value, and that is exactly why this
+	// survived #33: the WRITE path never consults `LooksWrapped`.
+	if (value.empty()) {
+		return false;
+	}
 	for (auto c : value) {
 		auto u = static_cast<unsigned char>(c);
 		bool in_alphabet = (u >= 'A' && u <= 'Z') || (u >= 'a' && u <= 'z') || (u >= '0' && u <= '9') || u == '+' ||
@@ -176,43 +200,433 @@ void CryptaClient::ThrowIfError(const string &response) {
 	throw IOException("crypta refused the request: %s", message);
 }
 
-vector<string> CryptaClient::ExtractBase64Field(const string &response, const string &field, idx_t expected) {
-	// A deliberately narrow reader rather than a JSON parser.
-	//
-	// It is safe for exactly this input because the values it reads are base64,
-	// whose alphabet (A-Za-z0-9+/=) contains neither a quote nor a backslash - so
-	// there is no escape sequence to mishandle and no way for a value to end its
-	// own string early.
-	//
-	// That sentence used to be an assumption about the PEER, and it is now an
-	// assertion about the VALUE: every value is `IsBase64`-checked below before
-	// it is returned (#33). Nothing else in this client trusts crypta's reply -
-	// MAX_FRAME, the 1..MAX_FRAME response-length check, `ThrowIfError` and the
-	// count check are all there because it does not - and the alphabet was the
-	// one place that posture was dropped. It mattered on the WRITE path: a
-	// `wrapped` value is decoded by nobody, it goes to the catalog as SQL text,
-	// so the reader is the only thing in front of it. Everything else about the
-	// response is ignored.
-	//
-	// The strictness below is what makes it trustworthy: the count must match the
-	// request exactly, and any surprise throws. Results are positional, matching
-	// crypta's documented request-order guarantee; a misalignment would hand a
-	// file the wrong DEK, and the Parquet reader would then fail to decrypt it.
-	// That fails closed - it cannot silently return wrong data.
-	vector<string> out;
-	auto key = "\"" + field + "\":\"";
-	idx_t at = 0;
-	while (true) {
-		auto found = response.find(key, at);
-		if (found == string::npos) {
+//===----------------------------------------------------------------------===//
+// Reading crypta's reply
+//
+// This used to be one narrow scan for `"<field>":"`, collecting every value it
+// found in order and handing them back POSITIONALLY. That is the defect #31
+// names, and it has two halves.
+//
+// The BINDING half: crypta already says which file each value belongs to. Its
+// reply item is a `PlainKey` / `WrappedKeyEntry`, an identity beside the value,
+// and the client threw the identity away and zipped by array index instead. The
+// count check (#24) bounded that, but a count is a LENGTH check standing in for
+// a BINDING check: it catches only a misalignment that changes the number of
+// items, and a REORDER preserves it exactly. A reordered reply therefore handed
+// a file another file's DEK - a wrong-key defect, not an availability one.
+//
+// The STRUCTURE half: a binding is only worth what the reader's item boundaries
+// are worth. A flat scan and an item-wise walk disagree about which text is a
+// value, and every place they disagree is a place the check can be walked
+// around - a `"dek":"..."` nested INSIDE the echoed identity object, a second
+// `dek` member beside the first, an item carrying none at all so the next one's
+// value slides into its place. So the value and the identity it is bound to are
+// now read out of the SAME structurally-delimited item, by the same walk. A
+// binding read from a different slice than the value it binds is not a binding.
+//
+// Still not a general JSON parser, and deliberately not: it walks objects,
+// strings and escapes because it has to, and refuses anything it would have to
+// guess at.
+//===----------------------------------------------------------------------===//
+
+static bool IsJsonSpace(char c) {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
+//! Advance past ONE JSON value starting at `at`, reporting the index just past
+//! it. False when the value does not end inside `text`.
+//!
+//! String-, escape- and nesting-aware. That is the whole difference between
+//! reading a reply and grepping one: an escaped quote inside a value closes
+//! nothing, and a brace inside a nested object is not the enclosing object's.
+static bool ScanJsonValue(const string &text, idx_t at, idx_t &end_out) {
+	idx_t depth = 0;
+	bool in_string = false;
+	bool escaped = false;
+	for (idx_t i = at; i < text.size(); i++) {
+		char c = text[i];
+		if (in_string) {
+			if (escaped) {
+				escaped = false;
+			} else if (c == '\\') {
+				escaped = true;
+			} else if (c == '"') {
+				in_string = false;
+				if (depth == 0) {
+					end_out = i + 1;
+					return true;
+				}
+			}
+			continue;
+		}
+		if (c == '"') {
+			in_string = true;
+		} else if (c == '{' || c == '[') {
+			depth++;
+		} else if (c == '}' || c == ']') {
+			if (depth == 0) {
+				// The ENCLOSING object or array closed, so a bare value - a number,
+				// a boolean, a null - ended just before it.
+				end_out = i;
+				return true;
+			}
+			depth--;
+			if (depth == 0) {
+				end_out = i + 1;
+				return true;
+			}
+		} else if (c == ',' && depth == 0) {
+			end_out = i;
+			return true;
+		}
+	}
+	return false;
+}
+
+//! Decode a JSON string LITERAL - quotes included - into the bytes it stands
+//! for. False when it is not a string, or carries an escape this client will not
+//! guess at.
+static bool DecodeJsonString(const string &literal, string &out) {
+	if (literal.size() < 2 || literal[0] != '"' || literal[literal.size() - 1] != '"') {
+		return false;
+	}
+	string decoded;
+	idx_t last = literal.size() - 1;
+	for (idx_t i = 1; i < last; i++) {
+		char c = literal[i];
+		if (c != '\\') {
+			decoded += c;
+			continue;
+		}
+		if (i + 1 >= last) {
+			return false;
+		}
+		char escape = literal[i + 1];
+		i++;
+		switch (escape) {
+		case '"':
+			decoded += '"';
+			break;
+		case '\\':
+			decoded += '\\';
+			break;
+		case '/':
+			decoded += '/';
+			break;
+		case 'b':
+			decoded += '\b';
+			break;
+		case 'f':
+			decoded += '\f';
+			break;
+		case 'n':
+			decoded += '\n';
+			break;
+		case 'r':
+			decoded += '\r';
+			break;
+		case 't':
+			decoded += '\t';
+			break;
+		case 'u': {
+			if (i + 4 >= last) {
+				return false;
+			}
+			uint32_t code = 0;
+			for (idx_t digit_at = 1; digit_at <= 4; digit_at++) {
+				auto hex = static_cast<unsigned char>(literal[i + digit_at]);
+				uint32_t digit;
+				if (hex >= '0' && hex <= '9') {
+					digit = static_cast<uint32_t>(hex - '0');
+				} else if (hex >= 'a' && hex <= 'f') {
+					digit = static_cast<uint32_t>(hex - 'a' + 10);
+				} else if (hex >= 'A' && hex <= 'F') {
+					digit = static_cast<uint32_t>(hex - 'A' + 10);
+				} else {
+					return false;
+				}
+				code = (code << 4) | digit;
+			}
+			// A JSON writer \u-escapes CONTROL characters and emits everything above
+			// 0x1f as raw UTF-8 - crypta's serde does, this client's own JsonEscape
+			// does. So an escape naming anything wider than one byte is not
+			// something a healthy reply contains, and GUESSING at it - a lone
+			// surrogate, a codepoint this client would have to re-encode - would
+			// mean comparing an identity against bytes we invented. Refuse instead:
+			// a refused batch is recoverable, a mis-decoded identity is not.
+			if (code > 0xFF) {
+				return false;
+			}
+			decoded += static_cast<char>(code);
+			i += 4;
 			break;
 		}
-		auto start = found + key.size();
-		auto end = response.find('"', start);
-		if (end == string::npos) {
-			throw IOException("crypta response is truncated inside a %s value", field);
+		default:
+			return false;
 		}
-		auto value = response.substr(start, end - start);
+	}
+	out = decoded;
+	return true;
+}
+
+//! Parse a JSON integer literal. Strict: digits and an optional leading `-`,
+//! nothing else, and it must fit in an int64.
+static bool ParseJsonInteger(const string &text, int64_t &out) {
+	//! |INT64_MIN|, the largest magnitude an int64 can carry.
+	static const uint64_t LIMIT = 9223372036854775808ULL;
+	if (text.empty()) {
+		return false;
+	}
+	bool negative = text[0] == '-';
+	idx_t at = negative ? 1 : 0;
+	if (at >= text.size()) {
+		return false;
+	}
+	uint64_t magnitude = 0;
+	for (idx_t i = at; i < text.size(); i++) {
+		if (text[i] < '0' || text[i] > '9') {
+			return false;
+		}
+		auto digit = static_cast<uint64_t>(text[i] - '0');
+		if (magnitude > (LIMIT - digit) / 10) {
+			return false;
+		}
+		magnitude = magnitude * 10 + digit;
+	}
+	if (negative) {
+		if (magnitude == LIMIT) {
+			out = -9223372036854775807LL - 1;
+			return true;
+		}
+		out = -static_cast<int64_t>(magnitude);
+		return true;
+	}
+	if (magnitude >= LIMIT) {
+		return false;
+	}
+	out = static_cast<int64_t>(magnitude);
+	return true;
+}
+
+//! One top-level member of a JSON object: its decoded NAME, and the RAW slice of
+//! its value.
+struct JsonMember {
+	string name;
+	string value;
+};
+
+//! The TOP-LEVEL members of a JSON object, in order.
+//!
+//! Nested objects and arrays are skipped whole rather than descended into, which
+//! is the property the whole binding rests on: an item's `dek` is the item's own
+//! member, never one buried inside the identity object beside it. A reader that
+//! searched the item's TEXT would find either, and the attacker would pick.
+static vector<JsonMember> SplitObjectMembers(const string &object, const string &what) {
+	if (object.size() < 2 || object[0] != '{') {
+		throw IOException("crypta response carries %s that is not an object", what);
+	}
+	vector<JsonMember> members;
+	idx_t i = 1;
+	while (i < object.size()) {
+		while (i < object.size() && (IsJsonSpace(object[i]) || object[i] == ',')) {
+			i++;
+		}
+		if (i >= object.size() || object[i] == '}') {
+			break;
+		}
+		if (object[i] != '"') {
+			throw IOException("crypta response carries a member of %s whose name is not a string", what);
+		}
+		idx_t name_end;
+		if (!ScanJsonValue(object, i, name_end)) {
+			throw IOException("crypta response is truncated inside a member name of %s", what);
+		}
+		JsonMember member;
+		if (!DecodeJsonString(object.substr(i, name_end - i), member.name)) {
+			throw IOException("crypta response carries a member name of %s this client will not decode", what);
+		}
+		i = name_end;
+		while (i < object.size() && IsJsonSpace(object[i])) {
+			i++;
+		}
+		if (i >= object.size() || object[i] != ':') {
+			throw IOException("crypta response carries a member of %s with no value", what);
+		}
+		i++;
+		while (i < object.size() && IsJsonSpace(object[i])) {
+			i++;
+		}
+		idx_t value_end;
+		if (!ScanJsonValue(object, i, value_end)) {
+			throw IOException("crypta response is truncated inside a member value of %s", what);
+		}
+		member.value = object.substr(i, value_end - i);
+		while (!member.value.empty() && IsJsonSpace(member.value[member.value.size() - 1])) {
+			member.value.resize(member.value.size() - 1);
+		}
+		members.push_back(member);
+		i = value_end;
+	}
+	return members;
+}
+
+//! The value of the ONE member named `name`.
+//!
+//! A DUPLICATE is a refusal, not a first-wins or last-wins choice, and that is
+//! load-bearing rather than pedantic: under a first-wins reader a hostile reply
+//! echoes the identity the caller expects and puts a SECOND `dek` beside it, and
+//! which member the reader happens to pick becomes the attacker's to choose.
+//! crypta's own parser refuses a duplicate member on the way in (measured in
+//! #28), so refusing one on the way back costs a healthy service nothing.
+static const string &RequiredMember(const vector<JsonMember> &members, const string &name, const string &what) {
+	const JsonMember *found = nullptr;
+	for (idx_t i = 0; i < members.size(); i++) {
+		if (members[i].name != name) {
+			continue;
+		}
+		if (found) {
+			throw IOException("crypta answered %s with more than one %s member", what, name);
+		}
+		found = &members[i];
+	}
+	if (!found) {
+		throw IOException("crypta answered %s with no %s member", what, name);
+	}
+	return found->value;
+}
+
+static string RequiredStringMember(const vector<JsonMember> &members, const string &name, const string &what) {
+	string value;
+	if (!DecodeJsonString(RequiredMember(members, name, what), value)) {
+		throw IOException("crypta answered %s with a %s that is not a JSON string this client can decode", what, name);
+	}
+	return value;
+}
+
+//! Split the top-level objects out of a reply's `items` array.
+//!
+//! It FAILS rather than guesses. An items array that never closes is a truncated
+//! reply, and the refusal for that lives HERE rather than in the field reader it
+//! used to live in (#31): once the walk is string-aware, a value whose quote
+//! never closes swallows the rest of the frame, so "truncated inside a value"
+//! and "truncated inside the array" stopped being two conditions - the array is
+//! the one that can still be observed.
+static vector<string> SplitReplyItems(const string &response) {
+	static const string OPENER = "\"items\":[";
+	auto opener_at = response.find(OPENER);
+	if (opener_at == string::npos) {
+		throw IOException("crypta response carries no items array");
+	}
+	vector<string> items;
+	idx_t depth = 0;
+	bool in_string = false;
+	bool escaped = false;
+	bool closed = false;
+	bool in_item = false;
+	idx_t item_start = 0;
+	for (idx_t i = opener_at + OPENER.size(); i < response.size(); i++) {
+		char c = response[i];
+		if (in_string) {
+			if (escaped) {
+				escaped = false;
+			} else if (c == '\\') {
+				escaped = true;
+			} else if (c == '"') {
+				in_string = false;
+			}
+			continue;
+		}
+		if (c == '"') {
+			in_string = true;
+		} else if (c == '{' || c == '[') {
+			if (depth == 0 && c == '{') {
+				in_item = true;
+				item_start = i;
+			}
+			depth++;
+		} else if (c == '}') {
+			if (depth == 0) {
+				throw IOException("crypta response closes an object that never opened, inside its items array");
+			}
+			depth--;
+			if (depth == 0 && in_item) {
+				items.push_back(response.substr(item_start, i - item_start + 1));
+				in_item = false;
+			}
+		} else if (c == ']') {
+			if (depth == 0) {
+				closed = true;
+				break;
+			}
+			depth--;
+		}
+	}
+	if (!closed) {
+		throw IOException("crypta response is truncated inside its items array");
+	}
+	return items;
+}
+
+//! THE BINDING, on the way back. Issue #31.
+//!
+//! Compared as DECODED VALUES, never as bytes, and that is not fastidiousness.
+//! There is more than one correct way to write the same string in JSON: crypta's
+//! serde escapes a backspace as `\b` where this client's own encoder writes the
+//! six-character numeric form, and a re-serialising service is free to emit the
+//! four members in any order it likes - the SQL fixture's python stand-in sorts
+//! them. A comparison against the bytes this client SENT would refuse a healthy
+//! service for spelling the same identity differently, and over-refusal on the
+//! read path locks an operator out of their own lake. What the key is bound to
+//! is the four VALUES; their spelling is not part of the binding.
+static void RequireEchoedIdentity(const vector<JsonMember> &members, const CryptaFileIdentity &expected,
+                                  const string &what) {
+	auto identity = SplitObjectMembers(RequiredMember(members, "identity", what), what + "'s identity");
+	auto catalog_uuid = RequiredStringMember(identity, "catalog_uuid", what);
+	auto file_kind = RequiredStringMember(identity, "file_kind", what);
+	auto file_path = RequiredStringMember(identity, "file_path", what);
+	int64_t table_id = 0;
+	if (!ParseJsonInteger(RequiredMember(identity, "table_id", what), table_id)) {
+		throw IOException("crypta answered %s with a table_id that is not an integer", what);
+	}
+	string expected_kind = expected.is_delete_file ? "delete" : "data";
+	// ALL FOUR, and each on its own. Three of them checked and one taken on trust
+	// is the same defect one layer down - a delete file's key row and a data
+	// file's are not interchangeable, and neither are two lakes' - so a narrowed
+	// comparison is its own mutant in the roster rather than a matter of taste.
+	if (catalog_uuid != expected.lake_id || table_id != expected.table_id || file_kind != expected_kind ||
+	    file_path != expected.stored_path) {
+		throw IOException("crypta answered %s with a different file's identity: asked for lake %s table %lld %s file "
+		                  "%s, answered lake %s table %lld %s file %s. The reply is matched to the request by the "
+		                  "identity crypta echoes, never by position",
+		                  what, expected.lake_id, static_cast<long long>(expected.table_id), expected_kind,
+		                  expected.stored_path, catalog_uuid, static_cast<long long>(table_id), file_kind, file_path);
+	}
+}
+
+vector<string> CryptaClient::ExtractBoundBase64Field(const string &response, const string &field,
+                                                     const vector<CryptaFileIdentity> &identities) {
+	auto items = SplitReplyItems(response);
+	// The COUNT check, kept exactly where #24 put it and for the reason it was put
+	// there. It is not made redundant by the binding below: it is what refuses a
+	// reply that carries the RIGHT identities and the wrong number of them, and it
+	// is the check that answers first for a reply with nothing in it at all, where
+	// there is no item to bind anything to.
+	if (items.size() != identities.size()) {
+		throw IOException("crypta returned %llu %s values for %llu requested items",
+		                  static_cast<uint64_t>(items.size()), field, static_cast<uint64_t>(identities.size()));
+	}
+	vector<string> out;
+	out.reserve(items.size());
+	for (idx_t i = 0; i < items.size(); i++) {
+		auto what = StringUtil::Format("reply item %llu", static_cast<uint64_t>(i));
+		auto members = SplitObjectMembers(items[i], what);
+		RequireEchoedIdentity(members, identities[i], what);
+		string value;
+		if (!DecodeJsonString(RequiredMember(members, field, what), value)) {
+			throw IOException("crypta answered %s with a %s value that is not a JSON string", what, field);
+		}
+		// The DECODED value, not the raw slice: the decoded bytes are what reaches
+		// the catalog and the decoder, so they are what has to be in the alphabet.
 		// Fails CLOSED, and refuses the WHOLE batch rather than dropping the bad
 		// value: a partial answer would leave some files keyed and the rest not,
 		// which is a worse outcome than a refused commit.
@@ -222,11 +636,6 @@ vector<string> CryptaClient::ExtractBase64Field(const string &response, const st
 			                  field);
 		}
 		out.push_back(value);
-		at = end;
-	}
-	if (out.size() != expected) {
-		throw IOException("crypta returned %llu %s values for %llu requested items", static_cast<uint64_t>(out.size()),
-		                  field.c_str(), static_cast<uint64_t>(expected));
 	}
 	return out;
 }
@@ -388,7 +797,11 @@ vector<string> CryptaClient::WrapBatch(const vector<CryptaFileIdentity> &identit
 
 	auto response = Request(body);
 	ThrowIfError(response);
-	return ExtractBase64Field(response, "wrapped", identities.size());
+	// Bound to the identities, not zipped onto them. The wrap reply echoes the
+	// identity too (`WrappedKeyEntry`), and a mis-zipped wrap is the same defect
+	// with a slower fuse: file A's row stores the blob crypta minted for B, and
+	// the lake reads fine until the day A is read and its key will not unwrap.
+	return ExtractBoundBase64Field(response, "wrapped", identities);
 }
 
 vector<string> CryptaClient::UnwrapBatch(const vector<CryptaFileIdentity> &identities, const vector<string> &blobs) {
@@ -416,7 +829,7 @@ vector<string> CryptaClient::UnwrapBatch(const vector<CryptaFileIdentity> &ident
 
 	auto response = Request(body);
 	ThrowIfError(response);
-	auto encoded = ExtractBase64Field(response, "dek", identities.size());
+	auto encoded = ExtractBoundBase64Field(response, "dek", identities);
 
 	vector<string> keys;
 	keys.reserve(encoded.size());

@@ -236,30 +236,155 @@ std::string Base64Encode(const std::string &raw) {
 	return out;
 }
 
-std::string OkUnwrapResponse(const std::vector<std::string> &raw_deks) {
+namespace {
+
+//! Split the top-level objects out of a frame's `items` array.
+//!
+//! String- and escape-aware, so an escaped brace or quote inside a value opens
+//! and closes nothing. Written here rather than reused from the client on
+//! purpose: a fake that split the frame with the client's own scanner could
+//! never disagree with it, and disagreeing is the whole job of a fake.
+std::vector<std::string> SplitFrameItems(const std::string &frame) {
+	std::vector<std::string> items;
+	const std::string opener = "\"items\":[";
+	auto start = frame.find(opener);
+	if (start == std::string::npos) {
+		return items;
+	}
+	int depth = 0;
+	bool in_string = false;
+	bool escaped = false;
+	bool in_item = false;
+	size_t item_start = 0;
+	for (size_t i = start + opener.size(); i < frame.size(); i++) {
+		char c = frame[i];
+		if (in_string) {
+			if (escaped) {
+				escaped = false;
+			} else if (c == '\\') {
+				escaped = true;
+			} else if (c == '"') {
+				in_string = false;
+			}
+			continue;
+		}
+		if (c == '"') {
+			in_string = true;
+		} else if (c == '{' || c == '[') {
+			if (depth == 0 && c == '{') {
+				in_item = true;
+				item_start = i;
+			}
+			depth++;
+		} else if (c == '}') {
+			if (depth == 0) {
+				break;
+			}
+			depth--;
+			if (depth == 0 && in_item) {
+				items.push_back(frame.substr(item_start, i - item_start + 1));
+				in_item = false;
+			}
+		} else if (c == ']') {
+			if (depth == 0) {
+				break;
+			}
+			depth--;
+		}
+	}
+	return items;
+}
+
+//! The raw slice of the `identity` OBJECT inside one item, braces included.
+std::string ItemIdentity(const std::string &item) {
+	const std::string key = "\"identity\":";
+	auto at = item.find(key);
+	if (at == std::string::npos) {
+		return "";
+	}
+	size_t i = at + key.size();
+	while (i < item.size() && (item[i] == ' ' || item[i] == '\t')) {
+		i++;
+	}
+	if (i >= item.size() || item[i] != '{') {
+		return "";
+	}
+	int depth = 0;
+	bool in_string = false;
+	bool escaped = false;
+	for (size_t j = i; j < item.size(); j++) {
+		char c = item[j];
+		if (in_string) {
+			if (escaped) {
+				escaped = false;
+			} else if (c == '\\') {
+				escaped = true;
+			} else if (c == '"') {
+				in_string = false;
+			}
+			continue;
+		}
+		if (c == '"') {
+			in_string = true;
+		} else if (c == '{') {
+			depth++;
+		} else if (c == '}') {
+			depth--;
+			if (depth == 0) {
+				return item.substr(i, j - i + 1);
+			}
+		}
+	}
+	return "";
+}
+
+//! Build a reply whose items pair an identity slice with a value.
+std::string IdentityReply(const std::vector<std::string> &identities, const std::string &field,
+                          const std::vector<std::string> &values) {
 	std::ostringstream out;
 	out << "{\"schema\":\"CryptaWireManifest@v2\",\"status\":\"ok\",\"items\":[";
-	for (size_t i = 0; i < raw_deks.size(); i++) {
+	for (size_t i = 0; i < values.size(); i++) {
 		if (i > 0) {
 			out << ",";
 		}
-		out << "{\"dek\":\"" << Base64Encode(raw_deks[i]) << "\"}";
+		out << "{";
+		if (!identities.empty()) {
+			out << "\"identity\":" << identities[i % identities.size()] << ",";
+		}
+		out << "\"" << field << "\":\"" << values[i] << "\"}";
 	}
 	out << "]}";
 	return out.str();
 }
 
-std::string OkWrapResponse(const std::vector<std::string> &base64_blobs) {
-	std::ostringstream out;
-	out << "{\"schema\":\"CryptaWireManifest@v2\",\"status\":\"ok\",\"items\":[";
-	for (size_t i = 0; i < base64_blobs.size(); i++) {
-		if (i > 0) {
-			out << ",";
-		}
-		out << "{\"wrapped\":\"" << base64_blobs[i] << "\"}";
+} // namespace
+
+std::vector<std::string> RequestIdentities(const std::string &request) {
+	std::vector<std::string> identities;
+	for (auto &item : SplitFrameItems(request)) {
+		identities.push_back(ItemIdentity(item));
 	}
-	out << "]}";
-	return out.str();
+	return identities;
+}
+
+std::string UnwrapResponse(const std::vector<std::string> &identities, const std::vector<std::string> &raw_deks) {
+	std::vector<std::string> encoded;
+	for (size_t i = 0; i < raw_deks.size(); i++) {
+		encoded.push_back(Base64Encode(raw_deks[i]));
+	}
+	return IdentityReply(identities, "dek", encoded);
+}
+
+std::string WrapResponse(const std::vector<std::string> &identities, const std::vector<std::string> &base64_blobs) {
+	return IdentityReply(identities, "wrapped", base64_blobs);
+}
+
+std::string OkUnwrapResponse(const std::string &request, const std::vector<std::string> &raw_deks) {
+	return UnwrapResponse(RequestIdentities(request), raw_deks);
+}
+
+std::string OkWrapResponse(const std::string &request, const std::vector<std::string> &base64_blobs) {
+	return WrapResponse(RequestIdentities(request), base64_blobs);
 }
 
 std::string ErrorResponse(const std::string &message) {
