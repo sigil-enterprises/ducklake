@@ -8,18 +8,26 @@
 # Cost, and only cost. The roster is one file and one vocabulary
 # (test/cpp/crypta/mutants.py); the difference is what a mutant costs to run.
 #
-#   CryptaRefusals   35 standalone mutants, each a two-file compile against a
-#                    COPY of src/crypta. Seconds apiece. It runs on every push
-#                    and every pull request, and it should.
+#   CryptaRefusals   the STANDALONE roster (`mutants.py names`), each a two-file
+#                    compile against a COPY of src/crypta. Seconds apiece. It
+#                    runs on every push and every pull request, and it should.
 #
-#   this             4 in-tree mutants, each requiring the WHOLE extension to be
-#                    rebuilt - and twice, because the tree is restored and
-#                    rebuilt afterwards so the next mutant's clean control is
-#                    measured against a clean binary. Nine extension builds per
-#                    run.
+#   this             the EXTENSION roster (`mutants.py names --extension`), each
+#                    requiring the WHOLE extension to be rebuilt - and twice,
+#                    because the tree is restored and rebuilt afterwards so the
+#                    next mutant's clean control is measured against a clean
+#                    binary. 2N + 1 extension builds per run.
 #
-# Putting these in the per-PR gate would charge every pull request nine extension
-# builds to re-prove guards that only change when someone edits them. So the
+# NO ROSTER SIZE IS WRITTEN IN THIS FILE OR IN THE RUNNER any more, and the
+# reason is that both carried stale ones: a standalone size the roster outgrew
+# twice, an in-tree size it outgrew twice more, and a per-run build figure that
+# outlived its own arithmetic. A roster growth reds nothing that merely
+# DESCRIBES the roster, so each was correct when written and read as current long
+# after it was not. The sizes are now DERIVED and printed by a step below, and by
+# the runner's own "All N ... guards were removed".
+#
+# Putting these in the per-PR gate would charge every pull request 2N + 1
+# extension builds to re-prove guards that only change when someone edits them. So the
 # trigger is narrow instead of the schedule being loose: this runs ON DEMAND, and
 # AUTOMATICALLY on any push or pull request that TOUCHES its subject - the three
 # source files the roster edits, the three sqllogictest files it requires to
@@ -66,6 +74,7 @@ on:
       - 'test/sql/crypta/crypta_unconfigured_reader_refusal.test'
       - 'test/sql/crypta/crypta_flush_unconfigured_refusal.test'
       - 'test/sql/crypta/crypta_flush_configured_unwrap.test'
+      - 'test/sql/crypta/adversary_flush_null_key.test'
       - 'test/cpp/crypta/mutants.py'
       - 'test/sql/crypta/run_storage_mutants.sh'
       - 'test/sql/crypta/fake_crypta.py'
@@ -85,6 +94,7 @@ on:
       - 'test/sql/crypta/crypta_unconfigured_reader_refusal.test'
       - 'test/sql/crypta/crypta_flush_unconfigured_refusal.test'
       - 'test/sql/crypta/crypta_flush_configured_unwrap.test'
+      - 'test/sql/crypta/adversary_flush_null_key.test'
       - 'test/cpp/crypta/mutants.py'
       - 'test/sql/crypta/run_storage_mutants.sh'
       - 'test/sql/crypta/fake_crypta.py'
@@ -103,8 +113,10 @@ jobs:
   storage-mutants:
     name: Storage-Layer Mutants
     runs-on: ubuntu-latest
-    # Nine extension builds. Cold, the first one alone is 30-70 minutes; the rest
-    # are incremental and ccache carries them.
+    # The whole extension is rebuilt twice per mutant, plus once at the start.
+    # Cold, that first build alone is 30-70 minutes; the rest are incremental and
+    # ccache carries them. The derived figure is printed by the re-derivation
+    # step below rather than restated here, where it went stale before.
     timeout-minutes: 240
 
     steps:
@@ -171,6 +183,36 @@ jobs:
           echo "every roster subject is covered by a path filter:"
           sed 's/^/  /' <<< "${subjects}"
 
+      # The counts, DERIVED and printed rather than written down anywhere.
+      #
+      # A number that DESCRIBES the roster is never reddened by the roster
+      # growing. Measured, three times over, on this file and on the runner: a
+      # standalone count survived the roster outgrowing it twice, an in-tree
+      # count survived it twice more, and a per-run build count survived the
+      # arithmetic changing under it. Each was correct when written and each was
+      # read as current long after it was not.
+      #
+      # A FORBIDDING check on those numbers was tried here first and is
+      # deliberately not what shipped. It has to decide which of a dozen prose
+      # forms is a claim, and on this very file it flagged "one mutant at a
+      # time" - ordinary English - alongside the genuinely stale ones. A gate
+      # that reds on correct prose is a gate somebody disables. So the prose now
+      # carries NO count at all, and the numbers are emitted here, where they are
+      # re-derived on every run and cannot go stale. What would gate this
+      # properly is a separate piece of work (#61), not a fuzzy grep.
+      - name: The roster's own counts, re-derived
+        run: |
+          set -euo pipefail
+          standalone="$(python3 test/cpp/crypta/mutants.py names | grep -c . || true)"
+          extension="$(python3 test/cpp/crypta/mutants.py names --extension | grep -c . || true)"
+          if [ "${standalone}" -eq 0 ] || [ "${extension}" -eq 0 ]; then
+            echo "::error::a roster came back empty - ${standalone} standalone, ${extension} extension. Nothing below this line would be measuring anything."
+            exit 1
+          fi
+          echo "standalone roster (CryptaRefusals): ${standalone}"
+          echo "extension roster (this job):        ${extension}"
+          echo "extension builds this run will do:  $(( 2 * extension + 1 ))"
+
       # The SINGULAR file - the one patch the fork's test workflows run against.
       # See the header for why this job does not matrix.
       - name: Checkout DuckDB to the tested patch
@@ -198,8 +240,8 @@ jobs:
           cache-to: type=gha,scope=ducklake-devcontainer,mode=max
 
       # Shared with CryptaRefusals by SCOPE, not by key: the same image and the
-      # same compiler produce the same objects, and this job's nine builds are
-      # exactly what a warm ccache is for.
+      # same compiler produce the same objects, and this job's 2N + 1 extension
+      # builds are exactly what a warm ccache is for.
       - name: Restore ccache
         uses: actions/cache@v4
         with:

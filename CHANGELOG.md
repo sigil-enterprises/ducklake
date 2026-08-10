@@ -17,6 +17,140 @@ place - nothing was retagged or deleted.
 Which DuckDB version an artifact is built for is carried by the build, not by
 the fork's version number, and a runtime refuses any other patch.
 
+## [Unreleased]
+
+Toward `v0.1.0-rc.2`. `v0.1.0-rc.1` is untouched - nothing was retagged.
+
+### Fixed
+
+- **An EMPTY wrapped key was accepted, written as SQL `NULL`, and the data file
+  lost forever** (#55). `CryptaClient::IsBase64("")` returned `true` - the loop
+  that validates the alphabet never executes on a zero-length string, so the
+  predicate fell out the bottom as *vacuously* in the alphabet. That was the one
+  input #33's alphabet check admitted, and the only value that reached
+  `DuckLakeUtil::WrappedEncryptionKeyLiteral`'s `return "NULL"` branch.
+
+  The outcome was worse than the injection class #33 closed, because an
+  injection is loud. Here the data file was written to storage **encrypted with
+  a real DEK**, the wrapped form of that DEK was **discarded**, the row was
+  written with no key, and **the commit reported success**. No error, no
+  warning; the only symptom is a read that fails later, long after the key is
+  gone. The existing empty-batch guards (`no_empty_shortcut_wrap`,
+  `no_empty_shortcut_unwrap`) are on the **request** side and never saw it, and
+  `LooksWrapped` - which would have rejected it - is not consulted on the write
+  path at all.
+
+  Two guards, both failing closed, one per layer. `IsBase64` now refuses the
+  empty string, in the **predicate** rather than at one call site, so every
+  caller present and future inherits the refusal; the reply reader's existing
+  behaviour then covers it unchanged, refusing the **whole batch** rather than
+  dropping the bad value. `WrappedEncryptionKeyLiteral` now **throws** instead of
+  writing `NULL` when the file has a key, and takes an explicit `file_has_key`
+  from the caller because an empty value means two different rows: a file with no
+  key at all - `ducklake_add_data_files` never sets one - still writes `NULL`,
+  and that path is unchanged.
+
+  Proven red-first: the three cases were pushed failing against the unfixed tree
+  (`06e0be5b`) before the guards landed. Each guard has its own mutant in the
+  standalone roster - `no_empty_reply_value_refusal` and
+  `no_empty_wrapped_key_refusal` - and every multi-name mutant was verified per
+  case rather than by its combined exit status. Found in adversarial review of
+  the `v0.1.0-rc.1` release candidate.
+
+- **The crypta reply was zipped onto the caller's file list by ARRAY POSITION**
+  (#31, #54). crypta already says which file each returned value belongs to - its
+  reply item is an identity beside the value - and the client threw that identity
+  away. The reply-count check from #24 was the only thing between that and key
+  confusion, and a count is a LENGTH check standing in for a BINDING check: it
+  catches a reply with the wrong *number* of items, and a REORDER has exactly the
+  right number. Measured against the pre-fix client, a two-item reply with its
+  items swapped handed `t/alpha.parquet` the DEK crypta minted for
+  `t/beta.parquet` - a wrong-key defect, not the refused-batch availability
+  defect #28 bounded.
+
+  Both batch paths now go through one reader that walks the reply item by item
+  and requires item `i` to echo `identities[i]`, all four fields, compared as
+  decoded values rather than as bytes. The value and the identity binding it come
+  out of the same structurally delimited item, so a value nested inside the
+  echoed identity or duplicated beside it cannot be substituted for the item's
+  own. The count check stays: it is what answers for a reply with no items at
+  all. Both fakes were corrected to echo the identity first - a guard verified
+  against a fake that never sends the field it checks passes without running.
+
+  Proven red-first against the pre-fix client, then green; the standalone
+  mutation roster is 40 guards, 40 red, no survivors, and every multi-name mutant
+  was verified per case rather than by its combined exit status. That per-case
+  pass found and fixed a defect in this change's own evidence, recorded in the
+  pull request.
+
+- **The `v0.1.0-rc.1` entry below understated the release** (#52). As published
+  at the `v0.1.0-rc.1` tag, that entry listed **#33** and **#26** under *Known
+  limitations* while both were **already fixed at the very commit the tag points
+  at** (`fb314fb6`). The cause: the pull request that introduced this file was
+  authored before those two fixes and squash-merged after them, so its text
+  described a tree that no longer existed by the time it landed.
+
+  The consequence was not cosmetic. A client pinning `v0.1.0-rc.1` and reading
+  its CHANGELOG - which the release body explicitly directs them to - would
+  conclude that the SQL-injection write path was still live and that the
+  inlined-deletion flush still consumed a wrapped key raw. Neither was true at
+  that commit.
+
+  The entry below is corrected in place, because leaving a false security
+  statement standing is worse than editing a historical entry. **The published
+  `v0.1.0-rc.1` tag still carries the uncorrected text** and is not retagged.
+  Found in adversarial review of the release candidate, not by its author.
+
+- **A second overclaim in the same entry**: the storage-layer mutation suite was
+  described as "proven in CI". It was proven LOCALLY. That gate fires only when
+  its subject moves, and its last CI green (`59176c04`) predates every file the
+  #33 and #26 fixes touched, so it does not cover the tagged commit. Corrected
+  in place with the evidence that does exist named explicitly.
+
+- **Two residuals found while verifying that correction** are now recorded
+  against the entry below rather than left implicit: **#55** (an empty wrapped
+  key becomes SQL `NULL` and the data file is unreadable forever) and **#53**
+  (the flush call site skips the resolve on a NULL key instead of refusing).
+
+- **The inlined-deletion flush refuses a NULL key on an ENCRYPTED lake instead
+  of skipping the resolution** (#53). `ReadDataFile` asks three questions of a
+  stored `encryption_key`, and #26's fix (PR #51) moved only two of them onto
+  `DuckLakeCatalog::ResolveStoredEncryptionKey`. The third - "this lake is
+  encrypted and the column is NULL" - stayed inline in `ReadDataFile`, so the
+  second decode site kept its own answer to it: an `if (!...IsNull())` that
+  **skipped the whole resolution** rather than refusing. A delete file with no
+  key was therefore refused by name on the scan path and silently accepted on
+  the flush path, dying inside the Parquet reader on `is encrypted, but
+  'encryption_config' was not set` - a reader error where the operator needed a
+  catalog refusal naming the row, which is exactly the shape #20 was about.
+
+  All three questions now live on the catalog and the SIGNATURE is what enforces
+  it: the resolver takes the nullable **column value**, so no call site has an
+  `if` left to answer question 1 with. The refusal is
+  `DuckLakeCatalog::RefuseMissingEncryptionKey`, and it carries upstream's
+  message character for character, so both decode sites now refuse in the same
+  words.
+
+  Found by adversarial review of the released tag, with the failing test written
+  before the fix (`test/sql/crypta/adversary_flush_null_key.test`, carrying its
+  own positive control and an over-refusal control). The storage-mutant roster
+  grows to six with `no_null_key_refusal_on_flush`, which restores `rc.1`'s
+  behaviour exactly and must redden that test.
+
+- **A comment that asserted something false is corrected.** #26's fix left
+  `ducklake_metadata_manager.cpp` claiming "a third decode site now inherits
+  both halves or neither". There were never two halves; there are three
+  questions, and the extraction took two. A comment claiming a total extraction
+  where a partial one happened is worse than no comment, because it tells the
+  next author there is nothing left to check.
+
+### Known limitations
+
+- The NULL-key refusal has **one** mutant, on the flush call site. This roster's
+  own shared-guard rule wants three - a body mutant and a scan call-site mutant
+  as well. Tracked at #56; both have a case waiting for them in the adversary
+  test already.
+
 ## [v0.1.0-rc.1] - 2026-08-06
 
 Pre-release. Milestone **M1 - Envelope MVP: identity-bound wrapped DEKs on the
@@ -36,9 +170,17 @@ not ship.
 - **Encrypted-lake enablement**: a migration path from a plaintext lake and an
   end-to-end path from a native Postgres source.
 - **Storage-layer mutation suite** (#45, #46) - full-extension mutants that
-  delete each storage-layer guard and are proven in CI to RED the cases that
-  claim it. This is what makes the refusal assertions falsifiable rather than
-  decorative.
+  delete each storage-layer guard and RED the cases that claim it. This is what
+  makes the refusal assertions falsifiable rather than decorative.
+
+  **Proven LOCALLY at this commit, not in CI.** Said precisely, because the
+  distinction is the whole point of the suite. This gate fires only when its
+  subject moves, and its last CI green is `59176c04` - which predates the #33
+  and #26 fixes and every other file they touched. The evidence for this commit
+  is therefore a local run: 5/5 storage mutants RED and 37/37 crypta mutants
+  RED, re-derived independently on a second checkout. GitHub Actions was
+  degraded during this release (jobs returning `steps=0`, unacquired by any
+  runner), so no CI verdict exists for the tag in either direction.
 
 ### Fixed
 
@@ -47,23 +189,36 @@ not ship.
   key material; an unconfigured reader refuses a crypta-wrapped key rather than
   decoding it as a raw DEK; a crypta write failure no longer kills the embedding
   host.
-- **The wrapped blob is escaped on the READ splice site** (#24), where it is
-  spliced into the crypta request JSON. Said precisely rather than as "both
-  splice sites": the WRITE site is still open, see below.
+- **The wrapped blob is escaped at BOTH splice sites** (#24, #33). The READ site
+  escapes it into the crypta request JSON; the WRITE site
+  (`DuckLakeUtil::WrappedEncryptionKeyLiteral`) routes through
+  `SQLLiteralToString` like every sibling value on the same row. Additionally
+  `CryptaClient::ExtractBase64Field` refuses any reply value carrying a
+  character outside the base64 alphabet, which makes the safety of that value an
+  assertion about the VALUE rather than an assumption about the PEER. Exactly
+  one input escapes the alphabet check - see #55 below.
+- **The inlined-deletion flush unwraps the delete file's stored key** (#26). It
+  previously consumed the stored crypta-wrapped blob as if it were a raw DEK; it
+  now resolves it through `DuckLakeCatalog::ResolveStoredEncryptionKey`. A
+  residual remains at that call site - see #53 below.
 - **Key confusion** (#18) - a bare `|` join let a key be re-read across fields.
 
 ### Known limitations
 
 Stated rather than implied. These are **not** closed by this release:
 
-- **The envelope does NOT yet fail closed on every path** - milestone M2 is open,
-  and three of its four epics have open blocking issues. Specifically:
-  - **#33 (open, security)** - `WrappedEncryptionKeyLiteral` splices crypta's
-    reply into SQL. The READ splice site is escaped (#24); the **WRITE** site is
-    not. Escaping is therefore incomplete, and an operator should not read this
-    release as closing the injection class.
-  - **#26 (open)** - the inlined-deletion flush consumes a delete file's
-    crypta-wrapped key WITHOUT unwrapping it.
+- **The envelope does NOT yet fail closed on every path** - milestone M2 is open.
+  #33 and #26 are FIXED at this commit and are recorded under Fixed above. What
+  remains open is:
+  - **#55 (open, security)** - `IsBase64("")` returns true vacuously, so an
+    EMPTY wrapped value passes #33's alphabet check, becomes SQL `NULL` in
+    `WrappedEncryptionKeyLiteral`, and the data file is written encrypted with a
+    DEK whose wrapped form was discarded. The commit reports success and the
+    file is unreadable forever, by anyone. This is the single input #33's check
+    admits, and it is the more dangerous residual on this list.
+  - **#53 (open)** - #26's fix moved the resolve onto the catalog, but the flush
+    CALL SITE skips the resolve on a NULL key rather than refusing it, so two of
+    three halves moved and the third did not.
   - **#31 (open)** - the unwrap reply is zipped by array POSITION rather than
     matched against the identity crypta echoes, so an injected or reordered
     element can hand a caller the wrong DEK.

@@ -58,7 +58,19 @@ public:
 
 	static string EncryptionKeyLiteral(const string &key);
 	//! PRIVATE-FORK ONLY: quote an already-wrapped (base64) crypta blob.
-	static string WrappedEncryptionKeyLiteral(const string &wrapped_base64);
+	//!
+	//! `file_has_key` is the one thing this function cannot work out for itself
+	//! and must not guess (#55). An EMPTY `wrapped_base64` has two completely
+	//! different meanings, and the difference is the whole guard: for a file with
+	//! no encryption key at all - a row added by `ducklake_add_data_files`, which
+	//! never sets one - `NULL` is the correct column value; for a file that HAS a
+	//! key, `NULL` is a lie that discards the wrapped DEK and leaves the data file
+	//! unreadable forever. Only the caller holds `file.encryption_key`, so only
+	//! the caller can answer, and it is passed explicitly with NO default so a new
+	//! caller has to.
+	//!
+	//! Throws when `wrapped_base64` is empty and `file_has_key` is true.
+	static string WrappedEncryptionKeyLiteral(const string &wrapped_base64, bool file_has_key);
 
 	static const char *BoolLiteral(bool v);
 
