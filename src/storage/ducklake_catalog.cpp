@@ -220,13 +220,18 @@ DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options
 				    "an encryption envelope option was set on an UNENCRYPTED DuckLake - there are no per-file "
 				    "keys to wrap. Either enable ENCRYPTED or drop the envelope options");
 			}
-			// The concrete KMS provider is injected at build time. The upstream
-			// DuckLake fork ships no provider; the bench build overlays one.
-			throw InvalidInputException(
-			    "ENCRYPTION_SOCKET was set but this build of DuckLake has no KMS encryption provider. "
-			    "The encryption envelope is supplied by the DuckLake bench build, not by the upstream "
-			    "extension. Use the bench build, or drop ENCRYPTION_SOCKET / ENCRYPTION_LAKE_ID to run "
-			    "without a KMS envelope (plaintext per-file keys).");
+			auto ttl_seconds = options.encryption_cache_ttl_seconds_supplied
+			                        ? options.encryption_cache_ttl_seconds
+			                        : DuckLakeEncryptionProvider::DEFAULT_CACHE_TTL_SECONDS;
+			auto &factory = DuckLakeEncryptionProvider::GetFactory();
+			if (!factory) {
+				throw InvalidInputException(
+				    "ENCRYPTION_SOCKET was set but this build of DuckLake has no KMS encryption provider. "
+				    "The encryption envelope is supplied by the DuckLake bench build, not by the upstream "
+				    "extension. Use the bench build, or drop ENCRYPTION_SOCKET / ENCRYPTION_LAKE_ID to run "
+				    "without a KMS envelope (plaintext per-file keys).");
+			}
+			encryption_provider = factory(options.encryption_socket, options.encryption_lake_id, ttl_seconds);
 		}
 	// figure out the metadata server type
 	auto entry = options.metadata_parameters.find("type");

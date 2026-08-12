@@ -18,6 +18,8 @@
 #include "duckdb/common/common.hpp"
 #include "duckdb/common/vector.hpp"
 
+#include <functional>
+
 namespace duckdb {
 
 //! What a per-file encryption key is bound to.
@@ -130,6 +132,17 @@ public:
 	//! True when every character of `value` is in the base64 alphabet.
 	//! Alphabet only — length and padding are the KMS's to judge.
 	static bool IsBase64(const string &value);
+
+	//! A factory that creates a concrete encryption provider from its ATTACH
+	//! parameters. Registered at extension init time by the bench build that
+	//! supplies the concrete KMS implementation; when no factory is registered
+	//! (the upstream build), the catalog refuses ENCRYPTION_SOCKET at ATTACH.
+	using Factory = std::function<unique_ptr<DuckLakeEncryptionProvider>(string socket, string lake_id, int64_t ttl)>;
+	static void RegisterFactory(Factory factory);
+	static const Factory &GetFactory();
+
+private:
+	static Factory factory_;
 };
 
 } // namespace duckdb
