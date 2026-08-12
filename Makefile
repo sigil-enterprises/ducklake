@@ -7,7 +7,7 @@ EXT_CONFIG=${PROJ_DIR}extension_config.cmake
 # Core extensions that we need for crucial testing
 DEFAULT_TEST_EXTENSION_DEPS=
 # For cloud testing we also need these extensions
-FULL_TEST_EXTENSION_DEPS=httpfs
+FULL_TEST_EXTENSION_DEPS=httpfs;postgres_scanner
 
 # Stabilize all tests in CI
 ifdef CI
