@@ -57,16 +57,17 @@ static unique_ptr<FunctionData> DuckLakeSelfTestBind(ClientContext &context, Tab
 	if (!input.inputs.empty() && !input.inputs[0].IsNull()) {
 		auto db_name = input.inputs[0].GetValue<string>();
 		auto &db_manager = DatabaseManager::Get(context);
-		auto db = db_manager.GetDatabase(context, QualifiedName::Parse(db_name));
+		auto db = db_manager.GetDatabase(context, Identifier(db_name));
 		if (!db) {
 			throw InvalidInputException("ducklake_self_test: failed to find attached database \"%s\"", db_name);
 		}
 		auto &catalog_obj = db->GetCatalog();
 		if (catalog_obj.GetCatalogType() != "ducklake") {
-			throw InvalidInputException("ducklake_self_test: \"%s\" is a %s catalog, not a ducklake catalog",
-			                            db_name, catalog_obj.GetCatalogType());
+			throw InvalidInputException("ducklake_self_test: \"%s\" is a %s catalog, not a ducklake catalog", db_name,
+			                            catalog_obj.GetCatalogType());
 		}
-		result->catalog = &catalog_obj.Cast<DuckLakeCatalog>();
+		auto &ducklake_catalog = catalog_obj.Cast<DuckLakeCatalog>();
+		result->catalog = &ducklake_catalog;
 	}
 
 	return_types.emplace_back(LogicalType::VARCHAR);
@@ -136,9 +137,8 @@ static void DuckLakeSelfTestExecute(ClientContext &context, TableFunctionInput &
 }
 
 DuckLakeSelfTestFunction::DuckLakeSelfTestFunction()
-    : TableFunction("ducklake_self_test",
-                    {LogicalType::VARCHAR},          // optional: catalog name
-                    DuckLakeSelfTestExecute, DuckLakeSelfTestBind, DuckLakeSelfTestInit) {
+    : TableFunction("ducklake_self_test", {LogicalType::VARCHAR}, DuckLakeSelfTestExecute, DuckLakeSelfTestBind,
+                    DuckLakeSelfTestInit) {
 }
 
 } // namespace duckdb
