@@ -398,7 +398,7 @@ milestones:
         - "ducklake-bench:#113 (pgwire gateway calls ducklake_self_test())"
         - "lypto:#609 (pin + allow_unsigned; self-test gated on extension rebuild)"
         - "vero:#451 (pin + allow_unsigned; self-test gated on extension rebuild)"
-      open_gap: "lypto and vero self-test calls are re-enabled in follow-up PRs but RED, gated on the ducklake extension binary being rebuilt with the self-test function (ducklake:#6 merged 2026-08-12, gitlink 0437e9d7). Follow-up PRs open: lypto #610 (build RED - the test env LOADs the extension `INSTALL ducklake` installed, which lacks ducklake_self_test() - `Did you mean ducklake_list_files?`), vero #452 (check RED on pre-existing toolchain drift from #720, unrelated to self-test; build+pytest green). The rebuild is the bench submodule-image workflow, re-triggered after bench #116 fixed the provenance-stamp permission blocker. DEEPER GAP: consumers LOAD the OFFICIAL ducklake extension via `INSTALL ducklake`, not the fork - so even after the rebuild the self-test fails until each consumer loads the fork extension baked into the runtime image (/opt/ducklake/)."
+      open_gap: "lypto and vero self-test calls are re-enabled in follow-up PRs but RED, gated on the ducklake extension binary being rebuilt with the self-test function (ducklake:#6 merged 2026-08-12, gitlink 0437e9d7). Follow-up PRs open: lypto #610 (build RED - the test env LOADs the extension `INSTALL ducklake` installed, which lacks ducklake_self_test() - `Did you mean ducklake_list_files?`), vero #452 (check RED on pre-existing toolchain drift from #720, unrelated to self-test; build+pytest green). The rebuild is the bench submodule-image workflow, re-triggered after bench #116 (provenance-stamp permission) and #117 (duckdb-python C++17) fixed two successive build blockers. DEEPER GAP: consumers LOAD the OFFICIAL ducklake extension via `INSTALL ducklake`, not the fork - so even after the rebuild the self-test fails until each consumer loads the fork extension baked into the runtime image (/opt/ducklake/)."
       note: "pgwire (opvance/teras-ext-pgwire) is cross-org — tracked but not actionable from this workspace."
     epics:
       - id: E5.1
@@ -424,6 +424,7 @@ milestones:
             - "lypto #610 — re-enable ducklake_self_test() call (open; build RED, loads official extension - needs fork-extension load + rebuild)"
             - "vero #452 — re-enable ducklake_self_test() call (open; check RED on pre-existing #720 toolchain drift)"
             - "bench #116 — extension provenance stamp written to host-owned build/ (merged; unblocked the submodule-image rebuild)"
+            - "bench #117 — patch duckdb-python to C++17 so the wheel build configures (merged; #116 alone still failed at the wheel)"
 
   - id: M6
     title: "Upstream contribution and the RFC interface"
