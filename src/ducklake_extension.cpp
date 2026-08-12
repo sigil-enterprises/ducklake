@@ -124,6 +124,10 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// Register murmur3_32 scalar function for Iceberg-compatible bucket partitioning
 	auto murmur3_func = DuckLakeMurmur3Function();
 	loader.RegisterFunction(murmur3_func);
+
+		// register rewrap_keys — the consumer half of a KMS key rotation
+		auto rewrap_keys = DuckLakeRewrapKeysFunction();
+		loader.RegisterFunction(rewrap_keys);
 }
 
 void DucklakeExtension::Load(ExtensionLoader &loader) {

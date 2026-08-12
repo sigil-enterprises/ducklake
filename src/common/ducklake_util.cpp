@@ -490,4 +490,17 @@ void DuckLakeUtil::CopyExtensionSettings(ClientContext &from, ClientContext &to)
 	}
 }
 
+
+string DuckLakeUtil::WrappedEncryptionKeyLiteral(const string &wrapped_base64, bool file_has_key) {
+	if (wrapped_base64.empty()) {
+		if (file_has_key) {
+			throw InternalException(
+			    "refusing to write an empty wrapped encryption key for a file that has one. The data file was "
+			    "encrypted with a real key; writing SQL NULL in its wrapped-key column would discard that key and "
+			    "leave the file unreadable forever, with the commit reporting success");
+		}
+		return "NULL";
+	}
+	return SQLLiteralToString(wrapped_base64);
+}
 } // namespace duckdb
