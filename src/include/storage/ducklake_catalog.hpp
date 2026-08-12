@@ -20,6 +20,7 @@
 #include "duckdb/main/client_context_state.hpp"
 #include "duckdb/storage/object_cache.hpp"
 #include "storage/ducklake_catalog_set.hpp"
+#include "storage/ducklake_encryption_provider.hpp"
 #include "storage/ducklake_partition_data.hpp"
 #include "storage/ducklake_stats.hpp"
 
@@ -220,6 +221,43 @@ public:
 	//! Generate an encryption key for writing (or empty if encryption is disabled)
 	string GenerateEncryptionKey(ClientContext &context) const;
 
+	//! KMS envelope encryption: the provider for this lake, or nullptr when no
+	//! envelope is configured - in which case the encryption_key column holds a
+	//! plaintext key exactly as upstream, and nothing in the envelope path runs.
+	optional_ptr<DuckLakeEncryptionProvider> EncryptionProvider() const {
+		return encryption_provider.get();
+	}
+	//! Build a file identity for the KMS binding. `stored_path` must be the
+	//! path AS PERSISTED in the catalog, not one resolved against the data path.
+	DuckLakeFileIdentity BuildEncryptionIdentity(TableIndex table_id, const string &stored_path,
+	                                              bool is_delete_file) const;
+	//! KMS envelope encryption: throw if `stored_key` is a wrapped blob while
+	//! THIS lake has no envelope provider - i.e. the lake was attached without
+	//! ENCRYPTION_SOCKET / ENCRYPTION_LAKE_ID. Call it immediately before any
+	//! site that would otherwise base64-decode a stored key and use the bytes
+	//! as a Parquet encryption key.
+	void RefuseWrappedKeyWithoutProvider(const string &file_path, const string &stored_key) const;
+	//! KMS envelope encryption: throw if THIS lake is ENCRYPTED and the stored
+	//! `encryption_key` column is NULL - a file that must have a key and has
+	//! none. On an unencrypted lake a NULL is the ordinary case and this returns.
+	void RefuseMissingEncryptionKey(const string &file_path) const;
+	//! KMS envelope encryption: throw unless `decoded_key` is a length AES
+	//! actually accepts. The set is {16, 24, 32} bytes - AES-128/192/256.
+	void RefuseUnusableEncryptionKey(const string &file_path, const string &decoded_key) const;
+	//! KMS envelope encryption: THE key-resolution choke point. Turn a stored
+	//! `encryption_key` column value into the raw key bytes the Parquet reader
+	//! wants, through the KMS envelope provider when one is configured.
+	string ResolveStoredEncryptionKey(TableIndex table_id, const string &stored_path, const string &resolved_path,
+	                                  bool is_delete_file, const Value &stored_key) const;
+	//! KMS envelope encryption: turn DuckDB's `temp_file_encryption` ON for
+	//! this process, at ATTACH, when this lake carries a KMS envelope - and
+	//! refuse the ATTACH rather than attach without it.
+	void RequireEncryptedTempSpill(ClientContext &context);
+	//! KMS envelope encryption: refuse to touch an enveloped lake's key
+	//! material while this process would spill in the clear. Returns
+	//! immediately on a lake with no envelope provider.
+	void RefuseUnencryptedTempSpill(const string &what) const;
+
 	//! The resolved DuckLake spec version of the attached catalog
 	DuckLakeVersion GetDuckLakeVersion() const {
 		return ducklake_version;
@@ -327,6 +365,9 @@ private:
 	mutable mutex config_lock;
 	//! The DuckLake options
 	DuckLakeOptions options;
+		//! KMS envelope encryption: the provider for this lake, or nullptr when
+		//! no envelope is configured.
+		unique_ptr<DuckLakeEncryptionProvider> encryption_provider;
 	//! The path separator
 	string separator = "/";
 	//! A unique tracker for catalog changes in uncommitted transactions.
