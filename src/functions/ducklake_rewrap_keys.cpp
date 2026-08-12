@@ -138,9 +138,9 @@ static unique_ptr<FunctionData> DuckLakeRewrapKeysBind(ClientContext &context, T
 	auto result = make_uniq<RewrapKeysBindData>(catalog);
 
 	for (auto &entry : input.named_parameters) {
-		if (StringUtil::CIEquals(entry.first, "dry_run")) {
+		if (entry.first == "dry_run") {
 			result->dry_run = BooleanValue::Get(entry.second);
-		} else if (StringUtil::CIEquals(entry.first, "batch_size")) {
+		} else if (entry.first == "batch_size") {
 			auto requested = entry.second.GetValue<int64_t>();
 			if (requested <= 0) {
 				throw InvalidInputException("ducklake_rewrap_keys: batch_size must be positive, got %lld",
