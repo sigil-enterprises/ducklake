@@ -383,24 +383,34 @@ milestones:
     version: v0.5.0             # PROPOSED
     rc_soaked: false
     tracker_ref: "ducklake:#1"
-    status: planned
+    status: active              # IMPLEMENTATION STARTED 2026-08-12 — PRs open across all consumers
     depends_on: [ducklake:M1, ducklake:M2, ducklake:M7]
     provenance: retro-derived
     derived_at: 2026-08-05
+    updated: 2026-08-12
     evidence: ["ducklake:#1"]
+    implementation:
+      - "ducklake:#5 — `ducklake_self_test()` table function (boot-time health check)"
+      - "lypto:#609 — converge duckdb→v1.5.3 + allow_unsigned + self-test"
+      - "vero:#451 — converge duckdb→v1.5.3 + allow_unsigned + self-test"
+      - "luma-server:#197 — boot-time self-test (already on v1.5.3 + allow_unsigned)"
+      - "ducklake-bench:#113 — pgwire gateway model self-test"
+      - "Convergence target: v1.5.3 (all consumers)"
+      - "Extension signing: BYPASSED (allow_unsigned path chosen)"
     confidence: high
     epics:
       - id: E5.1
         title: "DuckDB patch convergence and signed extension provisioning"
-        capability: "Warranted by step 5 of issue #1's ORIGINAL 2026-07-28 body, verbatim: 'Fleet-convergence gate (before any fleet rollout). Converge pgwire/luma/vero/lypto onto one DuckDB minor; provision extension signing (own key) or allow_unsigned fleet-wide; per-version extension builds via Nexus; boot-time self-test (LOAD + one encrypted read before serving).' The per-version build half landed as E1.4; convergence, signing and the boot self-test have not. The minor-vs-patch correction is a later edit and is not relied on for intent."
+        capability: "Converge pgwire/luma/vero/lypto onto one DuckDB patch; provision extension signing or allow_unsigned fleet-wide; boot-time self-test. Implementation path: converge on v1.5.3, use allow_unsigned_extensions=true (avoids key provisioning), and add ducklake_self_test() table function called by each consumer at boot."
         tracker_ref: "ducklake:#1"
         class: planned
-        status: open
+        status: in_progress        # PRs open 2026-08-12
         depends_on: [ducklake:E1.4]
         intent: proven
         provenance: retro-derived
         derived_at: 2026-08-05
-        evidence: ["ducklake:#1"]
+        updated: 2026-08-12
+        evidence: ["ducklake:#1", "ducklake:#5", "lypto:#609", "vero:#451", "luma-server:#197", "ducklake-bench:#113"]
         confidence: high
 
   - id: M6
