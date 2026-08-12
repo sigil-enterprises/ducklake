@@ -44,7 +44,7 @@ bool DuckLakeEncryptionProvider::IsBase64(const string &value) {
 //! raw pointer (never deleted) because the factory is registered once at
 //! extension init and lives for the life of the process.
 namespace {
-	Factory *g_factory = nullptr;
+	DuckLakeEncryptionProvider::Factory *g_factory = nullptr;
 } // namespace
 
 void DuckLakeEncryptionProvider::RegisterFactory(Factory factory) {
