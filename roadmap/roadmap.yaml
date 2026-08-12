@@ -398,7 +398,7 @@ milestones:
         - "ducklake-bench:#113 (pgwire gateway calls ducklake_self_test())"
         - "lypto:#609 (pin + allow_unsigned; self-test gated on extension rebuild)"
         - "vero:#451 (pin + allow_unsigned; self-test gated on extension rebuild)"
-      open_gap: "lypto and vero self-test calls are re-enabled in follow-up PRs but RED, gated on the ducklake extension binary being rebuilt with the self-test function (ducklake:#6 merged 2026-08-12, gitlink 0437e9d7). Follow-up PRs open: lypto #610 (build RED - the test env LOADs the extension `INSTALL ducklake` installed, which lacks ducklake_self_test() - `Did you mean ducklake_list_files?`), vero #452 (check RED on pre-existing toolchain drift from #720, unrelated to self-test; build+pytest green). The rebuild is the bench submodule-image workflow, re-triggered after bench #116 (provenance-stamp permission), #117 (duckdb-python C++17) and #118 (toolchain-r PPA retry) fixed three successive build blockers. DEEPER GAP: consumers LOAD the OFFICIAL ducklake extension via `INSTALL ducklake`, not the fork - so even after the rebuild the self-test fails until each consumer loads the fork extension baked into the runtime image (/opt/ducklake/)."
+      open_gap: "lypto and vero self-test calls are re-enabled in follow-up PRs but RED, gated on the ducklake extension binary being rebuilt with the self-test function (ducklake:#6 merged 2026-08-12, gitlink 0437e9d7). Follow-up PRs open: lypto #610 (now path-loads the fork extension baked into the runtime image and migrated off :5002), vero #452 (check RED on pre-existing toolchain drift from #720, unrelated to self-test; build+pytest green; migrated off :5002). The rebuild is the bench submodule-image workflow, which hit FIVE successive build blockers now fixed: #116 (provenance-stamp permission), #117 (duckdb-python C++17), #118 (toolchain-r PPA retry), #119 (release retry on vcpkg 503), #120 (duckdb-python pin mismatch - `Identifier` is a struct not a std::string alias - bumped to the commit whose external/duckdb gitlink equals the duckdb submodule, pybind11->nanobind). A SIXTH blocker was the registry: DOCKER_REGISTRY pointed at the decommissioned legacy :5002 port (502s), migrated to path-enabled sigil-enterprises-docker-internal (matching the working kanwen-server image.yml). The image build is re-dispatched with all six addressed; consumers merge once it publishes."
       note: "pgwire (opvance/teras-ext-pgwire) is cross-org — tracked but not actionable from this workspace."
     epics:
       - id: E5.1
@@ -426,6 +426,9 @@ milestones:
             - "bench #116 — extension provenance stamp written to host-owned build/ (merged; unblocked the submodule-image rebuild)"
             - "bench #117 — patch duckdb-python to C++17 so the wheel build configures (merged; #116 alone still failed at the wheel)"
             - "bench #118 — retry the toolchain-r PPA add on launchpadlib IncompleteRead flakes (merged; the 3rd attempt failed at apt, before the stamp/wheel)"
+            - "bench #119 — retry the release run on transient network flakes (merged; the 4th build failed at vcpkg roaring 503)"
+            - "bench #120 — pin duckdb-python to the commit matching the duckdb submodule (merged; the 5th build failed at map.cpp - `Identifier` is a struct, not std::string)"
+            - "bench registry — migrate DOCKER_REGISTRY off the decommissioned :5002 port to path-enabled sigil-enterprises-docker-internal (var + lypto/vero FROM/login updated; the legacy port 502s)"
 
   - id: M6
     title: "Upstream contribution and the RFC interface"
