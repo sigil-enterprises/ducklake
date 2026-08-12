@@ -1,147 +1,158 @@
 #include "ducklake_extension.hpp"
-#include "duckdb/main/config.hpp"
+#include "common/ducklake_version.hpp"
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
-#include "storage/ducklake_storage.hpp"
-#include "common/ducklake_version.hpp"
-#include "storage/ducklake_scan.hpp"
-#include "functions/ducklake_table_functions.hpp"
-#include "storage/ducklake_secret.hpp"
-#include "duckdb/logging/log_manager.hpp"
 #include "duckdb/function/scalar_function.hpp"
+#include "duckdb/logging/log_manager.hpp"
+#include "duckdb/main/config.hpp"
 #include "duckdb/storage/storage_extension.hpp"
+#include "functions/ducklake_table_functions.hpp"
 #include "storage/ducklake_log_type.hpp"
+#include "storage/ducklake_scan.hpp"
+#include "storage/ducklake_secret.hpp"
+#include "storage/ducklake_storage.hpp"
 
 namespace duckdb {
 
 ScalarFunction DuckLakeMurmur3Function();
 
 static void LoadInternal(ExtensionLoader &loader) {
-	loader.SetDescription("Adds support for DuckLake, SQL as a Lakehouse Format");
+  loader.SetDescription("Adds support for DuckLake, SQL as a Lakehouse Format");
 
-	auto &instance = loader.GetDatabaseInstance();
-	instance.GetLogManager().RegisterLogType(make_uniq<DuckLakeMetadataLogType>());
+  auto &instance = loader.GetDatabaseInstance();
+  instance.GetLogManager().RegisterLogType(
+      make_uniq<DuckLakeMetadataLogType>());
 
-	auto &config = DBConfig::GetConfig(instance);
-	StorageExtension::Register(config, "ducklake", make_shared_ptr<DuckLakeStorageExtension>());
+  auto &config = DBConfig::GetConfig(instance);
+  StorageExtension::Register(config, "ducklake",
+                             make_shared_ptr<DuckLakeStorageExtension>());
 
-	config.AddExtensionOption("ducklake_max_retry_count",
-	                          "The maximum amount of retry attempts for a ducklake transaction", LogicalType::UBIGINT,
-	                          Value::UBIGINT(10), nullptr, SetScope::GLOBAL);
-	config.AddExtensionOption("ducklake_retry_wait_ms", "Time between retries", LogicalType::UBIGINT,
-	                          Value::UBIGINT(100), nullptr, SetScope::GLOBAL);
-	config.AddExtensionOption("ducklake_retry_backoff", "Backoff factor for exponentially increasing retry wait time",
-	                          LogicalType::DOUBLE, Value::DOUBLE(1.5), nullptr, SetScope::GLOBAL);
-	config.AddExtensionOption("ducklake_default_data_inlining_row_limit",
-	                          "Default row limit for data inlining (0 disables inlining)", LogicalType::UBIGINT,
-	                          Value::UBIGINT(10), nullptr, SetScope::GLOBAL);
-	config.AddExtensionOption("ducklake_default_version", "Default DuckLake version for new catalogs",
-	                          LogicalType::VARCHAR, Value(), nullptr, SetScope::GLOBAL);
-	auto set_target_file_size = [](ClientContext &, SetScope, Value &parameter) {
-		if (!parameter.IsNull() && !parameter.ToString().empty()) {
-			DBConfig::ParseMemoryLimit(parameter.ToString());
-		}
-	};
-	config.AddExtensionOption("ducklake_target_file_size", "Target file size for insertion and compaction",
-	                          LogicalType::VARCHAR, Value(), set_target_file_size, SetScope::GLOBAL);
-	config.AddExtensionOption(
-	    "ducklake_write_deletion_vectors",
-	    "[EXPERIMENTAL] Write Iceberg V3 deletion vectors (puffin) instead of positional delete files (parquet)",
-	    LogicalType::BOOLEAN, Value::BOOLEAN(false), nullptr, SetScope::GLOBAL);
+  config.AddExtensionOption(
+      "ducklake_max_retry_count",
+      "The maximum amount of retry attempts for a ducklake transaction",
+      LogicalType::UBIGINT, Value::UBIGINT(10), nullptr, SetScope::GLOBAL);
+  config.AddExtensionOption("ducklake_retry_wait_ms", "Time between retries",
+                            LogicalType::UBIGINT, Value::UBIGINT(100), nullptr,
+                            SetScope::GLOBAL);
+  config.AddExtensionOption(
+      "ducklake_retry_backoff",
+      "Backoff factor for exponentially increasing retry wait time",
+      LogicalType::DOUBLE, Value::DOUBLE(1.5), nullptr, SetScope::GLOBAL);
+  config.AddExtensionOption(
+      "ducklake_default_data_inlining_row_limit",
+      "Default row limit for data inlining (0 disables inlining)",
+      LogicalType::UBIGINT, Value::UBIGINT(10), nullptr, SetScope::GLOBAL);
+  config.AddExtensionOption(
+      "ducklake_default_version", "Default DuckLake version for new catalogs",
+      LogicalType::VARCHAR, Value(), nullptr, SetScope::GLOBAL);
+  auto set_target_file_size = [](ClientContext &, SetScope, Value &parameter) {
+    if (!parameter.IsNull() && !parameter.ToString().empty()) {
+      DBConfig::ParseMemoryLimit(parameter.ToString());
+    }
+  };
+  config.AddExtensionOption("ducklake_target_file_size",
+                            "Target file size for insertion and compaction",
+                            LogicalType::VARCHAR, Value(), set_target_file_size,
+                            SetScope::GLOBAL);
+  config.AddExtensionOption(
+      "ducklake_write_deletion_vectors",
+      "[EXPERIMENTAL] Write Iceberg V3 deletion vectors (puffin) instead of "
+      "positional delete files (parquet)",
+      LogicalType::BOOLEAN, Value::BOOLEAN(false), nullptr, SetScope::GLOBAL);
 
-	DuckLakeSnapshotsFunction snapshots;
-	loader.RegisterFunction(snapshots);
+  DuckLakeSnapshotsFunction snapshots;
+  loader.RegisterFunction(snapshots);
 
-	DuckLakeTableInfoFunction table_info;
-	loader.RegisterFunction(table_info);
+  DuckLakeTableInfoFunction table_info;
+  loader.RegisterFunction(table_info);
 
-	auto table_insertions = DuckLakeTableInsertionsFunction::GetFunctions();
-	loader.RegisterFunction(table_insertions);
+  auto table_insertions = DuckLakeTableInsertionsFunction::GetFunctions();
+  loader.RegisterFunction(table_insertions);
 
-	auto table_deletions = DuckLakeTableDeletionsFunction::GetFunctions();
-	loader.RegisterFunction(table_deletions);
+  auto table_deletions = DuckLakeTableDeletionsFunction::GetFunctions();
+  loader.RegisterFunction(table_deletions);
 
-	auto merge_adjacent_files = DuckLakeMergeAdjacentFilesFunction::GetFunctions();
-	loader.RegisterFunction(merge_adjacent_files);
+  auto merge_adjacent_files =
+      DuckLakeMergeAdjacentFilesFunction::GetFunctions();
+  loader.RegisterFunction(merge_adjacent_files);
 
-	auto rewrite_files = DuckLakeRewriteDataFilesFunction::GetFunctions();
-	loader.RegisterFunction(rewrite_files);
+  auto rewrite_files = DuckLakeRewriteDataFilesFunction::GetFunctions();
+  loader.RegisterFunction(rewrite_files);
 
-	DuckLakeCleanupOldFilesFunction cleanup_old_files;
-	loader.RegisterFunction(cleanup_old_files);
+  DuckLakeCleanupOldFilesFunction cleanup_old_files;
+  loader.RegisterFunction(cleanup_old_files);
 
-	DuckLakeCleanupOrphanedFilesFunction cleanup_orphaned_files;
-	loader.RegisterFunction(cleanup_orphaned_files);
+  DuckLakeCleanupOrphanedFilesFunction cleanup_orphaned_files;
+  loader.RegisterFunction(cleanup_orphaned_files);
 
-	DuckLakeExpireSnapshotsFunction expire_snapshots;
-	loader.RegisterFunction(expire_snapshots);
+  DuckLakeExpireSnapshotsFunction expire_snapshots;
+  loader.RegisterFunction(expire_snapshots);
 
-	DuckLakeFlushInlinedDataFunction flush_inlined_data;
-	loader.RegisterFunction(flush_inlined_data);
+  DuckLakeFlushInlinedDataFunction flush_inlined_data;
+  loader.RegisterFunction(flush_inlined_data);
 
-	DuckLakeSetOptionFunction set_options;
-	loader.RegisterFunction(set_options);
+  DuckLakeSetOptionFunction set_options;
+  loader.RegisterFunction(set_options);
 
-	DuckLakeOptionsFunction options;
-	loader.RegisterFunction(options);
+  DuckLakeOptionsFunction options;
+  loader.RegisterFunction(options);
 
-	DuckLakeSetCommitMessage set_commit_message;
-	loader.RegisterFunction(set_commit_message);
+  DuckLakeSetCommitMessage set_commit_message;
+  loader.RegisterFunction(set_commit_message);
 
-	auto table_changes = DuckLakeTableInsertionsFunction::GetDuckLakeTableChanges();
-	loader.RegisterFunction(*table_changes);
+  auto table_changes =
+      DuckLakeTableInsertionsFunction::GetDuckLakeTableChanges();
+  loader.RegisterFunction(*table_changes);
 
-	DuckLakeListFilesFunction list_files;
-	loader.RegisterFunction(list_files);
+  DuckLakeListFilesFunction list_files;
+  loader.RegisterFunction(list_files);
 
-	auto add_files = DuckLakeAddDataFilesFunction::GetFunctions();
-	loader.RegisterFunction(add_files);
+  auto add_files = DuckLakeAddDataFilesFunction::GetFunctions();
+  loader.RegisterFunction(add_files);
 
-	DuckLakeCurrentSnapshotFunction current_snapshot;
-	loader.RegisterFunction(current_snapshot);
+  DuckLakeCurrentSnapshotFunction current_snapshot;
+  loader.RegisterFunction(current_snapshot);
 
-	DuckLakeLastCommittedSnapshotFunction last_committed;
-	loader.RegisterFunction(last_committed);
+  DuckLakeLastCommittedSnapshotFunction last_committed;
+  loader.RegisterFunction(last_committed);
 
-	DuckLakeSettingsFunction settings;
-	loader.RegisterFunction(settings);
+  DuckLakeSettingsFunction settings;
+  loader.RegisterFunction(settings);
 
-	DuckLakeCommitFunction commit;
-	loader.RegisterFunction(commit);
+  DuckLakeCommitFunction commit;
+  loader.RegisterFunction(commit);
 
-	// Register ducklake_scan so it can be found during deserialization
-	auto ducklake_scan = DuckLakeFunctions::GetDuckLakeScanFunction(loader.GetDatabaseInstance());
-	loader.RegisterFunction(ducklake_scan);
+  // Register ducklake_scan so it can be found during deserialization
+  auto ducklake_scan =
+      DuckLakeFunctions::GetDuckLakeScanFunction(loader.GetDatabaseInstance());
+  loader.RegisterFunction(ducklake_scan);
 
-	// secrets
-	auto secret_type = DuckLakeSecret::GetSecretType();
-	loader.RegisterSecretType(secret_type);
+  // secrets
+  auto secret_type = DuckLakeSecret::GetSecretType();
+  loader.RegisterSecretType(secret_type);
 
-	auto ducklake_secret_function = DuckLakeSecret::GetFunction();
-	loader.RegisterFunction(ducklake_secret_function);
+  auto ducklake_secret_function = DuckLakeSecret::GetFunction();
+  loader.RegisterFunction(ducklake_secret_function);
 
-	// Register murmur3_32 scalar function for Iceberg-compatible bucket partitioning
-	auto murmur3_func = DuckLakeMurmur3Function();
-	loader.RegisterFunction(murmur3_func);
+  // Register murmur3_32 scalar function for Iceberg-compatible bucket
+  // partitioning
+  auto murmur3_func = DuckLakeMurmur3Function();
+  loader.RegisterFunction(murmur3_func);
 
-		// register rewrap_keys — the consumer half of a KMS key rotation
-		auto rewrap_keys = DuckLakeRewrapKeysFunction();
-		loader.RegisterFunction(rewrap_keys);
+  // register rewrap_keys — the consumer half of a KMS key rotation
+  auto rewrap_keys = DuckLakeRewrapKeysFunction();
+  loader.RegisterFunction(rewrap_keys);
 }
 
-void DucklakeExtension::Load(ExtensionLoader &loader) {
-	LoadInternal(loader);
-}
-std::string DucklakeExtension::Name() {
-	return "ducklake";
-}
+void DucklakeExtension::Load(ExtensionLoader &loader) { LoadInternal(loader); }
+std::string DucklakeExtension::Name() { return "ducklake"; }
 
 std::string DucklakeExtension::Version() const {
 #ifdef EXT_VERSION_DUCKLAKE
-	return EXT_VERSION_DUCKLAKE;
+  return EXT_VERSION_DUCKLAKE;
 #else
-	return "";
+  return "";
 #endif
 }
 
@@ -149,7 +160,5 @@ std::string DucklakeExtension::Version() const {
 
 extern "C" {
 
-DUCKDB_CPP_EXTENSION_ENTRY(ducklake, loader) {
-	LoadInternal(loader);
-}
+DUCKDB_CPP_EXTENSION_ENTRY(ducklake, loader) { LoadInternal(loader); }
 }

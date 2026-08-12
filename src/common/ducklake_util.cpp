@@ -1,506 +1,544 @@
 #include "common/ducklake_util.hpp"
-#include "duckdb/parser/column_list.hpp"
-#include "duckdb/common/string_util.hpp"
-#include "duckdb/common/sql_identifier.hpp"
-#include "duckdb/common/types/blob.hpp"
-#include "duckdb/parser/keyword_helper.hpp"
-#include "duckdb/parser/parser.hpp"
 #include "duckdb/common/file_system.hpp"
-#include "storage/ducklake_metadata_manager.hpp"
-#include "duckdb/planner/filter/expression_filter.hpp"
-#include "duckdb/planner/filter/table_filter_functions.hpp"
+#include "duckdb/common/sql_identifier.hpp"
+#include "duckdb/common/string_util.hpp"
+#include "duckdb/common/types/blob.hpp"
 #include "duckdb/function/scalar/variant_utils.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/database.hpp"
+#include "duckdb/parser/column_list.hpp"
+#include "duckdb/parser/keyword_helper.hpp"
+#include "duckdb/parser/parser.hpp"
+#include "duckdb/planner/filter/expression_filter.hpp"
+#include "duckdb/planner/filter/table_filter_functions.hpp"
+#include "storage/ducklake_metadata_manager.hpp"
 
 #include <cmath>
 
 namespace duckdb {
 
 string DuckLakeUtil::ParseQuotedValue(const string &input, idx_t &pos) {
-	if (pos >= input.size() || input[pos] != '"') {
-		throw InvalidInputException("Failed to parse quoted value - expected a quote");
-	}
-	string result;
-	pos++;
-	for (; pos < input.size(); pos++) {
-		if (input[pos] == '"') {
-			pos++;
-			// check if this is an escaped quote
-			if (pos < input.size() && input[pos] == '"') {
-				// escaped quote
-				result += '"';
-				continue;
-			}
-			return result;
-		}
-		result += input[pos];
-	}
-	throw InvalidInputException("Failed to parse quoted value - unterminated quote");
+  if (pos >= input.size() || input[pos] != '"') {
+    throw InvalidInputException(
+        "Failed to parse quoted value - expected a quote");
+  }
+  string result;
+  pos++;
+  for (; pos < input.size(); pos++) {
+    if (input[pos] == '"') {
+      pos++;
+      // check if this is an escaped quote
+      if (pos < input.size() && input[pos] == '"') {
+        // escaped quote
+        result += '"';
+        continue;
+      }
+      return result;
+    }
+    result += input[pos];
+  }
+  throw InvalidInputException(
+      "Failed to parse quoted value - unterminated quote");
 }
 
-string DuckLakeUtil::ToQuotedList(const vector<string> &input, char list_separator) {
-	string result;
-	for (auto &str : input) {
-		if (!result.empty()) {
-			result += list_separator;
-		}
-		result += SQLQuotedIdentifier::ToString(str);
-	}
-	return result;
+string DuckLakeUtil::ToQuotedList(const vector<string> &input,
+                                  char list_separator) {
+  string result;
+  for (auto &str : input) {
+    if (!result.empty()) {
+      result += list_separator;
+    }
+    result += SQLQuotedIdentifier::ToString(str);
+  }
+  return result;
 }
 
-vector<string> DuckLakeUtil::ParseQuotedList(const string &input, char list_separator) {
-	vector<string> result;
-	if (input.empty()) {
-		return result;
-	}
-	idx_t pos = 0;
-	while (true) {
-		result.push_back(ParseQuotedValue(input, pos));
-		if (pos >= input.size()) {
-			break;
-		}
-		if (input[pos] != list_separator) {
-			throw InvalidInputException("Failed to parse list - expected a %s", string(1, list_separator));
-		}
-		pos++;
-	}
-	return result;
+vector<string> DuckLakeUtil::ParseQuotedList(const string &input,
+                                             char list_separator) {
+  vector<string> result;
+  if (input.empty()) {
+    return result;
+  }
+  idx_t pos = 0;
+  while (true) {
+    result.push_back(ParseQuotedValue(input, pos));
+    if (pos >= input.size()) {
+      break;
+    }
+    if (input[pos] != list_separator) {
+      throw InvalidInputException("Failed to parse list - expected a %s",
+                                  string(1, list_separator));
+    }
+    pos++;
+  }
+  return result;
 }
 
 ParsedCatalogEntry DuckLakeUtil::ParseCatalogEntry(const string &input) {
-	ParsedCatalogEntry result_data;
-	idx_t pos = 0;
-	result_data.schema = DuckLakeUtil::ParseQuotedValue(input, pos);
-	if (pos >= input.size() || input[pos] != '.') {
-		throw InvalidInputException("Failed to parse catalog entry - expected a dot");
-	}
-	pos++;
-	result_data.name = DuckLakeUtil::ParseQuotedValue(input, pos);
-	if (pos < input.size()) {
-		throw InvalidInputException("Failed to parse catalog entry - trailing data after quoted value");
-	}
-	return result_data;
+  ParsedCatalogEntry result_data;
+  idx_t pos = 0;
+  result_data.schema = DuckLakeUtil::ParseQuotedValue(input, pos);
+  if (pos >= input.size() || input[pos] != '.') {
+    throw InvalidInputException(
+        "Failed to parse catalog entry - expected a dot");
+  }
+  pos++;
+  result_data.name = DuckLakeUtil::ParseQuotedValue(input, pos);
+  if (pos < input.size()) {
+    throw InvalidInputException(
+        "Failed to parse catalog entry - trailing data after quoted value");
+  }
+  return result_data;
 }
 
 string DuckLakeUtil::SQLIdentifierToString(const string &text) {
-	return "\"" + StringUtil::Replace(text, "\"", "\"\"") + "\"";
+  return "\"" + StringUtil::Replace(text, "\"", "\"\"") + "\"";
 }
 
 string DuckLakeUtil::SQLLiteralToString(const string &text) {
-	return "'" + StringUtil::Replace(text, "'", "''") + "'";
+  return "'" + StringUtil::Replace(text, "'", "''") + "'";
 }
 
 string DuckLakeUtil::StatsToString(const string &text) {
-	for (auto c : text) {
-		if (c == '\0') {
-			return "NULL";
-		}
-	}
-	return DuckLakeUtil::SQLLiteralToString(text);
+  for (auto c : text) {
+    if (c == '\0') {
+      return "NULL";
+    }
+  }
+  return DuckLakeUtil::SQLLiteralToString(text);
 }
 
 static string EscapeVarcharForSQL(const string &str_val) {
-	string ret;
-	bool concat = false;
-	for (auto c : str_val) {
-		switch (c) {
-		case '\0':
-			concat = true;
-			ret += "', chr(0), '";
-			break;
-		case '\'':
-			ret += "''";
-			break;
-		default:
-			ret += c;
-			break;
-		}
-	}
-	if (concat) {
-		return "CONCAT('" + ret + "')";
-	}
-	return "'" + ret + "'";
+  string ret;
+  bool concat = false;
+  for (auto c : str_val) {
+    switch (c) {
+    case '\0':
+      concat = true;
+      ret += "', chr(0), '";
+      break;
+    case '\'':
+      ret += "''";
+      break;
+    default:
+      ret += c;
+      break;
+    }
+  }
+  if (concat) {
+    return "CONCAT('" + ret + "')";
+  }
+  return "'" + ret + "'";
 }
 
-string ToSQLString(DuckLakeMetadataManager &metadata_manager, const Value &value) {
-	if (value.IsNull()) {
-		return value.ToString();
-	}
-	string value_type = value.type().ToString();
-	bool use_native_type = metadata_manager.TypeIsNativelySupported(value.type());
-	if (!use_native_type) {
-		value_type = "VARCHAR";
-	} else {
-		value_type = metadata_manager.GetColumnTypeInternal(value.type());
-	}
-	switch (value.type().id()) {
-	case LogicalTypeId::UUID:
-	case LogicalTypeId::DATE:
-	case LogicalTypeId::TIME:
-	case LogicalTypeId::TIME_NS:
-	case LogicalTypeId::TIMESTAMP:
-	case LogicalTypeId::TIME_TZ:
-	case LogicalTypeId::TIMESTAMP_TZ:
-	case LogicalTypeId::TIMESTAMP_TZ_NS:
-	case LogicalTypeId::TIMESTAMP_SEC:
-	case LogicalTypeId::TIMESTAMP_MS:
-	case LogicalTypeId::TIMESTAMP_NS:
-	case LogicalTypeId::BLOB:
-	case LogicalTypeId::GEOMETRY:
-		// ANSI CAST(value AS type) instead of the PostgreSQL-flavored
-		// `'value'::type` operator: SQLite's parser rejects `::` outright,
-		// which breaks SQLite-backed metadata backends that ship these
-		// inlined-INSERT batches directly to SQLite.
-		return StringUtil::Format("CAST('%s' AS %s)", value.ToString(), value_type);
-	case LogicalTypeId::INTERVAL: {
-		auto interval = IntervalValue::Get(value);
-		return StringUtil::Format("CAST('%d months %d days %lld microseconds' AS %s)", interval.months, interval.days,
-		                          interval.micros, value_type);
-	}
-	case LogicalTypeId::VARCHAR:
-	case LogicalTypeId::ENUM:
-		return EscapeVarcharForSQL(value.ToString());
-	case LogicalTypeId::VARIANT: {
-		Vector tmp(value, count_t(1));
-		RecursiveUnifiedVectorFormat format;
-		Vector::RecursiveToUnifiedFormat(tmp, format);
-		UnifiedVariantVectorData vector_data(format);
-		auto val = VariantUtils::ConvertVariantToValue(vector_data, 0, 0);
-		if (!use_native_type) {
-			throw NotImplementedException("Variant types cannot be inlined in this catalog type yet");
-		}
-		// variant can just be stored as a variant
-		return ToSQLString(metadata_manager, val);
-	}
-	case LogicalTypeId::STRUCT: {
-		auto &child_types = StructType::GetChildTypes(value.type());
-		auto &struct_values = StructValue::GetChildren(value);
-		if (struct_values.empty()) {
-			return "NULL";
-		}
-		bool is_unnamed = StructType::IsUnnamed(value.type());
-		string ret = is_unnamed ? "(" : "{";
-		for (idx_t i = 0; i < struct_values.size(); i++) {
-			auto &name = child_types[i].first;
-			auto &child = struct_values[i];
-			if (is_unnamed) {
-				ret += ToSQLString(metadata_manager, child);
-			} else {
-				ret += "'" + StringUtil::Replace(name.GetIdentifierName(), "'", "''") +
-				       "': " + ToSQLString(metadata_manager, child);
-			}
-			if (i < struct_values.size() - 1) {
-				ret += ", ";
-			}
-		}
-		ret += is_unnamed ? ")" : "}";
-		return ret;
-	}
-	case LogicalTypeId::FLOAT: {
-		float fval = FloatValue::Get(value);
-		if (!Value::FloatIsFinite(fval) || (fval == 0.0f && std::signbit(fval))) {
-			return StringUtil::Format("CAST('%s' AS %s)", value.ToString(), value_type);
-		}
-		return value.ToString();
-	}
-	case LogicalTypeId::DOUBLE: {
-		double val = DoubleValue::Get(value);
-		if (!Value::DoubleIsFinite(val) || (val == 0.0 && std::signbit(val))) {
-			return StringUtil::Format("CAST('%s' AS %s)", value.ToString(), value_type);
-		}
-		return value.ToString();
-	}
-	case LogicalTypeId::LIST:
-	case LogicalTypeId::ARRAY: {
-		if (!metadata_manager.TypeIsNativelySupported(value.type())) {
-			// Stored as VARCHAR text - use ToString() which produces parseable format
-			return value.ToString();
-		}
-		auto &children =
-		    value.type().id() == LogicalTypeId::LIST ? ListValue::GetChildren(value) : ArrayValue::GetChildren(value);
-		string ret = "[";
-		for (idx_t i = 0; i < children.size(); i++) {
-			ret += ToSQLString(metadata_manager, children[i]);
-			if (i < children.size() - 1) {
-				ret += ", ";
-			}
-		}
-		ret += "]";
-		return ret;
-	}
-	case LogicalTypeId::MAP: {
-		if (!metadata_manager.TypeIsNativelySupported(value.type())) {
-			return value.ToString();
-		}
-		string ret = "MAP(";
-		auto &map_values = MapValue::GetChildren(value);
-		ret += "[";
-		for (idx_t i = 0; i < map_values.size(); i++) {
-			if (i > 0) {
-				ret += ", ";
-			}
-			auto &map_children = StructValue::GetChildren(map_values[i]);
-			ret += ToSQLString(metadata_manager, map_children[0]);
-		}
-		ret += "], [";
-		for (idx_t i = 0; i < map_values.size(); i++) {
-			if (i > 0) {
-				ret += ", ";
-			}
-			auto &map_children = StructValue::GetChildren(map_values[i]);
-			ret += ToSQLString(metadata_manager, map_children[1]);
-		}
-		ret += "])";
-		return ret;
-	}
-	case LogicalTypeId::UNION: {
-		string ret = "union_value(";
-		auto union_tag = UnionValue::GetTag(value);
-		auto &tag_name = UnionType::GetMemberName(value.type(), union_tag);
-		ret += tag_name + " := ";
-		ret += UnionValue::GetValue(value).ToSQLString();
-		ret += ")";
-		return ret;
-	}
-	default:
-		return value.ToString();
-	}
+string ToSQLString(DuckLakeMetadataManager &metadata_manager,
+                   const Value &value) {
+  if (value.IsNull()) {
+    return value.ToString();
+  }
+  string value_type = value.type().ToString();
+  bool use_native_type = metadata_manager.TypeIsNativelySupported(value.type());
+  if (!use_native_type) {
+    value_type = "VARCHAR";
+  } else {
+    value_type = metadata_manager.GetColumnTypeInternal(value.type());
+  }
+  switch (value.type().id()) {
+  case LogicalTypeId::UUID:
+  case LogicalTypeId::DATE:
+  case LogicalTypeId::TIME:
+  case LogicalTypeId::TIME_NS:
+  case LogicalTypeId::TIMESTAMP:
+  case LogicalTypeId::TIME_TZ:
+  case LogicalTypeId::TIMESTAMP_TZ:
+  case LogicalTypeId::TIMESTAMP_TZ_NS:
+  case LogicalTypeId::TIMESTAMP_SEC:
+  case LogicalTypeId::TIMESTAMP_MS:
+  case LogicalTypeId::TIMESTAMP_NS:
+  case LogicalTypeId::BLOB:
+  case LogicalTypeId::GEOMETRY:
+    // ANSI CAST(value AS type) instead of the PostgreSQL-flavored
+    // `'value'::type` operator: SQLite's parser rejects `::` outright,
+    // which breaks SQLite-backed metadata backends that ship these
+    // inlined-INSERT batches directly to SQLite.
+    return StringUtil::Format("CAST('%s' AS %s)", value.ToString(), value_type);
+  case LogicalTypeId::INTERVAL: {
+    auto interval = IntervalValue::Get(value);
+    return StringUtil::Format(
+        "CAST('%d months %d days %lld microseconds' AS %s)", interval.months,
+        interval.days, interval.micros, value_type);
+  }
+  case LogicalTypeId::VARCHAR:
+  case LogicalTypeId::ENUM:
+    return EscapeVarcharForSQL(value.ToString());
+  case LogicalTypeId::VARIANT: {
+    Vector tmp(value, count_t(1));
+    RecursiveUnifiedVectorFormat format;
+    Vector::RecursiveToUnifiedFormat(tmp, format);
+    UnifiedVariantVectorData vector_data(format);
+    auto val = VariantUtils::ConvertVariantToValue(vector_data, 0, 0);
+    if (!use_native_type) {
+      throw NotImplementedException(
+          "Variant types cannot be inlined in this catalog type yet");
+    }
+    // variant can just be stored as a variant
+    return ToSQLString(metadata_manager, val);
+  }
+  case LogicalTypeId::STRUCT: {
+    auto &child_types = StructType::GetChildTypes(value.type());
+    auto &struct_values = StructValue::GetChildren(value);
+    if (struct_values.empty()) {
+      return "NULL";
+    }
+    bool is_unnamed = StructType::IsUnnamed(value.type());
+    string ret = is_unnamed ? "(" : "{";
+    for (idx_t i = 0; i < struct_values.size(); i++) {
+      auto &name = child_types[i].first;
+      auto &child = struct_values[i];
+      if (is_unnamed) {
+        ret += ToSQLString(metadata_manager, child);
+      } else {
+        ret += "'" + StringUtil::Replace(name.GetIdentifierName(), "'", "''") +
+               "': " + ToSQLString(metadata_manager, child);
+      }
+      if (i < struct_values.size() - 1) {
+        ret += ", ";
+      }
+    }
+    ret += is_unnamed ? ")" : "}";
+    return ret;
+  }
+  case LogicalTypeId::FLOAT: {
+    float fval = FloatValue::Get(value);
+    if (!Value::FloatIsFinite(fval) || (fval == 0.0f && std::signbit(fval))) {
+      return StringUtil::Format("CAST('%s' AS %s)", value.ToString(),
+                                value_type);
+    }
+    return value.ToString();
+  }
+  case LogicalTypeId::DOUBLE: {
+    double val = DoubleValue::Get(value);
+    if (!Value::DoubleIsFinite(val) || (val == 0.0 && std::signbit(val))) {
+      return StringUtil::Format("CAST('%s' AS %s)", value.ToString(),
+                                value_type);
+    }
+    return value.ToString();
+  }
+  case LogicalTypeId::LIST:
+  case LogicalTypeId::ARRAY: {
+    if (!metadata_manager.TypeIsNativelySupported(value.type())) {
+      // Stored as VARCHAR text - use ToString() which produces parseable format
+      return value.ToString();
+    }
+    auto &children = value.type().id() == LogicalTypeId::LIST
+                         ? ListValue::GetChildren(value)
+                         : ArrayValue::GetChildren(value);
+    string ret = "[";
+    for (idx_t i = 0; i < children.size(); i++) {
+      ret += ToSQLString(metadata_manager, children[i]);
+      if (i < children.size() - 1) {
+        ret += ", ";
+      }
+    }
+    ret += "]";
+    return ret;
+  }
+  case LogicalTypeId::MAP: {
+    if (!metadata_manager.TypeIsNativelySupported(value.type())) {
+      return value.ToString();
+    }
+    string ret = "MAP(";
+    auto &map_values = MapValue::GetChildren(value);
+    ret += "[";
+    for (idx_t i = 0; i < map_values.size(); i++) {
+      if (i > 0) {
+        ret += ", ";
+      }
+      auto &map_children = StructValue::GetChildren(map_values[i]);
+      ret += ToSQLString(metadata_manager, map_children[0]);
+    }
+    ret += "], [";
+    for (idx_t i = 0; i < map_values.size(); i++) {
+      if (i > 0) {
+        ret += ", ";
+      }
+      auto &map_children = StructValue::GetChildren(map_values[i]);
+      ret += ToSQLString(metadata_manager, map_children[1]);
+    }
+    ret += "])";
+    return ret;
+  }
+  case LogicalTypeId::UNION: {
+    string ret = "union_value(";
+    auto union_tag = UnionValue::GetTag(value);
+    auto &tag_name = UnionType::GetMemberName(value.type(), union_tag);
+    ret += tag_name + " := ";
+    ret += UnionValue::GetValue(value).ToSQLString();
+    ret += ")";
+    return ret;
+  }
+  default:
+    return value.ToString();
+  }
 }
 
 string ToByteaHexLiteral(const string &raw_bytes) {
-	string hex;
-	for (unsigned char c : raw_bytes) {
-		hex += StringUtil::Format("%02x", static_cast<int>(c));
-	}
-	return "'\\x" + hex + "'";
+  string hex;
+  for (unsigned char c : raw_bytes) {
+    hex += StringUtil::Format("%02x", static_cast<int>(c));
+  }
+  return "'\\x" + hex + "'";
 }
 
-string DuckLakeUtil::ValueToSQL(DuckLakeMetadataManager &metadata_manager, ClientContext &context, const Value &val) {
-	// FIXME: this should be upstreamed
-	if (val.IsNull()) {
-		return val.ToSQLString();
-	}
-	if (val.type().HasAlias()) {
-		// extension type: cast to string
-		auto str_val = val.CastAs(context, LogicalType::VARCHAR);
-		return ValueToSQL(metadata_manager, context, str_val);
-	}
-	string result;
-	switch (val.type().id()) {
-	case LogicalTypeId::VARCHAR: {
-		auto &str_val = StringValue::Get(val);
-		if (!metadata_manager.TypeIsNativelySupported(LogicalType::VARCHAR)) {
-			return ToByteaHexLiteral(str_val);
-		}
-		return EscapeVarcharForSQL(str_val);
-	}
-	case LogicalTypeId::BLOB: {
-		if (!metadata_manager.TypeIsNativelySupported(LogicalType::BLOB)) {
-			return ToByteaHexLiteral(StringValue::Get(val));
-		}
-		result = ToSQLString(metadata_manager, val);
-		break;
-	}
-	default:
-		result = ToSQLString(metadata_manager, val);
-	}
-	if (metadata_manager.TypeIsNativelySupported(val.type()) || !val.type().IsNested()) {
-		return result;
-	}
-	return StringUtil::Format("%s", SQLString(result));
+string DuckLakeUtil::ValueToSQL(DuckLakeMetadataManager &metadata_manager,
+                                ClientContext &context, const Value &val) {
+  // FIXME: this should be upstreamed
+  if (val.IsNull()) {
+    return val.ToSQLString();
+  }
+  if (val.type().HasAlias()) {
+    // extension type: cast to string
+    auto str_val = val.CastAs(context, LogicalType::VARCHAR);
+    return ValueToSQL(metadata_manager, context, str_val);
+  }
+  string result;
+  switch (val.type().id()) {
+  case LogicalTypeId::VARCHAR: {
+    auto &str_val = StringValue::Get(val);
+    if (!metadata_manager.TypeIsNativelySupported(LogicalType::VARCHAR)) {
+      return ToByteaHexLiteral(str_val);
+    }
+    return EscapeVarcharForSQL(str_val);
+  }
+  case LogicalTypeId::BLOB: {
+    if (!metadata_manager.TypeIsNativelySupported(LogicalType::BLOB)) {
+      return ToByteaHexLiteral(StringValue::Get(val));
+    }
+    result = ToSQLString(metadata_manager, val);
+    break;
+  }
+  default:
+    result = ToSQLString(metadata_manager, val);
+  }
+  if (metadata_manager.TypeIsNativelySupported(val.type()) ||
+      !val.type().IsNested()) {
+    return result;
+  }
+  return StringUtil::Format("%s", SQLString(result));
 }
 
-void DuckLakeUtil::EnsureDirectoryExists(FileSystem &fs, const string &data_path) {
-	if (!fs.IsRemoteFile(data_path)) {
-		try {
-			fs.CreateDirectoriesRecursive(data_path);
-		} catch (...) {
-		}
-	}
+void DuckLakeUtil::EnsureDirectoryExists(FileSystem &fs,
+                                         const string &data_path) {
+  if (!fs.IsRemoteFile(data_path)) {
+    try {
+      fs.CreateDirectoriesRecursive(data_path);
+    } catch (...) {
+    }
+  }
 }
 
-string DuckLakeUtil::JoinPath(FileSystem &fs, const string &a, const string &b) {
-	auto sep = fs.PathSeparator(a);
-	if (StringUtil::EndsWith(a, sep)) {
-		return a + b;
-	} else {
-		return a + sep + b;
-	}
+string DuckLakeUtil::JoinPath(FileSystem &fs, const string &a,
+                              const string &b) {
+  auto sep = fs.PathSeparator(a);
+  if (StringUtil::EndsWith(a, sep)) {
+    return a + b;
+  } else {
+    return a + sep + b;
+  }
 }
 
-shared_ptr<DynamicFilterData> DuckLakeUtil::GetOptionalDynamicFilterData(const TableFilter &filter) {
-	auto dynamic_filter_data = ExpressionFilter::GetRootOptionalDynamicFilterData(filter);
-	if (dynamic_filter_data) {
-		return dynamic_filter_data;
-	}
+shared_ptr<DynamicFilterData>
+DuckLakeUtil::GetOptionalDynamicFilterData(const TableFilter &filter) {
+  auto dynamic_filter_data =
+      ExpressionFilter::GetRootOptionalDynamicFilterData(filter);
+  if (dynamic_filter_data) {
+    return dynamic_filter_data;
+  }
 
-	auto &expression_filter =
-	    ExpressionFilter::GetExpressionFilter(filter, "DuckLakeUtil::GetOptionalDynamicFilterData");
-	if (expression_filter.expr->GetExpressionClass() != ExpressionClass::BOUND_CONJUNCTION) {
-		return nullptr;
-	}
-	auto &conjunction = expression_filter.expr->Cast<BoundConjunctionExpression>();
-	if (conjunction.GetExpressionType() != ExpressionType::CONJUNCTION_AND) {
-		return nullptr;
-	}
-	for (auto &child : conjunction.GetChildren()) {
-		ExpressionFilter child_filter(child->Copy());
-		dynamic_filter_data = GetOptionalDynamicFilterData(child_filter);
-		if (dynamic_filter_data) {
-			return dynamic_filter_data;
-		}
-	}
-	return nullptr;
+  auto &expression_filter = ExpressionFilter::GetExpressionFilter(
+      filter, "DuckLakeUtil::GetOptionalDynamicFilterData");
+  if (expression_filter.expr->GetExpressionClass() !=
+      ExpressionClass::BOUND_CONJUNCTION) {
+    return nullptr;
+  }
+  auto &conjunction =
+      expression_filter.expr->Cast<BoundConjunctionExpression>();
+  if (conjunction.GetExpressionType() != ExpressionType::CONJUNCTION_AND) {
+    return nullptr;
+  }
+  for (auto &child : conjunction.GetChildren()) {
+    ExpressionFilter child_filter(child->Copy());
+    dynamic_filter_data = GetOptionalDynamicFilterData(child_filter);
+    if (dynamic_filter_data) {
+      return dynamic_filter_data;
+    }
+  }
+  return nullptr;
 }
 
 bool DuckLakeUtil::IsInlinedSystemColumn(const string &name) {
-	return StringUtil::CIEquals(name, "row_id") || StringUtil::CIEquals(name, "begin_snapshot") ||
-	       StringUtil::CIEquals(name, "end_snapshot") || StringUtil::CIEquals(name, "_ducklake_internal_snapshot_id") ||
-	       StringUtil::CIEquals(name, "_ducklake_internal_row_id");
+  return StringUtil::CIEquals(name, "row_id") ||
+         StringUtil::CIEquals(name, "begin_snapshot") ||
+         StringUtil::CIEquals(name, "end_snapshot") ||
+         StringUtil::CIEquals(name, "_ducklake_internal_snapshot_id") ||
+         StringUtil::CIEquals(name, "_ducklake_internal_row_id");
 }
 
-void DuckLakeUtil::ValidateNoInlinedSystemColumns(const ColumnList &columns, const string &table_name) {
-	for (auto &col : columns.Logical()) {
-		if (IsInlinedSystemColumn(col.Name().GetIdentifierName())) {
-			if (table_name.empty()) {
-				throw BinderException(
-				    "Column name \"%s\" is reserved by DuckLake for internal use when data inlining is enabled. If "
-				    "you must use this column name, disable inlining by calling "
-				    "ducklake_set_option('data_inlining_row_limit', 0).",
-				    col.Name().GetIdentifierName());
-			}
-			throw BinderException(
-			    "Cannot enable data inlining for table \"%s\". Column \"%s\" conflicts with a reserved DuckLake "
-			    "internal column name used for inlining. To enable inlining for this table, rename or drop column "
-			    "\"%s\".",
-			    table_name, col.Name().GetIdentifierName(), col.Name().GetIdentifierName());
-		}
-	}
+void DuckLakeUtil::ValidateNoInlinedSystemColumns(const ColumnList &columns,
+                                                  const string &table_name) {
+  for (auto &col : columns.Logical()) {
+    if (IsInlinedSystemColumn(col.Name().GetIdentifierName())) {
+      if (table_name.empty()) {
+        throw BinderException(
+            "Column name \"%s\" is reserved by DuckLake for internal use when "
+            "data inlining is enabled. If "
+            "you must use this column name, disable inlining by calling "
+            "ducklake_set_option('data_inlining_row_limit', 0).",
+            col.Name().GetIdentifierName());
+      }
+      throw BinderException("Cannot enable data inlining for table \"%s\". "
+                            "Column \"%s\" conflicts with a reserved DuckLake "
+                            "internal column name used for inlining. To enable "
+                            "inlining for this table, rename or drop column "
+                            "\"%s\".",
+                            table_name, col.Name().GetIdentifierName(),
+                            col.Name().GetIdentifierName());
+    }
+  }
 }
 
-string DuckLakeUtil::ReplaceSkippingQuotes(const string &sql, const string &from, const string &to) {
-	if (from.empty()) {
-		return sql;
-	}
+string DuckLakeUtil::ReplaceSkippingQuotes(const string &sql,
+                                           const string &from,
+                                           const string &to) {
+  if (from.empty()) {
+    return sql;
+  }
 
-	auto tokens = Parser::Tokenize(sql);
+  auto tokens = Parser::Tokenize(sql);
 
-	// Collect quoted ranges (string constants and double-quoted identifiers) where replacement doesn't happen
-	vector<pair<idx_t, idx_t>> no_replace_ranges;
-	for (idx_t i = 0; i < tokens.size(); i++) {
-		bool is_quoted = tokens[i].type == SimplifiedTokenType::SIMPLIFIED_TOKEN_STRING_CONSTANT;
-		if (!is_quoted && tokens[i].type == SimplifiedTokenType::SIMPLIFIED_TOKEN_IDENTIFIER &&
-		    tokens[i].start < sql.size() && sql[tokens[i].start] == '"') {
-			is_quoted = true;
-		}
-		if (is_quoted) {
-			const idx_t start = tokens[i].start;
-			const idx_t end = (i + 1 < tokens.size()) ? tokens[i + 1].start : sql.size();
-			no_replace_ranges.push_back({start, end});
-		}
-	}
+  // Collect quoted ranges (string constants and double-quoted identifiers)
+  // where replacement doesn't happen
+  vector<pair<idx_t, idx_t>> no_replace_ranges;
+  for (idx_t i = 0; i < tokens.size(); i++) {
+    bool is_quoted =
+        tokens[i].type == SimplifiedTokenType::SIMPLIFIED_TOKEN_STRING_CONSTANT;
+    if (!is_quoted &&
+        tokens[i].type == SimplifiedTokenType::SIMPLIFIED_TOKEN_IDENTIFIER &&
+        tokens[i].start < sql.size() && sql[tokens[i].start] == '"') {
+      is_quoted = true;
+    }
+    if (is_quoted) {
+      const idx_t start = tokens[i].start;
+      const idx_t end =
+          (i + 1 < tokens.size()) ? tokens[i + 1].start : sql.size();
+      no_replace_ranges.push_back({start, end});
+    }
+  }
 
-	string result;
-	result.reserve(sql.size());
-	idx_t pos = 0;
-	idx_t range_idx = 0;
+  string result;
+  result.reserve(sql.size());
+  idx_t pos = 0;
+  idx_t range_idx = 0;
 
-	while (pos < sql.size()) {
-		while (range_idx < no_replace_ranges.size() && pos >= no_replace_ranges[range_idx].second) {
-			range_idx++;
-		}
+  while (pos < sql.size()) {
+    while (range_idx < no_replace_ranges.size() &&
+           pos >= no_replace_ranges[range_idx].second) {
+      range_idx++;
+    }
 
-		// If inside a quoted range, copy verbatim to its end
-		if (range_idx < no_replace_ranges.size() && pos >= no_replace_ranges[range_idx].first) {
-			idx_t end = no_replace_ranges[range_idx].second;
-			result += sql.substr(pos, end - pos);
-			pos = end;
-			range_idx++;
-			continue;
-		}
+    // If inside a quoted range, copy verbatim to its end
+    if (range_idx < no_replace_ranges.size() &&
+        pos >= no_replace_ranges[range_idx].first) {
+      idx_t end = no_replace_ranges[range_idx].second;
+      result += sql.substr(pos, end - pos);
+      pos = end;
+      range_idx++;
+      continue;
+    }
 
-		// If not inside a quoted range, check for a match of `from`
-		if (sql.compare(pos, from.size(), from) == 0) {
-			result += to;
-			pos += from.size();
-			continue;
-		}
+    // If not inside a quoted range, check for a match of `from`
+    if (sql.compare(pos, from.size(), from) == 0) {
+      result += to;
+      pos += from.size();
+      continue;
+    }
 
-		// Otherwise, just copy the character at the current position
-		result += sql[pos];
-		pos++;
-	}
+    // Otherwise, just copy the character at the current position
+    result += sql[pos];
+    pos++;
+  }
 
-	return result;
+  return result;
 }
 
 string DuckLakeUtil::OptionalIdxOrNull(const optional_idx &v) {
-	return v.IsValid() ? std::to_string(v.GetIndex()) : "NULL";
+  return v.IsValid() ? std::to_string(v.GetIndex()) : "NULL";
 }
 
 string DuckLakeUtil::MappingIdOrNull(const MappingIndex &m) {
-	return m.IsValid() ? std::to_string(m.index) : "NULL";
+  return m.IsValid() ? std::to_string(m.index) : "NULL";
 }
 
 string DuckLakeUtil::EncryptionKeyLiteral(const string &key) {
-	if (key.empty()) {
-		return "NULL";
-	}
-	return "'" + Blob::ToBase64(string_t(key)) + "'";
+  if (key.empty()) {
+    return "NULL";
+  }
+  return "'" + Blob::ToBase64(string_t(key)) + "'";
 }
 
-const char *DuckLakeUtil::BoolLiteral(bool v) {
-	return v ? "true" : "false";
-}
+const char *DuckLakeUtil::BoolLiteral(bool v) { return v ? "true" : "false"; }
 
 string DuckLakeUtil::PartitionValueLiteral(const Value &v) {
-	return v.IsNull() ? string("NULL") : SQLLiteralToString(v.ToString());
+  return v.IsNull() ? string("NULL") : SQLLiteralToString(v.ToString());
 }
 
-string DuckLakeUtil::ChunkRowToSQL(DuckLakeMetadataManager &metadata_manager, ClientContext &context, DataChunk &chunk,
+string DuckLakeUtil::ChunkRowToSQL(DuckLakeMetadataManager &metadata_manager,
+                                   ClientContext &context, DataChunk &chunk,
                                    idx_t row) {
-	string result;
-	for (idx_t c = 0; c < chunk.ColumnCount(); c++) {
-		if (c > 0) {
-			result += ", ";
-		}
-		result += ValueToSQL(metadata_manager, context, chunk.GetValue(c, row));
-	}
-	return result;
+  string result;
+  for (idx_t c = 0; c < chunk.ColumnCount(); c++) {
+    if (c > 0) {
+      result += ", ";
+    }
+    result += ValueToSQL(metadata_manager, context, chunk.GetValue(c, row));
+  }
+  return result;
 }
 
-void DuckLakeUtil::CopyExtensionSettings(ClientContext &from, ClientContext &to) {
-	auto &db_config = DBConfig::GetConfig(from);
-	for (auto &entry : db_config.GetExtensionSettings()) {
-		auto &option = entry.second;
-		if (!option.setting_index.IsValid()) {
-			continue;
-		}
-		auto setting_index = option.setting_index.GetIndex();
-		if (!from.config.user_settings.IsSet(setting_index)) {
-			continue;
-		}
-		Value value;
-		if (!from.TryGetCurrentSetting(entry.first, value)) {
-			continue;
-		}
-		to.config.user_settings.SetUserSetting(setting_index, value);
-	}
+void DuckLakeUtil::CopyExtensionSettings(ClientContext &from,
+                                         ClientContext &to) {
+  auto &db_config = DBConfig::GetConfig(from);
+  for (auto &entry : db_config.GetExtensionSettings()) {
+    auto &option = entry.second;
+    if (!option.setting_index.IsValid()) {
+      continue;
+    }
+    auto setting_index = option.setting_index.GetIndex();
+    if (!from.config.user_settings.IsSet(setting_index)) {
+      continue;
+    }
+    Value value;
+    if (!from.TryGetCurrentSetting(entry.first, value)) {
+      continue;
+    }
+    to.config.user_settings.SetUserSetting(setting_index, value);
+  }
 }
 
-
-string DuckLakeUtil::WrappedEncryptionKeyLiteral(const string &wrapped_base64, bool file_has_key) {
-	if (wrapped_base64.empty()) {
-		if (file_has_key) {
-			throw InternalException(
-			    "refusing to write an empty wrapped encryption key for a file that has one. The data file was "
-			    "encrypted with a real key; writing SQL NULL in its wrapped-key column would discard that key and "
-			    "leave the file unreadable forever, with the commit reporting success");
-		}
-		return "NULL";
-	}
-	return SQLLiteralToString(wrapped_base64);
+string DuckLakeUtil::WrappedEncryptionKeyLiteral(const string &wrapped_base64,
+                                                 bool file_has_key) {
+  if (wrapped_base64.empty()) {
+    if (file_has_key) {
+      throw InternalException(
+          "refusing to write an empty wrapped encryption key for a file that "
+          "has one. The data file was "
+          "encrypted with a real key; writing SQL NULL in its wrapped-key "
+          "column would discard that key and "
+          "leave the file unreadable forever, with the commit reporting "
+          "success");
+    }
+    return "NULL";
+  }
+  return SQLLiteralToString(wrapped_base64);
 }
 } // namespace duckdb
