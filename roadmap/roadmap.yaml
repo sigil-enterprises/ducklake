@@ -129,7 +129,7 @@ feature_completeness:
   statement: "The sigil ducklake fork is production-ready as the teras lake's encryption provider - every data-file key in the catalog is an identity-bound crypta-wrapped blob rooted in an HSM, the provider FAILS CLOSED on every read and write path rather than silently emitting or accepting plaintext, no cleartext patient data reaches the catalog by inlining or column statistics, the reader-side residual (DEK cache, temp spill, snapshots) is bounded and documented, a rewrap sweep makes KEK retirement survivable, and the extension loads on every DuckDB patch pinned anywhere in the fleet. GA as v1.0.0."
   target: v1.0.0
 
-updated: 2026-08-05
+updated: 2026-08-12
 last_revision: 2026-08-05
 inception_date: 2026-07-28    # fork created on the sigil forge, 2026-07-28T18:14:36Z
 
@@ -384,7 +384,7 @@ milestones:
     rc_soaked: false
     tracker_ref: "ducklake:#1"
     status: planned
-    depends_on: [ducklake:M1, ducklake:M2]
+    depends_on: [ducklake:M1, ducklake:M2, ducklake:M7]
     provenance: retro-derived
     derived_at: 2026-08-05
     evidence: ["ducklake:#1"]
@@ -429,6 +429,57 @@ milestones:
         derived_at: 2026-08-05
         evidence: ["ducklake:#1"]
         confidence: high
+
+  - id: M7
+    title: "KMS-agnostic EncryptionProvider architecture"
+    ship_criterion: "The public fork carries zero crypta code and zero private elements. An abstract DuckLakeEncryptionProvider interface with a factory pattern enables any KMS to register a concrete provider via a static initializer — no patching, no glue logic. The ducklake_rewrap_keys() table function works through the abstract provider, so rewrap is KMS-agnostic. Conditional CMake picks up a crypta-provider subdirectory when present and builds cleanly without it. Backward-compat SECRET aliases (encryption_socket, encryption_lake_id, encryption_cache_ttl_seconds) let existing configuration migrate without breakage. The bench repo wires the crypta provider with two cp commands, zero source code, and zero patches."
+    target_date: 2026-08-10
+    version: v0.7.0             # PROPOSED
+    rc_soaked: false
+    tracker_ref: "ducklake:#3"
+    status: shipped
+    depends_on: [ducklake:M1, ducklake:M2]
+    provenance: retro-derived
+    derived_at: 2026-08-12
+    evidence: ["ducklake:#3", "crypta:#16", "ducklake-bench:#109", "ducklake@fac9504b"]
+    confidence: high
+    epics:
+      - id: E7.1
+        title: "Abstract EncryptionProvider interface and factory pattern"
+        capability: "The DuckLakeEncryptionProvider abstract class defines WrapKeys, UnwrapKey, RewrapKeys, SelfTest, LakeId, LooksWrapped, and IsBase64. A process-wide factory function pointer is registered by static initializer before main() and called by the DuckLakeCatalog constructor at ATTACH time. Two KMS-agnostic structs — DuckLakeFileIdentity and DuckLakeRewrapResult — carry file identity and rewrap results without crypta types. The concrete crypta provider lives in sigil-enterprises/crypta:ducklake-provider/ with auto-registration via a static CryptaProviderRegistrar."
+        tracker_ref: "ducklake:#3"
+        class: planned
+        status: closed
+        depends_on: []
+        intent: unproven
+        provenance: retro-derived
+        derived_at: 2026-08-12
+        evidence: ["ducklake:#3", "ducklake@69449643"]
+        confidence: low
+      - id: E7.2
+        title: "KMS-agnostic rewrap function"
+        capability: "ducklake_rewrap_keys() discovers wrapped files through the DuckLake catalog, reads their identities via catalog.BuildEncryptionIdentity(), and calls provider.RewrapKeys() to re-encrypt. It uses DuckLakeEncryptionProvider::LooksWrapped and IsBase64 for detection, and DuckLakeUtil::WrappedEncryptionKeyLiteral for SQL output. The function is registered unconditionally in ducklake_extension.cpp — no conditional compilation."
+        tracker_ref: "ducklake:#3"
+        class: planned
+        status: closed
+        depends_on: [ducklake:E7.1]
+        intent: unproven
+        provenance: retro-derived
+        derived_at: 2026-08-12
+        evidence: ["ducklake:#3", "ducklake@58906321"]
+        confidence: low
+      - id: E7.3
+        title: "Conditional CMake and backward-compat aliases"
+        capability: "src/CMakeLists.txt uses if(EXISTS crypta-provider) add_subdirectory(crypta-provider) endif() — the public fork builds cleanly with or without a provider. ducklake_storage.cpp accepts encryption_socket, encryption_lake_id, and encryption_cache_ttl_seconds as SECRET aliases alongside the legacy crypta_* names, so existing configuration does not break."
+        tracker_ref: "ducklake:#3"
+        class: planned
+        status: closed
+        depends_on: [ducklake:E7.1]
+        intent: unproven
+        provenance: retro-derived
+        derived_at: 2026-08-12
+        evidence: ["ducklake:#3", "ducklake@58906321"]
+        confidence: low
 
 # REACTIVE WORK. Everything below arrived from outside the 2026-07-28 plan-of-record -
 # a defect found while building, a gap in the fork's own measurement - and is dated at
@@ -595,4 +646,15 @@ intake:
     provenance: retro-derived
     derived_at: 2026-08-05
     evidence: ["ducklake:#8"]
+    confidence: high
+  - id: I15
+    tracker_ref: "ducklake:#3"
+    class: unplanned
+    precedence: normal
+    origin: ops
+    admitted: 2026-08-10
+    disposition: "promoted:M7"
+    provenance: retro-derived
+    derived_at: 2026-08-12
+    evidence: ["ducklake:#3", "crypta:#16", "ducklake-bench:#109", "ducklake@fac9504b"]
     confidence: high
