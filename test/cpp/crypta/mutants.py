@@ -98,11 +98,11 @@ DEFAULT_SRC = "crypta"
 # identity, one restoring the bare-'|' join - so the pattern is written once here
 # rather than copied three times and drifting apart.
 CACHE_KEY_COMPOSITION = (
-    '\tAppendLengthPrefixed(cache_key, identity.lake_id);\n'
-    '\tAppendLengthPrefixed(cache_key, table_id_text);\n'
-    '\tAppendLengthPrefixed(cache_key, file_kind);\n'
-    '\tAppendLengthPrefixed(cache_key, identity.stored_path);\n'
-    '\tAppendLengthPrefixed(cache_key, base64_value);'
+    "\tAppendLengthPrefixed(cache_key, identity.lake_id);\n"
+    "\tAppendLengthPrefixed(cache_key, table_id_text);\n"
+    "\tAppendLengthPrefixed(cache_key, file_kind);\n"
+    "\tAppendLengthPrefixed(cache_key, identity.stored_path);\n"
+    "\tAppendLengthPrefixed(cache_key, base64_value);"
 )
 
 # Every `old` below is matched EXACTLY and must occur EXACTLY once. A mutant
@@ -114,34 +114,36 @@ MUTANTS = [
         "name": "no_empty_path_check",
         "file": "crypta_client.cpp",
         "why": "the constructor's refusal of an empty socket path",
-        "old": '\tif (socket_path.empty()) {\n'
-               '\t\tthrow InvalidInputException("crypta socket path is empty");\n'
-               '\t}',
-        "new": '\tif (false) {\n'
-               '\t\tthrow InvalidInputException("crypta socket path is empty");\n'
-               '\t}',
+        "old": "\tif (socket_path.empty()) {\n"
+        '\t\tthrow InvalidInputException("crypta socket path is empty");\n'
+        "\t}",
+        "new": "\tif (false) {\n"
+        '\t\tthrow InvalidInputException("crypta socket path is empty");\n'
+        "\t}",
         "reddens": ["crypta: an empty socket path is refused at construction"],
     },
     {
         "name": "no_path_length_check",
         "file": "crypta_client.cpp",
         "why": "the refusal of a socket path too long for sun_path - replaced by "
-               "the silent truncation the guard's own comment warns about",
-        "old": '\tif (socket_path.size() >= sizeof(addr.sun_path)) {\n'
-               '\t\tthrow InvalidInputException("crypta socket path is too long (max %llu bytes)",\n'
-               '\t\t                            static_cast<uint64_t>(sizeof(addr.sun_path) - 1));\n'
-               '\t}',
-        "new": '\tif (socket_path.size() >= sizeof(addr.sun_path)) {\n'
-               '\t\tsocket_path.resize(sizeof(addr.sun_path) - 1);\n'
-               '\t}',
-        "reddens": ["crypta: an over-long socket path is refused instead of silently truncated"],
+        "the silent truncation the guard's own comment warns about",
+        "old": "\tif (socket_path.size() >= sizeof(addr.sun_path)) {\n"
+        '\t\tthrow InvalidInputException("crypta socket path is too long (max %llu bytes)",\n'
+        "\t\t                            static_cast<uint64_t>(sizeof(addr.sun_path) - 1));\n"
+        "\t}",
+        "new": "\tif (socket_path.size() >= sizeof(addr.sun_path)) {\n"
+        "\t\tsocket_path.resize(sizeof(addr.sun_path) - 1);\n"
+        "\t}",
+        "reddens": [
+            "crypta: an over-long socket path is refused instead of silently truncated"
+        ],
     },
     {
         "name": "no_json_escape",
         "file": "crypta_client.cpp",
         "why": "JSON escaping of the identity",
-        "old": '\tstring out;\n\tout.reserve(input.size() + 8);',
-        "new": '\tstring out;\n\treturn input;\n\tout.reserve(input.size() + 8);',
+        "old": "\tstring out;\n\tout.reserve(input.size() + 8);",
+        "new": "\tstring out;\n\treturn input;\n\tout.reserve(input.size() + 8);",
         # Since #24 the blob goes through JsonEscape too, so early-returning from
         # it strips BOTH escapings and this mutant reddens the injection cases as
         # well. Listed, because a roster that understates what a mutant does is a
@@ -157,10 +159,10 @@ MUTANTS = [
         "name": "no_backslash_escape",
         "file": "crypta_client.cpp",
         "why": "the BACKSLASH arm of JsonEscape, leaving the quote arm intact - a "
-               "SEMANTIC mutant where no_json_escape is presence-only. Without it "
-               "nothing in the roster described changing WHICH characters the "
-               "escaper handles, and a trailing backslash escapes the format "
-               "string's own closing quote",
+        "SEMANTIC mutant where no_json_escape is presence-only. Without it "
+        "nothing in the roster described changing WHICH characters the "
+        "escaper handles, and a trailing backslash escapes the format "
+        "string's own closing quote",
         "old": "\t\tcase '\\\\':\n\t\t\tout += \"\\\\\\\\\";\n\t\t\tbreak;\n",
         "new": "",
         "reddens": [
@@ -172,10 +174,10 @@ MUTANTS = [
         "name": "no_blob_escape",
         "file": "crypta_client.cpp",
         "why": "JSON escaping of the WRAPPED BLOB in an unwrap request - issue #24. "
-               "The identity beside it was escaped and the blob was not, so a "
-               "catalog value could write protocol into the frame",
+        "The identity beside it was escaped and the blob was not, so a "
+        "catalog value could write protocol into the frame",
         "old": '\t\tbody += StringUtil::Format("{\\"identity\\":%s,\\"wrapped\\":\\"%s\\"}", IdentityJson(identities[i]),\n'
-               '\t\t                           JsonEscape(blobs[i]));',
+        "\t\t                           JsonEscape(blobs[i]));",
         "new": '\t\tbody += StringUtil::Format("{\\"identity\\":%s,\\"wrapped\\":\\"%s\\"}", IdentityJson(identities[i]), blobs[i]);',
         "reddens": [
             "crypta: a quote in a wrapped blob is escaped on the wire, not spliced into the request",
@@ -187,40 +189,38 @@ MUTANTS = [
         "name": "widened_base64_alphabet",
         "file": "crypta_client.cpp",
         "why": "the EDGES of the base64 alphabet - issue #24 review. Widens the "
-               "letter range to 'A'..'z', which silently admits the six bytes "
-               "between 'Z' and 'a' including the BACKSLASH, one of the exactly "
-               "two characters that can break a JSON string. Distinct from "
-               "no_blob_alphabet_check, which deletes the CALL and so proves only "
-               "that the provider consults the guard, never what it answers - "
-               "before this mutant existed the whole suite stayed green with the "
-               "range widened",
+        "letter range to 'A'..'z', which silently admits the six bytes "
+        "between 'Z' and 'a' including the BACKSLASH, one of the exactly "
+        "two characters that can break a JSON string. Distinct from "
+        "no_blob_alphabet_check, which deletes the CALL and so proves only "
+        "that the provider consults the guard, never what it answers - "
+        "before this mutant existed the whole suite stayed green with the "
+        "range widened",
         "old": "\t\tbool in_alphabet = (u >= 'A' && u <= 'Z') || (u >= 'a' && u <= 'z') || (u >= '0' && u <= '9') || u == '+' ||\n"
-               "\t\t                   u == '/' || u == '=';",
+        "\t\t                   u == '/' || u == '=';",
         "new": "\t\tbool in_alphabet = (u >= 'A' && u <= 'z') || (u >= '0' && u <= '9') || u == '+' ||\n"
-               "\t\t                   u == '/' || u == '=';",
-        "reddens": ["crypta: the base64 alphabet is exactly the base64 alphabet, at its edges"],
+        "\t\t                   u == '/' || u == '=';",
+        "reddens": [
+            "crypta: the base64 alphabet is exactly the base64 alphabet, at its edges"
+        ],
     },
     {
         "name": "no_empty_reply_value_refusal",
         "file": "crypta_client.cpp",
         "why": "the refusal of the EMPTY value inside IsBase64 - issue #55, and "
-               "the one input #33's alphabet check admitted. A zero-length value "
-               "never enters the alphabet loop, so the predicate fell out the "
-               "bottom as `true`, an empty `wrapped` was accepted from crypta's "
-               "reply, and `WrappedEncryptionKeyLiteral` turned it into the SQL "
-               "literal NULL: the data file written encrypted with a real DEK, the "
-               "wrapped form of that DEK discarded, and the commit reporting "
-               "SUCCESS. Its own mutant rather than a section of "
-               "no_reply_alphabet_check, which deletes the CALL and so proves only "
-               "that the reader CONSULTS the predicate and never what the "
-               "predicate ANSWERS - the same discipline widened_base64_alphabet "
-               "applies to the alphabet's other edge",
-        "old": '\tif (value.empty()) {\n'
-               '\t\treturn false;\n'
-               '\t}',
-        "new": '\tif (false) {\n'
-               '\t\treturn false;\n'
-               '\t}',
+        "the one input #33's alphabet check admitted. A zero-length value "
+        "never enters the alphabet loop, so the predicate fell out the "
+        "bottom as `true`, an empty `wrapped` was accepted from crypta's "
+        "reply, and `WrappedEncryptionKeyLiteral` turned it into the SQL "
+        "literal NULL: the data file written encrypted with a real DEK, the "
+        "wrapped form of that DEK discarded, and the commit reporting "
+        "SUCCESS. Its own mutant rather than a section of "
+        "no_reply_alphabet_check, which deletes the CALL and so proves only "
+        "that the reader CONSULTS the predicate and never what the "
+        "predicate ANSWERS - the same discipline widened_base64_alphabet "
+        "applies to the alphabet's other edge",
+        "old": "\tif (value.empty()) {\n" "\t\treturn false;\n" "\t}",
+        "new": "\tif (false) {\n" "\t\treturn false;\n" "\t}",
         # BOTH, and listing both is the point rather than housekeeping. The edges
         # case pins what the PREDICATE answers by calling it directly; the reply
         # case pins that the answer actually reaches the write path. Either alone
@@ -234,15 +234,15 @@ MUTANTS = [
         "name": "no_reply_alphabet_check",
         "file": "crypta_client.cpp",
         "why": "the base64-alphabet validation of a value read out of crypta's "
-               "REPLY - issue #33. The mirror image of no_blob_alphabet_check, "
-               "which validates a value going the other way: this one is the only "
-               "guard in front of a `wrapped` value, because that value is decoded "
-               "by NOBODY - it goes to the catalog as SQL text. The reader "
-               "enforced the reply's COUNT and never its ALPHABET, so a hostile or "
-               "squatted socket could answer with `RExLAAAA',NULL),(...` and write "
-               "arbitrary rows into the metadata catalog",
-        "old": '\t\tif (!IsBase64(value)) {',
-        "new": '\t\tif (false) {',
+        "REPLY - issue #33. The mirror image of no_blob_alphabet_check, "
+        "which validates a value going the other way: this one is the only "
+        "guard in front of a `wrapped` value, because that value is decoded "
+        "by NOBODY - it goes to the catalog as SQL text. The reader "
+        "enforced the reply's COUNT and never its ALPHABET, so a hostile or "
+        "squatted socket could answer with `RExLAAAA',NULL),(...` and write "
+        "arbitrary rows into the metadata catalog",
+        "old": "\t\tif (!IsBase64(value)) {",
+        "new": "\t\tif (false) {",
         # The second name is a TRANSFER of diagnosis, recorded rather than left to
         # be rediscovered. `a dek value that is not valid base64 is refused`
         # predates #33 and named `Blob::FromBase64` - on the UNWRAP path the
@@ -269,15 +269,15 @@ MUTANTS = [
         "file": "ducklake_util.cpp",
         "src": "common",
         "why": "the SQL escaping of the wrapped key on the metadata INSERT - issue "
-               "#33, and the FIRST mutant in this roster outside src/crypta. It "
-               "restores exactly the pre-fix line, `\"'\" + value + \"'\"`, which is "
-               "the one unescaped value on a row where `path.path` beside it goes "
-               "through SQLString -> SQLLiteralToString. Its own mutant rather than "
-               "a section of no_reply_alphabet_check because the two are SEPARATE "
-               "LAYERS - and here the outer layer is SUFFICIENT, so this one has no "
-               "reachable end-to-end red at all and is proven by a direct call. A "
-               "guard whose only evidence is another guard's test is not tested",
-        "old": '\treturn SQLLiteralToString(wrapped_base64);',
+        "#33, and the FIRST mutant in this roster outside src/crypta. It "
+        'restores exactly the pre-fix line, `"\'" + value + "\'"`, which is '
+        "the one unescaped value on a row where `path.path` beside it goes "
+        "through SQLString -> SQLLiteralToString. Its own mutant rather than "
+        "a section of no_reply_alphabet_check because the two are SEPARATE "
+        "LAYERS - and here the outer layer is SUFFICIENT, so this one has no "
+        "reachable end-to-end red at all and is proven by a direct call. A "
+        "guard whose only evidence is another guard's test is not tested",
+        "old": "\treturn SQLLiteralToString(wrapped_base64);",
         "new": '\treturn "\'" + wrapped_base64 + "\'";',
         "reddens": [
             "ducklake: a wrapped key literal escapes its quotes instead of splicing them into the SQL",
@@ -288,19 +288,19 @@ MUTANTS = [
         "file": "ducklake_util.cpp",
         "src": "common",
         "why": "the refusal to write a SQL NULL for a file that HAS a key - issue "
-               "#55, and the inner layer of the same defect "
-               "no_empty_reply_value_refusal covers at the entry. The literal "
-               "opened with `if (wrapped_base64.empty()) { return \"NULL\"; }` for "
-               "every caller alike, which is what turned an accepted empty reply "
-               "into SILENT loss rather than a refused commit: the row said the "
-               "file had no key while the file on disk was encrypted with one, and "
-               "the transaction succeeded. The mutant KEEPS the empty branch and "
-               "removes only the discrimination, so what it restores is exactly "
-               "the pre-fix behaviour and not a refuse-nothing stub - the keyless "
-               "row still gets its NULL, which is what stops the case going red "
-               "for the wrong reason",
-        "old": '\t\tif (file_has_key) {',
-        "new": '\t\tif (false) {',
+        "#55, and the inner layer of the same defect "
+        "no_empty_reply_value_refusal covers at the entry. The literal "
+        'opened with `if (wrapped_base64.empty()) { return "NULL"; }` for '
+        "every caller alike, which is what turned an accepted empty reply "
+        "into SILENT loss rather than a refused commit: the row said the "
+        "file had no key while the file on disk was encrypted with one, and "
+        "the transaction succeeded. The mutant KEEPS the empty branch and "
+        "removes only the discrimination, so what it restores is exactly "
+        "the pre-fix behaviour and not a refuse-nothing stub - the keyless "
+        "row still gets its NULL, which is what stops the case going red "
+        "for the wrong reason",
+        "old": "\t\tif (file_has_key) {",
+        "new": "\t\tif (false) {",
         "reddens": [
             "ducklake: a wrapped key literal refuses to write NULL for a file that HAS a key",
         ],
@@ -309,13 +309,13 @@ MUTANTS = [
         "name": "no_blob_alphabet_check",
         "file": "ducklake_crypta.cpp",
         "why": "the base64-alphabet validation of a catalog key value - issue #24. "
-               "Its own mutant rather than a section of no_blob_escape, because "
-               "the two are SEPARATE LAYERS: the escaping keeps the frame "
-               "well-formed for any caller of the client, this keeps a value that "
-               "could never decode off the wire at all. A guard whose only "
-               "evidence is another guard's test is not tested",
-        "old": '\tif (!CryptaClient::IsBase64(base64_value)) {',
-        "new": '\tif (false) {',
+        "Its own mutant rather than a section of no_blob_escape, because "
+        "the two are SEPARATE LAYERS: the escaping keeps the frame "
+        "well-formed for any caller of the client, this keeps a value that "
+        "could never decode off the wire at all. A guard whose only "
+        "evidence is another guard's test is not tested",
+        "old": "\tif (!CryptaClient::IsBase64(base64_value)) {",
+        "new": "\tif (false) {",
         # The second name arrived here when #24 merged into #18's branch, and it
         # is a TRANSFER, not an addition: the "'|' in a path" case was written as
         # #18 evidence and listed under `cache_key_unprefixed_join`, but its blob
@@ -335,9 +335,11 @@ MUTANTS = [
         "file": "crypta_client.cpp",
         "why": "surfacing an error status instead of parsing the response for keys",
         "old": '\tthrow IOException("crypta refused the request: %s", message);',
-        "new": '\t(void)message;\n\treturn;',
-        "reddens": ["crypta: an error status is surfaced, never parsed for keys",
-                    "crypta: a health probe answered with an error frame fails the self-test"],
+        "new": "\t(void)message;\n\treturn;",
+        "reddens": [
+            "crypta: an error status is surfaced, never parsed for keys",
+            "crypta: a health probe answered with an error frame fails the self-test",
+        ],
     },
     {
         # The guard MOVED in #31 and this mutant moved with it - the name is kept
@@ -354,14 +356,14 @@ MUTANTS = [
         "name": "no_truncation_check",
         "file": "crypta_client.cpp",
         "why": "the refusal of a reply whose items array never closes - the "
-               "truncation guard, which moved from the field reader to the item "
-               "splitter when the reader became structural (#31)",
-        "old": '\tif (!closed) {\n'
-               '\t\tthrow IOException("crypta response is truncated inside its items array");\n'
-               '\t}',
-        "new": '\tif (false) {\n'
-               '\t\tthrow IOException("crypta response is truncated inside its items array");\n'
-               '\t}',
+        "truncation guard, which moved from the field reader to the item "
+        "splitter when the reader became structural (#31)",
+        "old": "\tif (!closed) {\n"
+        '\t\tthrow IOException("crypta response is truncated inside its items array");\n'
+        "\t}",
+        "new": "\tif (false) {\n"
+        '\t\tthrow IOException("crypta response is truncated inside its items array");\n'
+        "\t}",
         "reddens": ["crypta: a response truncated inside a value is refused"],
     },
     {
@@ -371,24 +373,24 @@ MUTANTS = [
         "name": "no_count_check",
         "file": "crypta_client.cpp",
         "why": "the requirement that the value count match the request exactly",
-        "old": '\tif (items.size() != identities.size()) {',
-        "new": '\tif (false) {',
+        "old": "\tif (items.size() != identities.size()) {",
+        "new": "\tif (false) {",
         "reddens": ["crypta: a value count that does not match the request is refused"],
     },
     {
         "name": "no_identity_echo_check",
         "file": "crypta_client.cpp",
         "why": "THE BINDING of a reply item to the file it was asked for - issue "
-               "#31. crypta echoes the identity beside every value it returns, and "
-               "without this the reply is zipped back onto the caller's file list "
-               "by ARRAY POSITION. The count check beside it is not a substitute "
-               "and this mutant is what shows why: a count is a LENGTH check, so a "
-               "reply with its items REORDERED has exactly the right number and "
-               "sails through, handing a file another file's DEK. That is a "
-               "wrong-key defect, not the refused-batch availability defect the "
-               "count check bounds",
-        "old": '\t\tRequireEchoedIdentity(members, identities[i], what);',
-        "new": '\t\t// MUTANT no_identity_echo_check: the reply was bound to the request here.',
+        "#31. crypta echoes the identity beside every value it returns, and "
+        "without this the reply is zipped back onto the caller's file list "
+        "by ARRAY POSITION. The count check beside it is not a substitute "
+        "and this mutant is what shows why: a count is a LENGTH check, so a "
+        "reply with its items REORDERED has exactly the right number and "
+        "sails through, handing a file another file's DEK. That is a "
+        "wrong-key defect, not the refused-batch availability defect the "
+        "count check bounds",
+        "old": "\t\tRequireEchoedIdentity(members, identities[i], what);",
+        "new": "\t\t// MUTANT no_identity_echo_check: the reply was bound to the request here.",
         "reddens": [
             "crypta: a reordered unwrap reply is refused, not zipped onto the caller's file list",
             "crypta: a reordered wrap reply is refused",
@@ -409,10 +411,10 @@ MUTANTS = [
         "name": "identity_echo_path_only",
         "file": "crypta_client.cpp",
         "why": "the OTHER THREE FIELDS of the echoed identity, leaving the path "
-               "compared - the narrowed binding that still looks like a binding",
-        "old": '\tif (catalog_uuid != expected.lake_id || table_id != expected.table_id || file_kind != expected_kind ||\n'
-               '\t    file_path != expected.stored_path) {',
-        "new": '\tif (file_path != expected.stored_path) {',
+        "compared - the narrowed binding that still looks like a binding",
+        "old": "\tif (catalog_uuid != expected.lake_id || table_id != expected.table_id || file_kind != expected_kind ||\n"
+        "\t    file_path != expected.stored_path) {",
+        "new": "\tif (file_path != expected.stored_path) {",
         "reddens": [
             "crypta: a reply item echoing a different identity is refused, one field at a time",
         ],
@@ -433,27 +435,27 @@ MUTANTS = [
         "name": "item_field_by_flat_scan",
         "file": "crypta_client.cpp",
         "why": "the TOP-LEVEL-ONLY member lookup for an item's value - issue #31, "
-               "restoring the flat text scan it replaced. A value nested inside "
-               "the echoed identity, or a second one beside the first, then "
-               "becomes the attacker's to choose",
-        "old": '\t\tstring value;\n'
-               '\t\tif (!DecodeJsonString(RequiredMember(members, field, what), value)) {\n'
-               '\t\t\tthrow IOException("crypta answered %s with a %s value that is not a JSON string", what, field);\n'
-               '\t\t}',
-        "new": '\t\tstring value;\n'
-               '\t\t// MUTANT item_field_by_flat_scan: the value was the item\'s own top-level member.\n'
-               '\t\tauto flat_key = "\\"" + field + "\\":\\"";\n'
-               '\t\tauto flat_at = items[i].find(flat_key);\n'
-               '\t\tif (flat_at == string::npos) {\n'
-               '\t\t\tthrow IOException("crypta answered %s with no %s member", what, field);\n'
-               '\t\t}\n'
-               '\t\tauto flat_start = flat_at + flat_key.size();\n'
-               '\t\tauto flat_end = items[i].find(\'"\', flat_start);\n'
-               '\t\tif (flat_end == string::npos) {\n'
-               '\t\t\tthrow IOException("crypta answered %s with a %s value that is not a JSON string", what, field);\n'
-               '\t\t}\n'
-               '\t\tvalue = items[i].substr(flat_start, flat_end - flat_start);\n'
-               '\t\t(void)members;',
+        "restoring the flat text scan it replaced. A value nested inside "
+        "the echoed identity, or a second one beside the first, then "
+        "becomes the attacker's to choose",
+        "old": "\t\tstring value;\n"
+        "\t\tif (!DecodeJsonString(RequiredMember(members, field, what), value)) {\n"
+        '\t\t\tthrow IOException("crypta answered %s with a %s value that is not a JSON string", what, field);\n'
+        "\t\t}",
+        "new": "\t\tstring value;\n"
+        "\t\t// MUTANT item_field_by_flat_scan: the value was the item's own top-level member.\n"
+        '\t\tauto flat_key = "\\"" + field + "\\":\\"";\n'
+        "\t\tauto flat_at = items[i].find(flat_key);\n"
+        "\t\tif (flat_at == string::npos) {\n"
+        '\t\t\tthrow IOException("crypta answered %s with no %s member", what, field);\n'
+        "\t\t}\n"
+        "\t\tauto flat_start = flat_at + flat_key.size();\n"
+        "\t\tauto flat_end = items[i].find('\"', flat_start);\n"
+        "\t\tif (flat_end == string::npos) {\n"
+        '\t\t\tthrow IOException("crypta answered %s with a %s value that is not a JSON string", what, field);\n'
+        "\t\t}\n"
+        "\t\tvalue = items[i].substr(flat_start, flat_end - flat_start);\n"
+        "\t\t(void)members;",
         "reddens": [
             "crypta: a dek buried inside the echoed identity is not read as the item's own",
             "crypta: a reply item carrying two dek members is refused",
@@ -463,62 +465,64 @@ MUTANTS = [
         "name": "no_frame_upper_bound",
         "file": "crypta_client.cpp",
         "why": "the upper bound on an announced response length",
-        "old": '\tif (response_length == 0 || response_length > MAX_FRAME) {',
-        "new": '\tif (response_length == 0) {',
+        "old": "\tif (response_length == 0 || response_length > MAX_FRAME) {",
+        "new": "\tif (response_length == 0) {",
         "reddens": ["crypta: an oversized response frame is refused"],
     },
     {
         "name": "no_frame_lower_bound",
         "file": "crypta_client.cpp",
         "why": "the refusal of a zero-length response frame",
-        "old": '\tif (response_length == 0 || response_length > MAX_FRAME) {',
-        "new": '\tif (response_length > MAX_FRAME) {',
+        "old": "\tif (response_length == 0 || response_length > MAX_FRAME) {",
+        "new": "\tif (response_length > MAX_FRAME) {",
         "reddens": ["crypta: a zero-length response frame is refused"],
     },
     {
         "name": "no_request_frame_limit",
         "file": "crypta_client.cpp",
         "why": "the refusal to send a request past the frame limit",
-        "old": '\tif (json_body.size() > MAX_FRAME) {',
-        "new": '\tif (false) {',
-        "reddens": ["crypta: a request larger than the frame limit is refused before it is sent"],
+        "old": "\tif (json_body.size() > MAX_FRAME) {",
+        "new": "\tif (false) {",
+        "reddens": [
+            "crypta: a request larger than the frame limit is refused before it is sent"
+        ],
     },
     {
         "name": "no_eof_check",
         "file": "crypta_client.cpp",
         "why": "treating a short read as a protocol violation rather than a partial success",
-        "old": '\t\tif (rc == 0) {\n'
-               '\t\t\tthrow IOException("crypta closed the connection while reading %s", what);\n'
-               '\t\t}',
-        "new": '\t\tif (rc == 0) {\n'
-               '\t\t\tbreak;\n'
-               '\t\t}',
+        "old": "\t\tif (rc == 0) {\n"
+        '\t\t\tthrow IOException("crypta closed the connection while reading %s", what);\n'
+        "\t\t}",
+        "new": "\t\tif (rc == 0) {\n" "\t\t\tbreak;\n" "\t\t}",
         "reddens": ["crypta: a connection closed mid-read is refused"],
     },
     {
         "name": "no_wrap_item_separator",
         "file": "crypta_client.cpp",
         "why": "the comma between items in a wrap_batch body - without it a "
-               "two-file commit sends JSON crypta cannot parse",
-        "old": '\t\tif (i > 0) {\n'
-               '\t\t\tbody += ",";\n'
-               '\t\t}\n'
-               '\t\tbody += StringUtil::Format("{\\"identity\\":%s,\\"dek\\":\\"%s\\"}", IdentityJson(identities[i]),',
-        "new": '\t\tif (false) {\n'
-               '\t\t\tbody += ",";\n'
-               '\t\t}\n'
-               '\t\tbody += StringUtil::Format("{\\"identity\\":%s,\\"dek\\":\\"%s\\"}", IdentityJson(identities[i]),',
-        "reddens": ["crypta: a multi-item wrap is one request with well-formed separators"],
+        "two-file commit sends JSON crypta cannot parse",
+        "old": "\t\tif (i > 0) {\n"
+        '\t\t\tbody += ",";\n'
+        "\t\t}\n"
+        '\t\tbody += StringUtil::Format("{\\"identity\\":%s,\\"dek\\":\\"%s\\"}", IdentityJson(identities[i]),',
+        "new": "\t\tif (false) {\n"
+        '\t\t\tbody += ",";\n'
+        "\t\t}\n"
+        '\t\tbody += StringUtil::Format("{\\"identity\\":%s,\\"dek\\":\\"%s\\"}", IdentityJson(identities[i]),',
+        "reddens": [
+            "crypta: a multi-item wrap is one request with well-formed separators"
+        ],
     },
     {
         "name": "no_single_request_per_batch",
         "file": "crypta_client.cpp",
         "why": "the one-call-per-commit property of WrapBatch. Not a refusal - a "
-               "DESIGN claim the class's own note turns on (writes batch, reads "
-               "do not), and the connection-count assertions were the only thing "
-               "carrying it. Sending the body twice leaves every returned blob "
-               "correct and only the count wrong, which is exactly how this would "
-               "regress in practice",
+        "DESIGN claim the class's own note turns on (writes batch, reads "
+        "do not), and the connection-count assertions were the only thing "
+        "carrying it. Sending the body twice leaves every returned blob "
+        "correct and only the count wrong, which is exactly how this would "
+        "regress in practice",
         # Anchored on the wrap path's RETURN rather than on its `Request` call:
         # since #31 both batch paths open with the same two lines, so the old
         # pattern matched twice and the exactly-once guard refused it. Sending the
@@ -526,43 +530,47 @@ MUTANTS = [
         # - two connections, every returned blob still correct, only the
         # one-call-per-commit claim broken.
         "old": '\treturn ExtractBoundBase64Field(response, "wrapped", identities);',
-        "new": '\tRequest(body);\n'
-               '\treturn ExtractBoundBase64Field(response, "wrapped", identities);',
-        "reddens": ["crypta: a multi-item wrap is one request with well-formed separators",
-                    "crypta provider: WrapKeys batches a whole commit into one call"],
+        "new": "\tRequest(body);\n"
+        '\treturn ExtractBoundBase64Field(response, "wrapped", identities);',
+        "reddens": [
+            "crypta: a multi-item wrap is one request with well-formed separators",
+            "crypta provider: WrapKeys batches a whole commit into one call",
+        ],
     },
     {
         "name": "no_socket_creation_check",
         "file": "crypta_client.cpp",
         "why": "the refusal of a socket() that failed - so an fd of -1 is carried "
-               "into connect() and the error blames the service instead",
-        "old": '\tif (handle.fd < 0) {\n'
-               '\t\tthrow IOException("could not create a socket for crypta: %s", strerror(errno));\n'
-               '\t}',
-        "new": '\tif (false) {\n'
-               '\t\tthrow IOException("could not create a socket for crypta: %s", strerror(errno));\n'
-               '\t}',
+        "into connect() and the error blames the service instead",
+        "old": "\tif (handle.fd < 0) {\n"
+        '\t\tthrow IOException("could not create a socket for crypta: %s", strerror(errno));\n'
+        "\t}",
+        "new": "\tif (false) {\n"
+        '\t\tthrow IOException("could not create a socket for crypta: %s", strerror(errno));\n'
+        "\t}",
         "reddens": ["crypta: a socket that cannot be created is refused, not used"],
     },
     {
         "name": "no_self_test_ok_check",
         "file": "ducklake_crypta.cpp",
         "why": "the ATTACH self-test's refusal of a service that answers but is "
-               "not ok - the fail-open that installs the provider on a sealed KEK",
+        "not ok - the fail-open that installs the provider on a sealed KEK",
         "old": '\tif (health.find("\\"ok\\":true") == string::npos) {\n'
-               '\t\tthrow IOException("crypta at %s did not report ok: %s", client.SocketPath(), health);\n'
-               '\t}',
-        "new": '\tif (false) {\n'
-               '\t\tthrow IOException("crypta at %s did not report ok: %s", client.SocketPath(), health);\n'
-               '\t}',
-        "reddens": ["crypta: a service that answers but does not report ok fails the self-test"],
+        '\t\tthrow IOException("crypta at %s did not report ok: %s", client.SocketPath(), health);\n'
+        "\t}",
+        "new": "\tif (false) {\n"
+        '\t\tthrow IOException("crypta at %s did not report ok: %s", client.SocketPath(), health);\n'
+        "\t}",
+        "reddens": [
+            "crypta: a service that answers but does not report ok fails the self-test"
+        ],
     },
     {
         "name": "no_read_error_check",
         "file": "crypta_client.cpp",
         "why": "raising a socket read failure",
         "old": '\t\t\tthrow IOException("crypta read failed while reading %s: %s", what, strerror(errno));',
-        "new": '\t\t\tbreak;',
+        "new": "\t\t\tbreak;",
         "reddens": ["crypta: a socket read failure is refused"],
     },
     {
@@ -570,7 +578,7 @@ MUTANTS = [
         "file": "crypta_client.cpp",
         "why": "raising a socket write failure",
         "old": '\t\t\tthrow IOException("crypta write failed: %s", strerror(errno));',
-        "new": '\t\t\tbreak;',
+        "new": "\t\t\tbreak;",
         "reddens": ["crypta: a socket write failure is refused"],
     },
     {
@@ -583,16 +591,16 @@ MUTANTS = [
         "name": "no_plaintext_length_floor",
         "file": "crypta_client.cpp",
         "why": "the length floor that stops a plaintext DEK being misread as a "
-               "wrapped blob. Without it a 44-character key beginning 'RExL' is "
-               "refused forever on a lake that never had crypta, with advice that "
-               "does not apply - an unrecoverable false positive on the upstream "
-               "path, which is the worst shape this change could have taken",
-        "old": 'static constexpr idx_t MAX_PLAINTEXT_KEY_BASE64 = 44;\n'
-               '\tif (base64_value.size() <= MAX_PLAINTEXT_KEY_BASE64) {\n'
-               '\t\treturn false;\n'
-               '\t}\n'
-               '\treturn StringUtil::StartsWith(base64_value, WRAPPED_PREFIX);',
-        "new": '\treturn StringUtil::StartsWith(base64_value, WRAPPED_PREFIX);',
+        "wrapped blob. Without it a 44-character key beginning 'RExL' is "
+        "refused forever on a lake that never had crypta, with advice that "
+        "does not apply - an unrecoverable false positive on the upstream "
+        "path, which is the worst shape this change could have taken",
+        "old": "static constexpr idx_t MAX_PLAINTEXT_KEY_BASE64 = 44;\n"
+        "\tif (base64_value.size() <= MAX_PLAINTEXT_KEY_BASE64) {\n"
+        "\t\treturn false;\n"
+        "\t}\n"
+        "\treturn StringUtil::StartsWith(base64_value, WRAPPED_PREFIX);",
+        "new": "\treturn StringUtil::StartsWith(base64_value, WRAPPED_PREFIX);",
         "reddens": [
             "crypta: LooksWrapped does not misread a plaintext DEK that happens to start with the magic",
             "crypta provider: a plaintext key row is refused, never used",
@@ -602,22 +610,21 @@ MUTANTS = [
         "name": "no_sigpipe_suppression",
         "file": "crypta_client.cpp",
         "why": "the LOCAL suppression of SIGPIPE on the write path. Both platform "
-               "arms go at once - MSG_NOSIGNAL on the send and SO_NOSIGPIPE on "
-               "the socket - so the mutant is the pre-fix behaviour on Linux AND "
-               "on macOS, not just on whichever one the runner happens to be",
-        "old": '#ifdef SO_NOSIGPIPE\n'
-               '\tint enabled = 1;\n'
-               '\tsetsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled));\n'
-               '#else\n'
-               '\t(void)fd;\n'
-               '#endif\n'
-               '#ifdef MSG_NOSIGNAL\n'
-               '\treturn MSG_NOSIGNAL;\n'
-               '#else\n'
-               '\treturn 0;\n'
-               '#endif',
-        "new": '\t(void)fd;\n'
-               '\treturn 0;',
+        "arms go at once - MSG_NOSIGNAL on the send and SO_NOSIGPIPE on "
+        "the socket - so the mutant is the pre-fix behaviour on Linux AND "
+        "on macOS, not just on whichever one the runner happens to be",
+        "old": "#ifdef SO_NOSIGPIPE\n"
+        "\tint enabled = 1;\n"
+        "\tsetsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled));\n"
+        "#else\n"
+        "\t(void)fd;\n"
+        "#endif\n"
+        "#ifdef MSG_NOSIGNAL\n"
+        "\treturn MSG_NOSIGNAL;\n"
+        "#else\n"
+        "\treturn 0;\n"
+        "#endif",
+        "new": "\t(void)fd;\n" "\treturn 0;",
         "reddens": [
             "crypta: a socket write failure does not kill a host that leaves SIGPIPE at its default"
         ],
@@ -626,96 +633,104 @@ MUTANTS = [
         "name": "no_eintr_retry_read",
         "file": "crypta_client.cpp",
         "why": "the EINTR retry on the read side",
-        "old": '\t\tif (rc < 0) {\n'
-               '\t\t\tif (errno == EINTR) {\n'
-               '\t\t\t\tcontinue;\n'
-               '\t\t\t}\n'
-               '\t\t\tthrow IOException("crypta read failed while reading %s: %s", what, strerror(errno));',
-        "new": '\t\tif (rc < 0) {\n'
-               '\t\t\tif (false) {\n'
-               '\t\t\t\tcontinue;\n'
-               '\t\t\t}\n'
-               '\t\t\tthrow IOException("crypta read failed while reading %s: %s", what, strerror(errno));',
-        "reddens": ["crypta: a signal during the response read is retried, not reported as failure"],
+        "old": "\t\tif (rc < 0) {\n"
+        "\t\t\tif (errno == EINTR) {\n"
+        "\t\t\t\tcontinue;\n"
+        "\t\t\t}\n"
+        '\t\t\tthrow IOException("crypta read failed while reading %s: %s", what, strerror(errno));',
+        "new": "\t\tif (rc < 0) {\n"
+        "\t\t\tif (false) {\n"
+        "\t\t\t\tcontinue;\n"
+        "\t\t\t}\n"
+        '\t\t\tthrow IOException("crypta read failed while reading %s: %s", what, strerror(errno));',
+        "reddens": [
+            "crypta: a signal during the response read is retried, not reported as failure"
+        ],
     },
     {
         "name": "no_eintr_retry_write",
         "file": "crypta_client.cpp",
         "why": "the EINTR retry on the write side",
-        "old": '\t\tif (rc < 0) {\n'
-               '\t\t\tif (errno == EINTR) {\n'
-               '\t\t\t\tcontinue;\n'
-               '\t\t\t}\n'
-               '\t\t\tthrow IOException("crypta write failed: %s", strerror(errno));',
-        "new": '\t\tif (rc < 0) {\n'
-               '\t\t\tif (false) {\n'
-               '\t\t\t\tcontinue;\n'
-               '\t\t\t}\n'
-               '\t\t\tthrow IOException("crypta write failed: %s", strerror(errno));',
-        "reddens": ["crypta: a signal during the request write is retried, not reported as failure"],
+        "old": "\t\tif (rc < 0) {\n"
+        "\t\t\tif (errno == EINTR) {\n"
+        "\t\t\t\tcontinue;\n"
+        "\t\t\t}\n"
+        '\t\t\tthrow IOException("crypta write failed: %s", strerror(errno));',
+        "new": "\t\tif (rc < 0) {\n"
+        "\t\t\tif (false) {\n"
+        "\t\t\t\tcontinue;\n"
+        "\t\t\t}\n"
+        '\t\t\tthrow IOException("crypta write failed: %s", strerror(errno));',
+        "reddens": [
+            "crypta: a signal during the request write is retried, not reported as failure"
+        ],
     },
     {
         "name": "no_empty_shortcut_wrap",
         "file": "crypta_client.cpp",
         "why": "the empty-batch shortcut on the wrap path",
-        "old": '\tif (identities.empty()) {\n'
-               '\t\treturn {};\n'
-               '\t}\n'
-               '\tstring body = StringUtil::Format("{\\"schema\\":\\"%s\\",\\"op\\":\\"wrap_batch\\",\\"count\\":%llu,\\"items\\":[", WIRE_SCHEMA,\n'
-               '\t                                static_cast<uint64_t>(identities.size()));',
-        "new": '\tif (false) {\n'
-               '\t\treturn {};\n'
-               '\t}\n'
-               '\tstring body = StringUtil::Format("{\\"schema\\":\\"%s\\",\\"op\\":\\"wrap_batch\\",\\"count\\":%llu,\\"items\\":[", WIRE_SCHEMA,\n'
-               '\t                                static_cast<uint64_t>(identities.size()));',
-        "reddens": ["crypta: an empty batch returns empty WITHOUT contacting the service"],
+        "old": "\tif (identities.empty()) {\n"
+        "\t\treturn {};\n"
+        "\t}\n"
+        '\tstring body = StringUtil::Format("{\\"schema\\":\\"%s\\",\\"op\\":\\"wrap_batch\\",\\"count\\":%llu,\\"items\\":[", WIRE_SCHEMA,\n'
+        "\t                                static_cast<uint64_t>(identities.size()));",
+        "new": "\tif (false) {\n"
+        "\t\treturn {};\n"
+        "\t}\n"
+        '\tstring body = StringUtil::Format("{\\"schema\\":\\"%s\\",\\"op\\":\\"wrap_batch\\",\\"count\\":%llu,\\"items\\":[", WIRE_SCHEMA,\n'
+        "\t                                static_cast<uint64_t>(identities.size()));",
+        "reddens": [
+            "crypta: an empty batch returns empty WITHOUT contacting the service"
+        ],
     },
     {
         "name": "no_empty_shortcut_unwrap",
         "file": "crypta_client.cpp",
         "why": "the empty-batch shortcut on the unwrap path",
-        "old": '\tif (identities.empty()) {\n'
-               '\t\treturn {};\n'
-               '\t}\n'
-               '\tstring body = StringUtil::Format("{\\"schema\\":\\"%s\\",\\"op\\":\\"unwrap_batch\\",\\"count\\":%llu,\\"items\\":[", WIRE_SCHEMA,\n'
-               '\t                                static_cast<uint64_t>(identities.size()));',
-        "new": '\tif (false) {\n'
-               '\t\treturn {};\n'
-               '\t}\n'
-               '\tstring body = StringUtil::Format("{\\"schema\\":\\"%s\\",\\"op\\":\\"unwrap_batch\\",\\"count\\":%llu,\\"items\\":[", WIRE_SCHEMA,\n'
-               '\t                                static_cast<uint64_t>(identities.size()));',
-        "reddens": ["crypta: an empty batch returns empty WITHOUT contacting the service"],
+        "old": "\tif (identities.empty()) {\n"
+        "\t\treturn {};\n"
+        "\t}\n"
+        '\tstring body = StringUtil::Format("{\\"schema\\":\\"%s\\",\\"op\\":\\"unwrap_batch\\",\\"count\\":%llu,\\"items\\":[", WIRE_SCHEMA,\n'
+        "\t                                static_cast<uint64_t>(identities.size()));",
+        "new": "\tif (false) {\n"
+        "\t\treturn {};\n"
+        "\t}\n"
+        '\tstring body = StringUtil::Format("{\\"schema\\":\\"%s\\",\\"op\\":\\"unwrap_batch\\",\\"count\\":%llu,\\"items\\":[", WIRE_SCHEMA,\n'
+        "\t                                static_cast<uint64_t>(identities.size()));",
+        "reddens": [
+            "crypta: an empty batch returns empty WITHOUT contacting the service"
+        ],
     },
     {
         "name": "no_size_mismatch_wrap",
         "file": "crypta_client.cpp",
         "why": "the identities-vs-keys count check on the wrap path",
-        "old": '\tif (identities.size() != deks.size()) {',
-        "new": '\tif (false) {',
+        "old": "\tif (identities.size() != deks.size()) {",
+        "new": "\tif (false) {",
         "reddens": ["crypta: a batch with more keys than identities is refused"],
     },
     {
         "name": "no_size_mismatch_unwrap",
         "file": "crypta_client.cpp",
         "why": "the identities-vs-blobs count check on the unwrap path",
-        "old": '\tif (identities.size() != blobs.size()) {',
-        "new": '\tif (false) {',
+        "old": "\tif (identities.size() != blobs.size()) {",
+        "new": "\tif (false) {",
         "reddens": ["crypta: a batch with more keys than identities is refused"],
     },
     {
         "name": "no_lake_id_check",
         "file": "ducklake_crypta.cpp",
         "why": "the refusal of an empty lake id",
-        "old": '\tif (lake_id.empty()) {',
-        "new": '\tif (false) {',
+        "old": "\tif (lake_id.empty()) {",
+        "new": "\tif (false) {",
         "reddens": ["crypta provider: an empty lake id is refused"],
     },
     {
         "name": "no_plaintext_refusal",
         "file": "ducklake_crypta.cpp",
         "why": "the refusal of a plaintext key row on an enveloped lake",
-        "old": '\tif (!CryptaClient::LooksWrapped(base64_value)) {',
-        "new": '\tif (false) {',
+        "old": "\tif (!CryptaClient::LooksWrapped(base64_value)) {",
+        "new": "\tif (false) {",
         # The ordering case is named here as well as under no_blob_alphabet_check,
         # deliberately: removing THIS guard makes the under-floor value fall
         # through to the alphabet check, so the case's first assertion - that a
@@ -730,8 +745,8 @@ MUTANTS = [
         "name": "no_cache_lookup",
         "file": "ducklake_crypta.cpp",
         "why": "the cache lookup itself",
-        "old": '\t\tif (entry != unwrap_cache.end()) {',
-        "new": '\t\tif (false) {',
+        "old": "\t\tif (entry != unwrap_cache.end()) {",
+        "new": "\t\tif (false) {",
         # The two key-confusion composition cases belong here too, and listing them
         # is what VERIFIES the claim their comments make. Each ends by re-reading
         # the legitimate row and requiring the connection count not to move, so a
@@ -749,17 +764,19 @@ MUTANTS = [
         "name": "no_cache_clear",
         "file": "ducklake_crypta.cpp",
         "why": "the wholesale clear when the cap is reached",
-        "old": '\t\tif (unwrap_cache.size() >= MAX_CACHED_KEYS) {',
-        "new": '\t\tif (false) {',
-        "reddens": ["crypta provider: the cache is cleared wholesale when the cap is hit"],
+        "old": "\t\tif (unwrap_cache.size() >= MAX_CACHED_KEYS) {",
+        "new": "\t\tif (false) {",
+        "reddens": [
+            "crypta provider: the cache is cleared wholesale when the cap is hit"
+        ],
     },
     {
         "name": "cache_key_blob_only",
         "file": "ducklake_crypta.cpp",
         "why": "THE key-confusion guard - commit 7df67912. Keys the cache on the "
-               "wrapped blob alone, which is the hole that commit closed",
+        "wrapped blob alone, which is the hole that commit closed",
         "old": CACHE_KEY_COMPOSITION,
-        "new": '\tcache_key = base64_value;',
+        "new": "\tcache_key = base64_value;",
         "reddens": [
             "crypta provider: two identities sharing one blob do not collide in the cache",
             "crypta provider: every component of the identity is part of the cache key",
@@ -770,34 +787,36 @@ MUTANTS = [
         "name": "cache_key_identity_only",
         "file": "ducklake_crypta.cpp",
         "why": "the BLOB half of the cache key. The mirror of cache_key_blob_only, "
-               "and it exists because that mutant cannot redden the two-blobs "
-               "case: with the key reduced to the blob alone, two DIFFERENT blobs "
-               "still give two different keys, so the case passes unmutated and "
-               "would have been left claiming red-first evidence it did not have",
+        "and it exists because that mutant cannot redden the two-blobs "
+        "case: with the key reduced to the blob alone, two DIFFERENT blobs "
+        "still give two different keys, so the case passes unmutated and "
+        "would have been left claiming red-first evidence it did not have",
         "old": CACHE_KEY_COMPOSITION,
-        "new": '\tAppendLengthPrefixed(cache_key, identity.lake_id);\n'
-               '\tAppendLengthPrefixed(cache_key, table_id_text);\n'
-               '\tAppendLengthPrefixed(cache_key, file_kind);\n'
-               '\tAppendLengthPrefixed(cache_key, identity.stored_path);',
-        "reddens": ["crypta provider: one identity with two blobs does not collide in the cache"],
+        "new": "\tAppendLengthPrefixed(cache_key, identity.lake_id);\n"
+        "\tAppendLengthPrefixed(cache_key, table_id_text);\n"
+        "\tAppendLengthPrefixed(cache_key, file_kind);\n"
+        "\tAppendLengthPrefixed(cache_key, identity.stored_path);",
+        "reddens": [
+            "crypta provider: one identity with two blobs does not collide in the cache"
+        ],
     },
     {
         "name": "cache_key_unprefixed_join",
         "file": "ducklake_crypta.cpp",
         "why": "the LENGTH PREFIXES that make the cache key injective, restoring the "
-               "bare-'|' join they replaced. Without a length in front of each "
-               "component nothing fixes where one ends: the boundary is found by "
-               "scanning for a separator, so a '|' inside a component is re-read as "
-               "structure and the components become readable across their own "
-               "boundaries. Two DIFFERENT (identity, blob) pairs then produce one "
-               "key, and the substituted row is served the cached DEK instead of "
-               "reaching crypta - the key-confusion bypass, back through the join",
+        "bare-'|' join they replaced. Without a length in front of each "
+        "component nothing fixes where one ends: the boundary is found by "
+        "scanning for a separator, so a '|' inside a component is re-read as "
+        "structure and the components become readable across their own "
+        "boundaries. Two DIFFERENT (identity, blob) pairs then produce one "
+        "key, and the substituted row is served the cached DEK instead of "
+        "reaching crypta - the key-confusion bypass, back through the join",
         "old": CACHE_KEY_COMPOSITION,
         "new": '\tcache_key = StringUtil::Format("%s|%lld|%s|%s", identity.lake_id, '
-               'static_cast<long long>(identity.table_id),\n'
-               '\t                               identity.is_delete_file ? "delete" : "data", '
-               'identity.stored_path) +\n'
-               '\t            "|" + base64_value;',
+        "static_cast<long long>(identity.table_id),\n"
+        '\t                               identity.is_delete_file ? "delete" : "data", '
+        "identity.stored_path) +\n"
+        '\t            "|" + base64_value;',
         # ONE case, not two, and the missing one is the interesting part.
         #
         # This list used to name the "'|' in a path" case as well. MEASURED after
@@ -876,14 +895,14 @@ EXTENSION_MUTANTS = [
         "name": "no_resolved_encryption_check",
         "file": "src/storage/ducklake_catalog.cpp",
         "why": "FinalizeLoad's refusal of an ATTACH where crypta was configured "
-               "but the lake RESOLVED to unencrypted (#19). The constructor "
-               "cannot make this call - the DEFAULT is AUTOMATIC, and only the "
-               "initializer resolves it - so without this the ATTACH succeeded, "
-               "the self-test passed, and NOT ONE key was written: the operator "
-               "asked for envelope encryption and got neither an envelope nor "
-               "encryption, silently",
-        "old": '\tif (crypta_provider && Encryption() != DuckLakeEncryption::ENCRYPTED) {',
-        "new": '\tif (false) {',
+        "but the lake RESOLVED to unencrypted (#19). The constructor "
+        "cannot make this call - the DEFAULT is AUTOMATIC, and only the "
+        "initializer resolves it - so without this the ATTACH succeeded, "
+        "the self-test passed, and NOT ONE key was written: the operator "
+        "asked for envelope encryption and got neither an envelope nor "
+        "encryption, silently",
+        "old": "\tif (crypta_provider && Encryption() != DuckLakeEncryption::ENCRYPTED) {",
+        "new": "\tif (false) {",
         "reddens": ["test/sql/crypta/crypta_config_refusals.test"],
         # The ATTACH that must stop being refused. It is the file's FIRST
         # statement after the requires, so a fixture failure cannot counterfeit
@@ -904,13 +923,13 @@ EXTENSION_MUTANTS = [
         "name": "no_wrapped_key_refusal_body",
         "file": "src/storage/ducklake_catalog.cpp",
         "why": "the JUDGEMENT inside RefuseWrappedKeyWithoutCrypta - it keeps "
-               "being called and keeps consulting LooksWrapped, and simply "
-               "answers 'not wrapped' every time. The two call-site mutants below "
-               "prove each caller CONSULTS the guard; only this one proves what "
-               "the guard ANSWERS, and it is the mutant that would survive if the "
-               "predicate itself were inverted or stubbed",
-        "old": '\tif (!CryptaClient::LooksWrapped(stored_key)) {',
-        "new": '\tif (true) {',
+        "being called and keeps consulting LooksWrapped, and simply "
+        "answers 'not wrapped' every time. The two call-site mutants below "
+        "prove each caller CONSULTS the guard; only this one proves what "
+        "the guard ANSWERS, and it is the mutant that would survive if the "
+        "predicate itself were inverted or stubbed",
+        "old": "\tif (!CryptaClient::LooksWrapped(stored_key)) {",
+        "new": "\tif (true) {",
         # Both files, because both call sites go through this body. The runner
         # verifies the roster PER CASE - it requires each named file to fail, and
         # each `redden_at` to appear - so a mutant that reddened only one of them
@@ -928,46 +947,46 @@ EXTENSION_MUTANTS = [
         "name": "no_wrapped_key_refusal_on_scan",
         "file": "src/storage/ducklake_metadata_manager.cpp",
         "why": "the REFUSAL half of the resolution at the scan site - "
-               "ReadDataFile's null-provider branch, reached exactly when the "
-               "crypta options were absent from the ATTACH. Without it the "
-               "wrapped blob is base64-decoded and handed to the Parquet reader "
-               "AS IF IT WERE A KEY, and mbedtls asserts on the length (#20) - "
-               "fail-closed by accident, and a blob whose length happened to be "
-               "valid would have been TRIED. Since #26 the site calls "
-               "ResolveStoredEncryptionKey rather than the refusal directly, so "
-               "the mutant restores the two branches BY HAND with only the "
-               "refusal missing. That is deliberate and it keeps this mutant's "
-               "meaning exactly what it always was: it removes the refusal at "
-               "THIS site and nothing else - a configured lake still unwraps, so "
-               "no case reddens for the wrong reason",
-        "old": '\t\tdata.encryption_key = transaction.GetCatalog().ResolveStoredEncryptionKey(table.GetTableId(), path.path,\n'
-               '\t\t                                                                         data.path, is_delete_file, stored_key);',
+        "ReadDataFile's null-provider branch, reached exactly when the "
+        "crypta options were absent from the ATTACH. Without it the "
+        "wrapped blob is base64-decoded and handed to the Parquet reader "
+        "AS IF IT WERE A KEY, and mbedtls asserts on the length (#20) - "
+        "fail-closed by accident, and a blob whose length happened to be "
+        "valid would have been TRIED. Since #26 the site calls "
+        "ResolveStoredEncryptionKey rather than the refusal directly, so "
+        "the mutant restores the two branches BY HAND with only the "
+        "refusal missing. That is deliberate and it keeps this mutant's "
+        "meaning exactly what it always was: it removes the refusal at "
+        "THIS site and nothing else - a configured lake still unwraps, so "
+        "no case reddens for the wrong reason",
+        "old": "\t\tdata.encryption_key = transaction.GetCatalog().ResolveStoredEncryptionKey(table.GetTableId(), path.path,\n"
+        "\t\t                                                                         data.path, is_delete_file, stored_key);",
         # The hand-restored branches carry the NULL refusal too. Since #53 the
         # resolution answers THREE questions, not two, and a mutant that dropped
         # the null one as well would redden `adversary_flush_null_key.test`'s scan
         # control - a case it does not name - which is a mutant measuring two
         # guards and attributing both to one.
-        "new": '\t\t// MUTANT no_wrapped_key_refusal_on_scan: the refusal was in the resolution.\n'
-               '\t\tif (stored_key.IsNull()) {\n'
-               '\t\t\ttransaction.GetCatalog().RefuseMissingEncryptionKey(data.path);\n'
-               '\t\t} else {\n'
-               # `.template GetValue<string>()`, not `.GetValue<string>()`.
-               # ReadDataFile is a TEMPLATE over the row type, so `stored_key` -
-               # deduced from `row.GetBaseValue(...)` - is a dependent type and
-               # g++-14 parses the bare `<` as less-than. Measured: the first run
-               # of this mutant reported `ERROR ... the mutated extension does not
-               # compile`, which is the runner refusing to count a mutant it could
-               # not build rather than absorbing it into a red.
-               '\t\t\tauto mutant_key = stored_key.template GetValue<string>();\n'
-               '\t\t\tauto mutant_crypta = transaction.GetCatalog().CryptaProvider();\n'
-               '\t\t\tif (mutant_crypta) {\n'
-               '\t\t\t\tdata.encryption_key = mutant_crypta->UnwrapKey(\n'
-               '\t\t\t\t    transaction.GetCatalog().CryptaIdentity(table.GetTableId(), path.path, is_delete_file),\n'
-               '\t\t\t\t    mutant_key);\n'
-               '\t\t\t} else {\n'
-               '\t\t\t\tdata.encryption_key = Blob::FromBase64(string_t(mutant_key));\n'
-               '\t\t\t}\n'
-               '\t\t}',
+        "new": "\t\t// MUTANT no_wrapped_key_refusal_on_scan: the refusal was in the resolution.\n"
+        "\t\tif (stored_key.IsNull()) {\n"
+        "\t\t\ttransaction.GetCatalog().RefuseMissingEncryptionKey(data.path);\n"
+        "\t\t} else {\n"
+        # `.template GetValue<string>()`, not `.GetValue<string>()`.
+        # ReadDataFile is a TEMPLATE over the row type, so `stored_key` -
+        # deduced from `row.GetBaseValue(...)` - is a dependent type and
+        # g++-14 parses the bare `<` as less-than. Measured: the first run
+        # of this mutant reported `ERROR ... the mutated extension does not
+        # compile`, which is the runner refusing to count a mutant it could
+        # not build rather than absorbing it into a red.
+        "\t\t\tauto mutant_key = stored_key.template GetValue<string>();\n"
+        "\t\t\tauto mutant_crypta = transaction.GetCatalog().CryptaProvider();\n"
+        "\t\t\tif (mutant_crypta) {\n"
+        "\t\t\t\tdata.encryption_key = mutant_crypta->UnwrapKey(\n"
+        "\t\t\t\t    transaction.GetCatalog().CryptaIdentity(table.GetTableId(), path.path, is_delete_file),\n"
+        "\t\t\t\t    mutant_key);\n"
+        "\t\t\t} else {\n"
+        "\t\t\t\tdata.encryption_key = Blob::FromBase64(string_t(mutant_key));\n"
+        "\t\t\t}\n"
+        "\t\t}",
         "reddens": ["test/sql/crypta/crypta_unconfigured_reader_refusal.test"],
         "redden_at": "SELECT sum(id) FROM unconfigured.alpha",
     },
@@ -975,35 +994,35 @@ EXTENSION_MUTANTS = [
         "name": "no_wrapped_key_refusal_on_flush",
         "file": "src/functions/ducklake_flush_inlined_data.cpp",
         "why": "the REFUSAL half of the resolution at the SECOND decode site - "
-               "the inlined-deletion flush path, which reads a delete-file key "
-               "with its own hand-written query and never passes through "
-               "ReadDataFile. The original fix called ReadDataFile 'THE unwrap "
-               "choke point'; that was false, and this is the site that proves "
-               "it. Since #26 the site calls ResolveStoredEncryptionKey, so the "
-               "mutant restores the two branches by hand with only the refusal "
-               "missing - the CONFIGURED direction is left intact so this stays "
-               "a mutant of the unconfigured guard alone, and the "
-               "no_unwrap_on_flush mutant below covers the other direction on "
-               "its own",
-        "old": '\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n'
-               '\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);',
+        "the inlined-deletion flush path, which reads a delete-file key "
+        "with its own hand-written query and never passes through "
+        "ReadDataFile. The original fix called ReadDataFile 'THE unwrap "
+        "choke point'; that was false, and this is the site that proves "
+        "it. Since #26 the site calls ResolveStoredEncryptionKey, so the "
+        "mutant restores the two branches by hand with only the refusal "
+        "missing - the CONFIGURED direction is left intact so this stays "
+        "a mutant of the unconfigured guard alone, and the "
+        "no_unwrap_on_flush mutant below covers the other direction on "
+        "its own",
+        "old": "\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n"
+        "\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);",
         # The NULL refusal is kept, for the same reason as on the scan site: this
         # mutant removes ONE of the three questions, and a mutant that removed two
         # would redden `adversary_flush_null_key.test` as well and be evidence for
         # neither guard on its own.
-        "new": '\t\t\t\t\t// MUTANT no_wrapped_key_refusal_on_flush: the refusal was in the resolution.\n'
-               '\t\t\t\t\tif (stored_delete_key.IsNull()) {\n'
-               '\t\t\t\t\t\tcatalog.RefuseMissingEncryptionKey(resolved_delete_path);\n'
-               '\t\t\t\t\t} else {\n'
-               '\t\t\t\t\t\tauto mutant_key = stored_delete_key.GetValue<string>();\n'
-               '\t\t\t\t\t\tauto mutant_crypta = catalog.CryptaProvider();\n'
-               '\t\t\t\t\t\tif (mutant_crypta) {\n'
-               '\t\t\t\t\t\t\tfile_info.existing_delete_encryption_key = mutant_crypta->UnwrapKey(\n'
-               '\t\t\t\t\t\t\t    catalog.CryptaIdentity(table_id, file_info.existing_delete_path, true), mutant_key);\n'
-               '\t\t\t\t\t\t} else {\n'
-               '\t\t\t\t\t\t\tfile_info.existing_delete_encryption_key = Blob::FromBase64(mutant_key);\n'
-               '\t\t\t\t\t\t}\n'
-               '\t\t\t\t\t}',
+        "new": "\t\t\t\t\t// MUTANT no_wrapped_key_refusal_on_flush: the refusal was in the resolution.\n"
+        "\t\t\t\t\tif (stored_delete_key.IsNull()) {\n"
+        "\t\t\t\t\t\tcatalog.RefuseMissingEncryptionKey(resolved_delete_path);\n"
+        "\t\t\t\t\t} else {\n"
+        "\t\t\t\t\t\tauto mutant_key = stored_delete_key.GetValue<string>();\n"
+        "\t\t\t\t\t\tauto mutant_crypta = catalog.CryptaProvider();\n"
+        "\t\t\t\t\t\tif (mutant_crypta) {\n"
+        "\t\t\t\t\t\t\tfile_info.existing_delete_encryption_key = mutant_crypta->UnwrapKey(\n"
+        "\t\t\t\t\t\t\t    catalog.CryptaIdentity(table_id, file_info.existing_delete_path, true), mutant_key);\n"
+        "\t\t\t\t\t\t} else {\n"
+        "\t\t\t\t\t\t\tfile_info.existing_delete_encryption_key = Blob::FromBase64(mutant_key);\n"
+        "\t\t\t\t\t\t}\n"
+        "\t\t\t\t\t}",
         # ONE file, and that is the finding rather than an omission:
         # `grep -rn RefuseWrappedKeyWithoutCrypta test/` finds this site named in
         # exactly one .test file. It is also a file whose state is NOT
@@ -1018,28 +1037,28 @@ EXTENSION_MUTANTS = [
         "name": "no_unwrap_on_flush",
         "file": "src/functions/ducklake_flush_inlined_data.cpp",
         "why": "#26 ITSELF, restored exactly - the UNWRAP half of the resolution "
-               "at the flush site, with the refusal left fully in place. This is "
-               "the code that shipped before the fix: a CONFIGURED crypta lake "
-               "base64-decoding a wrapped delete-file key and handing the bytes "
-               "to the Parquet reader, dying on 'INTERNAL Error: Invalid AES key "
-               "length for GCM'. It is the mirror of no_wrapped_key_refusal_on_"
-               "flush above and the reason the two halves are one call: with the "
-               "refusal alone, this site was HALF guarded and read as guarded. "
-               "The mutant proves the configured direction is load-bearing rather "
-               "than decorative, which deleting the whole call could not - that "
-               "would redden off the unconfigured arm and tell you nothing about "
-               "the unwrap",
-        "old": '\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n'
-               '\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);',
-        "new": '\t\t\t\t\t// MUTANT no_unwrap_on_flush: the unwrap was in the resolution.\n'
-               '\t\t\t\t\tif (stored_delete_key.IsNull()) {\n'
-               '\t\t\t\t\t\tcatalog.RefuseMissingEncryptionKey(resolved_delete_path);\n'
-               '\t\t\t\t\t} else {\n'
-               '\t\t\t\t\t\tauto mutant_key = stored_delete_key.GetValue<string>();\n'
-               '\t\t\t\t\t\tcatalog.RefuseWrappedKeyWithoutCrypta(resolved_delete_path, mutant_key);\n'
-               '\t\t\t\t\t\tfile_info.existing_delete_encryption_key = Blob::FromBase64(mutant_key);\n'
-               '\t\t\t\t\t}\n'
-               '\t\t\t\t\t(void)table_id;',
+        "at the flush site, with the refusal left fully in place. This is "
+        "the code that shipped before the fix: a CONFIGURED crypta lake "
+        "base64-decoding a wrapped delete-file key and handing the bytes "
+        "to the Parquet reader, dying on 'INTERNAL Error: Invalid AES key "
+        "length for GCM'. It is the mirror of no_wrapped_key_refusal_on_"
+        "flush above and the reason the two halves are one call: with the "
+        "refusal alone, this site was HALF guarded and read as guarded. "
+        "The mutant proves the configured direction is load-bearing rather "
+        "than decorative, which deleting the whole call could not - that "
+        "would redden off the unconfigured arm and tell you nothing about "
+        "the unwrap",
+        "old": "\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n"
+        "\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);",
+        "new": "\t\t\t\t\t// MUTANT no_unwrap_on_flush: the unwrap was in the resolution.\n"
+        "\t\t\t\t\tif (stored_delete_key.IsNull()) {\n"
+        "\t\t\t\t\t\tcatalog.RefuseMissingEncryptionKey(resolved_delete_path);\n"
+        "\t\t\t\t\t} else {\n"
+        "\t\t\t\t\t\tauto mutant_key = stored_delete_key.GetValue<string>();\n"
+        "\t\t\t\t\t\tcatalog.RefuseWrappedKeyWithoutCrypta(resolved_delete_path, mutant_key);\n"
+        "\t\t\t\t\t\tfile_info.existing_delete_encryption_key = Blob::FromBase64(mutant_key);\n"
+        "\t\t\t\t\t}\n"
+        "\t\t\t\t\t(void)table_id;",
         "reddens": ["test/sql/crypta/crypta_flush_configured_unwrap.test"],
         "redden_at": "CALL ducklake_flush_inlined_data('configured')",
     },
@@ -1047,27 +1066,27 @@ EXTENSION_MUTANTS = [
         "name": "no_null_key_refusal_on_flush",
         "file": "src/functions/ducklake_flush_inlined_data.cpp",
         "why": "#53 ITSELF, restored exactly - the shape v0.1.0-rc.1 shipped. "
-               "#26's fix moved TWO of the three questions the resolution asks "
-               "onto the catalog and left the third, 'is the column NULL on an "
-               "ENCRYPTED lake', inline in ReadDataFile. This site's own answer to "
-               "it was an `if (!chunk->GetValue(9, row_idx).IsNull())` wrapped "
-               "around the whole call, which SKIPS the resolution rather than "
-               "refusing - so an ENCRYPTED lake's delete file with no key was "
-               "refused by name on the scan path and silently accepted here, "
-               "dying inside the Parquet reader on \"is encrypted, but "
-               "'encryption_config' was not set\" (#20's shape, again). The mutant "
-               "restores exactly that `if` and nothing else: the unwrap and the "
-               "unconfigured refusal stay reachable for a non-NULL key, so this "
-               "reddens on the NULL and on nothing else. It is what makes the "
-               "UNCONDITIONAL call load-bearing rather than a tidier way of "
-               "writing the same thing",
-        "old": '\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n'
-               '\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);',
-        "new": '\t\t\t\t\t// MUTANT no_null_key_refusal_on_flush: v0.1.0-rc.1 skipped the resolve on NULL.\n'
-               '\t\t\t\t\tif (!stored_delete_key.IsNull()) {\n'
-               '\t\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n'
-               '\t\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);\n'
-               '\t\t\t\t\t}',
+        "#26's fix moved TWO of the three questions the resolution asks "
+        "onto the catalog and left the third, 'is the column NULL on an "
+        "ENCRYPTED lake', inline in ReadDataFile. This site's own answer to "
+        "it was an `if (!chunk->GetValue(9, row_idx).IsNull())` wrapped "
+        "around the whole call, which SKIPS the resolution rather than "
+        "refusing - so an ENCRYPTED lake's delete file with no key was "
+        "refused by name on the scan path and silently accepted here, "
+        'dying inside the Parquet reader on "is encrypted, but '
+        "'encryption_config' was not set\" (#20's shape, again). The mutant "
+        "restores exactly that `if` and nothing else: the unwrap and the "
+        "unconfigured refusal stay reachable for a non-NULL key, so this "
+        "reddens on the NULL and on nothing else. It is what makes the "
+        "UNCONDITIONAL call load-bearing rather than a tidier way of "
+        "writing the same thing",
+        "old": "\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n"
+        "\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);",
+        "new": "\t\t\t\t\t// MUTANT no_null_key_refusal_on_flush: v0.1.0-rc.1 skipped the resolve on NULL.\n"
+        "\t\t\t\t\tif (!stored_delete_key.IsNull()) {\n"
+        "\t\t\t\t\t\tfile_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(\n"
+        "\t\t\t\t\t\t    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);\n"
+        "\t\t\t\t\t}",
         # ONE file, and it is the adversary's, written against the released tag
         # before the fix existed. Its positive control is what makes the red mean
         # something: the same lake, the same run, the SCAN path refusing the same
@@ -1094,7 +1113,12 @@ for _mutant in MUTANTS:
     if _mutant["file"] not in SOURCE_DIRS[_where][1]:
         raise SystemExit(
             "mutant %s names %s in '%s', which that directory does not carry (%s)"
-            % (_mutant["name"], _mutant["file"], _where, ", ".join(SOURCE_DIRS[_where][1]))
+            % (
+                _mutant["name"],
+                _mutant["file"],
+                _where,
+                ", ".join(SOURCE_DIRS[_where][1]),
+            )
         )
 
 BY_NAME = {mutant["name"]: mutant for mutant in MUTANTS}
@@ -1103,7 +1127,9 @@ for _mutant in EXTENSION_MUTANTS:
     # ducklake-bench's `control_located_in` all resolve a bare name against BOTH
     # lists. A duplicate would make which mutant you got depend on list order.
     if _mutant["name"] in BY_NAME:
-        raise SystemExit("duplicate mutant name across the two rosters: %s" % _mutant["name"])
+        raise SystemExit(
+            "duplicate mutant name across the two rosters: %s" % _mutant["name"]
+        )
     BY_NAME[_mutant["name"]] = _mutant
 
 EXTENSION_BY_NAME = {mutant["name"]: mutant for mutant in EXTENSION_MUTANTS}
@@ -1187,7 +1213,9 @@ def catch_spec(test_names):
     nothing - and a spec matching nothing exits ZERO, which would read as "the
     mutant did not redden" when in fact nothing ran.
     """
-    return ",".join(name.replace("\\", "\\\\").replace(",", "\\,") for name in test_names)
+    return ",".join(
+        name.replace("\\", "\\\\").replace(",", "\\,") for name in test_names
+    )
 
 
 def substitute_exactly_once(target, name, old, new):
@@ -1227,7 +1255,9 @@ def apply_mutant(name, destination):
             % (name, mutant["file"])
         )
 
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    repo_root = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..")
+    )
     if os.path.isdir(destination):
         shutil.rmtree(destination)
     # EVERY source directory is copied, not just the mutant's own. The standalone
@@ -1239,10 +1269,18 @@ def apply_mutant(name, destination):
         target_dir = os.path.join(destination, key)
         os.makedirs(target_dir)
         for filename in filenames:
-            shutil.copyfile(os.path.join(repo_root, relative, filename), os.path.join(target_dir, filename))
+            shutil.copyfile(
+                os.path.join(repo_root, relative, filename),
+                os.path.join(target_dir, filename),
+            )
 
     where = mutant.get("src", DEFAULT_SRC)
-    substitute_exactly_once(os.path.join(destination, where, mutant["file"]), name, mutant["old"], mutant["new"])
+    substitute_exactly_once(
+        os.path.join(destination, where, mutant["file"]),
+        name,
+        mutant["old"],
+        mutant["new"],
+    )
     return destination
 
 
@@ -1327,7 +1365,10 @@ def main(argv):
             print(mutant["name"])
     elif command == "list":
         for mutant in roster:
-            print("%-32s %-46s removes %s" % (mutant["name"], mutant["file"], mutant["why"]))
+            print(
+                "%-32s %-46s removes %s"
+                % (mutant["name"], mutant["file"], mutant["why"])
+            )
     elif command == "files":
         # De-duplicated but order-preserving: the runner asserts `git diff` is
         # empty on each of them before it starts and after it finishes, and two
