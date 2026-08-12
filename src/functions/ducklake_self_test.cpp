@@ -98,33 +98,33 @@ static void DuckLakeSelfTestExecute(ClientContext &context, TableFunctionInput &
 	row.extension_version = "(dev)";
 #endif
 	row.duckdb_version = DuckDB::LibraryVersion();
-	row.provider_kind = "none";
+	row.provider_kind = "not_checked";
 	row.load_ok = true;
 
-	// Check 1: is the encryption provider factory registered?
-	auto &factory = DuckLakeEncryptionProvider::GetFactory();
-	if (!factory) {
-		row.provider_kind = "not_registered";
-		row.load_ok = false;
-	}
-
-	// Check 2: if a specific catalog was named, call the provider's SelfTest().
-	if (data.catalog && factory) {
-		auto provider = data.catalog->EncryptionProvider();
-		if (provider) {
-			try {
-				row.provider_kind = provider->SelfTest();
-			} catch (std::exception &e) {
-				row.provider_kind = StringUtil::Format("error: %s", e.what());
-				row.load_ok = false;
-			}
-		} else {
-			row.provider_kind = "catalog_has_no_provider";
+	if (!data.catalog) {
+		// No catalog named — cheap pass: the extension loaded, the function
+		// is reachable, and the caller proved it can execute SQL through DuckDB.
+		// This is what a consumer that does not hold encryption material calls.
+	} else {
+		// Catalog named — full encryption-path health check.
+		auto &factory = DuckLakeEncryptionProvider::GetFactory();
+		if (!factory) {
+			row.provider_kind = "factory_not_registered";
 			row.load_ok = false;
+		} else {
+			auto provider = data.catalog->EncryptionProvider();
+			if (!provider) {
+				row.provider_kind = "catalog_has_no_provider";
+				row.load_ok = false;
+			} else {
+				try {
+					row.provider_kind = provider->SelfTest();
+				} catch (std::exception &e) {
+					row.provider_kind = StringUtil::Format("error: %s", e.what());
+					row.load_ok = false;
+				}
+			}
 		}
-	} else if (data.catalog && !factory) {
-		row.provider_kind = "factory_not_registered";
-		row.load_ok = false;
 	}
 
 	output.SetValue(0, 0, Value(row.extension_name));
