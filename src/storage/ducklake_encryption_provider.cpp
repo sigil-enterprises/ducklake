@@ -16,26 +16,25 @@
 namespace duckdb {
 
 bool DuckLakeEncryptionProvider::LooksWrapped(const string &base64_value) {
-  // The magic "DLK1" comes first in the blob, so it survives base64
-  // verbatim as "RExL". Any blob starting with those four bytes is a
-  // wrapped key; anything else is not.
-  if (base64_value.size() < 4) {
-    return false;
-  }
-  return base64_value[0] == 'R' && base64_value[1] == 'E' &&
-         base64_value[2] == 'x' && base64_value[3] == 'L';
+	// The magic "DLK1" comes first in the blob, so it survives base64
+	// verbatim as "RExL". Any blob starting with those four bytes is a
+	// wrapped key; anything else is not.
+	if (base64_value.size() < 4) {
+		return false;
+	}
+	return base64_value[0] == 'R' && base64_value[1] == 'E' && base64_value[2] == 'x' && base64_value[3] == 'L';
 }
 
 bool DuckLakeEncryptionProvider::IsBase64(const string &value) {
-  for (size_t i = 0; i < value.size(); i++) {
-    unsigned char c = static_cast<unsigned char>(value[i]);
-    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-        (c >= '0' && c <= '9') || c == '+' || c == '/' || c == '=') {
-      continue;
-    }
-    return false;
-  }
-  return true;
+	for (size_t i = 0; i < value.size(); i++) {
+		unsigned char c = static_cast<unsigned char>(value[i]);
+		if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/' ||
+		    c == '=') {
+			continue;
+		}
+		return false;
+	}
+	return true;
 }
 
 //! Process-wide factory for creating concrete KMS providers.
@@ -49,20 +48,19 @@ DuckLakeEncryptionProvider::Factory *g_factory = nullptr;
 } // namespace
 
 void DuckLakeEncryptionProvider::RegisterFactory(Factory factory) {
-  if (!g_factory) {
-    g_factory = new Factory(std::move(factory));
-    return;
-  }
-  *g_factory = std::move(factory);
+	if (!g_factory) {
+		g_factory = new Factory(std::move(factory));
+		return;
+	}
+	*g_factory = std::move(factory);
 }
 
-const DuckLakeEncryptionProvider::Factory &
-DuckLakeEncryptionProvider::GetFactory() {
-  static Factory empty;
-  if (!g_factory) {
-    return empty;
-  }
-  return *g_factory;
+const DuckLakeEncryptionProvider::Factory &DuckLakeEncryptionProvider::GetFactory() {
+	static Factory empty;
+	if (!g_factory) {
+		return empty;
+	}
+	return *g_factory;
 }
 
 DuckLakeEncryptionProvider::Factory DuckLakeEncryptionProvider::factory_;

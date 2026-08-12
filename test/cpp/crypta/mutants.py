@@ -117,9 +117,7 @@ MUTANTS = [
         "old": "\tif (socket_path.empty()) {\n"
         '\t\tthrow InvalidInputException("crypta socket path is empty");\n'
         "\t}",
-        "new": "\tif (false) {\n"
-        '\t\tthrow InvalidInputException("crypta socket path is empty");\n'
-        "\t}",
+        "new": "\tif (false) {\n" '\t\tthrow InvalidInputException("crypta socket path is empty");\n' "\t}",
         "reddens": ["crypta: an empty socket path is refused at construction"],
     },
     {
@@ -134,9 +132,7 @@ MUTANTS = [
         "new": "\tif (socket_path.size() >= sizeof(addr.sun_path)) {\n"
         "\t\tsocket_path.resize(sizeof(addr.sun_path) - 1);\n"
         "\t}",
-        "reddens": [
-            "crypta: an over-long socket path is refused instead of silently truncated"
-        ],
+        "reddens": ["crypta: an over-long socket path is refused instead of silently truncated"],
     },
     {
         "name": "no_json_escape",
@@ -200,9 +196,7 @@ MUTANTS = [
         "\t\t                   u == '/' || u == '=';",
         "new": "\t\tbool in_alphabet = (u >= 'A' && u <= 'z') || (u >= '0' && u <= '9') || u == '+' ||\n"
         "\t\t                   u == '/' || u == '=';",
-        "reddens": [
-            "crypta: the base64 alphabet is exactly the base64 alphabet, at its edges"
-        ],
+        "reddens": ["crypta: the base64 alphabet is exactly the base64 alphabet, at its edges"],
     },
     {
         "name": "no_empty_reply_value_refusal",
@@ -483,9 +477,7 @@ MUTANTS = [
         "why": "the refusal to send a request past the frame limit",
         "old": "\tif (json_body.size() > MAX_FRAME) {",
         "new": "\tif (false) {",
-        "reddens": [
-            "crypta: a request larger than the frame limit is refused before it is sent"
-        ],
+        "reddens": ["crypta: a request larger than the frame limit is refused before it is sent"],
     },
     {
         "name": "no_eof_check",
@@ -510,9 +502,7 @@ MUTANTS = [
         '\t\t\tbody += ",";\n'
         "\t\t}\n"
         '\t\tbody += StringUtil::Format("{\\"identity\\":%s,\\"dek\\":\\"%s\\"}", IdentityJson(identities[i]),',
-        "reddens": [
-            "crypta: a multi-item wrap is one request with well-formed separators"
-        ],
+        "reddens": ["crypta: a multi-item wrap is one request with well-formed separators"],
     },
     {
         "name": "no_single_request_per_batch",
@@ -530,8 +520,7 @@ MUTANTS = [
         # - two connections, every returned blob still correct, only the
         # one-call-per-commit claim broken.
         "old": '\treturn ExtractBoundBase64Field(response, "wrapped", identities);',
-        "new": "\tRequest(body);\n"
-        '\treturn ExtractBoundBase64Field(response, "wrapped", identities);',
+        "new": "\tRequest(body);\n" '\treturn ExtractBoundBase64Field(response, "wrapped", identities);',
         "reddens": [
             "crypta: a multi-item wrap is one request with well-formed separators",
             "crypta provider: WrapKeys batches a whole commit into one call",
@@ -561,9 +550,7 @@ MUTANTS = [
         "new": "\tif (false) {\n"
         '\t\tthrow IOException("crypta at %s did not report ok: %s", client.SocketPath(), health);\n'
         "\t}",
-        "reddens": [
-            "crypta: a service that answers but does not report ok fails the self-test"
-        ],
+        "reddens": ["crypta: a service that answers but does not report ok fails the self-test"],
     },
     {
         "name": "no_read_error_check",
@@ -625,9 +612,7 @@ MUTANTS = [
         "\treturn 0;\n"
         "#endif",
         "new": "\t(void)fd;\n" "\treturn 0;",
-        "reddens": [
-            "crypta: a socket write failure does not kill a host that leaves SIGPIPE at its default"
-        ],
+        "reddens": ["crypta: a socket write failure does not kill a host that leaves SIGPIPE at its default"],
     },
     {
         "name": "no_eintr_retry_read",
@@ -643,9 +628,7 @@ MUTANTS = [
         "\t\t\t\tcontinue;\n"
         "\t\t\t}\n"
         '\t\t\tthrow IOException("crypta read failed while reading %s: %s", what, strerror(errno));',
-        "reddens": [
-            "crypta: a signal during the response read is retried, not reported as failure"
-        ],
+        "reddens": ["crypta: a signal during the response read is retried, not reported as failure"],
     },
     {
         "name": "no_eintr_retry_write",
@@ -661,9 +644,7 @@ MUTANTS = [
         "\t\t\t\tcontinue;\n"
         "\t\t\t}\n"
         '\t\t\tthrow IOException("crypta write failed: %s", strerror(errno));',
-        "reddens": [
-            "crypta: a signal during the request write is retried, not reported as failure"
-        ],
+        "reddens": ["crypta: a signal during the request write is retried, not reported as failure"],
     },
     {
         "name": "no_empty_shortcut_wrap",
@@ -679,9 +660,7 @@ MUTANTS = [
         "\t}\n"
         '\tstring body = StringUtil::Format("{\\"schema\\":\\"%s\\",\\"op\\":\\"wrap_batch\\",\\"count\\":%llu,\\"items\\":[", WIRE_SCHEMA,\n'
         "\t                                static_cast<uint64_t>(identities.size()));",
-        "reddens": [
-            "crypta: an empty batch returns empty WITHOUT contacting the service"
-        ],
+        "reddens": ["crypta: an empty batch returns empty WITHOUT contacting the service"],
     },
     {
         "name": "no_empty_shortcut_unwrap",
@@ -697,9 +676,7 @@ MUTANTS = [
         "\t}\n"
         '\tstring body = StringUtil::Format("{\\"schema\\":\\"%s\\",\\"op\\":\\"unwrap_batch\\",\\"count\\":%llu,\\"items\\":[", WIRE_SCHEMA,\n'
         "\t                                static_cast<uint64_t>(identities.size()));",
-        "reddens": [
-            "crypta: an empty batch returns empty WITHOUT contacting the service"
-        ],
+        "reddens": ["crypta: an empty batch returns empty WITHOUT contacting the service"],
     },
     {
         "name": "no_size_mismatch_wrap",
@@ -766,9 +743,7 @@ MUTANTS = [
         "why": "the wholesale clear when the cap is reached",
         "old": "\t\tif (unwrap_cache.size() >= MAX_CACHED_KEYS) {",
         "new": "\t\tif (false) {",
-        "reddens": [
-            "crypta provider: the cache is cleared wholesale when the cap is hit"
-        ],
+        "reddens": ["crypta provider: the cache is cleared wholesale when the cap is hit"],
     },
     {
         "name": "cache_key_blob_only",
@@ -796,9 +771,7 @@ MUTANTS = [
         "\tAppendLengthPrefixed(cache_key, table_id_text);\n"
         "\tAppendLengthPrefixed(cache_key, file_kind);\n"
         "\tAppendLengthPrefixed(cache_key, identity.stored_path);",
-        "reddens": [
-            "crypta provider: one identity with two blobs does not collide in the cache"
-        ],
+        "reddens": ["crypta provider: one identity with two blobs does not collide in the cache"],
     },
     {
         "name": "cache_key_unprefixed_join",
@@ -1107,8 +1080,7 @@ for _mutant in MUTANTS:
     if _where not in SOURCE_DIRS:
         raise SystemExit(
             "mutant %s names source directory '%s', which is not one the "
-            "standalone project compiles (%s)"
-            % (_mutant["name"], _where, ", ".join(sorted(SOURCE_DIRS)))
+            "standalone project compiles (%s)" % (_mutant["name"], _where, ", ".join(sorted(SOURCE_DIRS)))
         )
     if _mutant["file"] not in SOURCE_DIRS[_where][1]:
         raise SystemExit(
@@ -1127,9 +1099,7 @@ for _mutant in EXTENSION_MUTANTS:
     # ducklake-bench's `control_located_in` all resolve a bare name against BOTH
     # lists. A duplicate would make which mutant you got depend on list order.
     if _mutant["name"] in BY_NAME:
-        raise SystemExit(
-            "duplicate mutant name across the two rosters: %s" % _mutant["name"]
-        )
+        raise SystemExit("duplicate mutant name across the two rosters: %s" % _mutant["name"])
     BY_NAME[_mutant["name"]] = _mutant
 
 EXTENSION_BY_NAME = {mutant["name"]: mutant for mutant in EXTENSION_MUTANTS}
@@ -1201,8 +1171,7 @@ for _mutant in EXTENSION_MUTANTS:
             "extension mutant %s has an empty 'new'. An in-tree mutant is reversed "
             "by substituting 'new' back to 'old', and the empty string cannot be "
             "matched exactly once - it would leave the guard deleted in the tree. "
-            "Replace the line with a marker comment rather than deleting it."
-            % _mutant["name"]
+            "Replace the line with a marker comment rather than deleting it." % _mutant["name"]
         )
 
 
@@ -1213,9 +1182,7 @@ def catch_spec(test_names):
     nothing - and a spec matching nothing exits ZERO, which would read as "the
     mutant did not redden" when in fact nothing ran.
     """
-    return ",".join(
-        name.replace("\\", "\\\\").replace(",", "\\,") for name in test_names
-    )
+    return ",".join(name.replace("\\", "\\\\").replace(",", "\\,") for name in test_names)
 
 
 def substitute_exactly_once(target, name, old, new):
@@ -1251,13 +1218,10 @@ def apply_mutant(name, destination):
         raise SystemExit(
             "mutant %s is a FULL-EXTENSION mutant and cannot be copied into the "
             "standalone project - it lives in %s, which that project does not "
-            "compile. Use `patch`/`unpatch` and run_storage_mutants.sh."
-            % (name, mutant["file"])
+            "compile. Use `patch`/`unpatch` and run_storage_mutants.sh." % (name, mutant["file"])
         )
 
-    repo_root = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "..")
-    )
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
     if os.path.isdir(destination):
         shutil.rmtree(destination)
     # EVERY source directory is copied, not just the mutant's own. The standalone
@@ -1345,8 +1309,7 @@ def verify_clean(repo_root):
         if occurrences != 1:
             problems.append(
                 "%s: the text it removes occurs %d times in %s, expected 1 - it "
-                "is either still applied, or the source moved under it"
-                % (mutant["name"], occurrences, mutant["file"])
+                "is either still applied, or the source moved under it" % (mutant["name"], occurrences, mutant["file"])
             )
     return problems
 
@@ -1365,10 +1328,7 @@ def main(argv):
             print(mutant["name"])
     elif command == "list":
         for mutant in roster:
-            print(
-                "%-32s %-46s removes %s"
-                % (mutant["name"], mutant["file"], mutant["why"])
-            )
+            print("%-32s %-46s removes %s" % (mutant["name"], mutant["file"], mutant["why"]))
     elif command == "files":
         # De-duplicated but order-preserving: the runner asserts `git diff` is
         # empty on each of them before it starts and after it finishes, and two

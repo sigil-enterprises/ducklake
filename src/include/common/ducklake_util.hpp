@@ -24,64 +24,56 @@ class TableFilter;
 struct DynamicFilterData;
 
 struct ParsedCatalogEntry {
-  string schema;
-  string name;
+	string schema;
+	string name;
 };
 
 class DuckLakeUtil {
 public:
-  static string ParseQuotedValue(const string &input, idx_t &pos);
-  static string ToQuotedList(const vector<string> &input,
-                             char list_separator = ',');
-  static vector<string> ParseQuotedList(const string &input,
-                                        char list_separator = ',');
-  static string SQLIdentifierToString(const string &text);
-  static string SQLLiteralToString(const string &text);
-  static string WrappedEncryptionKeyLiteral(const string &wrapped_base64,
-                                            bool file_has_key);
-  static string StatsToString(const string &text);
-  static string ValueToSQL(DuckLakeMetadataManager &metadata_manager,
-                           ClientContext &context, const Value &val);
+	static string ParseQuotedValue(const string &input, idx_t &pos);
+	static string ToQuotedList(const vector<string> &input, char list_separator = ',');
+	static vector<string> ParseQuotedList(const string &input, char list_separator = ',');
+	static string SQLIdentifierToString(const string &text);
+	static string SQLLiteralToString(const string &text);
+	static string WrappedEncryptionKeyLiteral(const string &wrapped_base64, bool file_has_key);
+	static string StatsToString(const string &text);
+	static string ValueToSQL(DuckLakeMetadataManager &metadata_manager, ClientContext &context, const Value &val);
 
-  static ParsedCatalogEntry ParseCatalogEntry(const string &input);
-  static string JoinPath(FileSystem &fs, const string &a, const string &b);
+	static ParsedCatalogEntry ParseCatalogEntry(const string &input);
+	static string JoinPath(FileSystem &fs, const string &a, const string &b);
 
-  static shared_ptr<DynamicFilterData>
-  GetOptionalDynamicFilterData(const TableFilter &filter);
+	static shared_ptr<DynamicFilterData> GetOptionalDynamicFilterData(const TableFilter &filter);
 
-  //! Create the data path directory if it does not yet exist
-  static void EnsureDirectoryExists(FileSystem &fs, const string &data_path);
+	//! Create the data path directory if it does not yet exist
+	static void EnsureDirectoryExists(FileSystem &fs, const string &data_path);
 
-  //! Replace occurrences of `from` with `to`, skipping content inside
-  //! single-quoted string literals and double-quoted identifiers.
-  static string ReplaceSkippingQuotes(const string &sql, const string &from,
-                                      const string &to);
+	//! Replace occurrences of `from` with `to`, skipping content inside
+	//! single-quoted string literals and double-quoted identifiers.
+	static string ReplaceSkippingQuotes(const string &sql, const string &from, const string &to);
 
-  //! Returns true if the given column name conflicts with inlined data system
-  //! columns
-  static bool IsInlinedSystemColumn(const string &name);
+	//! Returns true if the given column name conflicts with inlined data system
+	//! columns
+	static bool IsInlinedSystemColumn(const string &name);
 
-  static string OptionalIdxOrNull(const optional_idx &v);
+	static string OptionalIdxOrNull(const optional_idx &v);
 
-  static string MappingIdOrNull(const MappingIndex &m);
+	static string MappingIdOrNull(const MappingIndex &m);
 
-  static string EncryptionKeyLiteral(const string &key);
+	static string EncryptionKeyLiteral(const string &key);
 
-  static const char *BoolLiteral(bool v);
+	static const char *BoolLiteral(bool v);
 
-  static string PartitionValueLiteral(const Value &v);
+	static string PartitionValueLiteral(const Value &v);
 
-  static string ChunkRowToSQL(DuckLakeMetadataManager &metadata_manager,
-                              ClientContext &context, DataChunk &chunk,
-                              idx_t row);
-  //! Throws if any column in the list conflicts with inlined data system
-  //! columns
-  static void ValidateNoInlinedSystemColumns(const ColumnList &columns,
-                                             const string &table_name = "");
+	static string ChunkRowToSQL(DuckLakeMetadataManager &metadata_manager, ClientContext &context, DataChunk &chunk,
+	                            idx_t row);
+	//! Throws if any column in the list conflicts with inlined data system
+	//! columns
+	static void ValidateNoInlinedSystemColumns(const ColumnList &columns, const string &table_name = "");
 
-  //! Copy extension-registered settings from one context onto another. Core
-  //! engine settings are not copied.
-  static void CopyExtensionSettings(ClientContext &from, ClientContext &to);
+	//! Copy extension-registered settings from one context onto another. Core
+	//! engine settings are not copied.
+	static void CopyExtensionSettings(ClientContext &from, ClientContext &to);
 };
 
 } // namespace duckdb
