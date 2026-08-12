@@ -129,6 +129,10 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// register rewrap_keys — the consumer half of a KMS key rotation
 	auto rewrap_keys = DuckLakeRewrapKeysFunction();
 	loader.RegisterFunction(rewrap_keys);
+
+	// register ducklake_self_test — boot-time health check (M5)
+	auto self_test = DuckLakeSelfTestFunction();
+	loader.RegisterFunction(self_test);
 }
 
 void DucklakeExtension::Load(ExtensionLoader &loader) {
