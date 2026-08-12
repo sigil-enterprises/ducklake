@@ -3,7 +3,7 @@
 //
 // storage/ducklake_encryption_provider.cpp
 //
-// Static helpers for the abstract KMS-agnostic provider.
+// Static helpers and factory storage for the abstract KMS-agnostic provider.
 //
 //===----------------------------------------------------------------------===//
 
@@ -37,17 +37,17 @@ bool DuckLakeEncryptionProvider::IsBase64(const string &value) {
 	return true;
 }
 
-} // namespace duckdb
-
 //! Process-wide factory for creating concrete KMS providers.
 //!
 //! Static storage, not a function-local static: a registered factory must
 //! survive across ATTACH/DETACH cycles within the same process. This is a
 //! raw pointer (never deleted) because the factory is registered once at
 //! extension init and lives for the life of the process.
-static std::function<unique_ptr<duckdb::DuckLakeEncryptionProvider>(string, string, int64_t)> *g_factory = nullptr;
+namespace {
+	Factory *g_factory = nullptr;
+} // namespace
 
-void duckdb::DuckLakeEncryptionProvider::RegisterFactory(Factory factory) {
+void DuckLakeEncryptionProvider::RegisterFactory(Factory factory) {
 	if (!g_factory) {
 		g_factory = new Factory(std::move(factory));
 		return;
@@ -55,7 +55,7 @@ void duckdb::DuckLakeEncryptionProvider::RegisterFactory(Factory factory) {
 	*g_factory = std::move(factory);
 }
 
-const duckdb::DuckLakeEncryptionProvider::Factory &duckdb::DuckLakeEncryptionProvider::GetFactory() {
+const DuckLakeEncryptionProvider::Factory &DuckLakeEncryptionProvider::GetFactory() {
 	static Factory empty;
 	if (!g_factory) {
 		return empty;
@@ -63,4 +63,6 @@ const duckdb::DuckLakeEncryptionProvider::Factory &duckdb::DuckLakeEncryptionPro
 	return *g_factory;
 }
 
-duckdb::DuckLakeEncryptionProvider::Factory duckdb::DuckLakeEncryptionProvider::factory_;
+DuckLakeEncryptionProvider::Factory DuckLakeEncryptionProvider::factory_;
+
+} // namespace duckdb
