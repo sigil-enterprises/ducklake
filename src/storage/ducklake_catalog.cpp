@@ -195,6 +195,39 @@ void DuckLakeCatalog::EnsureCommitInfoProvided(const DuckLakeSnapshotCommit &com
 DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options_p)
     : Catalog(db_p), options(std::move(options_p)), last_uncommitted_catalog_version(TRANSACTION_ID_START),
       instance_id(UUID::ToString(UUID::GenerateRandomUUID())) {
+
+		// KMS envelope encryption: validate the envelope options.
+		//
+		// encryption_cache_ttl_seconds is checked OUTSIDE the socket gate
+		// deliberately. It is not one of the two options that turn the envelope
+		// on, so supplying it alone is silently ignored unless we refuse.
+		if (options.encryption_cache_ttl_seconds_supplied && !options.encryption_socket_supplied) {
+			throw InvalidInputException(
+			    "encryption_cache_ttl_seconds was set without encryption_socket - it bounds how long the KMS "
+			    "envelope's unwrapped per-file keys stay cached in this reader, and on a lake with no envelope "
+			    "there are no such keys and nothing for it to bound. Either set encryption_socket or drop "
+			    "encryption_cache_ttl_seconds");
+		}
+		if (options.encryption_socket_supplied || options.encryption_lake_id_supplied) {
+			if (!options.encryption_socket_supplied) {
+				throw InvalidInputException(
+				    "encryption_socket must be set when encryption_lake_id is set - a half-configured envelope "
+				    "silently writes the per-file keys to the catalog in plaintext. Either set encryption_socket "
+				    "or drop encryption_lake_id");
+			}
+			if (options.encryption == DuckLakeEncryption::UNENCRYPTED) {
+				throw InvalidInputException(
+				    "an encryption envelope option was set on an UNENCRYPTED DuckLake - there are no per-file "
+				    "keys to wrap. Either enable ENCRYPTED or drop the envelope options");
+			}
+			// The concrete KMS provider is injected at build time. The upstream
+			// DuckLake fork ships no provider; the bench build overlays one.
+			throw InvalidInputException(
+			    "ENCRYPTION_SOCKET was set but this build of DuckLake has no KMS encryption provider. "
+			    "The encryption envelope is supplied by the DuckLake bench build, not by the upstream "
+			    "extension. Use the bench build, or drop ENCRYPTION_SOCKET / ENCRYPTION_LAKE_ID to run "
+			    "without a KMS envelope (plaintext per-file keys).");
+		}
 	// figure out the metadata server type
 	auto entry = options.metadata_parameters.find("type");
 	if (entry != options.metadata_parameters.end()) {
@@ -219,6 +252,16 @@ void DuckLakeCatalog::Initialize(optional_ptr<ClientContext> context, bool load_
 
 void DuckLakeCatalog::FinalizeLoad(optional_ptr<ClientContext> context) {
 	// initialize the metadata database
+
+	// KMS envelope encryption: turn on encrypted temp spill and prove the
+	// key service is reachable at ATTACH. Without this, a lake with an
+	// unreachable KMS attaches cleanly and then fails on the first read.
+	if (context) {
+		RequireEncryptedTempSpill(*context);
+	}
+	if (encryption_provider) {
+		encryption_provider->SelfTest();
+	}
 	unique_ptr<Connection> con;
 	if (!context) {
 		con = make_uniq<Connection>(GetDatabase());

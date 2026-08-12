@@ -37,6 +37,15 @@ static void HandleDuckLakeOption(DuckLakeOptions &options, const string &option,
 		}
 	} else if (lcase == "data_inlining_row_limit") {
 		options.config_options["data_inlining_row_limit"] = value.DefaultCastAs(LogicalType::UBIGINT).ToString();
+	} else if (lcase == "encryption_socket") {
+		options.encryption_socket = value.ToString();
+		options.encryption_socket_supplied = true;
+	} else if (lcase == "encryption_lake_id") {
+		options.encryption_lake_id = value.ToString();
+		options.encryption_lake_id_supplied = true;
+	} else if (lcase == "encryption_cache_ttl_seconds") {
+		options.encryption_cache_ttl_seconds = BigIntValue::Get(value.DefaultCastAs(LogicalType::BIGINT));
+		options.encryption_cache_ttl_seconds_supplied = true;
 	} else if (lcase == "snapshot_version") {
 		if (options.at_clause) {
 			throw InvalidInputException("Cannot specify both VERSION and TIMESTAMP");
