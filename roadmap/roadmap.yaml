@@ -383,25 +383,46 @@ milestones:
     version: v0.5.0             # PROPOSED
     rc_soaked: false
     tracker_ref: "ducklake:#1"
-    status: planned
+    status: active
     depends_on: [ducklake:M1, ducklake:M2, ducklake:M7]
     provenance: retro-derived
     derived_at: 2026-08-05
     evidence: ["ducklake:#1"]
     confidence: high
+    implementation:
+      convergence_target: duckdb v1.5.3
+      signing_path: allow_unsigned_extensions (chosen over own signing key — avoids KMS provisioning)
+      ducklake_prs: ["ducklake:#6"]
+      consumer_prs:
+        - "luma-server:#193 (Rust native self-test — real Parquet probe)"
+        - "ducklake-bench:#113 (pgwire gateway calls ducklake_self_test())"
+        - "lypto:#609 (pin + allow_unsigned; self-test gated on extension rebuild)"
+        - "vero:#451 (pin + allow_unsigned; self-test gated on extension rebuild)"
+      open_gap: "lypto and vero self-test calls are commented out with TODO, gated on the ducklake extension binary being rebuilt with the self-test function (ducklake:#6 merged 2026-08-12). Follow-up PRs pre-authored: lypto #TODO, vero #TODO."
+      note: "pgwire (opvance/teras-ext-pgwire) is cross-org — tracked but not actionable from this workspace."
     epics:
       - id: E5.1
         title: "DuckDB patch convergence and signed extension provisioning"
-        capability: "Warranted by step 5 of issue #1's ORIGINAL 2026-07-28 body, verbatim: 'Fleet-convergence gate (before any fleet rollout). Converge pgwire/luma/vero/lypto onto one DuckDB minor; provision extension signing (own key) or allow_unsigned fleet-wide; per-version extension builds via Nexus; boot-time self-test (LOAD + one encrypted read before serving).' The per-version build half landed as E1.4; convergence, signing and the boot self-test have not. The minor-vs-patch correction is a later edit and is not relied on for intent."
+        capability: "Warranted by step 5 of issue #1's ORIGINAL 2026-07-28 body, verbatim: 'Fleet-convergence gate (before any fleet rollout). Converge pgwire/luma/vero/lypto onto one DuckDB minor; provision extension signing (own key) or allow_unsigned fleet-wide; per-version extension builds via Nexus; boot-time self-test (LOAD + one encrypted read before serving).'"
         tracker_ref: "ducklake:#1"
         class: planned
-        status: open
+        status: in_progress
         depends_on: [ducklake:E1.4]
         intent: proven
         provenance: retro-derived
         derived_at: 2026-08-05
         evidence: ["ducklake:#1"]
         confidence: high
+        implementation:
+          merged:
+            - "ducklake:#6 — boot-time self-test table function (ducklake_self_test())"
+            - "bench:#113 — pgwire gateway boot-time self-test"
+            - "luma-server:#193 — luma Rust native self-test (real Parquet probe)"
+            - "lypto:#609 — duckdb v1.5.3 pin + allow_unsigned_extensions"
+            - "vero:#451 — duckdb v1.5.3 pin + allow_unsigned_extensions"
+          open:
+            - "lypto follow-up PR — re-enable ducklake_self_test() call (commented out, gated on extension rebuild)"
+            - "vero follow-up PR — re-enable ducklake_self_test() call (commented out, gated on extension rebuild)"
 
   - id: M6
     title: "Upstream contribution and the RFC interface"
