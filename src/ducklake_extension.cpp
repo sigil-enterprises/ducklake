@@ -1,17 +1,17 @@
 #include "ducklake_extension.hpp"
-#include "duckdb/main/config.hpp"
+#include "common/ducklake_version.hpp"
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
-#include "storage/ducklake_storage.hpp"
-#include "common/ducklake_version.hpp"
-#include "storage/ducklake_scan.hpp"
-#include "functions/ducklake_table_functions.hpp"
-#include "storage/ducklake_secret.hpp"
-#include "duckdb/logging/log_manager.hpp"
 #include "duckdb/function/scalar_function.hpp"
+#include "duckdb/logging/log_manager.hpp"
+#include "duckdb/main/config.hpp"
 #include "duckdb/storage/storage_extension.hpp"
+#include "functions/ducklake_table_functions.hpp"
 #include "storage/ducklake_log_type.hpp"
+#include "storage/ducklake_scan.hpp"
+#include "storage/ducklake_secret.hpp"
+#include "storage/ducklake_storage.hpp"
 
 namespace duckdb {
 
@@ -45,10 +45,10 @@ static void LoadInternal(ExtensionLoader &loader) {
 	};
 	config.AddExtensionOption("ducklake_target_file_size", "Target file size for insertion and compaction",
 	                          LogicalType::VARCHAR, Value(), set_target_file_size, SetScope::GLOBAL);
-	config.AddExtensionOption(
-	    "ducklake_write_deletion_vectors",
-	    "[EXPERIMENTAL] Write Iceberg V3 deletion vectors (puffin) instead of positional delete files (parquet)",
-	    LogicalType::BOOLEAN, Value::BOOLEAN(false), nullptr, SetScope::GLOBAL);
+	config.AddExtensionOption("ducklake_write_deletion_vectors",
+	                          "[EXPERIMENTAL] Write Iceberg V3 deletion vectors (puffin) instead of "
+	                          "positional delete files (parquet)",
+	                          LogicalType::BOOLEAN, Value::BOOLEAN(false), nullptr, SetScope::GLOBAL);
 
 	DuckLakeSnapshotsFunction snapshots;
 	loader.RegisterFunction(snapshots);
@@ -121,9 +121,14 @@ static void LoadInternal(ExtensionLoader &loader) {
 	auto ducklake_secret_function = DuckLakeSecret::GetFunction();
 	loader.RegisterFunction(ducklake_secret_function);
 
-	// Register murmur3_32 scalar function for Iceberg-compatible bucket partitioning
+	// Register murmur3_32 scalar function for Iceberg-compatible bucket
+	// partitioning
 	auto murmur3_func = DuckLakeMurmur3Function();
 	loader.RegisterFunction(murmur3_func);
+
+	// register rewrap_keys — the consumer half of a KMS key rotation
+	auto rewrap_keys = DuckLakeRewrapKeysFunction();
+	loader.RegisterFunction(rewrap_keys);
 }
 
 void DucklakeExtension::Load(ExtensionLoader &loader) {

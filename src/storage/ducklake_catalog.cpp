@@ -1,38 +1,38 @@
 #include "storage/ducklake_catalog.hpp"
 #include "duckdb/catalog/catalog.hpp"
-#include "duckdb/planner/logical_operator.hpp"
 #include "duckdb/main/database_manager.hpp"
+#include "duckdb/planner/logical_operator.hpp"
 
 #include "common/ducklake_types.hpp"
+#include "common/ducklake_util.hpp"
 #include "duckdb/catalog/catalog_entry/macro_catalog_entry.hpp"
 #include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
+#include "duckdb/common/operator/cast_operators.hpp"
+#include "duckdb/common/types/uuid.hpp"
+#include "duckdb/function/macro_function.hpp"
+#include "duckdb/function/scalar_macro_function.hpp"
+#include "duckdb/function/table_macro_function.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/config.hpp"
+#include "duckdb/main/database_path_and_type.hpp"
 #include "duckdb/parser/constraints/not_null_constraint.hpp"
+#include "duckdb/parser/parsed_data/alter_table_info.hpp"
+#include "duckdb/parser/parsed_data/create_index_info.hpp"
+#include "duckdb/parser/parsed_data/create_macro_info.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 #include "duckdb/parser/parsed_data/create_view_info.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
+#include "duckdb/parser/parser.hpp"
 #include "duckdb/storage/database_size.hpp"
 #include "storage/ducklake_initializer.hpp"
+#include "storage/ducklake_macro_entry.hpp"
 #include "storage/ducklake_schema_entry.hpp"
 #include "storage/ducklake_table_entry.hpp"
 #include "storage/ducklake_transaction.hpp"
 #include "storage/ducklake_transaction_manager.hpp"
 #include "storage/ducklake_view_entry.hpp"
-#include "duckdb/main/database_path_and_type.hpp"
-#include "duckdb/parser/parser.hpp"
-#include "duckdb/parser/parsed_data/create_index_info.hpp"
-#include "duckdb/parser/parsed_data/alter_table_info.hpp"
-#include "duckdb/parser/parsed_data/create_macro_info.hpp"
-#include "duckdb/function/macro_function.hpp"
-#include "duckdb/function/scalar_macro_function.hpp"
-#include "duckdb/function/table_macro_function.hpp"
-#include "storage/ducklake_macro_entry.hpp"
-#include "duckdb/common/operator/cast_operators.hpp"
-#include "duckdb/common/types/uuid.hpp"
-#include "common/ducklake_util.hpp"
 
 namespace duckdb {
 
@@ -186,15 +186,59 @@ void DuckLakeCatalog::EnsureCommitInfoProvided(const DuckLakeSnapshotCommit &com
 	if (!IsCommitInfoRequired() || commit_info.is_commit_info_set) {
 		return;
 	}
-	throw InvalidConfigurationException(
-	    "Commit Information for the snapshot is required but has not been provided. \n * Provide the information "
-	    "with \"CALL ducklake.set_commit_message('author_name', 'commit_message'); \n * Set the required commit "
-	    "message to false with \"CALL ducklake.set_option('require_commit_message', False)\" '\"");
+	throw InvalidConfigurationException("Commit Information for the snapshot is required but has not been "
+	                                    "provided. \n * Provide the information "
+	                                    "with \"CALL ducklake.set_commit_message('author_name', "
+	                                    "'commit_message'); \n * Set the required commit "
+	                                    "message to false with \"CALL "
+	                                    "ducklake.set_option('require_commit_message', False)\" '\"");
 }
 
 DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options_p)
     : Catalog(db_p), options(std::move(options_p)), last_uncommitted_catalog_version(TRANSACTION_ID_START),
       instance_id(UUID::ToString(UUID::GenerateRandomUUID())) {
+	// KMS envelope encryption: validate the envelope options.
+	//
+	// encryption_cache_ttl_seconds is checked OUTSIDE the socket gate
+	// deliberately. It is not one of the two options that turn the envelope
+	// on, so supplying it alone is silently ignored unless we refuse.
+	if (options.encryption_cache_ttl_seconds_supplied && !options.encryption_socket_supplied) {
+		throw InvalidInputException("encryption_cache_ttl_seconds was set without encryption_socket - it "
+		                            "bounds how long the KMS "
+		                            "envelope's unwrapped per-file keys stay cached in this reader, and on "
+		                            "a lake with no envelope "
+		                            "there are no such keys and nothing for it to bound. Either set "
+		                            "encryption_socket or drop "
+		                            "encryption_cache_ttl_seconds");
+	}
+	if (options.encryption_socket_supplied || options.encryption_lake_id_supplied) {
+		if (!options.encryption_socket_supplied) {
+			throw InvalidInputException("encryption_socket must be set when encryption_lake_id is set - a "
+			                            "half-configured envelope "
+			                            "silently writes the per-file keys to the catalog in plaintext. "
+			                            "Either set encryption_socket "
+			                            "or drop encryption_lake_id");
+		}
+		if (options.encryption == DuckLakeEncryption::UNENCRYPTED) {
+			throw InvalidInputException("an encryption envelope option was set on an UNENCRYPTED DuckLake - "
+			                            "there are no per-file "
+			                            "keys to wrap. Either enable ENCRYPTED or drop the envelope options");
+		}
+		auto ttl_seconds = options.encryption_cache_ttl_seconds_supplied
+		                       ? options.encryption_cache_ttl_seconds
+		                       : DuckLakeEncryptionProvider::DEFAULT_CACHE_TTL_SECONDS;
+		auto &factory = DuckLakeEncryptionProvider::GetFactory();
+		if (!factory) {
+			throw InvalidInputException("ENCRYPTION_SOCKET was set but this build of DuckLake has no KMS "
+			                            "encryption provider. "
+			                            "The encryption envelope is supplied by the DuckLake bench build, "
+			                            "not by the upstream "
+			                            "extension. Use the bench build, or drop ENCRYPTION_SOCKET / "
+			                            "ENCRYPTION_LAKE_ID to run "
+			                            "without a KMS envelope (plaintext per-file keys).");
+		}
+		encryption_provider = factory(options.encryption_socket, options.encryption_lake_id, ttl_seconds);
+	}
 	// figure out the metadata server type
 	auto entry = options.metadata_parameters.find("type");
 	if (entry != options.metadata_parameters.end()) {
@@ -219,6 +263,16 @@ void DuckLakeCatalog::Initialize(optional_ptr<ClientContext> context, bool load_
 
 void DuckLakeCatalog::FinalizeLoad(optional_ptr<ClientContext> context) {
 	// initialize the metadata database
+
+	// KMS envelope encryption: turn on encrypted temp spill and prove the
+	// key service is reachable at ATTACH. Without this, a lake with an
+	// unreachable KMS attaches cleanly and then fails on the first read.
+	if (context) {
+		RequireEncryptedTempSpill(*context);
+	}
+	if (encryption_provider) {
+		encryption_provider->SelfTest();
+	}
 	unique_ptr<Connection> con;
 	if (!context) {
 		con = make_uniq<Connection>(GetDatabase());
@@ -526,9 +580,9 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 		// find the schema for the table
 		auto entry = schema_id_map.find(table.schema_id);
 		if (entry == schema_id_map.end()) {
-			throw InvalidInputException(
-			    "Failed to load DuckLake - could not find schema that corresponds to the table entry \"%s\"",
-			    table.name);
+			throw InvalidInputException("Failed to load DuckLake - could not find schema that corresponds to "
+			                            "the table entry \"%s\"",
+			                            table.name);
 		}
 		auto &schema_entry = entry->second.get();
 		auto create_table_info = make_uniq<CreateTableInfo>(schema_entry, Identifier(table.name));
@@ -579,8 +633,9 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 		// find the schema for the view
 		auto entry = schema_id_map.find(view.schema_id);
 		if (entry == schema_id_map.end()) {
-			throw InvalidInputException(
-			    "Failed to load DuckLake - could not find schema that corresponds to the view entry \"%s\"", view.name);
+			throw InvalidInputException("Failed to load DuckLake - could not find schema that corresponds to "
+			                            "the view entry \"%s\"",
+			                            view.name);
 		}
 		auto &schema_entry = entry->second.get();
 		auto create_view_info = make_uniq<CreateViewInfo>(schema_entry, Identifier(view.name));
@@ -607,9 +662,9 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 	for (auto &macro : catalog.macros) {
 		auto entry = schema_id_map.find(macro.schema_id);
 		if (entry == schema_id_map.end()) {
-			throw InvalidInputException(
-			    "Failed to load DuckLake - could not find schema that corresponds to the macro entry \"%s\"",
-			    macro.macro_name);
+			throw InvalidInputException("Failed to load DuckLake - could not find schema that corresponds to "
+			                            "the macro entry \"%s\"",
+			                            macro.macro_name);
 		}
 		auto &schema_entry = entry->second.get();
 		auto create_macro =
@@ -706,7 +761,8 @@ static unique_ptr<DuckLakeNameMap> ConvertNameMap(DuckLakeColumnMappingInfo colu
 	result->id = column_mapping.mapping_id;
 	result->table_id = column_mapping.table_id;
 
-	// generate the recursive structure from the SQL table that only has parent references
+	// generate the recursive structure from the SQL table that only has parent
+	// references
 	unordered_map<idx_t, reference<DuckLakeNameMapEntry>> column_id_map;
 	for (auto &col : column_mapping.map_columns) {
 		// create the entry
@@ -736,7 +792,8 @@ static unique_ptr<DuckLakeNameMap> ConvertNameMap(DuckLakeColumnMappingInfo colu
 void DuckLakeCatalog::LoadNameMaps(DuckLakeTransaction &transaction) {
 	auto snapshot = transaction.GetSnapshot();
 	if (loaded_name_map_index.IsValid() && snapshot.next_file_id <= loaded_name_map_index.GetIndex()) {
-		// we have already loaded all name maps that could be relevant for this snapshot
+		// we have already loaded all name maps that could be relevant for this
+		// snapshot
 		return;
 	}
 	// name map entry not found - try to load any new ones
@@ -780,8 +837,9 @@ unique_ptr<DuckLakeStats> DuckLakeCatalog::ConstructStatsMap(vector<DuckLakeGlob
 		// find the referenced table entry
 		auto table_entry = schema.GetEntryById(stats.table_id);
 		if (!table_entry) {
-			// failed to find the referenced table entry - this means the table does not exist for this snapshot
-			// since the global stats are not versioned this is not an error - just skip
+			// failed to find the referenced table entry - this means the table does
+			// not exist for this snapshot since the global stats are not versioned
+			// this is not an error - just skip
 			continue;
 		}
 		auto table_stats = make_uniq<DuckLakeTableStats>();
@@ -829,7 +887,8 @@ shared_ptr<DuckLakeTableStats> DuckLakeCatalog::GetTableStats(DuckLakeTransactio
 	}
 
 	if (!table_stats) {
-		// Table had no stats row for this snapshot (or did not exist at the snapshot)
+		// Table had no stats row for this snapshot (or did not exist at the
+		// snapshot)
 		return nullptr;
 	}
 
@@ -890,11 +949,11 @@ void DuckLakeCatalog::SetEncryption(DuckLakeEncryption new_encryption) {
 		options.encryption = new_encryption;
 		break;
 	case DuckLakeEncryption::ENCRYPTED:
-		throw InvalidInputException(
-		    "Failed to set encryption - the database is not encrypted but we requested an encrypted database");
+		throw InvalidInputException("Failed to set encryption - the database is not encrypted but we "
+		                            "requested an encrypted database");
 	case DuckLakeEncryption::UNENCRYPTED:
-		throw InvalidInputException(
-		    "Failed to set encryption - the database is encrypted but we requested an unencrypted database");
+		throw InvalidInputException("Failed to set encryption - the database is encrypted but we requested "
+		                            "an unencrypted database");
 	default:
 		throw InternalException("Unsupported encryption type");
 	}
@@ -1023,7 +1082,8 @@ idx_t DuckLakeCatalog::DataInliningRowLimit(ClientContext &context, SchemaIndex 
 	if (TryGetConfigOption("data_inlining_row_limit", value_str, schema_index, table_index)) {
 		return Value(value_str).GetValue<idx_t>();
 	}
-	// No explicit catalog/schema/table option set, we read the global DuckDB setting
+	// No explicit catalog/schema/table option set, we read the global DuckDB
+	// setting
 	Value setting_val;
 	if (context.TryGetCurrentSetting("ducklake_default_data_inlining_row_limit", setting_val)) {
 		return setting_val.GetValue<idx_t>();

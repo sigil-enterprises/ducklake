@@ -9,17 +9,18 @@
 #pragma once
 
 #include "common/ducklake_encryption.hpp"
-#include "duckdb/main/attached_database.hpp"
+#include "common/ducklake_name_map.hpp"
+#include "common/ducklake_options.hpp"
+#include "duckdb/catalog/catalog.hpp"
 #include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 #include "duckdb/execution/physical_plan_generator.hpp"
-#include "duckdb/planner/logical_operator.hpp"
-#include "common/ducklake_options.hpp"
-#include "common/ducklake_name_map.hpp"
-#include "duckdb/catalog/catalog.hpp"
+#include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/client_context_state.hpp"
+#include "duckdb/planner/logical_operator.hpp"
 #include "duckdb/storage/object_cache.hpp"
 #include "storage/ducklake_catalog_set.hpp"
+#include "storage/ducklake_encryption_provider.hpp"
 #include "storage/ducklake_partition_data.hpp"
 #include "storage/ducklake_stats.hpp"
 
@@ -71,7 +72,8 @@ struct DuckLakeSchemaCacheEntry : public ObjectCacheEntry {
 	optional_idx GetEstimatedCacheMemory() const override;
 };
 
-//! Query-scoped pin for DuckLake schema cache entries, which guarantee memory safety before transaction finishes.
+//! Query-scoped pin for DuckLake schema cache entries, which guarantee memory
+//! safety before transaction finishes.
 class DuckLakeSchemaPinState : public ClientContextState {
 public:
 	void QueryEnd(ClientContext &context) override;
@@ -132,7 +134,8 @@ public:
 	}
 	void SetConfigOption(const DuckLakeConfigOption &option);
 	bool TryGetConfigOption(const string &option, string &result, SchemaIndex schema_id, TableIndex table_id) const;
-	//! Check if a config option has a table-level or schema-level override (excluding global scope)
+	//! Check if a config option has a table-level or schema-level override
+	//! (excluding global scope)
 	bool TryGetScopedConfigOption(const string &option, string &result, SchemaIndex schema_id,
 	                              TableIndex table_id) const;
 	template <class T>
@@ -217,8 +220,46 @@ public:
 	}
 
 	void SetEncryption(DuckLakeEncryption encryption);
-	//! Generate an encryption key for writing (or empty if encryption is disabled)
+	//! Generate an encryption key for writing (or empty if encryption is
+	//! disabled)
 	string GenerateEncryptionKey(ClientContext &context) const;
+
+	//! KMS envelope encryption: the provider for this lake, or nullptr when no
+	//! envelope is configured - in which case the encryption_key column holds a
+	//! plaintext key exactly as upstream, and nothing in the envelope path runs.
+	optional_ptr<DuckLakeEncryptionProvider> EncryptionProvider() const {
+		return encryption_provider.get();
+	}
+	//! Build a file identity for the KMS binding. `stored_path` must be the
+	//! path AS PERSISTED in the catalog, not one resolved against the data path.
+	DuckLakeFileIdentity BuildEncryptionIdentity(TableIndex table_id, const string &stored_path,
+	                                             bool is_delete_file) const;
+	//! KMS envelope encryption: throw if `stored_key` is a wrapped blob while
+	//! THIS lake has no envelope provider - i.e. the lake was attached without
+	//! ENCRYPTION_SOCKET / ENCRYPTION_LAKE_ID. Call it immediately before any
+	//! site that would otherwise base64-decode a stored key and use the bytes
+	//! as a Parquet encryption key.
+	void RefuseWrappedKeyWithoutProvider(const string &file_path, const string &stored_key) const;
+	//! KMS envelope encryption: throw if THIS lake is ENCRYPTED and the stored
+	//! `encryption_key` column is NULL - a file that must have a key and has
+	//! none. On an unencrypted lake a NULL is the ordinary case and this returns.
+	void RefuseMissingEncryptionKey(const string &file_path) const;
+	//! KMS envelope encryption: throw unless `decoded_key` is a length AES
+	//! actually accepts. The set is {16, 24, 32} bytes - AES-128/192/256.
+	void RefuseUnusableEncryptionKey(const string &file_path, const string &decoded_key) const;
+	//! KMS envelope encryption: THE key-resolution choke point. Turn a stored
+	//! `encryption_key` column value into the raw key bytes the Parquet reader
+	//! wants, through the KMS envelope provider when one is configured.
+	string ResolveStoredEncryptionKey(TableIndex table_id, const string &stored_path, const string &resolved_path,
+	                                  bool is_delete_file, const Value &stored_key) const;
+	//! KMS envelope encryption: turn DuckDB's `temp_file_encryption` ON for
+	//! this process, at ATTACH, when this lake carries a KMS envelope - and
+	//! refuse the ATTACH rather than attach without it.
+	void RequireEncryptedTempSpill(ClientContext &context);
+	//! KMS envelope encryption: refuse to touch an enveloped lake's key
+	//! material while this process would spill in the clear. Returns
+	//! immediately on a lake with no envelope provider.
+	void RefuseUnencryptedTempSpill(const string &what) const;
 
 	//! The resolved DuckLake spec version of the attached catalog
 	DuckLakeVersion GetDuckLakeVersion() const {
@@ -227,7 +268,8 @@ public:
 	void SetDuckLakeVersion(DuckLakeVersion version) {
 		ducklake_version = version;
 	}
-	//! Whether the metadata schema has the row_group_count columns (added in 1.1-dev1)
+	//! Whether the metadata schema has the row_group_count columns (added
+	//! in 1.1-dev1)
 	bool SupportsRowGroupCount() const {
 		return ducklake_version >= DuckLakeVersion::V1_1_DEV_1;
 	}
@@ -272,7 +314,8 @@ public:
 
 	static unique_ptr<DuckLakeStats> ConstructStatsMap(vector<DuckLakeGlobalStatsInfo> &global_stats,
 	                                                   DuckLakeCatalogSet &schema);
-	//! Return the schema for the given snapshot - loading it if it is not yet loaded
+	//! Return the schema for the given snapshot - loading it if it is not yet
+	//! loaded
 	DuckLakeCatalogSet &GetSchemaForSnapshot(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot);
 
 	//! Callback type for instrumenting metadata queries
@@ -285,15 +328,18 @@ public:
 		return query_callback;
 	}
 
-	//! Check if an inlined deletion table is known to exist or not exist for the given table and snapshot
+	//! Check if an inlined deletion table is known to exist or not exist for the
+	//! given table and snapshot
 	InlinedDeletionCacheResult CheckInlinedDeletionTableCache(TableIndex table_id, DuckLakeSnapshot snapshot);
 	//! Cache the result of an inlined deletion table existence check
 	void CacheInlinedDeletionTableResult(TableIndex table_id, DuckLakeSnapshot snapshot, bool exists);
 
-	//! Look up the cached begin snapshot of a (table, schema version) pair, if it has been resolved before
+	//! Look up the cached begin snapshot of a (table, schema version) pair, if it
+	//! has been resolved before
 	optional_idx TryGetSchemaVersionBeginSnapshot(TableIndex table_id, idx_t schema_version);
-	//! Cache the begin snapshot of a committed (table, schema version) pair. The row that backs it is written
-	//! once when the schema version is created and never updated, so the mapping is permanent.
+	//! Cache the begin snapshot of a committed (table, schema version) pair. The
+	//! row that backs it is written once when the schema version is created and
+	//! never updated, so the mapping is permanent.
 	void CacheSchemaVersionBeginSnapshot(TableIndex table_id, idx_t schema_version, idx_t begin_snapshot);
 
 	//! Invalidate the cached table stats entry for a given stats cache key.
@@ -309,7 +355,8 @@ private:
 	//! Look up (or load) the ObjectCache entry for a given snapshot.
 	shared_ptr<DuckLakeSchemaCacheEntry> GetSchemaCacheEntry(DuckLakeTransaction &transaction,
 	                                                         DuckLakeSnapshot snapshot);
-	//! Pin a schema cache entry for the duration of the current query to ensure safe memory access.
+	//! Pin a schema cache entry for the duration of the current query to ensure
+	//! safe memory access.
 	void PinSchemaForQuery(DuckLakeTransaction &transaction, shared_ptr<DuckLakeSchemaCacheEntry> entry);
 	void LoadNameMaps(DuckLakeTransaction &transaction);
 	string StatsCacheKey(idx_t next_file_id, TableIndex table_id) const;
@@ -327,6 +374,9 @@ private:
 	mutable mutex config_lock;
 	//! The DuckLake options
 	DuckLakeOptions options;
+	//! KMS envelope encryption: the provider for this lake, or nullptr when
+	//! no envelope is configured.
+	unique_ptr<DuckLakeEncryptionProvider> encryption_provider;
 	//! The path separator
 	string separator = "/";
 	//! A unique tracker for catalog changes in uncommitted transactions.
@@ -339,20 +389,25 @@ private:
 	string instance_id;
 	//! Whether or not the catalog is initialized
 	bool initialized = false;
-	//! Whether or not the metadata server can execute the commit retry loop server-side.
+	//! Whether or not the metadata server can execute the commit retry loop
+	//! server-side.
 	bool retrials_server_side = false;
 	//! Cache for inlined deletion table existence checks
 	mutex inlined_deletion_cache_lock;
-	//! Table IDs where the inlined deletion table is known to exist (permanent - never invalidated)
+	//! Table IDs where the inlined deletion table is known to exist (permanent -
+	//! never invalidated)
 	unordered_set<idx_t> inlined_deletion_exists;
-	//! Table IDs where the inlined deletion table is known to NOT exist, with the snapshot_id at which we checked
-	//! Valid as long as current snapshot.snapshot_id <= cached snapshot_id
+	//! Table IDs where the inlined deletion table is known to NOT exist, with the
+	//! snapshot_id at which we checked Valid as long as current
+	//! snapshot.snapshot_id <= cached snapshot_id
 	unordered_map<idx_t, idx_t> inlined_deletion_not_exists;
-	//! Cache of (table_id, schema_version) -> begin_snapshot. The backing row is written once when the schema
-	//! version is created and is never updated, so entries are permanent (only committed rows are cached)
+	//! Cache of (table_id, schema_version) -> begin_snapshot. The backing row is
+	//! written once when the schema version is created and is never updated, so
+	//! entries are permanent (only committed rows are cached)
 	mutex schema_version_snapshot_lock;
 	map<pair<idx_t, idx_t>, idx_t> schema_version_begin_snapshots;
-	//! The id of the last committed snapshot, set at FlushChanges on a successful commit
+	//! The id of the last committed snapshot, set at FlushChanges on a successful
+	//! commit
 	mutable mutex commit_lock;
 	optional_idx last_committed_snapshot;
 	//! Optional callback for instrumenting metadata queries
