@@ -141,4 +141,9 @@ public:
 	DuckLakeCommitFunction();
 };
 
+
+class DuckLakeRewrapKeysFunction : public TableFunction {
+public:
+	DuckLakeRewrapKeysFunction();
+};
 } // namespace duckdb
