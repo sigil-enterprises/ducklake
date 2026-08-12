@@ -141,7 +141,7 @@ milestones:
     version: v0.1.0             # PROPOSED - no final tag exists; see the header
     rc_soaked: false            # the only tag, v1.5.3-crypta.1, is not an -rc.N tag
     tracker_ref: "ducklake:#1"
-    status: active
+    status: shipped             # v0.1.0 tagged from c9908480, proven by ducklake-bench IM1
     depends_on: ["crypta:M1"]
     provenance: retro-derived
     derived_at: 2026-08-05
@@ -216,7 +216,7 @@ milestones:
     version: v0.1.0             # shipped in v0.1.0 alongside M1 — the fixes were reactive and landed together
     rc_soaked: true             # v0.1.0-rc.1 soaked since 2026-08-04, rc.2 since 2026-08-10
     tracker_ref: "ducklake:#1"
-    status: active              # delivered in v0.1.0; NOT shipped because crypta:M5 is still planned
+    status: shipped             # v0.1.0 tagged from c9908480; all 4 epics closed; crypta:M5 shipped 2026-08-10 (crypta v0.3.0-rc.1)
     depends_on: [ducklake:M1, "crypta:M5"]
     provenance: retro-derived
     derived_at: 2026-08-05
