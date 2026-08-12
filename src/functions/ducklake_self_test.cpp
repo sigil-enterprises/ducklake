@@ -31,7 +31,6 @@
 
 #include "duckdb/main/database.hpp"
 #include "duckdb/main/database_manager.hpp"
-#include "duckdb/parser/qualified_name.hpp"
 #include "functions/ducklake_table_functions.hpp"
 #include "storage/ducklake_catalog.hpp"
 #include "storage/ducklake_encryption_provider.hpp"
@@ -84,7 +83,7 @@ static unique_ptr<FunctionData> DuckLakeSelfTestBind(ClientContext &context, Tab
 }
 
 static unique_ptr<GlobalTableFunctionState> DuckLakeSelfTestInit(ClientContext &context,
-                                                                  TableFunctionInitInput &input) {
+                                                                 TableFunctionInitInput &input) {
 	return nullptr;
 }
 
