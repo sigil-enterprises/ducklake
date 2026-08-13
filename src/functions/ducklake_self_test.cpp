@@ -146,8 +146,7 @@ static void DuckLakeSelfTestExecute(ClientContext &context, TableFunctionInput &
 }
 
 DuckLakeSelfTestFunction::DuckLakeSelfTestFunction()
-    : TableFunction("ducklake_self_test", {}, DuckLakeSelfTestExecute, DuckLakeSelfTestBind,
-                    DuckLakeSelfTestInit) {
+    : TableFunction("ducklake_self_test", {}, DuckLakeSelfTestExecute, DuckLakeSelfTestBind, DuckLakeSelfTestInit) {
 	varargs = LogicalType::VARCHAR;
 }
 
