@@ -41,6 +41,7 @@ DuckLakeColumnStats::DuckLakeColumnStats(const DuckLakeColumnStats &other) {
 	has_max = other.has_max;
 	any_valid = other.any_valid;
 	has_contains_nan = other.has_contains_nan;
+	redacted = other.redacted;
 
 	if (other.extra_stats) {
 		extra_stats = other.extra_stats->Copy();
@@ -64,6 +65,7 @@ DuckLakeColumnStats &DuckLakeColumnStats::operator=(const DuckLakeColumnStats &o
 	has_num_values = other.has_num_values;
 	any_valid = other.any_valid;
 	has_contains_nan = other.has_contains_nan;
+	redacted = other.redacted;
 
 	if (other.extra_stats) {
 		extra_stats = other.extra_stats->Copy();
@@ -127,6 +129,7 @@ void DuckLakeColumnStats::RedactValues() {
 	if (type.id() == LogicalTypeId::VARIANT) {
 		extra_stats = make_uniq<DuckLakeColumnVariantStats>();
 	}
+	redacted = true;
 }
 // <<< FORK-LOCAL (sigil-enterprises) <<<
 
@@ -215,10 +218,16 @@ void DuckLakeColumnStats::MergeStats(const DuckLakeColumnStats &new_stats) {
 	}
 
 	if (new_stats.extra_stats) {
-		if (extra_stats) {
-			extra_stats->Merge(*new_stats.extra_stats);
-		} else {
+		if (new_stats.redacted || !extra_stats) {
+			// A redacted file's extra_stats is an EMPTY instance of the same
+			// type. Replace rather than union: a union merge of an empty
+			// geometry bbox is the identity, so it would leave a stale
+			// pre-envelope bound standing. A legitimately-empty incoming
+			// extra_stats (not redacted) with no current extra_stats also
+			// lands here and simply adopts the empty instance.
 			extra_stats = new_stats.extra_stats->Copy();
+		} else {
+			extra_stats->Merge(*new_stats.extra_stats);
 		}
 	}
 }
