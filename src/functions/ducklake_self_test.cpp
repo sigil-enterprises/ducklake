@@ -49,6 +49,10 @@ struct SelfTestBindData : public TableFunctionData {
 	DuckLakeCatalog *catalog = nullptr;
 };
 
+struct SelfTestGlobalState : public GlobalTableFunctionState {
+	bool finished = false;
+};
+
 static unique_ptr<FunctionData> DuckLakeSelfTestBind(ClientContext &context, TableFunctionBindInput &input,
                                                      vector<LogicalType> &return_types, vector<string> &names) {
 	auto result = make_uniq<SelfTestBindData>();
@@ -84,11 +88,17 @@ static unique_ptr<FunctionData> DuckLakeSelfTestBind(ClientContext &context, Tab
 
 static unique_ptr<GlobalTableFunctionState> DuckLakeSelfTestInit(ClientContext &context,
                                                                  TableFunctionInitInput &input) {
-	return nullptr;
+	return make_uniq<SelfTestGlobalState>();
 }
 
 static void DuckLakeSelfTestExecute(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
 	auto &data = data_p.bind_data->Cast<SelfTestBindData>();
+	auto &gstate = data_p.global_state->Cast<SelfTestGlobalState>();
+	if (gstate.finished) {
+		output.SetCardinality(0);
+		return;
+	}
+	gstate.finished = true;
 
 	SelfTestRow row;
 	row.extension_name = "ducklake";
