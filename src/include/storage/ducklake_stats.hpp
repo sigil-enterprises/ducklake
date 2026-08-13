@@ -44,6 +44,12 @@ struct DuckLakeColumnStats {
 	bool has_max = false;
 	bool any_valid = true;
 	bool has_contains_nan = false;
+	// Transient (never serialised): set by RedactValues() on the file-stats side
+	// so the commit-time table-wide merge can tell a redacted-empty extra_stats
+	// (which must CLEAR the accumulated bound) from a legitimately-empty one
+	// (which must leave it alone). Re-applied on every write, so it does not
+	// need to survive the write -> read round-trip.
+	bool redacted = false;
 
 	bool AnyValid() const {
 		if (has_num_values && has_null_count) {
@@ -58,6 +64,25 @@ public:
 	static DuckLakeColumnStats FromGlobalStats(const LogicalType &type, const DuckLakeGlobalColumnStatsInfo &col);
 	unique_ptr<BaseStatistics> ToStats() const;
 	void MergeStats(const DuckLakeColumnStats &new_stats);
+
+	// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids column VALUES in the catalog. >>>
+	// PRIVATE-FORK ONLY. Never cherry-pick this declaration upstream.
+	//
+	//! Drop every VALUE-BEARING statistic, keeping the counts. min/max and the
+	//! extra stats are actual column values - on a narrow-range or
+	//! low-cardinality column min/max IS the data - and the metadata catalog
+	//! stores them as plaintext VARCHAR. value_count, null_count,
+	//! column_size_bytes and contains_nan are counts about the data, not values
+	//! from it, and are deliberately KEPT: they are what still answers count(*)
+	//! and NULL-based pruning without opening an encrypted Parquet file.
+	//!
+	//! `any_valid` is deliberately NOT cleared. MergeStats treats a source with
+	//! no valid values as "nothing to merge" and returns EARLY, which would
+	//! leave a stale min/max standing in the table-wide stats of a lake that
+	//! predates the envelope. Leaving it set makes the merge run and clear the
+	//! bound.
+	void RedactValues();
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
 
 private:
 	unique_ptr<BaseStatistics> CreateNumericStats() const;
