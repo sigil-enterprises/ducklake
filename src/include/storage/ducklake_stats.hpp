@@ -44,6 +44,12 @@ struct DuckLakeColumnStats {
 	bool has_max = false;
 	bool any_valid = true;
 	bool has_contains_nan = false;
+	// Transient (never serialised): set by RedactValues() on the file-stats side
+	// so the commit-time table-wide merge can tell a redacted-empty extra_stats
+	// (which must CLEAR the accumulated bound) from a legitimately-empty one
+	// (which must leave it alone). Re-applied on every write, so it does not
+	// need to survive the write -> read round-trip.
+	bool redacted = false;
 
 	bool AnyValid() const {
 		if (has_num_values && has_null_count) {
