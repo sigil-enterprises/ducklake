@@ -99,6 +99,37 @@ DuckLakeColumnStats DuckLakeColumnStats::FromGlobalStats(const LogicalType &type
 	return stats;
 }
 
+// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids column VALUES in the catalog. >>>
+// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+//
+// The redaction primitive. It is the ONLY place that decides what counts as a
+// value-bearing statistic; the two guards in ducklake_transaction.cpp decide
+// WHEN it runs, and nothing else in the tree edits stats for confidentiality.
+//
+// extra_stats is REPLACED with a fresh empty instance of the same type rather
+// than dropped. A GEOMETRY bounding box and a VARIANT's shredded field stats
+// both carry real values, so the contents must go - but DuckLakeColumnStats::
+// ToStats() throws an InternalException for a VARIANT or GEOMETRY column whose
+// extra_stats is null, so dropping the pointer would trade a disclosure for a
+// crash on the very column types this is meant to protect. An empty
+// DuckLakeColumnVariantStats serialises to nothing at all (TrySerialize returns
+// false on an empty field map, so the catalog column is NULL) and an empty
+// DuckLakeColumnGeoStats serialises to a bbox of nulls - no value either way.
+void DuckLakeColumnStats::RedactValues() {
+	has_min = false;
+	min.clear();
+	has_max = false;
+	max.clear();
+	extra_stats.reset();
+	if (type.id() == LogicalTypeId::GEOMETRY) {
+		extra_stats = make_uniq<DuckLakeColumnGeoStats>();
+	}
+	if (type.id() == LogicalTypeId::VARIANT) {
+		extra_stats = make_uniq<DuckLakeColumnVariantStats>();
+	}
+}
+// <<< FORK-LOCAL (sigil-enterprises) <<<
+
 void DuckLakeColumnStats::MergeStats(const DuckLakeColumnStats &new_stats) {
 	bool types_differ = type != new_stats.type;
 	if (types_differ) {

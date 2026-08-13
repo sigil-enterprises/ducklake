@@ -233,6 +233,15 @@ public:
 	void AddDeletes(TableIndex table_id, vector<DuckLakeDeleteFile> files);
 	void AddCompaction(TableIndex table_id, DuckLakeCompactionEntry entry);
 
+	// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids column VALUES in the catalog. >>>
+	// PRIVATE-FORK ONLY. Never cherry-pick this declaration upstream.
+	//
+	//! On an envelope-encrypted lake, drop the value-bearing statistics of a data
+	//! file before it can enter the transaction's committed set. No-op on every
+	//! other lake.
+	void RedactStatsOnEnvelopedLake(DuckLakeDataFile &file) const;
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
+
 	MappingIndex AddNameMap(unique_ptr<DuckLakeNameMap> name_map);
 	shared_ptr<const DuckLakeNameMap> GetMappingById(MappingIndex mapping_id);
 	//! Queue a name map cache invalidation that should only be applied after this transaction commits.

@@ -59,6 +59,25 @@ public:
 	unique_ptr<BaseStatistics> ToStats() const;
 	void MergeStats(const DuckLakeColumnStats &new_stats);
 
+	// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids column VALUES in the catalog. >>>
+	// PRIVATE-FORK ONLY. Never cherry-pick this declaration upstream.
+	//
+	//! Drop every VALUE-BEARING statistic, keeping the counts. min/max and the
+	//! extra stats are actual column values - on a narrow-range or
+	//! low-cardinality column min/max IS the data - and the metadata catalog
+	//! stores them as plaintext VARCHAR. value_count, null_count,
+	//! column_size_bytes and contains_nan are counts about the data, not values
+	//! from it, and are deliberately KEPT: they are what still answers count(*)
+	//! and NULL-based pruning without opening an encrypted Parquet file.
+	//!
+	//! `any_valid` is deliberately NOT cleared. MergeStats treats a source with
+	//! no valid values as "nothing to merge" and returns EARLY, which would
+	//! leave a stale min/max standing in the table-wide stats of a lake that
+	//! predates the envelope. Leaving it set makes the merge run and clear the
+	//! bound.
+	void RedactValues();
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
+
 private:
 	unique_ptr<BaseStatistics> CreateNumericStats() const;
 	unique_ptr<BaseStatistics> CreateStringStats() const;

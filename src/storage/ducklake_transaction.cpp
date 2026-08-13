@@ -1673,10 +1673,73 @@ void DuckLakeTransaction::DropTransactionLocalFile(TableIndex table_id, const st
 	state->local_changes.DropTransactionLocalFile(*context_ref, table_id, path);
 }
 
+// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids column VALUES in the catalog. >>>
+// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+//
+// `ducklake_file_column_stats` and `ducklake_table_column_stats` hold
+// min_value / max_value per column as plaintext VARCHAR, written by every
+// commit with no option to turn them off. They are per FILE, not an aggregate,
+// so on a small partition or a narrow-range column min/max IS the data - min
+// and max date_of_birth over a three-row file disclose two patients outright.
+// ENCRYPTED governs the Parquet writer only and the envelope wraps per-file
+// DEKs, so neither covers this. On a teras lake the metadata catalog is
+// Postgres, which makes it cleartext PHI in the table, the WAL, every replica
+// and every backup.
+//
+// RBAC is arithmetically excluded as the alternative and this is not an
+// opinion: revoking SELECT on ducklake_table_column_stats makes a plain
+// `SELECT count(*)` fail - "Failed to get global stats information from
+// DuckLake ... permission denied" - because a DuckLake reader has to read those
+// stats to plan. Every authenticated client of the catalog is therefore in the
+// disclosure set, not only the DBA / replica / backup actor. The value must not
+// be written at all.
+//
+// WHY HERE. This is the point where a newly written data file ENTERS the
+// transaction's committed set, and every producer passes through it: INSERT /
+// UPDATE / MERGE / CTAS (ducklake_insert.cpp), ducklake_flush_inlined_data, and
+// ducklake_add_data_files. Redacting at the entry rather than at each of the
+// places the metadata manager WRITES a stats row means no write path can be
+// missed - the appender path, the SQL-batch path, the staged-commit path and
+// the table-wide merge all read the same DuckLakeDataFile. It also covers the
+// table-wide store for free: DuckLakeTableStats::MergeFileStats merges FROM
+// these file stats and DuckLakeColumnStats::MergeStats clears has_min the
+// moment a merged input lacks one, so a lake that carried cleartext bounds
+// before the envelope was configured has them cleared by its next write rather
+// than kept stale.
+//
+// Compaction does NOT come through here - it registers its rewritten file
+// through AddCompaction below - which is why that call site carries the same
+// guard and its own test case. A guard written only here would pass an insert
+// test and leak on the first ducklake_merge_adjacent_files.
+//
+// SUPPRESSING RATHER THAN COARSENING, and what it costs: min/max file pruning.
+// A filtered scan on an enveloped lake reads every file instead of the files
+// whose range can contain the constant. Coarsening was rejected because there
+// is no bucket width that is both safe and useful across the column types a
+// health lake carries - a truncated identifier is still a prefix of an
+// identifier, and a date_of_birth coarsened to a year is still a year of
+// birth. Absent stats are a path DuckLake already takes (a column with no stats
+// plans as unknown), so this degrades the plan along a road that is already
+// paved rather than inventing one.
+void DuckLakeTransaction::RedactStatsOnEnvelopedLake(DuckLakeDataFile &file) const {
+	if (!ducklake_catalog.EncryptionProvider()) {
+		return;
+	}
+	for (auto &entry : file.column_stats) {
+		entry.second.RedactValues();
+	}
+}
+// <<< FORK-LOCAL (sigil-enterprises) <<<
+
 void DuckLakeTransaction::AppendFiles(TableIndex table_id, vector<DuckLakeDataFile> files) {
 	if (files.empty()) {
 		return;
 	}
+	// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids column VALUES in the catalog. >>>
+	for (auto &file : files) {
+		RedactStatsOnEnvelopedLake(file);
+	}
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
 	state->local_changes.AppendFiles(table_id, std::move(files));
 }
 
@@ -1733,6 +1796,18 @@ void DuckLakeTransaction::AddDeletes(TableIndex table_id, vector<DuckLakeDeleteF
 }
 
 void DuckLakeTransaction::AddCompaction(TableIndex table_id, DuckLakeCompactionEntry entry) {
+	// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids column VALUES in the catalog. >>>
+	// The SECOND producer of a catalog data-file row, and the reason the guard
+	// is not written once at AppendFiles. `ducklake_merge_adjacent_files` never
+	// calls AppendFiles: the rewritten files arrive as
+	// DuckLakeCompactionEntry::written_files and are turned into catalog rows by
+	// the same BuildDataFileInfo. A compacted file's stats are also the WIDEST -
+	// they span every source file's range - so this is the leak that would
+	// matter most if it were missed.
+	for (auto &file : entry.written_files) {
+		RedactStatsOnEnvelopedLake(file);
+	}
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
 	state->local_changes.AddCompaction(table_id, std::move(entry));
 }
 
