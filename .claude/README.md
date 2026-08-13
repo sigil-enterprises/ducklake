@@ -54,7 +54,9 @@ on the next.
 
 Build inside the devcontainer only (`docker compose up app`); the image is
 GCC 14 + vcpkg at the CI pin. See `.devcontainer/Dockerfile` for why GCC 14 is
-load-bearing. The inlining refusal and column-stats redaction are PROVEN by the
-bench repo (`ducklake-bench`) use-cases `inlining_forced_off_on_crypta_lake`
+load-bearing. The inlining refusal and column-stats redaction are DECLARED by
+the bench repo (`ducklake-bench`) use-cases `inlining_forced_off_on_crypta_lake`
 and `column_stats_redacted_on_crypta_lake`, not by any test in this tree - this
-repo cannot construct a crypta provider.
+repo cannot construct a crypta provider. "Declared", not "proven": those
+use-cases only fire on the bench's live-stack replay, which is not yet wired to
+CI (ducklake-bench#10).
