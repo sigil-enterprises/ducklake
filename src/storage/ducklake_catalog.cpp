@@ -1073,11 +1073,23 @@ bool DuckLakeCatalog::TryGetConfigOption(const string &option, string &result, D
 }
 
 idx_t DuckLakeCatalog::DataInliningRowLimit(SchemaIndex schema_index, TableIndex table_index) const {
+	// An enveloped lake never inlines rows. The inlined-data path writes column
+	// min/max (and the inlined row literals themselves) into the metadata
+	// catalog as cleartext, bypassing the file-stats redaction that only guards
+	// the Parquet-file path (AppendFiles / AddCompaction). Returning 0 here -
+	// the one primitive every inlining decision funnels through - forces every
+	// write through a data file.
+	if (EncryptionProvider() != nullptr) {
+		return 0;
+	}
 	return GetConfigOption<idx_t>("data_inlining_row_limit", schema_index, table_index, 10);
 }
 
 idx_t DuckLakeCatalog::DataInliningRowLimit(ClientContext &context, SchemaIndex schema_index,
                                             TableIndex table_index) const {
+	if (EncryptionProvider() != nullptr) {
+		return 0;
+	}
 	string value_str;
 	if (TryGetConfigOption("data_inlining_row_limit", value_str, schema_index, table_index)) {
 		return Value(value_str).GetValue<idx_t>();
