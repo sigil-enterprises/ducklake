@@ -398,7 +398,7 @@ milestones:
         - "ducklake-bench:#113 (pgwire gateway calls ducklake_self_test())"
         - "lypto:#609 (pin + allow_unsigned; self-test gated on extension rebuild)"
         - "vero:#451 (pin + allow_unsigned; self-test gated on extension rebuild)"
-      open_gap: "ducklake:#8 (merged 2026-08-13) fixed the 8th AND 9th build blockers: the self-test table function was registered with a required VARCHAR argument (every consumer calls it zero-arg) and its Execute never signalled completion (a bare SELECT looped forever). bench:#123 (merged) bumps the ducklake gitlink 0437e9d7 -> ec7b6cc8, re-triggering the submodule-image rebuild so the fixed extension lands in the runtime image. vero:#452 (merged) re-enabled the zero-arg self-test call. lypto:#610 remains open (draft): it converges lypto onto the fork runtime image (FROM ducklake-runtime + path-load) and re-enables the self-test call, but its Dockerfile still pins the old image tag 0437e9d7 and must be bumped to ec7b6cc8 once the rebuild publishes. The seven earlier build blockers (bench #116-#120, the :5002 registry migration, and the duckdb-postgres pin #122) are all merged."
+      open_gap: "ducklake:#8 (merged 2026-08-13) fixed the 8th AND 9th build blockers: the self-test table function was registered with a required VARCHAR argument (every consumer calls it zero-arg) and its Execute never signalled completion (a bare SELECT looped forever). bench:#123 (merged) bumps the ducklake gitlink 0437e9d7 -> ec7b6cc8, re-triggering the submodule-image rebuild so the fixed extension lands in the runtime image. bench:#125 (merged) added autoconf/automake/libtool to the extbuild image - the 10th blocker (libpq's vcpkg_configure_make hard-requires autoconf). vero:#452 (merged) re-enabled the zero-arg self-test call. lypto:#613 remains open (draft): it converges lypto onto the fork runtime image (FROM ducklake-runtime + path-load) and re-enables the ZERO-ARG self-test (correct for an unencrypted lake; the catalog-named form would false-fail with catalog_has_no_provider). Its Dockerfile pins ducklake-runtime:ec7b6cc8, which publishes once the rebuild succeeds. The seven earlier build blockers (bench #116-#120, the :5002 registry migration, and the duckdb-postgres pin #122) are all merged."
       note: "pgwire (opvance/teras-ext-pgwire) is cross-org — tracked but not actionable from this workspace."
     epics:
       - id: E5.1
@@ -421,13 +421,14 @@ milestones:
             - "bench:#116-#120 — submodule-image rebuild unblocked (stamp, C++17, PPA, vcpkg, duckdb-python pin)"
             - "bench:#122 — pin duckdb-postgres to the commit matching the duckdb submodule (7th blocker)"
             - "bench:#123 — bump ducklake gitlink 0437e9d7 -> ec7b6cc8 (re-triggers the rebuild)"
+            - "bench:#125 — add autoconf/automake/libtool to the extbuild image (10th blocker: libpq vcpkg_configure_make)"
             - "bench registry — migrate DOCKER_REGISTRY off decommissioned :5002 to path-enabled sigil-enterprises-docker-internal"
             - "luma-server:#193 — luma Rust native self-test (real Parquet probe)"
             - "lypto:#609 — duckdb v1.5.3 pin + allow_unsigned_extensions"
             - "vero:#451 — duckdb v1.5.3 pin + allow_unsigned_extensions"
             - "vero:#452 — re-enable zero-arg ducklake_self_test() call"
           open:
-            - "lypto #610 — converge onto fork runtime image (FROM ducklake-runtime + path-load) + re-enable self-test; Dockerfile must bump 0437e9d7 -> ec7b6cc8 once the rebuild publishes"
+            - "lypto #613 — converge onto fork runtime image (FROM ducklake-runtime + path-load) + re-enable ZERO-ARG self-test; Dockerfile pins ducklake-runtime:ec7b6cc8, which publishes once the rebuild succeeds"
 
   - id: M6
     title: "Upstream contribution and the RFC interface"
