@@ -138,7 +138,11 @@ unique_ptr<QueryResult> PostgresMetadataManager::ExecuteQuery(DuckLakeSnapshot s
 
 	unique_ptr<QueryResult> last_result;
 	for (auto &statement : statements) {
-		last_result = execute_statement(statement->ToString());
+		// Use the ORIGINAL statement text, not ToString(): ToString() re-serializes
+		// in DuckDB's dialect and normalizes Postgres type names (DOUBLE PRECISION
+		// -> DOUBLE, BYTEA -> BLOB, ...), which Postgres then rejects. `query` is
+		// the parser's slice of the source string and preserves those spellings.
+		last_result = execute_statement(statement->query);
 		if (last_result->HasError()) {
 			return last_result;
 		}
