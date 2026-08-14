@@ -110,8 +110,40 @@ unique_ptr<QueryResult> PostgresMetadataManager::ExecuteQuery(DuckLakeSnapshot s
 	query = StringUtil::Replace(query, "{METADATA_PATH}", metadata_path);
 	query = StringUtil::Replace(query, "{DATA_PATH}", data_path);
 
-	auto result = connection.Query(StringUtil::Format("CALL %s(%s, %s)", command, catalog_literal, SQLString(query)));
-	return std::move(result);
+	auto execute_statement = [&](const string &statement_sql) -> unique_ptr<QueryResult> {
+		return connection.Query(
+		    StringUtil::Format("CALL %s(%s, %s)", command, catalog_literal, SQLString(statement_sql)));
+	};
+
+	// The postgres_scanner (duckdb-postgres) runs postgres_execute through
+	// PQprepare, which refuses more than one command in a single prepared
+	// statement. DuckLake builds initialization, migration and the commit batch
+	// as multi-statement strings, so split them and execute each statement on
+	// its own. They all run inside the caller's DuckDB transaction, so the
+	// surrounding commit/rollback keeps the batch atomic.
+	vector<unique_ptr<SQLStatement>> statements;
+	try {
+		statements = connection.ExtractStatements(query);
+	} catch (std::exception &) {
+		// DuckDB's dialect could not parse the SQL (e.g. Postgres-specific
+		// syntax). Preserve the prior single-statement behaviour.
+		return execute_statement(query);
+	}
+
+	if (statements.size() <= 1) {
+		// Single statement (or none) - keep the original path so the SQL is not
+		// rewritten through ToString().
+		return execute_statement(query);
+	}
+
+	unique_ptr<QueryResult> last_result;
+	for (auto &statement : statements) {
+		last_result = execute_statement(statement->ToString());
+		if (last_result->HasError()) {
+			return last_result;
+		}
+	}
+	return last_result;
 }
 unique_ptr<QueryResult> PostgresMetadataManager::Execute(DuckLakeSnapshot snapshot, string &query) {
 	return ExecuteQuery(snapshot, query, "postgres_execute");
