@@ -289,6 +289,13 @@ public:
 	//! same order) since path policy differs across callers (schema-relative vs. always-absolute).
 	static string WriteNewDataFilesSqlBatch(const vector<DuckLakeFileInfo> &new_files,
 	                                        const vector<DuckLakePath> &resolved_paths, bool write_row_group_count);
+	//! KMS envelope encryption: wrap every non-empty data-file and delete-file DEK in ONE WrapKeys
+	//! batch (or base64-encode each on a non-enveloped lake), in place, so the store sites below write
+	//! the key exactly as it must be persisted. Uses each file's committed table id and the AS-STORED
+	//! path (the `path` column value, i.e. the file path relative to its table's directory).
+	void PrepareFileKeysForCommit(vector<DuckLakeFileInfo> &new_files, vector<DuckLakeDeleteFileInfo> &delete_files,
+	                              const vector<DuckLakeTableInfo> &new_tables,
+	                              vector<DuckLakeSchemaInfo> &new_schemas);
 	//! Opt-in fast-path: if this backend supports the DuckDB Appender API, write the files directly
 	bool TryAppendDataFiles(DuckLakeSnapshot &commit_snapshot, const vector<DuckLakeFileInfo> &new_files,
 	                        const vector<DuckLakeTableInfo> &new_tables,
@@ -481,7 +488,7 @@ private:
 	template <class T>
 	static string FlushDrop(const string &metadata_table_name, const string &id_name, const set<T> &dropped_entries);
 	template <class T>
-	DuckLakeFileData ReadDataFile(DuckLakeTableEntry &table, T &row, idx_t &col_idx, bool is_encrypted);
+	DuckLakeFileData ReadDataFile(DuckLakeTableEntry &table, T &row, idx_t &col_idx, bool is_encrypted, bool is_delete_file);
 	template <class T>
 	DuckLakeFileData ReadDeleteFile(DuckLakeTableEntry &table, T &row, idx_t &col_idx, bool is_encrypted);
 

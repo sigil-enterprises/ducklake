@@ -184,7 +184,8 @@ void DuckLakeStagedCommit::EmitDataFileRow(string &sql, const DuckLakeDataFile &
 	    DuckLakeStagedTable::BaseName(DuckLakeStagedTableType::DATA_FILE), local_file_id, table_id.index, file_order,
 	    SQLString(file.file_name), file.row_count, file.file_size_bytes,
 	    DuckLakeUtil::OptionalIdxOrNull(file.footer_size), DuckLakeUtil::OptionalIdxOrNull(file.flush_row_id_start),
-	    DuckLakeUtil::OptionalIdxOrNull(file.partition_id), DuckLakeUtil::EncryptionKeyLiteral(file.encryption_key),
+	    DuckLakeUtil::OptionalIdxOrNull(file.partition_id),
+	    DuckLakeUtil::WrappedEncryptionKeyLiteral(file.encryption_key, !file.encryption_key.empty()),
 	    DuckLakeUtil::MappingIdOrNull(file.mapping_id), DuckLakeUtil::OptionalIdxOrNull(file.max_partial_file_snapshot),
 	    DuckLakeUtil::OptionalIdxOrNull(file.begin_snapshot), compaction_id_literal,
 	    DuckLakeUtil::OptionalIdxOrNull(file.row_group_count));
@@ -214,7 +215,8 @@ void DuckLakeStagedCommit::EmitDeleteFileRow(string &sql, const DuckLakeDeleteFi
 	                          DuckLakeStagedTable::BaseName(DuckLakeStagedTableType::DELETE_FILE), table_id.index,
 	                          SQLString(data_file_path), file.data_file_id.index, SQLString(file.file_name),
 	                          SQLString(DeleteFileFormatToString(file.format)), file.delete_count, file.file_size_bytes,
-	                          file.footer_size, DuckLakeUtil::EncryptionKeyLiteral(file.encryption_key),
+	                          file.footer_size,
+	                          DuckLakeUtil::WrappedEncryptionKeyLiteral(file.encryption_key, !file.encryption_key.empty()),
 	                          DuckLakeUtil::OptionalIdxOrNull(file.begin_snapshot),
 	                          DuckLakeUtil::OptionalIdxOrNull(file.max_snapshot),
 	                          SQLString(file.source == DeleteFileSource::FLUSH ? "FLUSH" : "REGULAR"),
@@ -229,7 +231,8 @@ void DuckLakeStagedCommit::EmitAttachedDeleteRow(string &sql, const DuckLakeDele
 	    "(%llu, NULL, NULL, %s, %s, %llu, %llu, %llu, %s, %s, %s, %s, false, NULL, NULL, %llu, %s);",
 	    DuckLakeStagedTable::BaseName(DuckLakeStagedTableType::DELETE_FILE), table_id.index, SQLString(del.file_name),
 	    SQLString(DeleteFileFormatToString(del.format)), del.delete_count, del.file_size_bytes, del.footer_size,
-	    DuckLakeUtil::EncryptionKeyLiteral(del.encryption_key), DuckLakeUtil::OptionalIdxOrNull(del.begin_snapshot),
+	    DuckLakeUtil::WrappedEncryptionKeyLiteral(del.encryption_key, !del.encryption_key.empty()),
+	    DuckLakeUtil::OptionalIdxOrNull(del.begin_snapshot),
 	    DuckLakeUtil::OptionalIdxOrNull(del.max_snapshot),
 	    SQLString(del.source == DeleteFileSource::FLUSH ? "FLUSH" : "REGULAR"), local_file_id,
 	    DuckLakeUtil::OptionalIdxOrNull(del.row_group_count));
@@ -501,6 +504,9 @@ string DuckLakeStagedCommit::Build(DuckLakeTransaction &transaction, const DuckL
                                    const DuckLakeRetryConfig &retry_config) const {
 	auto &ducklake_catalog = transaction.GetCatalog();
 	auto &local_changes = transaction.GetLocalChanges();
+	// Wrap every new-file and delete-file DEK in ONE KMS batch before the emit sites read them, so each
+	// stored key is written exactly as it must be persisted (wrapped, or base64 on a non-enveloped lake).
+	transaction.PrepareFileKeysForCommit();
 
 	string batch;
 	batch += DuckLakeStagedTable::CreateAllSql();
