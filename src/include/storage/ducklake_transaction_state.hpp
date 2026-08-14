@@ -72,8 +72,8 @@ struct DuckLakeCommitContext {
 	    };
 	//! Wraps every non-empty data-file and delete-file DEK in ONE KMS batch (or base64-encodes each on
 	//! a non-enveloped lake) before any of them is written to metadata, in place.
-	std::function<void(vector<DuckLakeFileInfo> &, vector<DuckLakeDeleteFileInfo> &,
-	                   const vector<DuckLakeTableInfo> &, vector<DuckLakeSchemaInfo> &)>
+	std::function<void(vector<DuckLakeFileInfo> &, vector<DuckLakeDeleteFileInfo> &, const vector<DuckLakeTableInfo> &,
+	                   vector<DuckLakeSchemaInfo> &)>
 	    prepare_file_keys = [](vector<DuckLakeFileInfo> &, vector<DuckLakeDeleteFileInfo> &,
 	                           const vector<DuckLakeTableInfo> &, vector<DuckLakeSchemaInfo> &) {
 	    };

@@ -1183,8 +1183,8 @@ DuckLakeFileData DuckLakeMetadataManager::ReadDataFile(DuckLakeTableEntry &table
 	col_idx++;
 	if (is_encrypted) {
 		auto stored_key = row.template GetValue<Value>(col_idx++);
-		data.encryption_key = transaction.GetCatalog().ResolveStoredEncryptionKey(table.GetTableId(), path.path,
-		                                                                         data.path, is_delete_file, stored_key);
+		data.encryption_key = transaction.GetCatalog().ResolveStoredEncryptionKey(
+		    table.GetTableId(), path.path, data.path, is_delete_file, stored_key);
 	}
 	return data;
 }
@@ -4077,7 +4077,8 @@ string DuckLakeMetadataManager::WriteNewDataFilesSqlBatch(const vector<DuckLakeF
 		    file.begin_snapshot.IsValid() ? to_string(file.begin_snapshot.GetIndex()) : "{SNAPSHOT_ID}";
 		auto data_file_index = file.id.index;
 		auto table_id = file.table_id.index;
-		auto encryption_key = DuckLakeUtil::WrappedEncryptionKeyLiteral(file.encryption_key, !file.encryption_key.empty());
+		auto encryption_key =
+		    DuckLakeUtil::WrappedEncryptionKeyLiteral(file.encryption_key, !file.encryption_key.empty());
 		string partial_max = DuckLakeUtil::OptionalIdxOrNull(file.max_partial_file_snapshot);
 		string footer_size = DuckLakeUtil::OptionalIdxOrNull(file.footer_size);
 		string mapping = DuckLakeUtil::MappingIdOrNull(file.mapping_id);
@@ -4218,7 +4219,8 @@ string DuckLakeMetadataManager::WriteNewDeleteFiles(const vector<DuckLakeDeleteF
 		auto delete_file_index = file.id.index;
 		auto table_id = file.table_id.index;
 		auto data_file_index = file.data_file_id.index;
-		auto encryption_key = DuckLakeUtil::WrappedEncryptionKeyLiteral(file.encryption_key, !file.encryption_key.empty());
+		auto encryption_key =
+		    DuckLakeUtil::WrappedEncryptionKeyLiteral(file.encryption_key, !file.encryption_key.empty());
 		// Use explicit begin_snapshot if set (for flush operations), otherwise use commit snapshot
 		string begin_snapshot_str =
 		    file.begin_snapshot.IsValid() ? std::to_string(file.begin_snapshot.GetIndex()) : "{SNAPSHOT_ID}";
