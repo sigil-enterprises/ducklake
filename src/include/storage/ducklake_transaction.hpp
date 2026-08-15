@@ -29,6 +29,7 @@ class DuckLakeInitializer;
 class DuckLakeMetadataManager;
 class DuckLakeSchemaEntry;
 class DuckLakeTableEntry;
+class DuckLakeTransaction;
 class DuckLakeViewEntry;
 struct DuckLakeNewGlobalStats;
 struct DuckLakeTableStats;
@@ -86,6 +87,9 @@ public:
 	void DropTransactionLocalFile(ClientContext &context, TableIndex table_id, const string &path);
 	void AppendFiles(TableIndex table_id, vector<DuckLakeDataFile> files);
 	void AppendDeleteFiles(TableIndex table_id, const string &data_file_path, vector<DuckLakeDeleteFile> files);
+	//! KMS envelope encryption: wrap every non-empty data-file and delete-file DEK held in this table's
+	//! local changes in ONE KMS batch (or base64-encode each on a non-enveloped lake), in place.
+	void PrepareEncryptionKeysForCommit(DuckLakeTransaction &transaction);
 	void AppendInlinedData(ClientContext &context, TableIndex table_id, unique_ptr<DuckLakeInlinedData> new_data);
 	void AddNewInlinedDeletes(TableIndex table_id, const string &table_name, set<idx_t> new_deletes);
 	void DeleteFromLocalInlinedData(ClientContext &context, TableIndex table_id, set<idx_t> new_deletes);
@@ -330,6 +334,9 @@ public:
 	void RunCommitLoop(DuckLakeSnapshot transaction_snapshot, const TransactionChangeInformation &transaction_changes,
 	                   const DuckLakeRetryConfig &retry_config);
 	void ApplyServerSideCommit(idx_t schema_version);
+	//! KMS envelope encryption: wrap every non-empty data-file and delete-file DEK in this transaction's
+	//! staged local changes in ONE KMS batch (or base64-encode each on a non-enveloped lake), in place.
+	void PrepareFileKeysForCommit();
 	//! Post-commit cleanup of empty inlined-data tables superseded by later schema versions.
 	void DropEmptySupersededInlinedTablesClientSide();
 

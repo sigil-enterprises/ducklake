@@ -70,6 +70,13 @@ struct DuckLakeCommitContext {
 	    [](const vector<DuckLakeInlinedFileDeletionInfo> &) {
 		    return string();
 	    };
+	//! Wraps every non-empty data-file and delete-file DEK in ONE KMS batch (or base64-encodes each on
+	//! a non-enveloped lake) before any of them is written to metadata, in place.
+	std::function<void(vector<DuckLakeFileInfo> &, vector<DuckLakeDeleteFileInfo> &, const vector<DuckLakeTableInfo> &,
+	                   vector<DuckLakeSchemaInfo> &)>
+	    prepare_file_keys = [](vector<DuckLakeFileInfo> &, vector<DuckLakeDeleteFileInfo> &,
+	                           const vector<DuckLakeTableInfo> &, vector<DuckLakeSchemaInfo> &) {
+	    };
 	//! Returns the current global table stats for a single table id (first-attempt path).
 	std::function<shared_ptr<DuckLakeTableStats>(TableIndex)> get_table_stats;
 	//! Top-level columns of a table at the commit snapshot — needed by stats-refresh to iterate

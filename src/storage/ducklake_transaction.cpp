@@ -67,6 +67,64 @@ bool LocalTableChanges::HasChanges() const {
 	return !changes.empty();
 }
 
+void LocalTableChanges::PrepareEncryptionKeysForCommit(DuckLakeTransaction &transaction) {
+	auto &catalog = transaction.GetCatalog();
+	lock_guard<mutex> guard(lock);
+	vector<DuckLakeFileIdentity> identities;
+	vector<string> keys;
+	// The staged commit emits each `file_name` VERBATIM as the `path` column (see
+	// DuckLakeStagedCommit::EmitDataFileRow / EmitDeleteFileRow / EmitAttachedDeleteRow), so the
+	// AS-STORED path the KMS identity must match is the file_name itself. Do NOT route through
+	// GetRelativePath / GetPath here: those call GetSnapshot(), and this whole commit runs under
+	// transaction.snapshot_lock (FlushChanges holds it around FlushChangesServerSide), so
+	// re-entering GetSnapshot self-deadlocks.
+	for (auto &entry : changes) {
+		auto table_id = entry.first;
+		auto &table_changes = entry.second;
+		for (auto &file : table_changes.new_data_files) {
+			identities.push_back(catalog.BuildEncryptionIdentity(table_id, file.file_name, false));
+			keys.push_back(file.encryption_key);
+			for (auto &del : file.delete_files) {
+				identities.push_back(catalog.BuildEncryptionIdentity(table_id, del.file_name, true));
+				keys.push_back(del.encryption_key);
+			}
+		}
+		for (auto &delete_entry : table_changes.new_delete_files) {
+			for (auto &del : delete_entry.second) {
+				identities.push_back(catalog.BuildEncryptionIdentity(table_id, del.file_name, true));
+				keys.push_back(del.encryption_key);
+			}
+		}
+		for (auto &compaction : table_changes.compactions) {
+			for (auto &written_file : compaction.written_files) {
+				identities.push_back(catalog.BuildEncryptionIdentity(table_id, written_file.file_name, false));
+				keys.push_back(written_file.encryption_key);
+			}
+		}
+	}
+	catalog.PrepareFileKeysForCommit(identities, keys);
+	idx_t pos = 0;
+	for (auto &entry : changes) {
+		auto &table_changes = entry.second;
+		for (auto &file : table_changes.new_data_files) {
+			file.encryption_key = keys[pos++];
+			for (auto &del : file.delete_files) {
+				del.encryption_key = keys[pos++];
+			}
+		}
+		for (auto &delete_entry : table_changes.new_delete_files) {
+			for (auto &del : delete_entry.second) {
+				del.encryption_key = keys[pos++];
+			}
+		}
+		for (auto &compaction : table_changes.compactions) {
+			for (auto &written_file : compaction.written_files) {
+				written_file.encryption_key = keys[pos++];
+			}
+		}
+	}
+}
+
 void LocalTableChanges::CleanupFiles(DatabaseInstance &db) {
 	auto &fs = FileSystem::GetFileSystem(db);
 	lock_guard<mutex> guard(lock);
@@ -1404,6 +1462,10 @@ void DuckLakeTransaction::ApplyServerSideCommit(idx_t schema_version) {
 	}
 }
 
+void DuckLakeTransaction::PrepareFileKeysForCommit() {
+	state->local_changes.PrepareEncryptionKeysForCommit(*this);
+}
+
 void DuckLakeTransaction::DropEmptySupersededInlinedTablesClientSide() {
 	DuckLakeCommitContext context;
 	context.query_metadata = [&](string q) {
@@ -1461,6 +1523,11 @@ void DuckLakeTransaction::RunCommitLoop(DuckLakeSnapshot transaction_snapshot,
 	                                    const vector<DuckLakeTableInfo> &new_tables,
 	                                    vector<DuckLakeSchemaInfo> &new_schemas) {
 		return metadata_manager->TryAppendDataFiles(snapshot, files, new_tables, new_schemas);
+	};
+	context.prepare_file_keys = [&](vector<DuckLakeFileInfo> &new_files, vector<DuckLakeDeleteFileInfo> &delete_files,
+	                                const vector<DuckLakeTableInfo> &new_tables,
+	                                vector<DuckLakeSchemaInfo> &new_schemas) {
+		metadata_manager->PrepareFileKeysForCommit(new_files, delete_files, new_tables, new_schemas);
 	};
 	context.write_inlined_tables = [&](DuckLakeSnapshot snapshot, const vector<DuckLakeTableInfo> &tables) {
 		return metadata_manager->WriteNewInlinedTables(snapshot, tables);

@@ -90,6 +90,7 @@ def verify_local_quack(duckdb_bin: Path, local_extension_repo: Path) -> tuple[bo
             [str(duckdb_bin), "-unsigned", "-c", sql],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=120,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired) as ex:
@@ -239,6 +240,7 @@ def run_one_test(
                 cwd=str(REPO_ROOT),
                 capture_output=True,
                 text=True,
+                errors="replace",
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired as ex:

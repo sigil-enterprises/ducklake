@@ -747,7 +747,7 @@ string DuckLakeCatalog::GenerateEncryptionKey(ClientContext &context) const {
 	}
 	// generate an encryption key
 	auto &engine = RandomEngine::Get(context);
-	static constexpr const idx_t ENCRYPTION_KEY_SIZE = 16;
+	static constexpr const idx_t ENCRYPTION_KEY_SIZE = 32;
 	data_t bytes[ENCRYPTION_KEY_SIZE];
 	for (idx_t i = 0; i < ENCRYPTION_KEY_SIZE; i += 4) {
 		*reinterpret_cast<uint32_t *>(bytes + i) = engine.NextRandomInteger();
