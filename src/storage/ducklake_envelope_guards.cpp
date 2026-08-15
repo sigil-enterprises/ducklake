@@ -172,4 +172,39 @@ string DuckLakeCatalog::ResolveStoredEncryptionKey(TableIndex table_id, const st
 	return decoded_key;
 }
 
+void DuckLakeCatalog::PrepareFileKeysForCommit(const vector<DuckLakeFileIdentity> &identities,
+                                               vector<string> &keys) const {
+	D_ASSERT(identities.size() == keys.size());
+	if (encryption_provider) {
+		vector<DuckLakeFileIdentity> wrap_identities;
+		vector<string> deks;
+		vector<idx_t> positions;
+		for (idx_t i = 0; i < keys.size(); i++) {
+			if (!keys[i].empty()) {
+				wrap_identities.push_back(identities[i]);
+				deks.push_back(keys[i]);
+				positions.push_back(i);
+			}
+		}
+		if (deks.empty()) {
+			return;
+		}
+		auto wrapped = encryption_provider->WrapKeys(wrap_identities, deks);
+		if (wrapped.size() != deks.size()) {
+			throw IOException("KMS wrapped %llu keys for %llu files", static_cast<uint64_t>(wrapped.size()),
+			                  static_cast<uint64_t>(deks.size()));
+		}
+		for (idx_t i = 0; i < positions.size(); i++) {
+			keys[positions[i]] = wrapped[i];
+		}
+		return;
+	}
+	// No envelope: store the base64 of the raw DEK exactly as upstream does.
+	for (auto &key : keys) {
+		if (!key.empty()) {
+			key = Blob::ToBase64(string_t(key));
+		}
+	}
+}
+
 } // namespace duckdb

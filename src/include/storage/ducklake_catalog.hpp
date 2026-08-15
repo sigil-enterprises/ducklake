@@ -252,6 +252,13 @@ public:
 	//! wants, through the KMS envelope provider when one is configured.
 	string ResolveStoredEncryptionKey(TableIndex table_id, const string &stored_path, const string &resolved_path,
 	                                  bool is_delete_file, const Value &stored_key) const;
+	//! KMS envelope encryption: turn each non-empty raw DEK in `keys` into the
+	//! value the catalog `encryption_key` column must carry, in place. On an
+	//! enveloped lake every non-empty key is wrapped in a SINGLE `WrapKeys`
+	//! batch (the whole commit is one call); on a lake without a provider each
+	//! non-empty key is base64-encoded exactly as upstream stores it. Empty keys
+	//! (unencrypted files) are left empty.
+	void PrepareFileKeysForCommit(const vector<DuckLakeFileIdentity> &identities, vector<string> &keys) const;
 	//! KMS envelope encryption: turn DuckDB's `temp_file_encryption` ON for
 	//! this process, at ATTACH, when this lake carries a KMS envelope - and
 	//! refuse the ATTACH rather than attach without it.
