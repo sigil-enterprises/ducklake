@@ -67,11 +67,23 @@
 # RESTS on - and for every `intent: unproven` node the evidence is delivery-only or the
 # reactive issue it was derived from, never an artifact posed as prior intent.
 #
-# *** NOTHING IN THIS REPO HAS SHIPPED. *** No milestone below is `status: shipped`,
-# because this repo has no FINAL tag. Its only tag is `v1.5.3-crypta.1`, which the forge
-# reports as `prerelease: true` (measured 2026-08-05 via the releases API) and which
-# semver reads as a prerelease of 1.5.3. Recording any of it as shipped would be the
-# release-side vacuous green.
+# *** SUPERSEDED 2026-08-15 - FINAL TAGS NOW EXIST. *** The 2026-08-05 claim immediately
+# below ("NOTHING IN THIS REPO HAS SHIPPED", "only tag is v1.5.3-crypta.1") is no longer
+# true. The fork-native scheme the header PROPOSES was ratified and adopted: `v0.1.0` is
+# now a FINAL, non-prerelease tag (published 2026-08-10T18:02:51Z, target
+# `release/v1.5-variegata`, commit `a562b87fb45478aa77e94070a52d7261d88a9bea`), and the
+# `main` line has cut `v0.2.0-rc.1` and `v0.2.0-rc.2` (both prerelease). M1, M2, M4 and
+# M7 are `shipped`; M3 is now `shipped` too (E3.4's column-statistics half landed in
+# ducklake#11 and bench#126, both merged 2026-08-13). M5 stays `active` (lypto#613 open)
+# and M6 `planned` (human-gated upstream contribution). The paragraphs below explain why
+# the old `v<duckdb>-crypta.<n>` scheme could not ship and how the fork-native scheme was
+# adopted - retained as the historical record, still correct as history.
+#
+# [HISTORICAL 2026-08-05] NOTHING IN THIS REPO HAS SHIPPED. No milestone below is
+# `status: shipped`, because this repo has no FINAL tag. Its only tag is `v1.5.3-crypta.1`,
+# which the forge reports as `prerelease: true` (measured 2026-08-05 via the releases
+# API) and which semver reads as a prerelease of 1.5.3. Recording any of it as shipped
+# would be the release-side vacuous green.
 #
 # That is not a temporary state, and it needs a human. The fork's tag scheme
 # `v<duckdb-version>-crypta.<n>` can NEVER produce a final release: promoting it means
@@ -129,7 +141,7 @@ feature_completeness:
   statement: "The sigil ducklake fork is production-ready as the teras lake's encryption provider - every data-file key in the catalog is an identity-bound crypta-wrapped blob rooted in an HSM, the provider FAILS CLOSED on every read and write path rather than silently emitting or accepting plaintext, no cleartext patient data reaches the catalog by inlining or column statistics, the reader-side residual (DEK cache, temp spill, snapshots) is bounded and documented, a rewrap sweep makes KEK retirement survivable, and the extension loads on every DuckDB patch pinned anywhere in the fleet. GA as v1.0.0."
   target: v1.0.0
 
-updated: 2026-08-12
+updated: 2026-08-15
 last_revision: 2026-08-05
 inception_date: 2026-07-28    # fork created on the sigil forge, 2026-07-28T18:14:36Z
 
@@ -279,7 +291,7 @@ milestones:
     version: v0.3.0             # PROPOSED
     rc_soaked: false
     tracker_ref: "ducklake:#1"
-    status: active              # 3 of 4 epics closed; E3.4 (column stats) still open
+    status: shipped             # all 4 epics closed 2026-08-15 - E3.4 column stats landed (ducklake#11 + bench#126)
     depends_on: [ducklake:M2, "crypta:M3"]
     provenance: retro-derived
     derived_at: 2026-08-05
@@ -324,10 +336,10 @@ milestones:
         confidence: low
       - id: E3.4
         title: "No cleartext patient data in the catalog"
-        capability: "Data inlining and cleartext column statistics are prevented on an encrypted lake, so the catalog carries no plaintext patient rows. Partially delivered: the inlining refusal landed in PR #25; column statistics remain cleartext and are not claimed. Tracker bench#66 OPEN."
+        capability: "Data inlining and cleartext column statistics are prevented on an encrypted lake, so the catalog carries no plaintext patient rows. Delivered: the inlining refusal landed in PR #25, and the column-statistics redaction landed in ducklake#11, proven by bench#126 (both merged 2026-08-13). Tracker bench#66 is still OPEN (bookkeeping lag, not open scope)."
         tracker_ref: "ducklake:#13"
         class: planned
-        status: open            # inlining half done (PR #25), column statistics still cleartext
+        status: closed          # inlining (PR #25) + column-statistics redaction (ducklake#11, bench#126) both merged
         depends_on: [ducklake:E1.3]
         intent: unproven
         provenance: retro-derived
@@ -516,9 +528,12 @@ milestones:
 # cites the issue rather than #1.
 #
 # `disposition: pending` on an item whose fix has MERGED means exactly what it says
-# here: the work landed on release/v1.5-variegata but is carried by NO final tag,
-# because this repo has none (see the header). It is not a claim that the work is
-# unfinished, and it is not a claim that it shipped.
+# here: at the time this note was written (2026-08-05) the work had landed on
+# release/v1.5-variegata but was carried by NO final tag, because this repo had none.
+# `v0.1.0` is now a FINAL tag (2026-08-15), so the pre-v0.1.0 intake work is in fact
+# carried by it; the `pending` dispositions below are left as the historical record,
+# not re-derived here. It is not a claim that the work is unfinished, and it is not a
+# claim that it shipped.
 intake:
   - id: I1
     tracker_ref: "ducklake:#14"
