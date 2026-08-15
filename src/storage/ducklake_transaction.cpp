@@ -69,37 +69,35 @@ bool LocalTableChanges::HasChanges() const {
 
 void LocalTableChanges::PrepareEncryptionKeysForCommit(DuckLakeTransaction &transaction) {
 	auto &catalog = transaction.GetCatalog();
-	auto &metadata_manager = transaction.GetMetadataManager();
-	vector<DuckLakeTableInfo> new_tables;
-	vector<DuckLakeSchemaInfo> new_schemas;
 	lock_guard<mutex> guard(lock);
 	vector<DuckLakeFileIdentity> identities;
 	vector<string> keys;
+	// The staged commit emits each `file_name` VERBATIM as the `path` column (see
+	// DuckLakeStagedCommit::EmitDataFileRow / EmitDeleteFileRow / EmitAttachedDeleteRow), so the
+	// AS-STORED path the KMS identity must match is the file_name itself. Do NOT route through
+	// GetRelativePath / GetPath here: those call GetSnapshot(), and this whole commit runs under
+	// transaction.snapshot_lock (FlushChanges holds it around FlushChangesServerSide), so
+	// re-entering GetSnapshot self-deadlocks.
 	for (auto &entry : changes) {
 		auto table_id = entry.first;
 		auto &table_changes = entry.second;
 		for (auto &file : table_changes.new_data_files) {
-			auto stored_path = metadata_manager.GetRelativePath(table_id, file.file_name, new_tables, new_schemas);
-			identities.push_back(catalog.BuildEncryptionIdentity(table_id, stored_path.path, false));
+			identities.push_back(catalog.BuildEncryptionIdentity(table_id, file.file_name, false));
 			keys.push_back(file.encryption_key);
 			for (auto &del : file.delete_files) {
-				auto del_path = metadata_manager.GetRelativePath(table_id, del.file_name, new_tables, new_schemas);
-				identities.push_back(catalog.BuildEncryptionIdentity(table_id, del_path.path, true));
+				identities.push_back(catalog.BuildEncryptionIdentity(table_id, del.file_name, true));
 				keys.push_back(del.encryption_key);
 			}
 		}
 		for (auto &delete_entry : table_changes.new_delete_files) {
 			for (auto &del : delete_entry.second) {
-				auto del_path = metadata_manager.GetRelativePath(table_id, del.file_name, new_tables, new_schemas);
-				identities.push_back(catalog.BuildEncryptionIdentity(table_id, del_path.path, true));
+				identities.push_back(catalog.BuildEncryptionIdentity(table_id, del.file_name, true));
 				keys.push_back(del.encryption_key);
 			}
 		}
 		for (auto &compaction : table_changes.compactions) {
 			for (auto &written_file : compaction.written_files) {
-				auto stored_path =
-				    metadata_manager.GetRelativePath(table_id, written_file.file_name, new_tables, new_schemas);
-				identities.push_back(catalog.BuildEncryptionIdentity(table_id, stored_path.path, false));
+				identities.push_back(catalog.BuildEncryptionIdentity(table_id, written_file.file_name, false));
 				keys.push_back(written_file.encryption_key);
 			}
 		}
