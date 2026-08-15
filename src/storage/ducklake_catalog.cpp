@@ -224,6 +224,24 @@ DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options
 			                            "there are no per-file "
 			                            "keys to wrap. Either enable ENCRYPTED or drop the envelope options");
 		}
+		// An enveloped lake never inlines rows: the inlined-data path writes the
+		// row values themselves as cleartext SQL literals into the metadata
+		// catalog, which the envelope does not protect. Refuse an EXPLICIT
+		// non-zero limit rather than silently forcing it to 0 - an operator who
+		// spelled out a limit has to learn it did not take effect. The silent
+		// half (the shipped default forced to 0 when nothing is spelled out)
+		// lives in DataInliningRowLimit() below, which returns 0 on an enveloped
+		// lake regardless of any option at any scope.
+		auto inlining_entry = options.config_options.find("data_inlining_row_limit");
+		if (inlining_entry != options.config_options.end() && Value(inlining_entry->second).GetValue<idx_t>() > 0) {
+			throw InvalidInputException(
+			    "encryption_socket was set together with data_inlining_row_limit=%s - data inlining writes the row "
+			    "values themselves as cleartext SQL literals into the metadata catalog, which the encryption "
+			    "envelope does not protect (it wraps the per-file Parquet keys only). Either set "
+			    "data_inlining_row_limit to 0, or drop encryption_socket if cleartext rows in the metadata catalog "
+			    "are acceptable for this lake",
+			    inlining_entry->second);
+		}
 		auto ttl_seconds = options.encryption_cache_ttl_seconds_supplied
 		                       ? options.encryption_cache_ttl_seconds
 		                       : DuckLakeEncryptionProvider::DEFAULT_CACHE_TTL_SECONDS;
@@ -287,6 +305,24 @@ void DuckLakeCatalog::FinalizeLoad(optional_ptr<ClientContext> context) {
 	}
 	DuckLakeInitializer initializer(*context, *this, options);
 	initializer.Initialize();
+	// An enveloped lake that RESOLVED to unencrypted. This cannot live in the
+	// constructor, which is where its sibling refusal (the explicit UNENCRYPTED
+	// check) lives: at construction the mode is still AUTOMATIC, the default, so
+	// a fresh lake with ENCRYPTED omitted never equals UNENCRYPTED there. Only
+	// the initializer resolves AUTOMATIC - InitializeNewDuckLake defaults a fresh
+	// lake to UNENCRYPTED, LoadExistingDuckLake adopts whatever the catalog
+	// records - so the check has to come immediately after it, and it fires while
+	// the operator is still looking at the ATTACH statement.
+	//
+	// Testing the RESOLVED mode rather than banning AUTOMATIC is deliberate: an
+	// EXISTING enveloped lake re-attached without repeating ENCRYPTED resolves to
+	// ENCRYPTED and must keep working, wrapped blobs and all.
+	if (encryption_provider && Encryption() != DuckLakeEncryption::ENCRYPTED) {
+		throw InvalidInputException(
+		    "encryption_socket was set, but this DuckLake resolved to UNENCRYPTED - there are no per-file keys to "
+		    "wrap. ENCRYPTED was not specified at ATTACH and a new lake defaults to unencrypted, so nothing would "
+		    "have been encrypted and nothing wrapped. Either add ENCRYPTED or drop encryption_socket");
+	}
 	db.tags["data_path"] = DataPath();
 	if (con) {
 		con->Commit();
