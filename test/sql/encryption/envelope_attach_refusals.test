@@ -1,0 +1,31 @@
+# name: test/sql/encryption/envelope_attach_refusals.test
+# description: A half-configured encryption envelope, and an enveloped lake asked to inline, are refused at ATTACH
+# group: [encryption]
+
+require ducklake
+
+require parquet
+
+# shape (c) - a lake id with no socket is the fail-open direction: a templated
+# ATTACH that lost one substitution used to silently write the per-file keys in
+# plaintext. Refused before any key is minted.
+statement error
+ATTACH 'ducklake:{TEST_DIR}/envelope_no_socket.db' AS no_socket (DATA_PATH '{TEST_DIR}/envelope_no_socket_files', ENCRYPTION_LAKE_ID 'some-lake')
+----
+encryption_socket must be set when encryption_lake_id is set
+
+# An enveloped lake never inlines rows - the inlined-data path writes the row
+# values as cleartext SQL literals into the metadata catalog, which the envelope
+# does not protect. An explicit non-zero limit is refused rather than silently
+# forced to 0. Two substrings asserted separately (distinct aliases, because a
+# refused ATTACH still consumed the alias) so a wording tweak reds one line and
+# names itself.
+statement error
+ATTACH 'ducklake:{TEST_DIR}/envelope_inline.db' AS inline_refusal (DATA_PATH '{TEST_DIR}/envelope_inline_files', ENCRYPTED, ENCRYPTION_SOCKET '/tmp/fake.sock', ENCRYPTION_LAKE_ID 'some-lake', DATA_INLINING_ROW_LIMIT 10)
+----
+data_inlining_row_limit
+
+statement error
+ATTACH 'ducklake:{TEST_DIR}/envelope_inline2.db' AS inline_refusal2 (DATA_PATH '{TEST_DIR}/envelope_inline2_files', ENCRYPTED, ENCRYPTION_SOCKET '/tmp/fake.sock', ENCRYPTION_LAKE_ID 'some-lake', DATA_INLINING_ROW_LIMIT 10)
+----
+encryption

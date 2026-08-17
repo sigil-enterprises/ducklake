@@ -21,14 +21,20 @@ enveloped lake, forbids column VALUES from reaching the catalog.
 ## Fork-local confidentiality guards
 
 The invariant is one line: an enveloped lake writes no column VALUE into the
-catalog. Two guards implement it, and they are the pattern any new guard must
+catalog. Three guards implement it, and they are the pattern any new guard must
 follow.
 
-1. Inlining refusal (this tree, `ducklake_catalog.cpp`): a crypta lake forces
+1. Inlining refusal (this tree, `ducklake_catalog.cpp`): an enveloped lake forces
    `DataInliningRowLimit()` (both overloads) to 0 so small writes go to
    encrypted files instead of cleartext inlined rows. The gate sits on
    `DataInliningRowLimit` itself, not `GetInliningLimit`, because several call
-   sites read the former directly and would otherwise bypass the guard.
+   sites read the former directly and would otherwise bypass the guard. That is
+   the SILENT half, and it is the only half that fires for the shipped default.
+   The LOUD half refuses an EXPLICIT non-zero limit, so an operator who spelled
+   one out learns it did not take effect rather than silently getting 0: at
+   ATTACH (the catalog constructor) and at `ducklake_set_option` (in the value
+   branch, before scope resolution, so one check covers global, schema and table
+   scope alike). Setting the limit to 0 stays legal at both surfaces.
 2. Column-statistics redaction (this tree):
    - `DuckLakeColumnStats::RedactValues()` - the ONE primitive that decides what
      is value-bearing. Drops min/max and extra_stats; KEEPS value_count,
@@ -45,6 +51,15 @@ follow.
      survive every write; the flag makes a redacted file REPLACE instead.
      Variant merges as an intersection and clears on its own, so it does not
      depend on the flag.
+3. Resolved-to-unencrypted refusal (`ducklake_catalog.cpp`, `FinalizeLoad`): a
+   lake attached with `ENCRYPTION_SOCKET` but `ENCRYPTED` omitted (AUTOMATIC)
+   that RESOLVES to unencrypted is refused. It cannot live in the constructor -
+   at construction the mode is still AUTOMATIC, and only the initializer
+   resolves it (`InitializeNewDuckLake` defaults a fresh lake to UNENCRYPTED;
+   `LoadExistingDuckLake` adopts what the catalog records) - so it runs
+   immediately after `initializer.Initialize()`. It tests the RESOLVED mode
+   rather than banning AUTOMATIC, so an existing enveloped lake re-attached
+   without repeating `ENCRYPTED` still works.
 
 The rule for adding a new guard: one primitive + call sites at every producer,
 each gated on `EncryptionProvider()`. A guard written at only one producer leaks
