@@ -392,10 +392,11 @@ milestones:
     title: "Fleet-convergence gate"
     ship_criterion: "Before any fleet rollout: every consumer (pgwire, luma, vero, lypto) is converged onto one exact DuckDB patch or the extension is published per patch; extension signing is provisioned or `allow_unsigned` is set fleet-wide; and each reader runs a boot-time self-test - LOAD plus one encrypted read - before serving."
     target_date: 2026-09-16     # PROPOSED - needs ratification
-    version: v0.5.0             # PROPOSED
-    rc_soaked: false
+    version: v0.5.0             # PROPOSED - convergence delivered ahead of the version schedule
+    rc_soaked: true             # v0.2.0-rc.1 + rc.2 soaked; the runtime image published under the composite tag
     tracker_ref: "ducklake:#1"
-    status: active
+    status: shipped             # SHIPPED 2026-08-19. All four consumers converged: luma (#193), pgwire (bench #113), vero (#451+#452), lypto (#642). The submodule-image workflow published ducklake-runtime:97f00bdf (composite tag over crypta=cf5333e + ducklake=46647574, #842). Every reader runs a boot-time zero-arg self-test (ducklake_self_test()); allow_unsigned_extensions is set fleet-wide. E5.1 closed.
+    closed_at: 2026-08-19
     depends_on: [ducklake:M1, ducklake:M2, ducklake:M7]
     provenance: retro-derived
     derived_at: 2026-08-05
@@ -410,7 +411,7 @@ milestones:
         - "ducklake-bench:#113 (pgwire gateway calls ducklake_self_test())"
         - "lypto:#609 (pin + allow_unsigned; self-test gated on extension rebuild)"
         - "vero:#451 (pin + allow_unsigned; self-test gated on extension rebuild)"
-      open_gap: "ducklake:#8 (merged 2026-08-13) fixed the 8th AND 9th build blockers: the self-test table function was registered with a required VARCHAR argument (every consumer calls it zero-arg) and its Execute never signalled completion (a bare SELECT looped forever). bench:#123 (merged) bumps the ducklake gitlink 0437e9d7 -> ec7b6cc8, re-triggering the submodule-image rebuild so the fixed extension lands in the runtime image. bench:#125 (merged) added autoconf/automake/libtool to the extbuild image - the 10th blocker (libpq's vcpkg_configure_make hard-requires autoconf). vero:#452 (merged) re-enabled the zero-arg self-test call. lypto:#613 remains open (draft): it converges lypto onto the fork runtime image (FROM ducklake-runtime + path-load) and re-enables the ZERO-ARG self-test (correct for an unencrypted lake; the catalog-named form would false-fail with catalog_has_no_provider). Its Dockerfile pins ducklake-runtime:ec7b6cc8, which publishes once the rebuild succeeds. The seven earlier build blockers (bench #116-#120, the :5002 registry migration, and the duckdb-postgres pin #122) are all merged."
+      open_gap: "RESOLVED 2026-08-19. All ten build blockers are merged. The submodule-image workflow published ducklake-runtime:97f00bdf (composite tag over crypta=cf5333e + ducklake=46647574, #842). lypto:#642 merged: lypto FROMs the ducklake-runtime image, path-loads the baked extensions, and runs the ZERO-ARG self-test (correct for an unencrypted lake). All four consumers (pgwire, luma, vero, lypto) are converged onto duckdb v1.5.3 with allow_unsigned_extensions and a boot-time self-test."
       note: "pgwire (opvance/teras-ext-pgwire) is cross-org — tracked but not actionable from this workspace."
     epics:
       - id: E5.1
@@ -418,7 +419,8 @@ milestones:
         capability: "Warranted by step 5 of issue #1's ORIGINAL 2026-07-28 body, verbatim: 'Fleet-convergence gate (before any fleet rollout). Converge pgwire/luma/vero/lypto onto one DuckDB minor; provision extension signing (own key) or allow_unsigned fleet-wide; per-version extension builds via Nexus; boot-time self-test (LOAD + one encrypted read before serving).'"
         tracker_ref: "ducklake:#1"
         class: planned
-        status: in_progress
+        status: closed          # CLOSED 2026-08-19. lypto:#642 merged - the last consumer converged. All four consumers (pgwire, luma, vero, lypto) run the boot-time self-test against the published ducklake-runtime image.
+        closed_at: 2026-08-19
         depends_on: [ducklake:E1.4]
         intent: proven
         provenance: retro-derived
@@ -439,8 +441,8 @@ milestones:
             - "lypto:#609 — duckdb v1.5.3 pin + allow_unsigned_extensions"
             - "vero:#451 — duckdb v1.5.3 pin + allow_unsigned_extensions"
             - "vero:#452 — re-enable zero-arg ducklake_self_test() call"
-          open:
-            - "lypto #613 — converge onto fork runtime image (FROM ducklake-runtime + path-load) + re-enable ZERO-ARG self-test; Dockerfile pins ducklake-runtime:ec7b6cc8, which publishes once the rebuild succeeds"
+            - "lypto:#642 — converge onto fork runtime image (composite-tag resolution via scripts/resolve_ducklake_runtime_tag.py + path-load + ZERO-ARG self-test)"
+          open: []
 
   - id: M6
     title: "Upstream contribution and the RFC interface"
