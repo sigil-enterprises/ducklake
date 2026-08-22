@@ -17,8 +17,34 @@ namespace duckdb {
 
 ScalarFunction DuckLakeMurmur3Function();
 
+#ifdef DUCKLAKE_KMS_PROVIDER
+//! Hand control to the concrete KMS provider this build was overlaid with, so
+//! it can register itself as the DuckLakeEncryptionProvider factory.
+//!
+//! WHY A CALL AND NOT A STATIC INITIALIZER. A provider's natural registration
+//! path is a file-scope object whose constructor runs before main(). That works
+//! in the LOADABLE extension, where every object file is linked into the shared
+//! library. It does NOT work in the duckdb binary: there DuckLake is linked as
+//! libducklake_extension.a, and an archive member that no symbol references is
+//! never pulled out of the archive. The provider registered nothing, and every
+//! ATTACH with ENCRYPTION_SOCKET was refused by a build that contained the
+//! provider's source and none of its code. This declaration is the reference
+//! that makes the link REQUIRE it.
+//!
+//! It names no KMS. DUCKLAKE_KMS_PROVIDER is defined by src/CMakeLists.txt only
+//! when a provider directory is present, so a build without one neither
+//! declares nor calls this, and nothing here depends on which KMS is behind it.
+void DuckLakeRegisterKmsProvider();
+#endif
+
 static void LoadInternal(ExtensionLoader &loader) {
 	loader.SetDescription("Adds support for DuckLake, SQL as a Lakehouse Format");
+
+#ifdef DUCKLAKE_KMS_PROVIDER
+	// Before anything can ATTACH, so the factory is in place by the time
+	// DuckLakeCatalog's constructor asks for it.
+	DuckLakeRegisterKmsProvider();
+#endif
 
 	auto &instance = loader.GetDatabaseInstance();
 	instance.GetLogManager().RegisterLogType(make_uniq<DuckLakeMetadataLogType>());
