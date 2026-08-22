@@ -17,8 +17,8 @@ endif()
 
 add_library(ducklake_library OBJECT ducklake_extension.cpp)
 if(DUCKLAKE_KMS_PROVIDER)
-  # Turns on the declaration AND the call in ducklake_extension.cpp. The call
-  # is what forces the provider's objects into the link: without a reference to
+  # Turns on the declaration AND the call in ducklake_extension.cpp. The call is
+  # what forces the provider's objects into the link: without a reference to
   # them, the duckdb binary drops them out of libducklake_extension.a and the
   # provider registers nothing. See the comment on DuckLakeRegisterKmsProvider.
   target_compile_definitions(ducklake_library PRIVATE DUCKLAKE_KMS_PROVIDER)
