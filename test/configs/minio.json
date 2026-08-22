@@ -38,6 +38,13 @@
       "paths": [
         "test/sql/insert/insert_wide_table_low_memory.test_slow"
       ]
+    },
+    {
+      "reason": "Test only for Postgres as catalog; this workflow builds postgres_scanner (needed by the migration bench) but runs no Postgres server, so these `require postgres_scanner` tests now attempt a real connection instead of being skipped for a missing extension. Covered by DBMS Catalog Tests, which does run Postgres.",
+      "paths": [
+        "test/sql/metadata/ducklake_settings_postgres.test",
+        "test/sql/data_inlining/postgres_identifier_limit.test"
+      ]
     }
   ]
 }
