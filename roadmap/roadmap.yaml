@@ -446,29 +446,42 @@ milestones:
 
   - id: M6
     title: "Upstream contribution and the RFC interface"
+    # STATUS NOTE 2026-08-23: ship_criterion has two halves. Half one (CSPRNG +
+    # 256-bit keys) is SUBMITTED, not shipped - open, unmerged, upstream review
+    # pending. Half two (new-columns spec change) is NOT submitted: the RFC
+    # (duckdb/ducklake#1351) is open but Labs has not engaged, and per that
+    # issue's own coordination note a spec-change PR only follows engagement.
+    # `status: shipped` would overclaim; keeping `planned` until upstream acts.
+    # The prior `tracker_ref`/`evidence` of "ducklake:#1" was a citation error -
+    # ducklake PR #1 (created 2026-08-10, workflow containment) carries no RFC
+    # content and no 2026-07-28 body; the real RFC and PRs are cited below.
     ship_criterion: "The standalone upstream-eligible changes (CSPRNG, 256-bit keys) are submitted to duckdb/ducklake from a dedicated public upstream-only fork, and the new-columns spec change is submitted only if Labs engages on the RFC. Gated on an explicit human exception to the no-public-repos rule."
     target_date: 2026-10-14     # PROPOSED - needs ratification
     version: v0.6.0             # PROPOSED
     rc_soaked: false
-    tracker_ref: "ducklake:#1"
+    # tracker_ref/evidence stay repo-local (this repo's cherry-picked commits) -
+    # the external upstream coordinates (duckdb/ducklake#1351, #1403) don't fit
+    # EVIDENCE_GRAMMAR's single-token <repo> (no "/"; duckdb/ducklake isn't a
+    # fleet repo the checker can resolve anyway) - full URLs above and in E6.1.
+    tracker_ref: "ducklake@94144c31"
     status: planned
     depends_on: [ducklake:M1]
     provenance: retro-derived
-    derived_at: 2026-08-05
-    evidence: ["ducklake:#1"]
+    derived_at: 2026-08-23
+    evidence: ["ducklake@4ab2193c", "ducklake@94144c31"]
     confidence: high
     epics:
       - id: E6.1
         title: "Upstream-only public fork and the RFC interface"
-        capability: "Warranted by step 7 of issue #1's ORIGINAL 2026-07-28 body, verbatim: 'RFC interface upstream bakes in parallel - never blocks delivery. Submit the new-columns PR only if Labs engages; migrate the private MVP to the richer schema if accepted.' A 2026-08-04 EDIT to #1 additionally gates upstreaming on the completed OMOP migration; that reordering is NOT admissible as 2026-07-28 intent and is recorded here only as context, not as warrant."
-        tracker_ref: "ducklake:#1"
+        capability: "Public fork https://github.com/tiagotaveiragomes/ducklake created (personal account, per the human-granted exception) as the dedicated upstream-only fork. The RFC issue for the pluggable-key-management spec change is open at https://github.com/duckdb/ducklake/issues/1351, filed against the coordinate-first convention in duckdb/ducklake's own CONTRIBUTING (README) section for new features / spec changes. The two standalone hardening items #1351 calls out as separable - CSPRNG-sourced key generation and 256-bit (AES-256) key size - are cherry-picked from ducklake@4ab2193c and ducklake@94144c31 onto branch upstream/csprng-256bit-keys (based on duckdb/ducklake's v1.5-variegata, the correct target per CONTRIBUTING for a non-spec-change bug fix) and submitted as https://github.com/duckdb/ducklake/pull/1403. Unmerged - awaiting upstream review. The new-columns spec-change PR is NOT submitted, correctly: #1351 has no maintainer engagement yet, and the ship criterion only calls for that PR once Labs engages."
+        tracker_ref: "ducklake@94144c31"
         class: planned
         status: open
         depends_on: [ducklake:E1.1, ducklake:E1.2]
         intent: proven
         provenance: retro-derived
-        derived_at: 2026-08-05
-        evidence: ["ducklake:#1"]
+        derived_at: 2026-08-23
+        evidence: ["ducklake@4ab2193c", "ducklake@94144c31"]
         confidence: high
 
   - id: M7
