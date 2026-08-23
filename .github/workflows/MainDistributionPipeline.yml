@@ -23,7 +23,11 @@ jobs:
         with:
           sparse-checkout: .github
       - id: version
-        run: echo "duckdb_version=$(cat .github/duckdb-version)" >> $GITHUB_OUTPUT
+        run: |
+          set -euo pipefail
+          version="$(cat .github/duckdb-version)"
+          test -n "${version}"
+          echo "duckdb_version=${version}" >> "$GITHUB_OUTPUT"
 
   duckdb-next-build:
     name: Build extension binaries
@@ -90,10 +94,11 @@ jobs:
       deploy_versioned: ${{ startsWith(github.ref, 'refs/heads/v') }}
 
   # The gateway loads this extension by exact ABI, so a build against any other
-  # duckdb is unloadable there however green its build job was.
+  # duckdb is unloadable there however green its build job was. The expected
+  # version mirrors opvance/teras-ext-pgwire image/Dockerfile's DUCKDB_VERSION.
   verify-gateway-compat:
     name: Verify linux_amd64 asset loads in the gateway's duckdb
-    needs: [get-duckdb-version, duckdb-next-build]
+    needs: [get-duckdb-version, duckdb-next-build, gcc12-compatibility-build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -105,13 +110,9 @@ jobs:
         run: |
           set -euo pipefail
           gateway="$(cat .github/gateway-duckdb-version)"
-          fork="$(cat .github/duckdb-version)"
+          test -n "${gateway}"
           echo "gateway_pip=${gateway}" >> "$GITHUB_OUTPUT"
           echo "expected_footer=v${gateway}" >> "$GITHUB_OUTPUT"
-          if [ "${fork}" != "v${gateway}" ]; then
-            echo "::error::.github/duckdb-version is '${fork}' but the gateway installs duckdb==${gateway}; the built extension cannot load there" >&2
-            exit 1
-          fi
       - uses: actions/download-artifact@v4
         with:
           name: ducklake-${{ needs.get-duckdb-version.outputs.duckdb_version }}-extension-linux_amd64
@@ -131,6 +132,14 @@ jobs:
             --platform linux_amd64 \
             --duckdb-version "${{ steps.pins.outputs.expected_footer }}" \
             --load
+      - name: Drift check - the build pin must name the consumers' duckdb
+        run: |
+          set -euo pipefail
+          fork="$(cat .github/duckdb-version)"
+          if [ "${fork}" != "${{ steps.pins.outputs.expected_footer }}" ]; then
+            echo "::error::.github/duckdb-version is '${fork}' but consumers install duckdb==${{ steps.pins.outputs.gateway_pip }}" >&2
+            exit 1
+          fi
 
   relassert:
     name: Build relassert
