@@ -99,6 +99,9 @@ jobs:
   verify-gateway-compat:
     name: Verify linux_amd64 asset loads in the gateway's duckdb
     needs: [get-duckdb-version, duckdb-next-build, gcc12-compatibility-build]
+    # A failed sibling leg (the MSVC windows build is long red here) must not
+    # turn this into a skip; a missing artifact has to red, never pass quietly.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
