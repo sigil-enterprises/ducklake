@@ -1,0 +1,119 @@
+#
+# The ONLY publisher of release assets for this fork. Previous tags were
+# populated by hand, which is how a Windows DLL became the sole asset of a
+# release whose notes claimed a linux build.
+#
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build and attach assets to
+        required: true
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  get-duckdb-version:
+    name: Get DuckDB version
+    runs-on: ubuntu-latest
+    outputs:
+      duckdb_version: ${{ steps.version.outputs.duckdb_version }}
+      gateway_pip: ${{ steps.version.outputs.gateway_pip }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          sparse-checkout: .github
+      - id: version
+        run: |
+          set -euo pipefail
+          fork="$(cat .github/duckdb-version)"
+          gateway="$(cat .github/gateway-duckdb-version)"
+          test -n "${fork}" && test -n "${gateway}"
+          if [ "${fork}" != "v${gateway}" ]; then
+            echo "::error::.github/duckdb-version is '${fork}' but consumers install duckdb==${gateway}" >&2
+            exit 1
+          fi
+          echo "duckdb_version=${fork}" >> "$GITHUB_OUTPUT"
+          echo "gateway_pip=${gateway}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build extension binaries
+    needs: get-duckdb-version
+    # Without the override the reusable workflow builds the CALLER's ref, so a
+    # workflow_dispatch from main would attach main's binary to someone's tag.
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
+    with:
+      override_repository: ${{ github.repository }}
+      override_ref: ${{ github.event.inputs.tag || github.ref }}
+      duckdb_version: ${{ needs.get-duckdb-version.outputs.duckdb_version }}
+      ci_tools_version: v1.5-variegata
+      extension_name: ducklake
+
+  publish:
+    name: Verify and publish linux_amd64 asset
+    needs: [get-duckdb-version, build]
+    # A red sibling platform must not silently skip publication; a missing
+    # linux_amd64 artifact reds the download instead.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ducklake-${{ needs.get-duckdb-version.outputs.duckdb_version }}-extension-linux_amd64
+          path: asset
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install "duckdb==${{ needs.get-duckdb-version.outputs.gateway_pip }}"
+
+      - name: Positive control - the verifier must red on a planted defect
+        run: |
+          python3 scripts/ci/verify_extension_asset_selftest.py \
+            asset/ducklake.duckdb_extension linux_amd64 \
+            "${{ needs.get-duckdb-version.outputs.duckdb_version }}"
+
+      - name: Verify and LOAD the artifact
+        run: |
+          python3 scripts/ci/verify_extension_asset.py \
+            asset/ducklake.duckdb_extension \
+            --platform linux_amd64 \
+            --duckdb-version "${{ needs.get-duckdb-version.outputs.duckdb_version }}" \
+            --load
+
+      - id: stage
+        name: Checksum the asset
+        run: |
+          set -euo pipefail
+          cd asset
+          sha256sum ducklake.duckdb_extension > ducklake.duckdb_extension.sha256
+          cat ducklake.duckdb_extension.sha256
+          echo "sha256=$(cut -d' ' -f1 < ducklake.duckdb_extension.sha256)" >> "$GITHUB_OUTPUT"
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" >/dev/null; then
+            gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "$TAG" --notes "Automated build."
+          fi
+          gh release upload "$TAG" \
+            asset/ducklake.duckdb_extension asset/ducklake.duckdb_extension.sha256 --clobber
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          Published \`ducklake.duckdb_extension\` (linux_amd64) on \`$TAG\`
+          - duckdb: \`${{ needs.get-duckdb-version.outputs.duckdb_version }}\`, verified to LOAD in \`duckdb==${{ needs.get-duckdb-version.outputs.gateway_pip }}\`
+          - sha256: \`${{ steps.stage.outputs.sha256 }}\`
+          EOF

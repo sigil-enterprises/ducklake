@@ -80,22 +80,6 @@ jobs:
         run: |
           make release
 
-  duckdb-next-deploy:
-    name: Deploy extension binaries
-    needs: [get-duckdb-version, duckdb-next-build, gcc12-compatibility-build]
-    if: github.ref != 'refs/heads/main'
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_deploy.yml@main
-    secrets: inherit
-    with:
-      extension_name: ducklake
-      duckdb_version: ${{ needs.get-duckdb-version.outputs.duckdb_version }}
-      ci_tools_version: main
-      deploy_latest: ${{ startsWith(github.ref, 'refs/heads/v') }}
-      deploy_versioned: ${{ startsWith(github.ref, 'refs/heads/v') }}
-
-  # The gateway loads this extension by exact ABI, so a build against any other
-  # duckdb is unloadable there however green its build job was. The expected
-  # version mirrors opvance/teras-ext-pgwire image/Dockerfile's DUCKDB_VERSION.
   verify-gateway-compat:
     name: Verify linux_amd64 asset loads in the gateway's duckdb
     needs: [get-duckdb-version, duckdb-next-build, gcc12-compatibility-build]
