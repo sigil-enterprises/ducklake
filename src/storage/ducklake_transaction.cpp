@@ -1747,11 +1747,11 @@ void DuckLakeTransaction::DropTransactionLocalFile(TableIndex table_id, const st
 // min_value / max_value per column as plaintext VARCHAR, written by every
 // commit with no option to turn them off. They are per FILE, not an aggregate,
 // so on a small partition or a narrow-range column min/max IS the data - min
-// and max date_of_birth over a three-row file disclose two patients outright.
-// ENCRYPTED governs the Parquet writer only and the envelope wraps per-file
-// DEKs, so neither covers this. On a teras lake the metadata catalog is
-// Postgres, which makes it cleartext PHI in the table, the WAL, every replica
-// and every backup.
+// and max of a sensitive numeric column over a three-row file disclose two
+// records outright. ENCRYPTED governs the Parquet writer only and the
+// envelope wraps per-file DEKs, so neither covers this. On a lake whose
+// metadata catalog is a relational database, this is cleartext sensitive data
+// in the table, the WAL, every replica and every backup.
 //
 // RBAC is arithmetically excluded as the alternative and this is not an
 // opinion: revoking SELECT on ducklake_table_column_stats makes a plain
@@ -1783,9 +1783,9 @@ void DuckLakeTransaction::DropTransactionLocalFile(TableIndex table_id, const st
 // A filtered scan on an enveloped lake reads every file instead of the files
 // whose range can contain the constant. Coarsening was rejected because there
 // is no bucket width that is both safe and useful across the column types a
-// health lake carries - a truncated identifier is still a prefix of an
-// identifier, and a date_of_birth coarsened to a year is still a year of
-// birth. Absent stats are a path DuckLake already takes (a column with no stats
+// sensitive-data lake carries - a truncated identifier is still a prefix of an
+// identifier, and a sensitive date coarsened to a year is still a year of
+// context. Absent stats are a path DuckLake already takes (a column with no stats
 // plans as unknown), so this degrades the plan along a road that is already
 // paved rather than inventing one.
 void DuckLakeTransaction::RedactStatsOnEnvelopedLake(DuckLakeDataFile &file) const {
