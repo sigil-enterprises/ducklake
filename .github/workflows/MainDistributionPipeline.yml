@@ -89,6 +89,49 @@ jobs:
       deploy_latest: ${{ startsWith(github.ref, 'refs/heads/v') }}
       deploy_versioned: ${{ startsWith(github.ref, 'refs/heads/v') }}
 
+  # The gateway loads this extension by exact ABI, so a build against any other
+  # duckdb is unloadable there however green its build job was.
+  verify-gateway-compat:
+    name: Verify linux_amd64 asset loads in the gateway's duckdb
+    needs: [get-duckdb-version, duckdb-next-build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            .github
+            scripts/ci
+      - id: pins
+        run: |
+          set -euo pipefail
+          gateway="$(cat .github/gateway-duckdb-version)"
+          fork="$(cat .github/duckdb-version)"
+          echo "gateway_pip=${gateway}" >> "$GITHUB_OUTPUT"
+          echo "expected_footer=v${gateway}" >> "$GITHUB_OUTPUT"
+          if [ "${fork}" != "v${gateway}" ]; then
+            echo "::error::.github/duckdb-version is '${fork}' but the gateway installs duckdb==${gateway}; the built extension cannot load there" >&2
+            exit 1
+          fi
+      - uses: actions/download-artifact@v4
+        with:
+          name: ducklake-${{ needs.get-duckdb-version.outputs.duckdb_version }}-extension-linux_amd64
+          path: asset
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install "duckdb==${{ steps.pins.outputs.gateway_pip }}"
+      - name: Positive control - the verifier must red on a planted defect
+        run: |
+          python3 scripts/ci/verify_extension_asset_selftest.py \
+            asset/ducklake.duckdb_extension linux_amd64 "${{ steps.pins.outputs.expected_footer }}"
+      - name: Verify and LOAD the artifact
+        run: |
+          python3 scripts/ci/verify_extension_asset.py \
+            asset/ducklake.duckdb_extension \
+            --platform linux_amd64 \
+            --duckdb-version "${{ steps.pins.outputs.expected_footer }}" \
+            --load
+
   relassert:
     name: Build relassert
     runs-on: ${{ github.repository_owner == 'duckdb' && 'namespace-profile-linux-x64' || 'ubuntu-latest' }}
