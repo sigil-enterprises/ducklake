@@ -1,0 +1,62 @@
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# Does the mutation roster still refer to THIS repository?
+#
+# `test/cpp/crypta/mutants.py` is the positive control for the envelope refusal
+# guards: each entry deletes exactly one guard and names the tests that must go
+# red because of it. The roster is prose about the source, and prose about source
+# does not red when the source moves. It went stale twice, silently:
+#
+#   #20  the provider abstraction renamed `CryptaClient` to
+#        `DuckLakeEncryptionProvider`, moved the guard bodies into
+#        `ducklake_envelope_guards.cpp`, and let clang-format rewrap a call site.
+#        Three mutants' `old` text stopped matching - count 0 - so those three
+#        mutants could not be APPLIED at all.
+#   #28  seven `reddens` entries named `test/sql/crypta/*.test` files that a repo
+#        migration had not carried across, so their reds could never be observed.
+#
+# In both cases the roster was a control that could never fire, which is the
+# thing this repo already refused once by name: 7f910fe, "a symbol pattern that
+# can never match is a vacuous check, so refuse it".
+#
+# The check that catches both costs milliseconds and needs no build, which is
+# precisely why it belongs on every push rather than inside the multi-hour
+# mutation run it protects. The expensive run should never be the first thing to
+# discover that its own roster no longer resolves.
+
+name: Mutant Roster Resolves
+
+on:
+  push:
+    branches: [main, 'release/**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  roster:
+    name: Every mutant resolves against the tree
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # FIRST, because it decides whether the step after it means anything. An
+      # absence assertion that is silently broken prints what a healthy one
+      # prints. This plants each failure mode the roster has actually suffered -
+      # an unmatchable `old`, an `old` matching many, a moved file, an absent
+      # `reddens` - and requires the real resolver to report each.
+      - name: The resolver reds on a planted stale roster
+        run: python3 test/cpp/crypta/resolve_control.py
+
+      - name: The real roster resolves
+        run: python3 test/cpp/crypta/mutants.py resolve . --extension
