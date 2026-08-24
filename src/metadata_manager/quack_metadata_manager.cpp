@@ -2,7 +2,6 @@
 #include "common/ducklake_util.hpp"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/main/connection.hpp"
-#include "duckdb/main/materialized_query_result.hpp"
 #include "storage/ducklake_catalog.hpp"
 #include "storage/ducklake_staged_commit.hpp"
 #include "storage/ducklake_transaction.hpp"
@@ -47,6 +46,8 @@ unique_ptr<QueryResult> QuackMetadataManager::AttachMetadata(const string &attac
 		}
 		result = fresh_conn.Query(query);
 	}
+	// gcc in -std=c++11 will not implicitly move on a CONVERTING return, so the
+	// move to unique_ptr<QueryResult> has to be spelled out.
 	return std::move(result);
 }
 

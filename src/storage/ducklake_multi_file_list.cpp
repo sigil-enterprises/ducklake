@@ -50,29 +50,24 @@ void DuckLakeMultiFileList::AddFilterToPushdownInfo(FilterPushdownInfo &pushdown
 	auto field_index = root_id.GetFieldIndex().index;
 	// Get the column type from the table schema, not from the scan types array
 	const auto &column_type = read_info.column_types[column_index.index];
-	auto expr_filter = ExpressionFilter::FromTableFilter(*filter, column_type);
-	ColumnFilterInfo filter_info_entry(field_index, column_type, std::move(expr_filter));
+	ColumnFilterInfo filter_info_entry(field_index, column_type, std::move(filter));
 	pushdown_info.column_filters.emplace(field_index, std::move(filter_info_entry));
 }
 
 unique_ptr<MultiFileList>
 DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const MultiFileOptions &options,
-                                             const vector<Identifier> &names, const vector<LogicalType> &types,
+                                             const vector<string> &names, const vector<LogicalType> &types,
                                              const vector<column_t> &column_ids, TableFilterSet &filters) const {
-	if (read_info.scan_type != DuckLakeScanType::SCAN_TABLE || !filters.HasFilters()) {
+	if (read_info.scan_type != DuckLakeScanType::SCAN_TABLE || filters.filters.empty()) {
 		// filter pushdown is only supported when scanning full tables
 		return nullptr;
 	}
 
-	// DuckDB passes the final filter set, including both static and Top-N dynamic filters.
 	auto pushdown_info = make_uniq<FilterPushdownInfo>();
 
-	for (auto &entry : filters) {
-		auto column_id = column_ids[entry.GetIndex().GetIndex()];
-		AddFilterToPushdownInfo(
-		    *pushdown_info, column_id,
-		    ExpressionFilter::GetExpressionFilter(entry.Filter(), "DuckLakeMultiFileList::DynamicFilterPushdown")
-		        .Copy());
+	for (auto &entry : filters.filters) {
+		auto column_id = column_ids[entry.first];
+		AddFilterToPushdownInfo(*pushdown_info, column_id, entry.second->Copy());
 	}
 
 	if (pushdown_info->column_filters.empty()) {
@@ -99,15 +94,14 @@ unique_ptr<MultiFileList> DuckLakeMultiFileList::ComplexFilterPushdown(ClientCon
 	vector<FilterPushdownResult> pushdown_results;
 	auto table_filter_set = combiner.GenerateTableScanFilters(info.column_indexes, pushdown_results);
 
-	if (!table_filter_set.HasFilters()) {
+	if (table_filter_set.filters.empty()) {
 		return nullptr;
 	}
 
 	auto pushdown_info = filter_info ? filter_info->Copy() : make_uniq<FilterPushdownInfo>();
 
-	for (auto &entry : table_filter_set) {
-		auto column_id = info.column_ids[entry.GetIndex().GetIndex()];
-		AddFilterToPushdownInfo(*pushdown_info, column_id, entry.TakeFilter());
+	for (auto &entry : table_filter_set.filters) {
+		AddFilterToPushdownInfo(*pushdown_info, entry.first, std::move(entry.second));
 	}
 
 	if (pushdown_info->column_filters.empty()) {
@@ -260,7 +254,7 @@ vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() 
 	vector<DuckLakeFileListExtendedEntry> result;
 	auto transaction_ref = read_info.GetTransaction();
 	auto &transaction = *transaction_ref;
-	if (!IsTransactionLocal(read_info.table_id)) {
+	if (!read_info.table_id.IsTransactionLocal()) {
 		// not a transaction local table - read the file list from the metadata store
 		auto &metadata_manager = transaction.GetMetadataManager();
 		result = metadata_manager.GetExtendedFilesForTable(read_info.table, read_info.snapshot, filter_info.get());
@@ -319,7 +313,7 @@ vector<DuckLakeFileListExtendedEntry> DuckLakeMultiFileList::GetFilesExtended() 
 void DuckLakeMultiFileList::GetFilesForTable() const {
 	auto transaction_ref = read_info.GetTransaction();
 	auto &transaction = *transaction_ref;
-	if (!IsTransactionLocal(read_info.table_id)) {
+	if (!read_info.table_id.IsTransactionLocal()) {
 		// not a transaction local table - read the file list from the metadata store
 		auto &metadata_manager = transaction.GetMetadataManager();
 		files = metadata_manager.GetFilesForTable(read_info.table, read_info.snapshot, filter_info.get());
@@ -376,7 +370,7 @@ void DuckLakeMultiFileList::GetFilesForTable() const {
 }
 
 void DuckLakeMultiFileList::GetTableInsertions() const {
-	if (IsTransactionLocal(read_info.table_id)) {
+	if (read_info.table_id.IsTransactionLocal()) {
 		throw InternalException("Cannot get changes between snapshots for transaction-local files");
 	}
 	auto transaction_ref = read_info.GetTransaction();
@@ -395,7 +389,7 @@ void DuckLakeMultiFileList::GetTableInsertions() const {
 }
 
 void DuckLakeMultiFileList::GetTableDeletions() const {
-	if (IsTransactionLocal(read_info.table_id)) {
+	if (read_info.table_id.IsTransactionLocal()) {
 		throw InternalException("Cannot get changes between snapshots for transaction-local files");
 	}
 	auto transaction_ref = read_info.GetTransaction();
