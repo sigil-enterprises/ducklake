@@ -103,7 +103,11 @@ main() {
   # duckdb builds for is refused.
   local forbidden=0 a
   if [ "${REQUIRE_PLATFORM_IN_NAME:-0}" = "1" ]; then
-    local platforms="linux_amd64 linux_arm64 linux_amd64_musl osx_amd64 osx_arm64 windows_amd64 windows_amd64_mingw windows_arm64 wasm_eh wasm_mvp wasm_threads"
+    # Every platform string duckdb stamps into an extension. Kept as data, and
+    # never restated as a count anywhere: a count maintained in two places
+    # drifts, and a platform missing from this list is FALSE-POSITIVE REFUSED,
+    # so the list is the load-bearing part.
+    local platforms="linux_amd64 linux_amd64_gcc4 linux_arm64 linux_arm64_musl linux_amd64_musl osx_amd64 osx_arm64 windows_amd64 windows_amd64_mingw windows_arm64 wasm_eh wasm_mvp wasm_threads"
     for a in "${actual[@]}"; do
       case "$a" in
         *.duckdb_extension*) ;;
@@ -120,7 +124,7 @@ main() {
     done
   fi
   if [ "$forbidden" -ne 0 ]; then
-    annotate "REFUSING: ${repo}@${tag} carries a .duckdb_extension asset whose name says none of the nine platforms duckdb builds for. Such an asset cannot be told apart from the other eight and reads as 'the extension' (ducklake#33)."
+    annotate "REFUSING: ${repo}@${tag} carries a .duckdb_extension asset whose name names none of the platforms duckdb builds for. Such an asset cannot be told apart from a build for any other platform and reads as 'the extension' (ducklake#33)."
     return 1
   fi
 
@@ -159,7 +163,10 @@ selftest() {
       printf 'FAIL  %s: exit %s but NO ::error:: annotation - a crash, not a refusal\n' "$label" "$st"
       sed 's/^/      | /' "$tmp/o"; fails=$((fails + 1)); return
     fi
-    if [ -n "$reason" ] && ! grep -q -- "$reason" "$tmp/o"; then
+    # Scoped to the ANNOTATION line: the plain "REFUSING"/"FAIL" prose is
+    # printed too, and matching that would let a case pass on text that is not
+    # the annotation the case demands.
+    if [ -n "$reason" ] && ! grep -q -- "\[expected annotation\].*$reason" "$tmp/o"; then
       printf 'FAIL  %s: refused, but not for the reason under test - no annotation naming %s\n' "$label" "$reason"
       sed 's/^/      | /' "$tmp/o"; fails=$((fails + 1)); return
     fi
@@ -188,13 +195,13 @@ selftest() {
   REQUIRE_PLATFORM_IN_NAME=1 \
     _case 1 "expected asset present but a platform-less one beside it" \
       "ducklake-vX-linux_amd64.duckdb_extension"$'\n'"ducklake.duckdb_extension" \
-      "says none of the nine platforms"
+      "names none of the platforms"
   # The .wasm variant on v0.2.0-rc.2 is equally platform-less; a rule that only
   # knew the one literal name would miss it, which is why this is a rule.
   REQUIRE_PLATFORM_IN_NAME=1 \
     _case 1 "platform-less .wasm asset beside the expected one" \
       "ducklake-vX-linux_amd64.duckdb_extension"$'\n'"ducklake.duckdb_extension.wasm" \
-      "says none of the nine platforms"
+      "names none of the platforms"
   # ... and it must NOT fire on a properly named set, or it is a check that reds
   # every release regardless.
   REQUIRE_PLATFORM_IN_NAME=1 \

@@ -61,25 +61,57 @@ jobs:
       # A REAL provider-less DuckLake build, not one manufactured here. See
       # .github/provider-less-control for why the obvious objcopy plant is
       # circular and does not even produce a provider-less binary.
-      - name: Fetch the pinned provider-less control asset
+      - name: Fetch the pinned provider-less control artifacts
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           . .github/provider-less-control
           mkdir -p /tmp/control
-          gh release download "$CONTROL_TAG" --repo "$GITHUB_REPOSITORY" \
-            --pattern "$CONTROL_ASSET" --dir /tmp/control --clobber \
-            || { echo "::error::cannot fetch the provider-less control asset $CONTROL_ASSET from $CONTROL_TAG. The negative control for the #46 gate is unavailable, so the gate cannot be shown to fire. Refusing rather than skipping - a skip exits zero and reads as a pass."; exit 1; }
-          echo "${CONTROL_SHA256}  /tmp/control/${CONTROL_ASSET}" > /tmp/control/sum
-          sha256sum -c /tmp/control/sum \
-            || { echo "::error::the provider-less control asset does not match its pinned sha256. A negative control that silently changed identity is a negative control nobody is testing."; exit 1; }
+
+          # PRIMARY control - ELF, the format this pipeline actually publishes.
+          curl -fsSL -o /tmp/control/elf.gz "$ELF_CONTROL_URL" \
+            || { echo "::error::cannot fetch the ELF provider-less control from $ELF_CONTROL_URL. The negative control for the #46 gate is unavailable, so the gate cannot be shown to fire. Refusing rather than skipping - a skip exits ZERO and reads as a pass."; exit 1; }
+          gunzip -f /tmp/control/elf.gz
+          echo "${ELF_CONTROL_SHA256}  /tmp/control/elf" > /tmp/control/sum.elf
+          sha256sum -c /tmp/control/sum.elf \
+            || { echo "::error::the ELF provider-less control does not match its pinned sha256. A negative control that silently changed identity is a negative control nobody is testing."; exit 1; }
+
+          # SECONDARY control - PE32+, for object-format breadth only.
+          gh release download "$PE_CONTROL_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "$PE_CONTROL_ASSET" --dir /tmp/control --clobber \
+            || { echo "::error::cannot fetch the PE provider-less control asset $PE_CONTROL_ASSET from $PE_CONTROL_TAG."; exit 1; }
+          mv "/tmp/control/${PE_CONTROL_ASSET}" /tmp/control/pe
+          echo "${PE_CONTROL_SHA256}  /tmp/control/pe" > /tmp/control/sum.pe
+          sha256sum -c /tmp/control/sum.pe \
+            || { echo "::error::the PE provider-less control asset does not match its pinned sha256."; exit 1; }
+
+      # The PE control is a Windows DLL, and reading it needs a `nm` carrying
+      # the pe-x86-64 BFD target. The hosted ubuntu-22.04 image happens to ship
+      # one; stock ubuntu:22.04 does not, and there `nm` says "file format not
+      # recognized", the gate refuses with "not a symbol table", and the
+      # diagnosis points at the artifact when the fault is the toolchain.
+      # Install it explicitly and PROVE it works before the gate is asked to
+      # form a verdict.
+      - name: PRECONDITION - a nm that can read PE, proven on the control
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-mingw-w64-x86-64 \
+            || { echo "::error::TOOLCHAIN GAP, not a bad artifact: cannot install binutils-mingw-w64-x86-64, so nm cannot read the PE-format negative control."; exit 1; }
+          lines="$(nm -a /tmp/control/pe 2>/dev/null | grep -c . || true)"
+          echo "nm read $lines symbol lines from the PE control"
+          if [ "$lines" -lt 1000 ]; then
+            echo "::error::TOOLCHAIN GAP, not a bad artifact: nm read only ${lines} symbol lines from the PE-format control. This nm lacks the pe-x86-64 BFD target; any refusal the provider gate reports on this file would be about the reader, not about the file."
+            exit 1
+          fi
 
       - name: PROVE the provider gate fires on a REAL provider-less artifact
         run: |
           . .github/provider-less-control
           bash .github/scripts/selftest_provider_gate.sh \
-            --real-providerless "/tmp/control/${CONTROL_ASSET}"
+            --real-providerless /tmp/control/elf \
+            --real-providerless /tmp/control/pe
 
       - name: PROVE the publish gate refuses a release that published nothing
         run: bash .github/scripts/refuse_unpublished_release.sh --selftest
@@ -257,28 +289,61 @@ jobs:
 
       # #46, against the bytes that ship, with BOTH ends of the measurement in
       # one run: the pinned REAL provider-less asset, which the gate must
-      # refuse, and the asset just published, which it must pass. One tool, two
-      # artifacts, opposite verdicts - which is the only shape in which either
-      # verdict carries information.
-      - name: Fetch the pinned provider-less control asset
+      # refuse - in the SAME object format as the asset under test, plus a PE
+      # for breadth - and the asset just published, which it must pass. One
+      # tool, opposite verdicts on artifacts that share a format - which is the
+      # only shape in which either verdict carries information.
+      - name: Fetch the pinned provider-less control artifacts
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           . .github/provider-less-control
           mkdir -p /tmp/control
-          gh release download "$CONTROL_TAG" --repo "$GITHUB_REPOSITORY" \
-            --pattern "$CONTROL_ASSET" --dir /tmp/control --clobber \
-            || { echo "::error::cannot fetch the provider-less control asset; refusing rather than publishing on a gate whose negative control could not be run."; exit 1; }
-          echo "${CONTROL_SHA256}  /tmp/control/${CONTROL_ASSET}" > /tmp/control/sum
-          sha256sum -c /tmp/control/sum \
-            || { echo "::error::the provider-less control asset does not match its pinned sha256."; exit 1; }
+
+          # PRIMARY control - ELF, the format this pipeline actually publishes.
+          curl -fsSL -o /tmp/control/elf.gz "$ELF_CONTROL_URL" \
+            || { echo "::error::cannot fetch the ELF provider-less control from $ELF_CONTROL_URL. The negative control for the #46 gate is unavailable, so the gate cannot be shown to fire. Refusing rather than skipping - a skip exits ZERO and reads as a pass."; exit 1; }
+          gunzip -f /tmp/control/elf.gz
+          echo "${ELF_CONTROL_SHA256}  /tmp/control/elf" > /tmp/control/sum.elf
+          sha256sum -c /tmp/control/sum.elf \
+            || { echo "::error::the ELF provider-less control does not match its pinned sha256. A negative control that silently changed identity is a negative control nobody is testing."; exit 1; }
+
+          # SECONDARY control - PE32+, for object-format breadth only.
+          gh release download "$PE_CONTROL_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "$PE_CONTROL_ASSET" --dir /tmp/control --clobber \
+            || { echo "::error::cannot fetch the PE provider-less control asset $PE_CONTROL_ASSET from $PE_CONTROL_TAG."; exit 1; }
+          mv "/tmp/control/${PE_CONTROL_ASSET}" /tmp/control/pe
+          echo "${PE_CONTROL_SHA256}  /tmp/control/pe" > /tmp/control/sum.pe
+          sha256sum -c /tmp/control/sum.pe \
+            || { echo "::error::the PE provider-less control asset does not match its pinned sha256."; exit 1; }
+
+      # The PE control is a Windows DLL, and reading it needs a `nm` carrying
+      # the pe-x86-64 BFD target. The hosted ubuntu-22.04 image happens to ship
+      # one; stock ubuntu:22.04 does not, and there `nm` says "file format not
+      # recognized", the gate refuses with "not a symbol table", and the
+      # diagnosis points at the artifact when the fault is the toolchain.
+      # Install it explicitly and PROVE it works before the gate is asked to
+      # form a verdict.
+      - name: PRECONDITION - a nm that can read PE, proven on the control
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-mingw-w64-x86-64 \
+            || { echo "::error::TOOLCHAIN GAP, not a bad artifact: cannot install binutils-mingw-w64-x86-64, so nm cannot read the PE-format negative control."; exit 1; }
+          lines="$(nm -a /tmp/control/pe 2>/dev/null | grep -c . || true)"
+          echo "nm read $lines symbol lines from the PE control"
+          if [ "$lines" -lt 1000 ]; then
+            echo "::error::TOOLCHAIN GAP, not a bad artifact: nm read only ${lines} symbol lines from the PE-format control. This nm lacks the pe-x86-64 BFD target; any refusal the provider gate reports on this file would be about the reader, not about the file."
+            exit 1
+          fi
 
       - name: ASSERT the provider is linked into the PUBLISHED asset, and that the gate refuses a real provider-less one
         run: |
           . .github/provider-less-control
           bash .github/scripts/selftest_provider_gate.sh \
-            --real-providerless "/tmp/control/${CONTROL_ASSET}" \
+            --real-providerless /tmp/control/elf \
+            --real-providerless /tmp/control/pe \
             "/tmp/published/${{ needs.build.outputs.asset }}"
 
       # Symbols are not loadability. This is the same proof LoadProofReleased

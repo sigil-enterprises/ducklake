@@ -23,9 +23,9 @@
 #   SYNTHETIC (always) - ELF/Mach-O shared objects built here from generated C
 #   and C++. Seconds, on every trigger.
 #
-#   REAL (--real-providerless FILE / trailing FILE) - actual DuckLake artifacts.
-#   The provider-less one is a REAL, UNMODIFIED, previously-published build of
-#   this fork, not a fixture manufactured by deleting the records the gate reads
+#   REAL (--real-providerless FILE, repeatable / trailing FILE) - actual
+#   DuckLake artifacts. The provider-less ones are REAL, UNMODIFIED, published
+#   builds, not fixtures manufactured by deleting the records the gate reads
 #   - a plant made by stripping exactly the symbol table under test would be
 #   circular, and `objcopy --strip-symbols` in particular leaves .dynsym intact,
 #   so the "provider-less" binary would still export and register the provider.
@@ -33,7 +33,7 @@
 # Inner ::error:: lines are rewritten before printing: an EXPECTED failure must
 # not annotate the run, or a green self-test litters the UI and a real failure
 # is lost among the decoys.
-set -uo pipefail
+set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 gate="${here}/assert_provider_linked.sh"
@@ -51,8 +51,8 @@ fail() { printf 'FAIL  %s\n' "$*"; printf '::error::provider-gate self-test: %s\
 # here, since most of these runs are meant to fail.
 run_gate() {
   local out_file="$1"; shift
-  "$gate" "$@" >"$out_file" 2>&1
-  local st=$?
+  local st=0
+  "$gate" "$@" >"$out_file" 2>&1 || st=$?
   sed 's/^::error::/    [expected annotation] /' "$out_file" > "$out_file.neutralised"
   mv "$out_file.neutralised" "$out_file"
   return $st
@@ -85,7 +85,11 @@ expect_refusal() {
     sed 's/^/      | /' "$out"
     return
   fi
-  if ! grep -q -- "$want" "$out"; then
+  # Scoped to the ANNOTATION line, not the whole output: the gate prints a
+  # human "FAIL:"/"FATAL:" block as well, and matching that would let a case
+  # pass on prose while the annotation named a different refusal path - the
+  # same defect class this check exists to close, one level up.
+  if ! grep -q -- "\[expected annotation\].*$want" "$out"; then
     fail "$label: refused, but not for the reason under test - no annotation containing '$want'"
     sed 's/^/      | /' "$out"
     return
@@ -139,8 +143,12 @@ head -c 200000 /dev/urandom > "$work/junk.so"
 # A real object file with a real symbol table that is simply not a DuckLake one:
 # no anchor, few symbols. Distinct from junk.so - one is unreadable, the other
 # is readable and aimed at the wrong file.
-printf 'int not_ducklake_at_all(void) { return 7; }\n' > "$work/tiny.c"
-cc -shared -fPIC -o "$work/tiny.so" "$work/tiny.c"
+# It must trip the ANCHOR condition and ONLY the anchor condition. A one-symbol
+# .so trips `total < MIN_SYMBOLS` at the same time, so the case named for the
+# anchor would be satisfied by the size floor and prove nothing about the
+# anchor. Full filler, anchor removed.
+sed '/DuckLakeCatalog/d' "$work/gen.c" > "$work/noanchor.c"
+cc -shared -fPIC -o "$work/noanchor.so" "$work/noanchor.c"
 
 # THE case ducklake#46 and ducklake@7f910fe are about, and it must be a symbol
 # that EXISTS with INTERNAL linkage - not a name absent from the file, which
@@ -178,9 +186,11 @@ expect_refusal "unreadable file, --expect absent" \
 expect_refusal "unreadable file, --expect present" \
   "not a symbol table" --expect present "$work/junk.so"
 
-# 5. Readable, but not a DuckLake artifact: no anchor, so no verdict.
+# 5. Readable, big enough to clear the size floor, but not a DuckLake artifact:
+#    no anchor, so no verdict. The demanded substring names the anchor count so
+#    the size floor cannot satisfy this case.
 expect_refusal "wrong file (no anchor), --expect present" \
-  "not a symbol table" --expect present "$work/tiny.so"
+  "and 0 sightings of DuckLakeCatalog" --expect present "$work/noanchor.so"
 
 # 6. ducklake@7f910fe. The symbol EXISTS in the fixture, with internal linkage.
 #    A gate that greps `nm -a` raw counts it and reports a confident green; this
@@ -202,27 +212,39 @@ expect_refusal "nonexistent artifact, --expect present" \
 
 # --------------------------------------------------------------------- real --
 
-real_providerless=""
+real_providerless=()
 real_ok=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --real-providerless) real_providerless="${2:-}"; shift 2 ;;
+    # `shift 2` with only one argument left shifts NOTHING and returns 1. Under
+    # `set -uo pipefail` that made a malformed invocation loop forever: measured
+    # rc=124 under `timeout 5`. A hung job burns the whole runner timeout and
+    # emits no annotation at all - a crash in its worst form. Guard the arity.
+    --real-providerless)
+      [ $# -ge 2 ] || { echo "::error::--real-providerless needs a FILE"; exit 1; }
+      real_providerless+=("$2"); shift 2 ;;
+    # Without this an unknown flag silently became the artifact path.
+    -*) echo "::error::unknown flag: $1"; exit 1 ;;
     *) real_ok="$1"; shift ;;
   esac
 done
 
-if [ -n "$real_providerless" ]; then
+# Repeatable, because the controls must cover MORE THAN ONE OBJECT FORMAT. The
+# artifacts this pipeline publishes are ELF; a control that is only a PE would
+# never demonstrate the gate returns zero on a provider-less ELF, and the
+# synthetic tier would be silently carrying that coverage alone.
+for ctl in ${real_providerless+"${real_providerless[@]}"}; do
   echo
-  echo "== REAL provider-less DuckLake artifact: $real_providerless =="
-  if [ ! -f "$real_providerless" ]; then
-    echo "::error::the real provider-less control artifact is missing: $real_providerless"
+  echo "== REAL provider-less DuckLake artifact: $ctl =="
+  if [ ! -f "$ctl" ]; then
+    echo "::error::the real provider-less control artifact is missing: $ctl"
     exit 1
   fi
-  # Unmodified bytes from a published release of this fork. Nothing here
-  # manufactured it, so the refusal cannot be an artefact of how it was made.
-  expect_refusal "REAL published provider-less asset, --expect present" \
-    "0 provider symbols" --expect present "$real_providerless"
-fi
+  # Unmodified published bytes. Nothing here manufactured them, so the refusal
+  # cannot be an artefact of how the fixture was made.
+  expect_refusal "REAL provider-less asset $(basename "$ctl"), --expect present" \
+    "0 provider symbols" --expect present "$ctl"
+done
 
 if [ -n "$real_ok" ]; then
   echo
