@@ -1,0 +1,361 @@
+name: Release (linux_amd64 asset)
+
+# Publishes the ONE artifact a Linux consumer can actually install, and proves
+# three things about it that no previous release proved about anything:
+#
+#   1. it exists at all, under a name that says which platform it is (#33 -
+#      for linux_amd64 ONLY; the other eight platforms MainDistributionPipeline
+#      builds are built WITHOUT the provider overlay, so publishing them would
+#      ship exactly the provider-less binaries point 2 refuses. See #62.);
+#   2. the crypta KMS provider is LINKED INTO it, with DEFINED, EXTERNAL
+#      linkage, asserted against the asset DOWNLOADED BACK FROM THE RELEASE -
+#      and, in the same run and with the same tool, a pinned REAL provider-less
+#      published build that the gate must REFUSE (#46). One verdict without the
+#      other carries no information.
+#   3. the publish REFUSES - exit non-zero WITH an ::error:: annotation - rather
+#      than reporting success when it publishes nothing (#37).
+#
+# On #37: the `Deploy to nightly` jobs this repo used to run came from
+# duckdb/extension-ci-tools' reusable deploy workflow, invoked with an S3 secret
+# that is not set here. They printed "Missing AWS credentials", uploaded
+# nothing, and concluded `success`, three times per run. They are removed from
+# MainDistributionPipeline.yml in the same change: a fork that cannot publish to
+# duckdb's nightly bucket must not carry a green check that says it did. This
+# workflow is where publishing actually happens for this fork, so this is where
+# the refusal lives.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: An existing release tag to build and attach the asset to.
+        required: true
+        type: string
+  pull_request:
+  push:
+    branches: [main]
+
+# Read at the workflow level; only `publish` writes, and it asks for write
+# itself. `build` in particular must not carry a write-scoped GITHUB_TOKEN: it
+# bash-executes overlay.sh fetched at run time from another repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.release.tag_name || inputs.tag || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Seconds, not the 40 minutes the build takes, and it runs on every trigger.
+  # Both gates below assert something; an assertion nobody has watched FIRE is
+  # indistinguishable from one that is broken, and both print a confident line.
+  # These plant the bad fixtures and require a refusal on each.
+  gate-selftests:
+    name: Positive controls for the release gates
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # A REAL provider-less DuckLake build, not one manufactured here. See
+      # .github/provider-less-control for why the obvious objcopy plant is
+      # circular and does not even produce a provider-less binary.
+      - name: Fetch the pinned provider-less control artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          . .github/provider-less-control
+          mkdir -p /tmp/control
+
+          # PRIMARY control - ELF, the format this pipeline actually publishes.
+          curl -fsSL -o /tmp/control/elf.gz "$ELF_CONTROL_URL" \
+            || { echo "::error::cannot fetch the ELF provider-less control from $ELF_CONTROL_URL. The negative control for the #46 gate is unavailable, so the gate cannot be shown to fire. Refusing rather than skipping - a skip exits ZERO and reads as a pass."; exit 1; }
+          gunzip -f /tmp/control/elf.gz
+          echo "${ELF_CONTROL_SHA256}  /tmp/control/elf" > /tmp/control/sum.elf
+          sha256sum -c /tmp/control/sum.elf \
+            || { echo "::error::the ELF provider-less control does not match its pinned sha256. A negative control that silently changed identity is a negative control nobody is testing."; exit 1; }
+
+          # SECONDARY control - PE32+, for object-format breadth only.
+          gh release download "$PE_CONTROL_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "$PE_CONTROL_ASSET" --dir /tmp/control --clobber \
+            || { echo "::error::cannot fetch the PE provider-less control asset $PE_CONTROL_ASSET from $PE_CONTROL_TAG."; exit 1; }
+          mv "/tmp/control/${PE_CONTROL_ASSET}" /tmp/control/pe
+          echo "${PE_CONTROL_SHA256}  /tmp/control/pe" > /tmp/control/sum.pe
+          sha256sum -c /tmp/control/sum.pe \
+            || { echo "::error::the PE provider-less control asset does not match its pinned sha256."; exit 1; }
+
+      # The PE control is a Windows DLL, and reading it needs a `nm` carrying
+      # the pe-x86-64 BFD target. The hosted ubuntu-22.04 image happens to ship
+      # one; stock ubuntu:22.04 does not, and there `nm` says "file format not
+      # recognized", the gate refuses with "not a symbol table", and the
+      # diagnosis points at the artifact when the fault is the toolchain.
+      # Install it explicitly and PROVE it works before the gate is asked to
+      # form a verdict.
+      - name: PRECONDITION - a nm that can read PE, proven on the control
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-mingw-w64-x86-64 \
+            || { echo "::error::TOOLCHAIN GAP, not a bad artifact: cannot install binutils-mingw-w64-x86-64, so nm cannot read the PE-format negative control."; exit 1; }
+          lines="$(nm -a /tmp/control/pe 2>/dev/null | grep -c . || true)"
+          echo "nm read $lines symbol lines from the PE control"
+          if [ "$lines" -lt 1000 ]; then
+            echo "::error::TOOLCHAIN GAP, not a bad artifact: nm read only ${lines} symbol lines from the PE-format control. This nm lacks the pe-x86-64 BFD target; any refusal the provider gate reports on this file would be about the reader, not about the file."
+            exit 1
+          fi
+
+      - name: PROVE the provider gate fires on a REAL provider-less artifact
+        run: |
+          . .github/provider-less-control
+          bash .github/scripts/selftest_provider_gate.sh \
+            --real-providerless /tmp/control/elf \
+            --real-providerless /tmp/control/pe
+
+      - name: PROVE the publish gate refuses a release that published nothing
+        run: bash .github/scripts/refuse_unpublished_release.sh --selftest
+
+  build:
+    name: Build provider-linked ducklake for linux_amd64
+    # The overlay needs a token minted from PT_APP_ID/PT_PRIVATE_KEY, and a
+    # public repo passes no secrets to a pull_request from a FORK. Running this
+    # there would red every fork PR on the token step, for a reason that has
+    # nothing to do with the PR. Same-repo PRs and pushes still build, because
+    # a provider-linked build that is only exercised at release time is one
+    # nobody finds out is broken until they need it.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-22.04
+    outputs:
+      asset: ${{ steps.name.outputs.asset }}
+      duckdb_version: ${{ steps.pin.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ github.event.release.tag_name || inputs.tag || github.ref }}
+
+      - id: pin
+        uses: ./.github/actions/refuse-unreleased-duckdb-pin
+
+      # Both the artifact name and the name the publish job asserts on derive
+      # from THIS step, so the asset that is checked cannot be a different one
+      # from the asset that was attached.
+      - id: name
+        run: |
+          set -euo pipefail
+          tag="${{ github.event.release.tag_name || inputs.tag }}"
+          if [ -z "$tag" ]; then tag="$(git rev-parse --short HEAD)"; fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          # #33 asks for `ducklake-<version>-<platform>.duckdb_extension`. The
+          # extra `-duckdb-<ver>` segment is a deliberate deviation: a
+          # .duckdb_extension only loads into a duckdb whose version string
+          # matches exactly, so which duckdb it is for is load-determining and
+          # belongs in the name beside the platform.
+          echo "asset=ducklake-${tag}-duckdb-${{ steps.pin.outputs.version }}-linux_amd64.duckdb_extension" >> "$GITHUB_OUTPUT"
+
+      # The provider is private and lives out of tree. sigil-pt is installed on
+      # every repo in the org and its secrets are visible to public repos, which
+      # CT_* are not - this repo is public.
+      - name: Mint a token that can read the private crypta repo
+        id: tok
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.PT_APP_ID }}
+          private-key: ${{ secrets.PT_PRIVATE_KEY }}
+          owner: sigil-enterprises
+          repositories: crypta
+
+      - name: Overlay the crypta KMS provider
+        env:
+          GH_TOKEN_CRYPTA: ${{ steps.tok.outputs.token }}
+        run: |
+          set -euo pipefail
+          # `source`, not a hand-copied sha: the pin file is the single place the
+          # ref is written, so the build cannot drift from what the pin says.
+          . .github/crypta-pin
+          test -n "${CRYPTA_REPO:-}" && test -n "${CRYPTA_REF:-}"
+          {
+            git clone --filter=blob:none --no-checkout \
+              "https://x-access-token:${GH_TOKEN_CRYPTA}@github.com/${CRYPTA_REPO}.git" /tmp/crypta &&
+            git -C /tmp/crypta fetch --depth 1 origin "${CRYPTA_REF}" &&
+            git -C /tmp/crypta checkout --detach "${CRYPTA_REF}"
+          } || { echo "::error::cannot fetch ${CRYPTA_REPO}@${CRYPTA_REF}. Without the provider this build would produce a KMS-less extension, which is exactly what #46 forbids shipping - refusing rather than building one."; exit 1; }
+          echo "crypta at $(git -C /tmp/crypta rev-parse HEAD)"
+          # crypta's own overlay script, not a copy of it here. It asserts the
+          # pickup hook, the link-forcing call, and the OBJECT-library shape
+          # BEFORE it copies, and the copied files after - a copy into a
+          # directory no build target reads exits 0 and leaves files on disk,
+          # which is indistinguishable from success.
+          bash /tmp/crypta/ducklake-provider/scripts/overlay.sh "$PWD"
+          test -f src/crypta-provider/crypta_provider_init.cpp
+
+      - name: Install build deps
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake build-essential libssl-dev binutils
+
+      - name: Bootstrap vcpkg
+        run: |
+          set -euxo pipefail
+          git clone --depth=1 https://github.com/microsoft/vcpkg.git "$HOME/vcpkg"
+          "$HOME/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+
+      - name: make release
+        env:
+          GEN: ninja
+        run: |
+          set -euxo pipefail
+          export VCPKG_ROOT="$HOME/vcpkg"
+          export VCPKG_TOOLCHAIN_PATH="$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake"
+          make release
+          ls -l build/release/extension/ducklake/ducklake.duckdb_extension
+          sha256sum build/release/extension/ducklake/ducklake.duckdb_extension
+
+      # Fail here rather than downstream: an artifact with no provider must
+      # never reach the upload step, whatever the rest of the run says.
+      - name: ASSERT the crypta provider linked into what was just built
+        run: |
+          bash .github/scripts/assert_provider_linked.sh --expect present \
+            build/release/extension/ducklake/ducklake.duckdb_extension
+
+      - name: Stage the artifact under its platform-bearing name
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/out
+          cp build/release/extension/ducklake/ducklake.duckdb_extension \
+             "/tmp/out/${{ steps.name.outputs.asset }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.name.outputs.asset }}
+          path: /tmp/out/${{ steps.name.outputs.asset }}
+          if-no-files-found: error
+
+  # The build's own assertion is necessary and not sufficient: it looks at a
+  # path in the build tree, and the thing consumers install is whatever ended up
+  # on the release. This job asserts the DOWNLOADED asset.
+  publish:
+    name: Publish and verify the linux_amd64 asset
+    needs: [gate-selftests, build]
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.asset }}
+          path: /tmp/in
+
+      - name: Attach the asset to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" "/tmp/in/${{ needs.build.outputs.asset }}" \
+            --clobber --repo "$GITHUB_REPOSITORY" \
+            || { echo "::error::gh release upload failed for ${TAG}. Nothing was attached. Refusing with an annotation rather than exiting bare non-zero - a bare non-zero is a crash, and a crash says nothing about the release."; exit 1; }
+
+      # NOT the upload step's exit code. An upload that reported success and
+      # attached nothing is the exact failure #37 records, so its own word is
+      # not evidence; the release is read back from the API.
+      - name: REFUSE a publish that published nothing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          REQUIRE_PLATFORM_IN_NAME: '1'
+        run: |
+          bash .github/scripts/refuse_unpublished_release.sh \
+            "$GITHUB_REPOSITORY" "$TAG" "${{ needs.build.outputs.asset }}"
+
+      - name: Download the PUBLISHED asset back off the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/published
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "${{ needs.build.outputs.asset }}" --dir /tmp/published --clobber \
+            || { echo "::error::cannot download ${{ needs.build.outputs.asset }} back off ${TAG}. The upload reported success; the release does not carry it. That disagreement is the whole reason this step reads the release rather than trusting the upload."; exit 1; }
+          ls -l /tmp/published
+          sha256sum /tmp/published/* /tmp/in/*
+
+      # #46, against the bytes that ship, with BOTH ends of the measurement in
+      # one run: the pinned REAL provider-less asset, which the gate must
+      # refuse - in the SAME object format as the asset under test, plus a PE
+      # for breadth - and the asset just published, which it must pass. One
+      # tool, opposite verdicts on artifacts that share a format - which is the
+      # only shape in which either verdict carries information.
+      - name: Fetch the pinned provider-less control artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          . .github/provider-less-control
+          mkdir -p /tmp/control
+
+          # PRIMARY control - ELF, the format this pipeline actually publishes.
+          curl -fsSL -o /tmp/control/elf.gz "$ELF_CONTROL_URL" \
+            || { echo "::error::cannot fetch the ELF provider-less control from $ELF_CONTROL_URL. The negative control for the #46 gate is unavailable, so the gate cannot be shown to fire. Refusing rather than skipping - a skip exits ZERO and reads as a pass."; exit 1; }
+          gunzip -f /tmp/control/elf.gz
+          echo "${ELF_CONTROL_SHA256}  /tmp/control/elf" > /tmp/control/sum.elf
+          sha256sum -c /tmp/control/sum.elf \
+            || { echo "::error::the ELF provider-less control does not match its pinned sha256. A negative control that silently changed identity is a negative control nobody is testing."; exit 1; }
+
+          # SECONDARY control - PE32+, for object-format breadth only.
+          gh release download "$PE_CONTROL_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "$PE_CONTROL_ASSET" --dir /tmp/control --clobber \
+            || { echo "::error::cannot fetch the PE provider-less control asset $PE_CONTROL_ASSET from $PE_CONTROL_TAG."; exit 1; }
+          mv "/tmp/control/${PE_CONTROL_ASSET}" /tmp/control/pe
+          echo "${PE_CONTROL_SHA256}  /tmp/control/pe" > /tmp/control/sum.pe
+          sha256sum -c /tmp/control/sum.pe \
+            || { echo "::error::the PE provider-less control asset does not match its pinned sha256."; exit 1; }
+
+      # The PE control is a Windows DLL, and reading it needs a `nm` carrying
+      # the pe-x86-64 BFD target. The hosted ubuntu-22.04 image happens to ship
+      # one; stock ubuntu:22.04 does not, and there `nm` says "file format not
+      # recognized", the gate refuses with "not a symbol table", and the
+      # diagnosis points at the artifact when the fault is the toolchain.
+      # Install it explicitly and PROVE it works before the gate is asked to
+      # form a verdict.
+      - name: PRECONDITION - a nm that can read PE, proven on the control
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils-mingw-w64-x86-64 \
+            || { echo "::error::TOOLCHAIN GAP, not a bad artifact: cannot install binutils-mingw-w64-x86-64, so nm cannot read the PE-format negative control."; exit 1; }
+          lines="$(nm -a /tmp/control/pe 2>/dev/null | grep -c . || true)"
+          echo "nm read $lines symbol lines from the PE control"
+          if [ "$lines" -lt 1000 ]; then
+            echo "::error::TOOLCHAIN GAP, not a bad artifact: nm read only ${lines} symbol lines from the PE-format control. This nm lacks the pe-x86-64 BFD target; any refusal the provider gate reports on this file would be about the reader, not about the file."
+            exit 1
+          fi
+
+      - name: ASSERT the provider is linked into the PUBLISHED asset, and that the gate refuses a real provider-less one
+        run: |
+          . .github/provider-less-control
+          bash .github/scripts/selftest_provider_gate.sh \
+            --real-providerless /tmp/control/elf \
+            --real-providerless /tmp/control/pe \
+            "/tmp/published/${{ needs.build.outputs.asset }}"
+
+      # Symbols are not loadability. This is the same proof LoadProofReleased
+      # runs, aimed at the published asset rather than a build-tree path.
+      - name: PROVE the PUBLISHED asset loads into the released duckdb CLI
+        run: |
+          set -euxo pipefail
+          version="$(cat .github/duckdb-version)"
+          curl -fsSL -o /tmp/cli.zip \
+            "https://github.com/duckdb/duckdb/releases/download/${version}/duckdb_cli-linux-amd64.zip"
+          unzip -o /tmp/cli.zip -d /tmp/cli
+          /tmp/cli/duckdb --version
+          bash .github/scripts/load_proof_cli.sh /tmp/cli/duckdb \
+            "/tmp/published/${{ needs.build.outputs.asset }}" \
+            || { echo "::error::the PUBLISHED asset does not load into the released duckdb ${version} CLI. Compilation is not loadability; this is the artifact consumers install."; exit 1; }
