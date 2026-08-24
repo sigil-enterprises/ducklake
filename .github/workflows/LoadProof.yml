@@ -45,18 +45,12 @@ jobs:
         run: |
           set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y ninja-build cmake build-essential
-
-      - uses: lukka/get-cmake@latest
-      - uses: lukka/run-vcpkg@v11
-        with:
-          vcpkgGitCommitId: a42af01b72c28a8e1d7b48107b33e4f286a55ef6
+          sudo apt-get install -y ninja-build cmake build-essential libssl-dev libcurl4-openssl-dev
 
       - name: Build a STOCK duckdb at the pinned sha (no ducklake linked in)
         env:
           GEN: ninja
-          CORE_EXTENSIONS: 'parquet;json;icu'
-          VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+          CORE_EXTENSIONS: 'parquet;json;icu;httpfs'
         run: |
           set -euxo pipefail
           cd duckdb
@@ -84,6 +78,7 @@ jobs:
           mkdir -p /tmp/lakefiles
           ./duckdb/build/release/duckdb -unsigned -c "
             PRAGMA version;
+            LOAD httpfs;
             LOAD '/tmp/ducklake.duckdb_extension';
             SELECT extension_name, loaded, installed FROM duckdb_extensions() WHERE extension_name = 'ducklake';
             ATTACH 'ducklake:/tmp/proof.db' AS lake (DATA_PATH '/tmp/lakefiles/', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0);
@@ -92,6 +87,7 @@ jobs:
             DETACH lake;
           "
           ./duckdb/build/release/duckdb -unsigned -c "
+            LOAD httpfs;
             LOAD '/tmp/ducklake.duckdb_extension';
             ATTACH 'ducklake:/tmp/proof.db' AS lake2;
             SELECT count(*) AS rows_after_reattach, sum(x) AS checksum FROM lake2.t;
