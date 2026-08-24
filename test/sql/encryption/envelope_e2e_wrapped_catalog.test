@@ -114,7 +114,14 @@ DETACH lk
 statement ok
 ATTACH 'ducklake:__TEST_DIR__/envelope_e2e.db' AS bare (DATA_PATH '__TEST_DIR__/envelope_e2e_files', METADATA_CATALOG 'bare_meta')
 
+# `sum(id)`, and NOT `count(*)`: DuckLake answers an unfiltered `count(*)` from
+# ducklake_table_stats without opening a single Parquet file, so it never
+# reaches the wrapped-key check and returns 200 on a perfectly healthy
+# enveloped lake. As the positive control for this file that assertion could
+# never fail - measured, run 32761554440. Do not put `count(*)` back. Any
+# column-touching query works; the sibling fixture
+# envelope_unenveloped_reader_refusal.test pins all three shapes.
 statement error
-SELECT count(*) FROM bare.t
+SELECT sum(id) FROM bare.t
 ----
 carries a wrapped encryption key, but this lake was attached without
