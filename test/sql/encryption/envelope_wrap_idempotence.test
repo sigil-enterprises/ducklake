@@ -73,17 +73,29 @@ COMMIT
 statement ok
 CALL ducklake_merge_adjacent_files('lk')
 
-# TEMPORARY PROBE - deliberately expects an impossible pair so the failure
-# message prints the two ACTUAL numbers. Removed in the next commit.
-query IIII
-SELECT
-  (SELECT coalesce(sum(n), 0) FROM read_csv('${DUCKLAKE_FAKE_KMS_OPLOG}', columns={'op': 'VARCHAR', 'n': 'BIGINT'}, header=false) WHERE op = 'wrap_batch'),
-  (SELECT count(*) FROM lk_meta.ducklake_data_file),
-  (SELECT count(*) FROM lk_meta.ducklake_data_file WHERE end_snapshot IS NULL),
-  (SELECT count(DISTINCT encryption_key) FROM lk_meta.ducklake_data_file)
-----
--1	-1	-1	-1
-
+# MEASURED IN CI, run 32780115102, with the test provider and a live fake key
+# service behind it. This assertion FAILS, and it is the assertion that is
+# wrong, not the product:
+#
+#   sum(n) over wrap_batch                        = 4
+#   count(*) FROM lk_meta.ducklake_data_file      = 1
+#   ... WHERE end_snapshot IS NULL                = 1
+#   count(DISTINCT encryption_key)                = 1
+#
+# and the operation log reads health,0 / wrap_batch,1 x3 / unwrap_batch,1 x3 /
+# wrap_batch,1. Four files were written - CREATE TABLE, two INSERTs, and the
+# output of ducklake_merge_adjacent_files - and each was wrapped EXACTLY ONCE.
+# No DEK was wrapped twice. The equality below is nonetheless false because
+# compaction DELETES the superseded rows from ducklake_data_file rather than
+# only stamping end_snapshot, so the right-hand side counts the ONE surviving
+# file while the left counts all four ever written. The comment says "files
+# that have ever carried one"; the query does not express that, and after a
+# compaction the metadata no longer holds the number, so it cannot be expressed
+# from the catalog at all. The assertion is left EXACTLY as its author wrote it
+# and this file is left RED: correcting the property it should assert is a
+# decision for whoever owns #51, and weakening it here to buy a green is the
+# defect this whole file exists to refuse.
+#
 # EXACTLY as many DEKs were presented to the key service as there are files that
 # have ever carried one. More means a key was wrapped a second time.
 query I
