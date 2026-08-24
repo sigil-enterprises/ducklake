@@ -54,7 +54,10 @@ jobs:
   # it, so the honest fix is not to make the check red forever - it is to stop
   # making the claim. Distribution for this fork is the GitHub release, built
   # and verified by Release.yml, which publishes a platform-named linux_amd64
-  # asset (#33), asserts the crypta provider is linked into the asset it
+  # asset - that ONE platform, not the nine this job builds, because these nine
+  # are built without the crypta provider overlay and shipping them would be
+  # shipping the provider-less binaries #46 exists to refuse (#33, and #62 for
+  # the remaining eight), asserts the crypta provider is linked into the asset it
   # downloads back off the release (#46), and REFUSES - exit non-zero with an
   # ::error:: annotation - rather than reporting success when it publishes
   # nothing. That refusal has a positive control:

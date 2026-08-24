@@ -1,0 +1,40 @@
+# The NEGATIVE control for .github/scripts/assert_provider_linked.sh (#46).
+#
+# A REAL, UNMODIFIED, previously-published build of this fork that genuinely has
+# no KMS provider linked into it. The gate must go RED on this file, and until
+# it has been watched do so its green on a healthy artifact says nothing.
+#
+# Why a published asset rather than a fixture manufactured on the spot: the
+# obvious plant is to take the good artifact and delete the provider records
+# with `objcopy --strip-symbols`. That is CIRCULAR - it manufactures the fixture
+# by deleting exactly the table the gate reads, so the refusal is guaranteed by
+# construction and proves nothing about the gate. It is also not even a
+# provider-less binary: objcopy rewrites .symtab and leaves .dynsym alone, so
+# the "stripped" library still exports the provider and would still register
+# the factory at load. Measured on the artifact of run 32756499818:
+#     .dynsym  21 GLOBAL DEF + 7 WEAK DEF provider symbols
+#     .symtab  the same 28, plus 20 LOCAL DEF
+# Stripping .symtab removes 48 records and changes nothing about what the
+# library does.
+#
+# So the control is this instead: bytes nobody here made, from the release
+# ducklake#33 was filed about. sha256 is pinned so the control cannot silently
+# become a different file - a negative control that quietly changed identity is
+# a negative control nobody is testing.
+#
+#   $ gh release download v0.2.0-rc.2 -R sigil-enterprises/ducklake \
+#       --pattern ducklake.duckdb_extension
+#   $ file ducklake.duckdb_extension
+#   PE32+ executable (DLL) (console) x86-64, for MS Windows
+#   $ .github/scripts/assert_provider_linked.sh --expect present ducklake.duckdb_extension
+#       symbols     250316
+#       anchor(DuckLakeCatalog) 505
+#       provider    0
+#   exit 1
+#
+# 250316 symbols and 505 anchor sightings are what make the 0 mean something:
+# the symbol table is demonstrably real and demonstrably a DuckLake one, so the
+# zero is an absent provider and not a misaimed tool.
+CONTROL_TAG=v0.2.0-rc.2
+CONTROL_ASSET=ducklake.duckdb_extension
+CONTROL_SHA256=4c68ec6d0ed6f85b8d3eb1893aaeb4220b6a701863553c61afbf259b72bda315

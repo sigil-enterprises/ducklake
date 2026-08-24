@@ -105,13 +105,41 @@ for f in "${files[@]}"; do
   syms="$(nm -a "$f" 2>/dev/null || true)"
   total="$(printf '%s\n' "$syms" | grep -c . || true)"
   anchor_hits="$(printf '%s\n' "$syms" | grep -c "$ANCHOR" || true)"
-  hits="$(printf '%s\n' "$syms" | grep -Ec "$PATTERNS" || true)"
+
+  # DEFINED + EXTERNAL only, and this is the whole of trap 3 rather than a
+  # comment about it.
+  #
+  # `nm -a` prints the entire .symtab, LOCAL symbols included. Grepping those
+  # raw lines counts a lowercase type letter - `t`, `d`, `b`, an unnamed-
+  # namespace or file-scope-static definition - as a hit, which is exactly the
+  # symbol class ducklake@7f910fe and ducklake#46 say must never satisfy this
+  # check: an internal-linkage symbol cannot be the one the extension's
+  # LoadInternal resolves against, so its presence proves nothing about whether
+  # the provider is reachable. Measured:
+  #
+  #   0000000000000524 t _ZN12_GLOBAL__N_126CryptaProviderRegistrar_fnEi
+  #
+  # A raw grep counts that. This does not.
+  #
+  # `U` is excluded for the opposite reason: an UNDEFINED reference to
+  # DuckLakeRegisterKmsProvider is what a provider-LESS build has - it is the
+  # unresolved symbol the link fails on - so counting it would turn the exact
+  # broken state into a pass.
+  #
+  # nm prints `ADDR TYPE NAME` for a defined symbol and `TYPE NAME` for an
+  # undefined one, so the type column is field 2 or field 1 by field count.
+  defined_ext="$(printf '%s\n' "$syms" | awk '
+    NF == 3 { t = $2; n = $3 }
+    NF == 2 { t = $1; n = $2 }
+    (NF == 2 || NF == 3) && t ~ /^[ABCDGRSTVW]$/ { print n }
+  ')"
+  hits="$(printf '%s\n' "$defined_ext" | grep -Ec "$PATTERNS" || true)"
 
   printf '%s\n' "-- $f"
   printf '    sha256      %s\n' "$( { sha256sum "$f" 2>/dev/null || shasum -a 256 "$f"; } | cut -d' ' -f1)"
   printf '    symbols     %s\n' "$total"
   printf '    anchor(%s) %s\n' "$ANCHOR" "$anchor_hits"
-  printf '    provider    %s\n' "$hits"
+  printf '    provider    %s (defined + EXTERNAL only)\n' "$hits"
 
   if [ "$total" -lt "$MIN_SYMBOLS" ] || [ "$anchor_hits" -eq 0 ]; then
     echo "    FATAL: symbol table not readable (stripped? wrong file?). Refusing to return a verdict."
@@ -126,7 +154,7 @@ for f in "${files[@]}"; do
     IFS='|'
     for pat in $PATTERNS; do
       [ -n "$pat" ] || continue
-      pat_hits="$(printf '%s\n' "$syms" | grep -c "$pat" || true)"
+      pat_hits="$(printf '%s\n' "$defined_ext" | grep -c "$pat" || true)"
       printf '    pattern     %-32s %s\n' "$pat" "$pat_hits"
       [ "$pat_hits" -eq 0 ] && bad_pattern=1
     done
@@ -143,7 +171,8 @@ for f in "${files[@]}"; do
   fi
 
   if [ "$expect" = present ] && [ "$hits" -eq 0 ]; then
-    echo "    FAIL: expected the crypta provider to be linked in; found 0 provider symbols."
+    echo "    FAIL: expected the crypta provider to be linked in; found 0 provider symbols"
+    echo "          with DEFINED, EXTERNAL linkage."
     echo "          This build is provider-less. Every ATTACH ... ENCRYPTION_SOCKET will be"
     echo "          refused with 'no KMS encryption provider'. Check the overlay step."
     annotate "provider check on $f: 0 provider symbols - this artifact has NO KMS provider and would refuse every enveloped ATTACH"
