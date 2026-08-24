@@ -83,7 +83,7 @@ overall=0
 for fixture in "$@"; do
   echo "== ${fixture}"
   status=0
-  output="$("${UNITTEST}" "${fixture}" 2>&1)" || status=$?
+  output="$("${UNITTEST}" --test-dir "${ROOT}" "${fixture}" 2>&1)" || status=$?
   echo "${output}"
   if ! grep -q "assertions" <<< "${output}"; then
     echo "::error file=${fixture}::reported no assertions - it either skipped or died. A skip is not a pass."
