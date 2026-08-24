@@ -224,8 +224,17 @@ public:
 		// provider by the abstract interface: reading one would let a
 		// downgraded catalog serve its data as if the envelope were intact.
 		if (!LooksWrapped(base64_value)) {
-			throw IOException("test kms provider: refusing a stored key that is not an envelope blob - on an "
-			                  "enveloped lake that is a pre-envelope leftover or a downgrade");
+			// The WORDING is contract, not decoration. The crypta provider
+			// refuses this same state with "carries a plaintext encryption
+			// key", and the sqllogictest fixtures assert on that substring. A
+			// test double that refuses correctly but SAYS something else turns
+			// every one of those assertions into a red for the wrong reason -
+			// measured, run 32762632687, crypta_flush_configured_unwrap.test:329.
+			// Widening the fixture's match string instead would have retired a
+			// distinguishing assertion; the double is what has to conform.
+			throw IOException("test kms provider: this lake is enveloped, but the stored key carries a "
+			                  "plaintext encryption key rather than an envelope blob - a pre-envelope "
+			                  "leftover or a downgrade. Refusing to use it");
 		}
 		string request = "{\"items\":[{\"identity\":\"";
 		request += JsonEscape(IdentityString(identity));
@@ -257,7 +266,8 @@ public:
 		vector<DuckLakeRewrapResult> results;
 		for (idx_t i = 0; i < blobs.size(); i++) {
 			if (!LooksWrapped(blobs[i])) {
-				throw IOException("test kms provider: refusing to rewrap a stored key that is not an envelope blob");
+				throw IOException("test kms provider: refusing to rewrap a stored key that carries a plaintext "
+			                  "encryption key rather than an envelope blob");
 			}
 			// Prove the blob is genuinely ours and genuinely bound to this
 			// identity before reporting it converged.
