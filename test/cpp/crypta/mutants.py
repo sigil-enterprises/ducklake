@@ -1416,11 +1416,17 @@ def main(argv):
         problems = resolve_roster(arguments[0] if arguments else ".", roster)
         for problem in problems:
             print("::error::%s" % problem)
+        # `raise SystemExit`, never `return`. `main` is called as `main(sys.argv)`
+        # with its value DISCARDED, so a `return 1` here exits 0 - the subcommand
+        # would print six ::error:: lines about a roster that resolves nowhere and
+        # the CI step would go green on them. Measured, on the first draft of this
+        # very subcommand, by running it against a directory with no `src/`. That
+        # is the exact defect class this check exists to remove, one level up, so
+        # `resolve_control.py` now runs the CLI and asserts the EXIT CODE too.
         if not roster:
-            print("::error::the roster is EMPTY - this check would pass vacuously")
-            return 1
+            raise SystemExit("::error::the roster is EMPTY - this check would pass vacuously")
         if problems:
-            return 1
+            raise SystemExit(1)
         print("all %d mutants resolve against the tree" % len(roster))
     elif command == "verify-clean":
         problems = verify_clean(arguments[0])

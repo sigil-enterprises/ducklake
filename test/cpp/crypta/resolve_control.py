@@ -86,6 +86,50 @@ def main():
     orphaned[0]["reddens"] = ["test/sql/crypta/this_test_does_not_exist.test"]
     require("reddens-absent", orphaned, "not in this tree")
 
+    # THE CLI EXIT CODE, which is a separate question from what `resolve_roster`
+    # returns and is the one CI actually reads. `main` is invoked as
+    # `main(sys.argv)` with its value discarded, so a subcommand that signalled
+    # failure by RETURNING would exit 0 - printing every ::error:: line and going
+    # green on them. That is not hypothetical: the first draft of `resolve` did
+    # exactly that, and this case is why it was caught.
+    import subprocess
+
+    empty_tree = os.path.join(os.path.dirname(os.path.abspath(mutants.__file__)), "no_such_root_for_control")
+    result = subprocess.run(
+        [sys.executable, mutants.__file__, "resolve", empty_tree, "--extension"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        failures.append(
+            "control cli-exit-code: `mutants.py resolve` exited 0 against a tree "
+            "containing none of the roster's files. A CI step reading this exit "
+            "code would go green on a roster that resolves nowhere.\n    stdout:\n    %s"
+            % result.stdout.replace("\n", "\n    ")
+        )
+    elif "::error::" not in result.stdout + result.stderr:
+        failures.append(
+            "control cli-exit-code: exited %d but printed no ::error:: annotation - "
+            "that is a crash, not a refusal" % result.returncode
+        )
+    else:
+        print("  control cli-exit-code: non-zero with an annotation, as required")
+
+    # And the other direction, so "reds on everything" cannot pass for a working
+    # gate: the real tree must exit 0.
+    result = subprocess.run(
+        [sys.executable, mutants.__file__, "resolve", REPO, "--extension"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        failures.append(
+            "control cli-exit-code-clean: `mutants.py resolve` exited %d on the real "
+            "tree.\n    %s" % (result.returncode, (result.stdout + result.stderr).replace("\n", "\n    "))
+        )
+    else:
+        print("  control cli-exit-code-clean: zero, as required")
+
     if failures:
         for failure in failures:
             print("::error::%s" % failure)
