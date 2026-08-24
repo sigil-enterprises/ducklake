@@ -1,0 +1,116 @@
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# Assert that the duckdb this fork BUILDS against is the duckdb the CONSUMER RUNS.
+#
+# `.github/gateway-duckdb-version` was a hand-written MIRROR of the gateway's pin
+# whose only reader was a string comparison against `.github/duckdb-version` in
+# this same repo. Two files here agreeing with each other says nothing about the
+# gateway: a consumer-side bump left both consistent, CI green, and the published
+# asset unloadable in production (#45). This reads the CONSUMER'S OWN FILE
+# instead, so the comparison can no longer agree with itself.
+#
+# WHY THE CRON IS THE LOAD-BEARING TRIGGER
+# ----------------------------------------
+# The drift this closes originates in the OTHER repository. A gateway bump
+# produces no event here at all, so a check that only runs on this repo's pull
+# requests would still not notice it until production did. The daily run is what
+# actually catches a consumer bump; the pull-request trigger only catches this
+# side moving.
+#
+# `schedule` fires on the default branch (`main`), which is the branch that
+# publishes, so that is the right branch to be asking about.
+#
+# FAIL-CLOSED
+# -----------
+# There is no "consumer unreachable, skipping". A skip is a green that measured
+# nothing, which is the defect class this file exists to remove. An unmintable
+# token, an unreachable repository, a missing or duplicated `ARG DUCKDB_VERSION`
+# are all RED, each with an `::error::` annotation so a refusal stays
+# distinguishable from a crash.
+
+name: Gateway duckdb Pin Agreement
+
+on:
+  schedule:
+    # Daily. The consumer's bump lands with no event in this repository.
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main, 'release/**']
+  pull_request:
+    paths:
+      - '.github/duckdb-version'
+      - '.github/scripts/gateway_pin_agreement.sh'
+      - '.github/scripts/gateway_pin_agreement_control.sh'
+      - '.github/workflows/GatewayPinAgreement.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # Runs FIRST and independently of any credential. If the comparator cannot tell
+  # a drifted pin from an aligned one, the verdict of the job below is worthless
+  # whichever way it goes - so this is the job whose red means "the check is
+  # broken", as distinct from "the pins disagree".
+  positive-control:
+    name: The comparator reds on a planted drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
+      - run: .github/scripts/gateway_pin_agreement_control.sh
+
+  agreement:
+    name: This fork's pin equals the gateway's
+    needs: positive-control
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
+
+      # A cross-ORG read: the consumer lives in `opvance`, this repo in
+      # `sigil-enterprises`, so GITHUB_TOKEN cannot see it and a PAT would be a
+      # person. The `sigil-ct` App is installed on `opvance`; the token is scoped
+      # to the single repository this check needs to read.
+      - id: token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.CT_APP_ID }}
+          private-key: ${{ secrets.CT_PRIVATE_KEY }}
+          owner: opvance
+          repositories: teras-ext-pgwire
+
+      - name: Fetch the consumer's Dockerfile
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::no token for opvance/teras-ext-pgwire - the gateway's pin could not be read, so nothing was compared. This is RED on purpose: a skip here is a green that measured nothing."
+            exit 1
+          fi
+          if ! gh api repos/opvance/teras-ext-pgwire/contents/image/Dockerfile \
+                 -H 'Accept: application/vnd.github.raw' > /tmp/consumer.Dockerfile; then
+            echo "::error::could not read opvance/teras-ext-pgwire image/Dockerfile. Either the App installation no longer grants it or the path moved; either way this check cannot say what the gateway runs."
+            exit 1
+          fi
+          # An empty body would sail through the extractor as "ARG absent", which
+          # is a true refusal but for a misleading reason. Name it here instead.
+          if [ ! -s /tmp/consumer.Dockerfile ]; then
+            echo "::error::opvance/teras-ext-pgwire image/Dockerfile came back EMPTY"
+            exit 1
+          fi
+          echo "consumer Dockerfile: $(wc -l < /tmp/consumer.Dockerfile) lines"
+
+      - name: The two pins must be equal
+        run: .github/scripts/gateway_pin_agreement.sh /tmp/consumer.Dockerfile .github/duckdb-version
