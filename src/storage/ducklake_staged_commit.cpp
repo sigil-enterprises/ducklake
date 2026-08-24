@@ -210,18 +210,16 @@ void DuckLakeStagedCommit::EmitDeleteFileRow(string &sql, const DuckLakeDeleteFi
 	string overwrite_path = file.overwritten_delete_file.path.empty()
 	                            ? string("NULL")
 	                            : DuckLakeUtil::SQLLiteralToString(file.overwritten_delete_file.path);
-	sql += StringUtil::Format("INSERT INTO %s VALUES "
-	                          "(%llu, %s, %llu, %s, %s, %llu, %llu, %llu, %s, %s, %s, %s, %s, %s, %s, NULL);",
-	                          DuckLakeStagedTable::BaseName(DuckLakeStagedTableType::DELETE_FILE), table_id.index,
-	                          SQLString(data_file_path), file.data_file_id.index, SQLString(file.file_name),
-	                          SQLString(DeleteFileFormatToString(file.format)), file.delete_count, file.file_size_bytes,
-	                          file.footer_size,
-	                          DuckLakeUtil::WrappedEncryptionKeyLiteral(file.encryption_key,
-	                                                                   !file.encryption_key.empty()),
-	                          DuckLakeUtil::OptionalIdxOrNull(file.begin_snapshot),
-	                          DuckLakeUtil::OptionalIdxOrNull(file.max_snapshot),
-	                          SQLString(file.source == DeleteFileSource::FLUSH ? "FLUSH" : "REGULAR"),
-	                          file.overwrites_existing_delete ? "true" : "false", overwrite_id, overwrite_path);
+	sql += StringUtil::Format(
+	    "INSERT INTO %s VALUES "
+	    "(%llu, %s, %llu, %s, %s, %llu, %llu, %llu, %s, %s, %s, %s, %s, %s, %s, NULL);",
+	    DuckLakeStagedTable::BaseName(DuckLakeStagedTableType::DELETE_FILE), table_id.index, SQLString(data_file_path),
+	    file.data_file_id.index, SQLString(file.file_name), SQLString(DeleteFileFormatToString(file.format)),
+	    file.delete_count, file.file_size_bytes, file.footer_size,
+	    DuckLakeUtil::WrappedEncryptionKeyLiteral(file.encryption_key, !file.encryption_key.empty()),
+	    DuckLakeUtil::OptionalIdxOrNull(file.begin_snapshot), DuckLakeUtil::OptionalIdxOrNull(file.max_snapshot),
+	    SQLString(file.source == DeleteFileSource::FLUSH ? "FLUSH" : "REGULAR"),
+	    file.overwrites_existing_delete ? "true" : "false", overwrite_id, overwrite_path);
 }
 
 void DuckLakeStagedCommit::EmitAttachedDeleteRow(string &sql, const DuckLakeDeleteFile &del, TableIndex table_id,
@@ -232,8 +230,7 @@ void DuckLakeStagedCommit::EmitAttachedDeleteRow(string &sql, const DuckLakeDele
 	    DuckLakeStagedTable::BaseName(DuckLakeStagedTableType::DELETE_FILE), table_id.index, SQLString(del.file_name),
 	    SQLString(DeleteFileFormatToString(del.format)), del.delete_count, del.file_size_bytes, del.footer_size,
 	    DuckLakeUtil::WrappedEncryptionKeyLiteral(del.encryption_key, !del.encryption_key.empty()),
-	    DuckLakeUtil::OptionalIdxOrNull(del.begin_snapshot),
-	    DuckLakeUtil::OptionalIdxOrNull(del.max_snapshot),
+	    DuckLakeUtil::OptionalIdxOrNull(del.begin_snapshot), DuckLakeUtil::OptionalIdxOrNull(del.max_snapshot),
 	    SQLString(del.source == DeleteFileSource::FLUSH ? "FLUSH" : "REGULAR"), local_file_id);
 }
 

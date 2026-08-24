@@ -263,7 +263,6 @@ public:
 	//! immediately on a lake with no envelope provider.
 	void RefuseUnencryptedTempSpill(const string &what) const;
 
-
 	void OnDetach(ClientContext &context) override;
 
 	optional_idx GetCatalogVersion(ClientContext &context) override;
