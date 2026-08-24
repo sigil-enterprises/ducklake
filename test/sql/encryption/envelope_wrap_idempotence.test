@@ -36,6 +36,15 @@ require ducklake
 
 require parquet
 
+require httpfs
+
+# ^ NOT decoration, and its absence is why this file could never have passed:
+# writing an ENCRYPTED parquet file needs the mbedtls write path httpfs carries.
+# Without it the first CREATE TABLE dies with "DuckDB currently has a read-only
+# crypto module loaded" - measured, and asserted by the two sibling fixtures
+# that already carry this line. A missing httpfs SKIPS the file, and a skip
+# exits zero, which is why the runner refuses output without "assertions".
+
 require-env DUCKLAKE_FAKE_KMS_SOCKET
 
 require-env DUCKLAKE_FAKE_KMS_OPLOG
