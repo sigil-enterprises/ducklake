@@ -70,7 +70,11 @@ export DUCKLAKE_FAKE_KMS_SOCKET="${SOCKET_PATH}"
 # exit here and the skip guard below - the thing this script exists for - would
 # never run.
 status=0
-output="$("${UNITTEST}" "${FIXTURE}" 2>&1)" || status=$?
+# `--test-dir "${ROOT}"`: the unittest binary discovers sqllogictest files by
+# WALKING the test directory at startup, and its default is duckdb's own tree,
+# not ducklake's. Without it every ducklake fixture reports "No test cases
+# matched" - measured, and the reason this runner never ran the fixture.
+output="$("${UNITTEST}" --test-dir "${ROOT}" "${FIXTURE}" 2>&1)" || status=$?
 echo "${output}"
 
 echo "--- fake kms operation log ---"
