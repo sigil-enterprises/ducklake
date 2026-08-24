@@ -80,8 +80,29 @@ jobs:
 
       # A cross-ORG read: the consumer lives in `opvance`, this repo in
       # `sigil-enterprises`, so GITHUB_TOKEN cannot see it and a PAT would be a
-      # person. The `sigil-ct` App is installed on `opvance`; the token is scoped
-      # to the single repository this check needs to read.
+      # person. The `sigil-ct` App IS installed on `opvance`; what is missing is
+      # the credential on THIS side.
+      #
+      # MEASURED, run 32756384148: `secrets.CT_APP_ID` arrives EMPTY here. The
+      # org secret exists with `visibility: private`, and this repository is
+      # PUBLIC, so it is not shared with it - and that is a deliberate boundary,
+      # not an oversight to route around. A public repository holding a
+      # credential that reads a private one is a distribution-plane decision for
+      # a human, so this step REFUSES rather than degrading to a skip.
+      - name: The credential must be present
+        env:
+          APP_ID: ${{ secrets.CT_APP_ID }}
+          PRIVATE_KEY: ${{ secrets.CT_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          missing=""
+          [ -n "${APP_ID}" ] || missing="${missing} CT_APP_ID"
+          [ -n "${PRIVATE_KEY}" ] || missing="${missing} CT_PRIVATE_KEY"
+          if [ -n "${missing}" ]; then
+            echo "::error::no credential for opvance/teras-ext-pgwire -${missing} is empty in this repository's workflow context. The sigil-enterprises org secrets are 'private'-visibility and this repository is PUBLIC, so they are not shared with it. Until a human decides that boundary, the gateway's pin CANNOT be read from here and this check must not report agreement. RED on purpose: a skip would be a green that measured nothing."
+            exit 1
+          fi
+
       - id: token
         uses: actions/create-github-app-token@v3
         with:
