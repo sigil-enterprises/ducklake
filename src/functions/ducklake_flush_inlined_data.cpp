@@ -488,10 +488,21 @@ LEFT JOIN (
 					file_info.existing_delete_path = chunk->GetValue(6, row_idx).GetValue<string>();
 					file_info.existing_delete_path_is_relative = chunk->GetValue(7, row_idx).GetValue<bool>();
 					file_info.existing_delete_begin_snapshot = chunk->GetValue(8, row_idx).GetValue<idx_t>();
-					if (!chunk->GetValue(9, row_idx).IsNull()) {
-						file_info.existing_delete_encryption_key =
-						    Blob::FromBase64(chunk->GetValue(9, row_idx).GetValue<string>());
-					}
+					// Route the second decode site through the same choke point as
+					// ReadDataFile instead of a raw `if (!...IsNull())` skip, which
+					// silently accepted a NULL/wrapped key here instead of refusing
+					// it. Backported from main (PR #19); the guard itself
+					// (DuckLakeCatalog::ResolveStoredEncryptionKey) already exists
+					// on this branch in ducklake_envelope_guards.cpp, it was just
+					// never called from this site. See issue #176 / PR #54 -
+					// adversary_flush_null_key.test and
+					// crypta_flush_unconfigured_refusal.test exercise this.
+					auto stored_delete_key = chunk->GetValue(9, row_idx);
+					auto resolved_delete_path = file_info.existing_delete_path_is_relative
+					                                 ? table.DataPath() + file_info.existing_delete_path
+					                                 : file_info.existing_delete_path;
+					file_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(
+					    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);
 					if (!chunk->GetValue(10, row_idx).IsNull()) {
 						file_info.existing_delete_format =
 						    DeleteFileFormatFromString(chunk->GetValue(10, row_idx).GetValue<string>());

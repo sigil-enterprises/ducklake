@@ -747,7 +747,14 @@ string DuckLakeCatalog::GenerateEncryptionKey(ClientContext &context) const {
 	}
 	// generate an encryption key
 	auto &engine = RandomEngine::Get(context);
-	static constexpr const idx_t ENCRYPTION_KEY_SIZE = 16;
+	// 32 bytes = AES-256 (was 16 = AES-128). Parquet modular encryption accepts
+	// 128/192/256-bit keys, and the read path never assumes a fixed length, so
+	// files written with the older 16-byte keys keep decrypting unchanged.
+	// Backported from main (PR #19, "wire envelope wrap-on-write and
+	// unwrap-on-read, mint 256-bit DEKs") for issue #176 / PR #54: the recovered
+	// crypta fixtures assert `length(encryption_key) = 44`, which is only true
+	// for a 32-byte key's base64 encoding.
+	static constexpr const idx_t ENCRYPTION_KEY_SIZE = 32;
 	data_t bytes[ENCRYPTION_KEY_SIZE];
 	for (idx_t i = 0; i < ENCRYPTION_KEY_SIZE; i += 4) {
 		*reinterpret_cast<uint32_t *>(bytes + i) = engine.NextRandomInteger();
