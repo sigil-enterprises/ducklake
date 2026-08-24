@@ -1,0 +1,82 @@
+# name: test/sql/encryption/envelope_wrap_idempotence.test
+# description: RED - no DEK is wrapped twice, and every stored blob unwraps to the DEK that opens its file
+# group: [encryption]
+
+#
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# ISSUE #51. READ THIS BEFORE TRUSTING WHAT THIS FILE'S COLOUR MEANS.
+#
+# #51 says `PrepareEncryptionKeysForCommit` is not idempotent: it neither
+# records that it has run nor tests whether a key it is handed already carries
+# the wrapped marker, so a second call over the same file set wraps the
+# ciphertext again and `UnwrapKey` then returns ciphertext instead of the DEK -
+# an unreadable lake written by a successful commit.
+#
+# THE ISSUE ITSELF STATES THE FUNCTION HAS ONE CALL SITE AND THAT IT RUNS ONCE
+# PER COMMIT. That is measured and it is correct: `DuckLakeStagedCommit::Build`
+# calls it once (`src/storage/ducklake_staged_commit.cpp:508`) with no retry
+# loop around it, and the client-side path's three `context.prepare_file_keys`
+# calls (`src/storage/ducklake_transaction_state.cpp:1495,1552,1557`) each take
+# a DISJOINT vector. So the double wrap is NOT reachable from SQL on this
+# commit, and NOTHING IN THIS FILE PROVES #51. It is a standing probe at the one
+# boundary where a double wrap WOULD become visible - the number of DEKs handed
+# to the key service, and whether what was stored still unwraps - so that the
+# day a second call site is added, this reds instead of the lake going dark.
+#
+# WHAT MAKES IT RED TODAY IS #52, NOT #51: on main the envelope never engages at
+# all, so `wrap_batch` is never called and the first assertion below fails for a
+# reason that has nothing to do with idempotence. Do not read a red here as
+# corroboration of #51. Once #52 is fixed, this file's colour becomes
+# meaningful; until then it is pinned to the same defect as
+# envelope_e2e_wrapped_catalog.test.
+#
+
+require ducklake
+
+require parquet
+
+require-env DUCKLAKE_FAKE_KMS_SOCKET
+
+require-env DUCKLAKE_FAKE_KMS_OPLOG
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/envelope_idem.db' AS lk (DATA_PATH '__TEST_DIR__/envelope_idem_files', ENCRYPTED, METADATA_CATALOG 'lk_meta', ENCRYPTION_SOCKET '${DUCKLAKE_FAKE_KMS_SOCKET}', ENCRYPTION_LAKE_ID 'sql-fixture')
+
+statement ok
+CREATE TABLE lk.t AS SELECT i AS id FROM range(100) t(i)
+
+statement ok
+INSERT INTO lk.t SELECT i FROM range(100, 200) t(i)
+
+# A write and a compaction inside ONE transaction is the shape that would put
+# the same file through two key preparations if a second call site ever
+# appeared.
+statement ok
+BEGIN
+
+statement ok
+INSERT INTO lk.t SELECT i FROM range(200, 300) t(i)
+
+statement ok
+COMMIT
+
+statement ok
+CALL ducklake_merge_adjacent_files('lk')
+
+# EXACTLY as many DEKs were presented to the key service as there are files that
+# have ever carried one. More means a key was wrapped a second time.
+query I
+SELECT
+  (SELECT coalesce(sum(n), 0) FROM read_csv('${DUCKLAKE_FAKE_KMS_OPLOG}', columns={'op': 'VARCHAR', 'n': 'BIGINT'}, header=false) WHERE op = 'wrap_batch')
+  =
+  (SELECT count(*) FROM lk_meta.ducklake_data_file)
+----
+true
+
+# and every blob still opens its file: a doubly-wrapped key unwraps to
+# ciphertext, which is neither 16, 24 nor 32 bytes, so the read refuses.
+query II
+SELECT count(*), sum(id) FROM lk.t
+----
+300	44850
