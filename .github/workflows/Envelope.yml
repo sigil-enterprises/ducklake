@@ -1,0 +1,144 @@
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# The workflow issue #52 says does not exist.
+#
+# THE DEFECT. Every fixture that exercises the KMS envelope needs a reachable
+# key service, so each carries `require-env`. A require-env fixture whose
+# variable is unset SKIPS - and a skip EXITS ZERO. So a tree in which the
+# envelope had never once executed was indistinguishable, from CI's colour, from
+# one in which it passed. Nothing under .github/workflows/ invoked either
+# runner, and nothing went red for months.
+#
+# WHAT MAKES THIS DIFFERENT FROM "ADD A JOB". A build with no concrete KMS
+# provider refuses every enveloped ATTACH, so simply running the fixtures would
+# have produced a red nobody could fix inside this repository - the only real
+# provider is out of tree and private. `test/kms_provider/` is a TEST-ONLY
+# provider that speaks the same wire as the in-tree fake key services, overlaid
+# through the SAME `if(EXISTS crypta-provider)` pickup hook a real provider
+# uses. It performs no cryptography. Its whole job is to make the ATTACH-time
+# factory non-null so that DuckLake's own envelope branches are REACHED.
+#
+# CONTROLS, because a check that has never been shown to fire proves nothing:
+#   - each guard below runs its own positive control first;
+#   - assert_kms_provider_reachable.sh reads WHICH refusal a dead socket
+#     produces, and the refusal a provider-less build gives is one it rejects;
+#   - each runner refuses a run in which its fixtures reported no assertions,
+#     which is the only thing that distinguishes a skip from a pass.
+name: Envelope
+
+on:
+  push:
+    branches: [main, 'release/**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' || github.sha }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  guards:
+    name: Envelope guards (no build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Refuse a vacuous refusal assertion (issue #50)
+        run: python3 scripts/ci/assert_refusal_assertions_distinguish.py
+
+      - name: Refuse envelope fixtures that CI never runs (issue #52)
+        if: always()
+        run: python3 scripts/ci/assert_envelope_fixtures_run_in_ci.py
+
+      - name: Refuse a KMS wire version that is not one value across the tree
+        if: always()
+        run: python3 scripts/ci/assert_kms_wire_version_agrees.py
+
+  envelope-e2e:
+    name: KMS envelope end to end (test provider + fake key service)
+    runs-on: ubuntu-latest
+    env:
+      VCPKG_TARGET_TRIPLET: x64-linux
+      GEN: Ninja
+      VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+
+    steps:
+      - name: Install required ubuntu packages
+        run: |
+          sudo apt-get update -y -qq
+          sudo apt-get install -y -qq build-essential cmake ninja-build ccache python3
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: 'true'
+
+      - name: Checkout DuckDB to version
+        run: |
+          cd duckdb
+          git checkout $(cat ../.github/duckdb-version)
+
+      - uses: ./.github/actions/refuse-unreleased-duckdb-pin
+
+      - name: Setup Ccache
+        uses: hendrikmuhs/ccache-action@main
+        with:
+          key: ${{ github.job }}
+          save: ${{ github.ref == 'refs/heads/main' || github.repository != 'duckdb/ducklake' }}
+
+      # 84bab45d, NOT the a42af01b the other jobs use. This job builds with
+      # BUILD_EXTENSION_TEST_DEPS=full, which pulls httpfs and so curl, openssl,
+      # lz4, roaring and zlib. a42af01b's version database predates the versions
+      # the manifest asks for and vcpkg install dies with
+      #     error: no version database entry for curl at 8.17.0
+      # Measured twice, on two heads. Every workflow here that sets
+      # BUILD_EXTENSION_TEST_DEPS=full - Catalogs.yml, MinIO.yml - already pins
+      # 84bab45d; only the jobs that do not need the extra ports pin a42af01b.
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11.1
+        with:
+          vcpkgGitCommitId: 84bab45d415d22042bd0b9081aea57f362da3f35
+
+      # The pickup hook is `if(EXISTS src/crypta-provider)`. Overlaying through
+      # it, rather than teaching CMake a second path for tests, is deliberate:
+      # it means this job exercises the SAME wiring a real out-of-tree provider
+      # arrives on, so a break in that wiring reds here.
+      - name: Overlay the test-only KMS provider
+        run: |
+          test ! -e src/crypta-provider || { echo "::error::src/crypta-provider already exists - refusing to overlay over it"; exit 1; }
+          cp -R test/kms_provider src/crypta-provider
+          test -f src/crypta-provider/test_kms_provider.cpp
+          test -f src/crypta-provider/CMakeLists.txt
+
+      - name: Build extension and test binaries
+        env:
+          GEN: ninja
+          BUILD_EXTENSION_TEST_DEPS: full
+        run: make release
+
+      # Reads WHICH refusal a dead socket produces. A provider-less build says
+      # "has no KMS encryption provider" and this step rejects it; only a build
+      # in which the factory actually ran can say "cannot reach the key
+      # service". That is what makes the runners below meaningful.
+      - name: Control - this build really carries a KMS provider
+        run: scripts/ci/assert_kms_provider_reachable.sh build/release/duckdb
+
+      - name: KMS envelope end to end (issue #52)
+        run: test/sql/encryption/run_envelope_e2e.sh
+
+      # Asserts the property envelope_e2e_wrapped_catalog.test's fourth
+      # assertion is aimed at, on queries that can actually carry it. That
+      # file asserts it on `SELECT count(*)`, which is answered from
+      # ducklake_table_stats without opening a file and so cannot fail on a
+      # healthy lake - see this fixture's header for the measurement.
+      - name: An unenveloped reader is refused (issue #52)
+        if: always()
+        run: test/sql/encryption/run_envelope_fixture.sh test/sql/encryption/envelope_unenveloped_reader_refusal.test
+
+      - name: The crypta fixture group, with a key service behind it
+        if: always()
+        run: test/sql/crypta/run_sql_crypta_tests.sh

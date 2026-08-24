@@ -1,0 +1,35 @@
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# The two envelope guards that need no build. They were written RED on main, to
+# prove issues #50 and #52; on this branch both are fixed and both are green.
+# The job is named for what it DOES, not for the colour it once had: a job
+# called "expected RED" that passes in six seconds is indistinguishable at a
+# glance from a guard that has quietly stopped asserting, which is the very
+# defect these guards exist to catch. Each runs its own positive control first,
+# because a guard asserting the ABSENCE of something reports the same zero
+# whether it is working or broken.
+#
+# The end-to-end envelope fixture is NOT run here on purpose: it needs a build
+# carrying a concrete KMS provider, and this repo carries only the abstract
+# DuckLakeEncryptionProvider. Wiring that build is the fix, not the proof.
+name: EnvelopeRed
+
+on:
+  push:
+    branches: [test/envelope-red]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  guards:
+    name: Envelope guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Refuse a vacuous refusal assertion (issue #50)
+        run: python3 scripts/ci/assert_refusal_assertions_distinguish.py
+
+      - name: Refuse envelope fixtures that CI never runs (issue #52)
+        if: always()
+        run: python3 scripts/ci/assert_envelope_fixtures_run_in_ci.py

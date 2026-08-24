@@ -77,7 +77,10 @@ export DUCKLAKE_FAKE_CRYPTA_SOCKET="${SOCKET_PATH}"
 # here, and the skip guard below - the thing this script exists for - would
 # never run. The status is carried to the end instead.
 status=0
-"${UNITTEST}" "test/sql/crypta/*" || status=$?
+# `--test-dir "${ROOT}"`: the binary discovers sqllogictest files by walking
+# a test directory at startup and defaults to duckdb's tree, not ducklake's.
+# Without it every fixture here reports "No test cases matched".
+"${UNITTEST}" --test-dir "${ROOT}" "test/sql/crypta/*" || status=$?
 
 # A guard against the failure mode this script exists to remove: a require-env
 # file skipping silently while the run still reads green. A skip is not a pass.
@@ -95,7 +98,7 @@ if [ -z "${required_files}" ]; then
   exit 1
 fi
 for required in ${required_files}; do
-  output="$("${UNITTEST}" "test/sql/crypta/${required}" 2>&1 || true)"
+  output="$("${UNITTEST}" --test-dir "${ROOT}" "test/sql/crypta/${required}" 2>&1 || true)"
   if ! grep -q "assertions" <<< "${output}"; then
     # Deliberately not "it was skipped": a file that RAN and FAILED also lands
     # here, and calling that a skip would send the reader hunting the wrong bug.
