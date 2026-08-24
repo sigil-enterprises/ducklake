@@ -62,6 +62,8 @@ Usage
   mutants.py names [--extension]
   mutants.py files --extension          # the tree files the roster edits
   mutants.py apply <name> <destination-dir>   # MUTANTS: copy-then-edit
+  mutants.py resolve <repo-root> [--extension] # every `old` matches once, every
+                                              # `reddens` file exists
   mutants.py patch <name> <repo-root>         # EXTENSION_MUTANTS: edit in tree
   mutants.py unpatch <name> <repo-root>       # EXTENSION_MUTANTS: reverse it
   mutants.py verify-clean <repo-root>         # no extension mutant is applied
@@ -838,7 +840,7 @@ MUTANTS = [
 #      Matched on the STATEMENT's own text, never on a line number: a line-number
 #      assertion silently retargets the moment anything above it moves.
 #
-# A CALL SITE IS ITS OWN MUTANT. `RefuseWrappedKeyWithoutCrypta` has one body and
+# A CALL SITE IS ITS OWN MUTANT. `RefuseWrappedKeyWithoutProvider` has one body and
 # two callers, and it gets three mutants, not one. A body mutant reddens off
 # EITHER caller, so with only that one a caller whose test had rotted away would
 # stay invisible - the shared-guard blind spot the `cache_key_unprefixed_join`
@@ -874,7 +876,7 @@ EXTENSION_MUTANTS = [
         "the self-test passed, and NOT ONE key was written: the operator "
         "asked for envelope encryption and got neither an envelope nor "
         "encryption, silently",
-        "old": "\tif (crypta_provider && Encryption() != DuckLakeEncryption::ENCRYPTED) {",
+        "old": "\tif (encryption_provider && Encryption() != DuckLakeEncryption::ENCRYPTED) {",
         "new": "\tif (false) {",
         "reddens": ["test/sql/crypta/crypta_config_refusals.test"],
         # The ATTACH that must stop being refused. It is the file's FIRST
@@ -894,14 +896,18 @@ EXTENSION_MUTANTS = [
     },
     {
         "name": "no_wrapped_key_refusal_body",
-        "file": "src/storage/ducklake_catalog.cpp",
-        "why": "the JUDGEMENT inside RefuseWrappedKeyWithoutCrypta - it keeps "
+        # The guard BODIES moved out of ducklake_catalog.cpp into their own file
+        # when the provider abstraction landed. The roster kept naming the old
+        # file, so this mutant could not be applied at ALL - and an unappliable
+        # mutant is a positive control that has never fired.
+        "file": "src/storage/ducklake_envelope_guards.cpp",
+        "why": "the JUDGEMENT inside RefuseWrappedKeyWithoutProvider - it keeps "
         "being called and keeps consulting LooksWrapped, and simply "
         "answers 'not wrapped' every time. The two call-site mutants below "
         "prove each caller CONSULTS the guard; only this one proves what "
         "the guard ANSWERS, and it is the mutant that would survive if the "
         "predicate itself were inverted or stubbed",
-        "old": "\tif (!CryptaClient::LooksWrapped(stored_key)) {",
+        "old": "\tif (!DuckLakeEncryptionProvider::LooksWrapped(stored_key)) {",
         "new": "\tif (true) {",
         # Both files, because both call sites go through this body. The runner
         # verifies the roster PER CASE - it requires each named file to fail, and
@@ -932,8 +938,11 @@ EXTENSION_MUTANTS = [
         "meaning exactly what it always was: it removes the refusal at "
         "THIS site and nothing else - a configured lake still unwraps, so "
         "no case reddens for the wrong reason",
-        "old": "\t\tdata.encryption_key = transaction.GetCatalog().ResolveStoredEncryptionKey(table.GetTableId(), path.path,\n"
-        "\t\t                                                                         data.path, is_delete_file, stored_key);",
+        # clang-format rewrapped this call when the provider abstraction landed;
+        # the roster pinned the pre-format aligned-continuation spelling, so the
+        # exactly-once match found zero.
+        "old": "\t\tdata.encryption_key = transaction.GetCatalog().ResolveStoredEncryptionKey(\n"
+        "\t\t    table.GetTableId(), path.path, data.path, is_delete_file, stored_key);",
         # The hand-restored branches carry the NULL refusal too. Since #53 the
         # resolution answers THREE questions, not two, and a mutant that dropped
         # the null one as well would redden `adversary_flush_null_key.test`'s scan
@@ -951,10 +960,10 @@ EXTENSION_MUTANTS = [
         # compile`, which is the runner refusing to count a mutant it could
         # not build rather than absorbing it into a red.
         "\t\t\tauto mutant_key = stored_key.template GetValue<string>();\n"
-        "\t\t\tauto mutant_crypta = transaction.GetCatalog().CryptaProvider();\n"
-        "\t\t\tif (mutant_crypta) {\n"
-        "\t\t\t\tdata.encryption_key = mutant_crypta->UnwrapKey(\n"
-        "\t\t\t\t    transaction.GetCatalog().CryptaIdentity(table.GetTableId(), path.path, is_delete_file),\n"
+        "\t\t\tauto mutant_provider = transaction.GetCatalog().EncryptionProvider();\n"
+        "\t\t\tif (mutant_provider) {\n"
+        "\t\t\t\tdata.encryption_key = mutant_provider->UnwrapKey(\n"
+        "\t\t\t\t    transaction.GetCatalog().BuildEncryptionIdentity(table.GetTableId(), path.path, is_delete_file),\n"
         "\t\t\t\t    mutant_key);\n"
         "\t\t\t} else {\n"
         "\t\t\t\tdata.encryption_key = Blob::FromBase64(string_t(mutant_key));\n"
@@ -988,16 +997,16 @@ EXTENSION_MUTANTS = [
         "\t\t\t\t\t\tcatalog.RefuseMissingEncryptionKey(resolved_delete_path);\n"
         "\t\t\t\t\t} else {\n"
         "\t\t\t\t\t\tauto mutant_key = stored_delete_key.GetValue<string>();\n"
-        "\t\t\t\t\t\tauto mutant_crypta = catalog.CryptaProvider();\n"
-        "\t\t\t\t\t\tif (mutant_crypta) {\n"
-        "\t\t\t\t\t\t\tfile_info.existing_delete_encryption_key = mutant_crypta->UnwrapKey(\n"
-        "\t\t\t\t\t\t\t    catalog.CryptaIdentity(table_id, file_info.existing_delete_path, true), mutant_key);\n"
+        "\t\t\t\t\t\tauto mutant_provider = catalog.EncryptionProvider();\n"
+        "\t\t\t\t\t\tif (mutant_provider) {\n"
+        "\t\t\t\t\t\t\tfile_info.existing_delete_encryption_key = mutant_provider->UnwrapKey(\n"
+        "\t\t\t\t\t\t\t    catalog.BuildEncryptionIdentity(table_id, file_info.existing_delete_path, true), mutant_key);\n"
         "\t\t\t\t\t\t} else {\n"
         "\t\t\t\t\t\t\tfile_info.existing_delete_encryption_key = Blob::FromBase64(mutant_key);\n"
         "\t\t\t\t\t\t}\n"
         "\t\t\t\t\t}",
         # ONE file, and that is the finding rather than an omission:
-        # `grep -rn RefuseWrappedKeyWithoutCrypta test/` finds this site named in
+        # `grep -rn RefuseWrappedKeyWithoutProvider test/` finds this site named in
         # exactly one .test file. It is also a file whose state is NOT
         # constructible from public operations - #25 forbids inlining on a crypta
         # lake - so the key is PLANTED there on purpose, which the file says in
@@ -1028,7 +1037,7 @@ EXTENSION_MUTANTS = [
         "\t\t\t\t\t\tcatalog.RefuseMissingEncryptionKey(resolved_delete_path);\n"
         "\t\t\t\t\t} else {\n"
         "\t\t\t\t\t\tauto mutant_key = stored_delete_key.GetValue<string>();\n"
-        "\t\t\t\t\t\tcatalog.RefuseWrappedKeyWithoutCrypta(resolved_delete_path, mutant_key);\n"
+        "\t\t\t\t\t\tcatalog.RefuseWrappedKeyWithoutProvider(resolved_delete_path, mutant_key);\n"
         "\t\t\t\t\t\tfile_info.existing_delete_encryption_key = Blob::FromBase64(mutant_key);\n"
         "\t\t\t\t\t}\n"
         "\t\t\t\t\t(void)table_id;",
@@ -1301,16 +1310,60 @@ def verify_clean(repo_root):
     for every mutant, IS "nothing is applied". Anything else names the mutant that
     is still in the tree.
     """
+    return resolve_roster(repo_root, EXTENSION_MUTANTS)
+
+
+def resolve_roster(repo_root, roster):
+    """
+    Every mutant in `roster` must RESOLVE against the tree at `repo_root`.
+
+    Resolving means two things, and both have gone wrong here before:
+
+      1. `old` names a file that exists and occurs in it EXACTLY ONCE. A mutant
+         whose `old` cannot match is a positive control that can never fire, and
+         a positive control that can never fire is a vacuous check - the repo
+         refused one of those before, at 7f910fe, for the same reason. The
+         provider abstraction renamed `CryptaClient` to
+         `DuckLakeEncryptionProvider`, moved the guard bodies into
+         `ducklake_envelope_guards.cpp`, and let clang-format rewrap a call site;
+         three mutants stopped matching and NOTHING went red, because nothing
+         asked (#20).
+
+      2. Every file in `reddens` exists. A mutant that reddens a test which is
+         not in the tree cannot be judged either - the runner would look for a
+         failure in a file it cannot run. Seven of these named files that had not
+         survived a repo migration (#28).
+
+    Both questions are answerable in milliseconds with no build, which is the
+    point: the expensive mutation run should never be the first thing to
+    discover that its own roster no longer refers to this repository.
+
+    Returns a list of problem strings; empty means the roster resolves.
+    """
     problems = []
-    for mutant in EXTENSION_MUTANTS:
-        target = os.path.join(os.path.abspath(repo_root), mutant["file"])
-        with open(target, "r") as handle:
-            occurrences = handle.read().count(mutant["old"])
+    root = os.path.abspath(repo_root)
+    for mutant in roster:
+        target = os.path.join(root, mutant["file"])
+        try:
+            with open(target, "r") as handle:
+                occurrences = handle.read().count(mutant["old"])
+        except IOError:
+            problems.append(
+                "%s: names %s, which is not a file in this tree - the mutant "
+                "cannot be applied at all" % (mutant["name"], mutant["file"])
+            )
+            continue
         if occurrences != 1:
             problems.append(
                 "%s: the text it removes occurs %d times in %s, expected 1 - it "
                 "is either still applied, or the source moved under it" % (mutant["name"], occurrences, mutant["file"])
             )
+        for case in mutant["reddens"]:
+            if not os.path.exists(os.path.join(root, case)):
+                problems.append(
+                    "%s: reddens %s, which is not in this tree - the mutant's "
+                    "red could never be observed" % (mutant["name"], case)
+                )
     return problems
 
 
@@ -1359,6 +1412,22 @@ def main(argv):
         print(patch_extension(arguments[0], arguments[1]))
     elif command == "unpatch":
         print(unpatch_extension(arguments[0], arguments[1]))
+    elif command == "resolve":
+        problems = resolve_roster(arguments[0] if arguments else ".", roster)
+        for problem in problems:
+            print("::error::%s" % problem)
+        # `raise SystemExit`, never `return`. `main` is called as `main(sys.argv)`
+        # with its value DISCARDED, so a `return 1` here exits 0 - the subcommand
+        # would print six ::error:: lines about a roster that resolves nowhere and
+        # the CI step would go green on them. Measured, on the first draft of this
+        # very subcommand, by running it against a directory with no `src/`. That
+        # is the exact defect class this check exists to remove, one level up, so
+        # `resolve_control.py` now runs the CLI and asserts the EXIT CODE too.
+        if not roster:
+            raise SystemExit("::error::the roster is EMPTY - this check would pass vacuously")
+        if problems:
+            raise SystemExit(1)
+        print("all %d mutants resolve against the tree" % len(roster))
     elif command == "verify-clean":
         problems = verify_clean(arguments[0])
         for problem in problems:
