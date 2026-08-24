@@ -89,3 +89,14 @@ query II
 SELECT count(*), sum(id) FROM lk.t
 ----
 300	44850
+
+# TEMPORARY PROBE - deliberately expects an impossible pair so the failure
+# message prints the two ACTUAL numbers. Removed in the next commit.
+query IIII
+SELECT
+  (SELECT coalesce(sum(n), 0) FROM read_csv('${DUCKLAKE_FAKE_KMS_OPLOG}', columns={'op': 'VARCHAR', 'n': 'BIGINT'}, header=false) WHERE op = 'wrap_batch'),
+  (SELECT count(*) FROM lk_meta.ducklake_data_file),
+  (SELECT count(*) FROM lk_meta.ducklake_data_file WHERE end_snapshot IS NULL),
+  (SELECT count(DISTINCT encryption_key) FROM lk_meta.ducklake_data_file)
+----
+-1	-1	-1	-1
