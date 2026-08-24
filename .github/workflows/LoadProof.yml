@@ -1,0 +1,106 @@
+name: Load Proof
+
+# A green build proves compilation only. This job proves the RELEASED linux_amd64
+# asset dynamically LOADs into a stock duckdb built at the pinned sha and can
+# ATTACH an encrypted lake - the property a consumer image actually depends on.
+
+on:
+  workflow_dispatch:
+    inputs:
+      extension_url:
+        description: URL of the .duckdb_extension asset to prove
+        required: true
+        default: https://github.com/sigil-enterprises/ducklake/releases/download/v0.2.0-rc.3/ducklake-linux_amd64-duckdb-c97bd8b96e.duckdb_extension
+      extension_sha256:
+        description: Expected sha256 of that asset
+        required: true
+        default: a3d48d613da1441df44b2e1610d6bb8300522b5724d94ade6434b96daaa1853d
+  push:
+    branches:
+      - 'proof/**'
+
+env:
+  EXTENSION_URL: https://github.com/sigil-enterprises/ducklake/releases/download/v0.2.0-rc.3/ducklake-linux_amd64-duckdb-c97bd8b96e.duckdb_extension
+  EXTENSION_SHA256: a3d48d613da1441df44b2e1610d6bb8300522b5724d94ade6434b96daaa1853d
+
+jobs:
+  load-proof:
+    name: LOAD + ATTACH ENCRYPTED on linux_amd64
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Check out the pinned duckdb
+        run: |
+          set -euxo pipefail
+          cd duckdb
+          git checkout "$(cat ../.github/duckdb-version)"
+          git rev-parse HEAD
+          git describe --tags || true
+
+      - name: Install build deps
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake build-essential
+
+      - uses: lukka/get-cmake@latest
+      - uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: a42af01b72c28a8e1d7b48107b33e4f286a55ef6
+
+      - name: Build a STOCK duckdb at the pinned sha (no ducklake linked in)
+        env:
+          GEN: ninja
+          CORE_EXTENSIONS: 'parquet;json;icu;httpfs'
+          VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+        run: |
+          set -euxo pipefail
+          cd duckdb
+          make release
+          ./build/release/duckdb -c "PRAGMA version;"
+
+      - name: Fetch the published asset exactly as a consumer image does
+        env:
+          IN_URL: ${{ github.event.inputs.extension_url }}
+          IN_SHA: ${{ github.event.inputs.extension_sha256 }}
+        run: |
+          set -euxo pipefail
+          URL="${IN_URL:-$EXTENSION_URL}"
+          SHA="${IN_SHA:-$EXTENSION_SHA256}"
+          curl -fsSL -o /tmp/ducklake.duckdb_extension "$URL"
+          echo "$SHA  /tmp/ducklake.duckdb_extension" | sha256sum -c -
+          ls -l /tmp/ducklake.duckdb_extension
+          file /tmp/ducklake.duckdb_extension
+          tail -c 512 /tmp/ducklake.duckdb_extension | strings | tail -5
+
+      - name: PROVE it loads and attaches an encrypted lake
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/lakefiles
+          ./duckdb/build/release/duckdb -unsigned -c "
+            PRAGMA version;
+            LOAD '/tmp/ducklake.duckdb_extension';
+            SELECT extension_name, loaded, installed, install_path
+              FROM duckdb_extensions() WHERE extension_name = 'ducklake';
+            SELECT * FROM ducklake_self_test();
+            ATTACH 'ducklake:/tmp/proof.db' AS lake (DATA_PATH '/tmp/lakefiles', ENCRYPTED);
+            CREATE TABLE lake.t AS SELECT range AS x FROM range(5);
+            SELECT count(*) AS rows_written, sum(x) AS checksum FROM lake.t;
+            DETACH lake;
+            ATTACH 'ducklake:/tmp/proof.db' AS lake2;
+            SELECT count(*) AS rows_after_reattach FROM lake2.t;
+          "
+
+      - name: PROVE the data files are actually ciphertext
+        run: |
+          set -euxo pipefail
+          find /tmp/lakefiles -name '*.parquet' -exec ls -l {} +
+          if ./duckdb/build/release/duckdb -unsigned -c "SELECT * FROM read_parquet('/tmp/lakefiles/**/*.parquet');"; then
+            echo "FAIL: encrypted data files were readable as plain parquet" >&2
+            exit 1
+          fi
+          echo "OK: plain-parquet read of the encrypted files was refused"
