@@ -46,7 +46,9 @@ unique_ptr<QueryResult> QuackMetadataManager::AttachMetadata(const string &attac
 		}
 		result = fresh_conn.Query(query);
 	}
-	return result;
+	// gcc in -std=c++11 will not implicitly move on a CONVERTING return, so the
+	// move to unique_ptr<QueryResult> has to be spelled out.
+	return std::move(result);
 }
 
 unique_ptr<QueryResult> QuackMetadataManager::Query(DuckLakeSnapshot snapshot, string &query) {
