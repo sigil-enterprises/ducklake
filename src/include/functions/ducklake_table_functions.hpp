@@ -12,8 +12,6 @@
 #include "duckdb/parser/parsed_data/create_macro_info.hpp"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/function/function_set.hpp"
-#include "duckdb/function/table_function.hpp"
-#include "duckdb/parser/parsed_data/create_macro_info.hpp"
 
 namespace duckdb {
 class DuckLakeCatalog;

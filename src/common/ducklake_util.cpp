@@ -5,14 +5,12 @@
 #include "duckdb/function/scalar/variant_utils.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/database.hpp"
-#include "duckdb/parser/column_list.hpp"
 #include "duckdb/parser/keyword_helper.hpp"
 #include "duckdb/parser/parser.hpp"
 #include "duckdb/common/file_system.hpp"
 #include "storage/ducklake_metadata_manager.hpp"
 #include "duckdb/planner/filter/optional_filter.hpp"
 #include "duckdb/planner/filter/dynamic_filter.hpp"
-#include "duckdb/function/scalar/variant_utils.hpp"
 
 #include <cmath>
 

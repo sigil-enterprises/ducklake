@@ -17,13 +17,16 @@ jobs:
     name: Get DuckDB version
     runs-on: ubuntu-latest
     outputs:
-      duckdb_version: ${{ steps.version.outputs.duckdb_version }}
+      duckdb_version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: .github
+          submodules: recursive
+      # The version this pipeline BUILDS and DEPLOYS is refused here rather than
+      # downstream, because a build against an unreleased sha deploys an asset
+      # no consumer's duckdb can load.
       - id: version
-        run: echo "duckdb_version=$(cat .github/duckdb-version)" >> $GITHUB_OUTPUT
+        uses: ./.github/actions/refuse-unreleased-duckdb-pin
 
   duckdb-next-build:
     name: Build extension binaries

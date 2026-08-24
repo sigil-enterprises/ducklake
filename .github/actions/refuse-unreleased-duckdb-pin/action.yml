@@ -1,0 +1,30 @@
+name: Refuse an unreleased duckdb pin
+description: >-
+  Fail unless the duckdb submodule sits exactly on the release tag named in
+  .github/duckdb-version. An extension built against an unreleased main sha
+  cannot be loaded by any duckdb a consumer can obtain, which is how #43
+  happened; this refuses the pin rather than discovering it downstream.
+
+outputs:
+  version:
+    description: The release tag the duckdb submodule is pinned to.
+    value: ${{ steps.check.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - id: check
+      shell: bash
+      run: |
+        set -euxo pipefail
+        want="$(cat .github/duckdb-version)"
+        cd duckdb
+        # actions/checkout clones submodules at depth 1 with no tags, so
+        # `describe` would fail on a correct pin as loudly as on a bad one.
+        git fetch --no-tags --depth=1 origin tag "$want"
+        # `describe --exact-match` exits non-zero unless HEAD IS a tag, so an
+        # unreleased main sha cannot pass this step by any spelling.
+        got="$(git describe --tags --exact-match HEAD)"
+        echo "duckdb HEAD $(git rev-parse HEAD) is tag $got, wanted $want"
+        test "$got" = "$want"
+        echo "version=$got" >> "$GITHUB_OUTPUT"

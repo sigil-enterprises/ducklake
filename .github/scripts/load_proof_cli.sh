@@ -7,7 +7,9 @@ CLI="$1"
 EXT="$2"
 TMP="$(mktemp -d)"
 ROWS=1000
-EXPECTED="1000,499500"
+# Derived, never hand-copied: a changed ROWS that leaves EXPECTED stale would
+# red the proof for a reason that has nothing to do with the extension.
+EXPECTED="$ROWS,$(( ROWS * (ROWS - 1) / 2 ))"
 
 # httpfs must be loaded alongside ducklake or an encrypted write dies on
 # "DuckDB currently has a read-only crypto module loaded"
@@ -16,7 +18,10 @@ PRELUDE="INSTALL httpfs; LOAD httpfs; LOAD '$EXT';"
 
 run() { "$CLI" -unsigned -noheader -csv -c "$1"; }
 
-"$CLI" --version
+# The proof is only worth its name against the duckdb the pin NAMES.
+want="$(cat "$(dirname "$0")/../duckdb-version")"
+"$CLI" --version | grep -q "^$want " || {
+  echo "CLI is $("$CLI" --version), not the pinned $want" >&2; exit 1; }
 
 # Nothing below can be read as a proof unless BOTH extensions are really loaded.
 loaded="$(run "$PRELUDE SELECT extension_name FROM duckdb_extensions() WHERE loaded AND extension_name IN ('ducklake','httpfs') ORDER BY 1;")"
@@ -55,7 +60,9 @@ echo "keyless read refused, as it must be"
 # --- positive control: the SAME read must SUCCEED on an unencrypted lake ---
 # Without it, a lake silently written in plaintext still looks green, because
 # the refusal above would simply never be reached.
-build_lake "$TMP/plain" "$TMP/plain.db" '' > /dev/null
+plain_written="$(build_lake "$TMP/plain" "$TMP/plain.db" '')"
+test "$plain_written" = "$EXPECTED" || {
+  echo "unencrypted write returned '$plain_written', wanted '$EXPECTED'" >&2; exit 1; }
 plain="$(run "$PRELUDE SELECT count(*) FROM read_parquet('$TMP/plain/**/*.parquet');")"
 test "$plain" = "$ROWS" || { echo "unencrypted keyless read returned '$plain'" >&2; exit 1; }
 echo "positive control: the same read on an unencrypted lake returned $plain"

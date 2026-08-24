@@ -8,14 +8,9 @@
 #include "storage/ducklake_secret.hpp"
 #include "duckdb/logging/log_manager.hpp"
 #include "duckdb/function/scalar_function.hpp"
-#include "duckdb/logging/log_manager.hpp"
 #include "duckdb/main/config.hpp"
 #include "duckdb/storage/storage_extension.hpp"
-#include "functions/ducklake_table_functions.hpp"
 #include "storage/ducklake_log_type.hpp"
-#include "storage/ducklake_scan.hpp"
-#include "storage/ducklake_secret.hpp"
-#include "storage/ducklake_storage.hpp"
 
 namespace duckdb {
 

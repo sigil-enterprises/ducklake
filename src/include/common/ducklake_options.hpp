@@ -14,9 +14,7 @@
 #include "common/index.hpp"
 #include "duckdb/common/common.hpp"
 #include "duckdb/common/enums/access_mode.hpp"
-#include "duckdb/common/optional_idx.hpp"
 #include "duckdb/common/types.hpp"
-#include "duckdb/planner/tableref/bound_at_clause.hpp"
 
 namespace duckdb {
 
