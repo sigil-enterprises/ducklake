@@ -123,7 +123,7 @@ SELECT count(*) FROM unconfigured.beta
 statement error
 SELECT sum(id) FROM unconfigured.alpha
 ----
-carries a crypta-wrapped encryption key
+carries a wrapped encryption key
 
 # It names the FILE. "Invalid AES key length" named nothing, so an operator had
 # no way to tell a configuration mistake from a corrupt file.

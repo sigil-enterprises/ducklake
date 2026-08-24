@@ -175,7 +175,7 @@ ATTACH 'ducklake:__TEST_DIR__/crypta_flush.db' AS unconfigured (DATA_PATH '__TES
 statement error
 CALL ducklake_flush_inlined_data('unconfigured')
 ----
-carries a crypta-wrapped encryption key
+carries a wrapped encryption key
 
 statement error
 CALL ducklake_flush_inlined_data('unconfigured')
