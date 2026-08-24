@@ -1,0 +1,232 @@
+name: Release (linux_amd64 asset)
+
+# Publishes the ONE artifact a Linux consumer can actually install, and proves
+# three things about it that no previous release proved about anything:
+#
+#   1. it exists at all, under a name that says which platform it is (#33);
+#   2. the crypta KMS provider is LINKED INTO it, asserted against the asset
+#      DOWNLOADED BACK FROM THE RELEASE, with a positive control that plants a
+#      provider-less copy of those same bytes and requires the gate to go red
+#      on it (#46);
+#   3. the publish REFUSES - exit non-zero WITH an ::error:: annotation - rather
+#      than reporting success when it publishes nothing (#37).
+#
+# On #37: the `Deploy to nightly` jobs this repo used to run came from
+# duckdb/extension-ci-tools' reusable deploy workflow, invoked with an S3 secret
+# that is not set here. They printed "Missing AWS credentials", uploaded
+# nothing, and concluded `success`, three times per run. They are removed from
+# MainDistributionPipeline.yml in the same change: a fork that cannot publish to
+# duckdb's nightly bucket must not carry a green check that says it did. This
+# workflow is where publishing actually happens for this fork, so this is where
+# the refusal lives.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: An existing release tag to build and attach the asset to.
+        required: true
+        type: string
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.release.tag_name || inputs.tag || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Seconds, not the 40 minutes the build takes, and it runs on every trigger.
+  # Both gates below assert something; an assertion nobody has watched FIRE is
+  # indistinguishable from one that is broken, and both print a confident line.
+  # These plant the bad fixtures and require a refusal on each.
+  gate-selftests:
+    name: Positive controls for the release gates
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PROVE the provider gate fires on a provider-less artifact
+        run: bash .github/scripts/selftest_provider_gate.sh
+
+      - name: PROVE the publish gate refuses a release that published nothing
+        run: bash .github/scripts/refuse_unpublished_release.sh --selftest
+
+  build:
+    name: Build provider-linked ducklake for linux_amd64
+    runs-on: ubuntu-22.04
+    outputs:
+      asset: ${{ steps.name.outputs.asset }}
+      duckdb_version: ${{ steps.pin.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ github.event.release.tag_name || inputs.tag || github.ref }}
+
+      - id: pin
+        uses: ./.github/actions/refuse-unreleased-duckdb-pin
+
+      # Both the artifact name and the name the publish job asserts on derive
+      # from THIS step, so the asset that is checked cannot be a different one
+      # from the asset that was attached.
+      - id: name
+        run: |
+          set -euo pipefail
+          tag="${{ github.event.release.tag_name || inputs.tag }}"
+          if [ -z "$tag" ]; then tag="$(git rev-parse --short HEAD)"; fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "asset=ducklake-${tag}-duckdb-${{ steps.pin.outputs.version }}-linux_amd64.duckdb_extension" >> "$GITHUB_OUTPUT"
+
+      # The provider is private and lives out of tree. sigil-pt is installed on
+      # every repo in the org and its secrets are visible to public repos, which
+      # CT_* are not - this repo is public.
+      - name: Mint a token that can read the private crypta repo
+        id: tok
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.PT_APP_ID }}
+          private-key: ${{ secrets.PT_PRIVATE_KEY }}
+          owner: sigil-enterprises
+          repositories: crypta
+
+      - name: Overlay the crypta KMS provider
+        env:
+          GH_TOKEN_CRYPTA: ${{ steps.tok.outputs.token }}
+        run: |
+          set -euo pipefail
+          # `source`, not a hand-copied sha: the pin file is the single place the
+          # ref is written, so the build cannot drift from what the pin says.
+          . .github/crypta-pin
+          test -n "${CRYPTA_REPO:-}" && test -n "${CRYPTA_REF:-}"
+          git clone --filter=blob:none --no-checkout \
+            "https://x-access-token:${GH_TOKEN_CRYPTA}@github.com/${CRYPTA_REPO}.git" /tmp/crypta
+          git -C /tmp/crypta fetch --depth 1 origin "${CRYPTA_REF}"
+          git -C /tmp/crypta checkout --detach "${CRYPTA_REF}"
+          echo "crypta at $(git -C /tmp/crypta rev-parse HEAD)"
+          # crypta's own overlay script, not a copy of it here. It asserts the
+          # pickup hook, the link-forcing call, and the OBJECT-library shape
+          # BEFORE it copies, and the copied files after - a copy into a
+          # directory no build target reads exits 0 and leaves files on disk,
+          # which is indistinguishable from success.
+          bash /tmp/crypta/ducklake-provider/scripts/overlay.sh "$PWD"
+          test -f src/crypta-provider/crypta_provider_init.cpp
+
+      - name: Install build deps
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake build-essential libssl-dev binutils
+
+      - name: Bootstrap vcpkg
+        run: |
+          set -euxo pipefail
+          git clone --depth=1 https://github.com/microsoft/vcpkg.git "$HOME/vcpkg"
+          "$HOME/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+
+      - name: make release
+        env:
+          GEN: ninja
+        run: |
+          set -euxo pipefail
+          export VCPKG_ROOT="$HOME/vcpkg"
+          export VCPKG_TOOLCHAIN_PATH="$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake"
+          make release
+          ls -l build/release/extension/ducklake/ducklake.duckdb_extension
+          sha256sum build/release/extension/ducklake/ducklake.duckdb_extension
+
+      # Fail here rather than downstream: an artifact with no provider must
+      # never reach the upload step, whatever the rest of the run says.
+      - name: ASSERT the crypta provider linked into what was just built
+        run: |
+          bash .github/scripts/assert_provider_linked.sh --expect present \
+            build/release/extension/ducklake/ducklake.duckdb_extension
+
+      - name: Stage the artifact under its platform-bearing name
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/out
+          cp build/release/extension/ducklake/ducklake.duckdb_extension \
+             "/tmp/out/${{ steps.name.outputs.asset }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.name.outputs.asset }}
+          path: /tmp/out/${{ steps.name.outputs.asset }}
+          if-no-files-found: error
+
+  # The build's own assertion is necessary and not sufficient: it looks at a
+  # path in the build tree, and the thing consumers install is whatever ended up
+  # on the release. This job asserts the DOWNLOADED asset.
+  publish:
+    name: Publish and verify the linux_amd64 asset
+    needs: [gate-selftests, build]
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.asset }}
+          path: /tmp/in
+
+      - name: Attach the asset to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" "/tmp/in/${{ needs.build.outputs.asset }}" \
+            --clobber --repo "$GITHUB_REPOSITORY"
+
+      # NOT the upload step's exit code. An upload that reported success and
+      # attached nothing is the exact failure #37 records, so its own word is
+      # not evidence; the release is read back from the API.
+      - name: REFUSE a publish that published nothing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          FORBIDDEN_ASSET_NAMES: ducklake.duckdb_extension
+        run: |
+          bash .github/scripts/refuse_unpublished_release.sh \
+            "$GITHUB_REPOSITORY" "$TAG" "${{ needs.build.outputs.asset }}"
+
+      - name: Download the PUBLISHED asset back off the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/published
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "${{ needs.build.outputs.asset }}" --dir /tmp/published --clobber
+          ls -l /tmp/published
+          sha256sum /tmp/published/* /tmp/in/*
+
+      # #46, against the bytes that ship. The self-test is handed the published
+      # asset, so it does not merely assert the provider is there: it plants a
+      # copy of THOSE SAME BYTES with the provider symbols excised and requires
+      # the gate to refuse it. A check that cannot tell a healthy artifact from
+      # a dead one is the defect being eliminated, not another one to add.
+      - name: ASSERT the provider is linked into the PUBLISHED asset, with its positive control
+        run: |
+          bash .github/scripts/selftest_provider_gate.sh \
+            "/tmp/published/${{ needs.build.outputs.asset }}"
+
+      # Symbols are not loadability. This is the same proof LoadProofReleased
+      # runs, aimed at the published asset rather than a build-tree path.
+      - name: PROVE the PUBLISHED asset loads into the released duckdb CLI
+        run: |
+          set -euxo pipefail
+          version="$(cat .github/duckdb-version)"
+          curl -fsSL -o /tmp/cli.zip \
+            "https://github.com/duckdb/duckdb/releases/download/${version}/duckdb_cli-linux-amd64.zip"
+          unzip -o /tmp/cli.zip -d /tmp/cli
+          /tmp/cli/duckdb --version
+          bash .github/scripts/load_proof_cli.sh /tmp/cli/duckdb \
+            "/tmp/published/${{ needs.build.outputs.asset }}"

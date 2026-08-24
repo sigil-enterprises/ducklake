@@ -37,14 +37,25 @@ jobs:
       ci_tools_version: v1.5-variegata
       extension_name: ducklake
 
-  duckdb-next-deploy:
-    name: Deploy extension binaries
-    needs: [get-duckdb-version, duckdb-next-build]
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_deploy.yml@v1.5-variegata
-    secrets: inherit
-    with:
-      extension_name: ducklake
-      duckdb_version: ${{ needs.get-duckdb-version.outputs.duckdb_version }}
-      ci_tools_version: v1.5-variegata
-      deploy_latest: ${{ startsWith(github.ref, 'refs/heads/v') || github.ref == 'refs/heads/main' }}
-      deploy_versioned: ${{ startsWith(github.ref, 'refs/heads/v') || github.ref == 'refs/heads/main' }}
+  # duckdb-next-deploy is DELETED, not disabled (ducklake#37).
+  #
+  # It called duckdb/extension-ci-tools' reusable _extension_deploy.yml with an
+  # S3 secret that is not set on this repository. Every run, three jobs named
+  # `Deploy extension binaries / Deploy to nightly (...)` printed
+  #
+  #     Missing AWS credentials: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are required
+  #
+  # as the last line of the deploy script, uploaded nothing, and concluded
+  # `success`. Three green checks per run asserted a deployment that did not
+  # happen, and that is worse than three red ones, because red gets
+  # investigated. See job 96959973101 on run 32542087055.
+  #
+  # This fork has no access to duckdb's nightly bucket and is not going to get
+  # it, so the honest fix is not to make the check red forever - it is to stop
+  # making the claim. Distribution for this fork is the GitHub release, built
+  # and verified by Release.yml, which publishes a platform-named linux_amd64
+  # asset (#33), asserts the crypta provider is linked into the asset it
+  # downloads back off the release (#46), and REFUSES - exit non-zero with an
+  # ::error:: annotation - rather than reporting success when it publishes
+  # nothing. That refusal has a positive control:
+  # .github/scripts/refuse_unpublished_release.sh --selftest.
