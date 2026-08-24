@@ -1,0 +1,66 @@
+# The NEGATIVE controls for .github/scripts/assert_provider_linked.sh (#46).
+#
+# REAL, UNMODIFIED DuckLake builds that genuinely have no KMS provider linked
+# into them. The gate must go RED on these, and until it has been watched do so
+# its green on a healthy artifact says nothing.
+#
+# Why published bytes rather than a fixture manufactured on the spot: the
+# obvious plant is to take the good artifact and delete the provider records
+# with `objcopy --strip-symbols`. That is CIRCULAR - it manufactures the fixture
+# by deleting exactly the table the gate reads, so the refusal is guaranteed by
+# construction and proves nothing about the gate. It is also not even a
+# provider-less binary: objcopy rewrites .symtab and leaves .dynsym alone, so
+# the "stripped" library still exports the provider and would still register
+# the factory at load. Measured on the artifact of run 32756499818:
+#     .dynsym  21 GLOBAL DEF + 7 WEAK DEF provider symbols
+#     .symtab  the same 28, plus 20 LOCAL DEF
+# Stripping .symtab removes 48 records and changes nothing about what the
+# library does.
+#
+# ---------------------------------------------------------------------------
+# PRIMARY control - ELF, linux_amd64. MUST match the format this workflow
+# publishes. An earlier cut of this file used only the PE control below, and
+# "one tool, two artifacts, opposite verdicts" was then false: the two artifacts
+# did not share a format, so the real tier never demonstrated the gate returns
+# zero on a provider-less ELF.
+#
+# These are DuckDB's own upstream ducklake bytes for the pinned duckdb release.
+# Nobody here built them, and they predate this fork's KMS overlay entirely, so
+# the absence of the provider is a property of the artifact rather than of how
+# the fixture was prepared.
+#
+#   $ curl -sSL -o x.gz http://extensions.duckdb.org/v1.5.5/linux_amd64/ducklake.duckdb_extension.gz
+#   $ gunzip x.gz && file x
+#   x: ELF 64-bit LSB shared object, x86-64, BuildID[sha1]=26ac1aba..., not stripped
+#   $ .github/scripts/assert_provider_linked.sh --expect present x
+#       sha256      e51bf9e8d933d0e83780ae096455501b542cf962569a2ce5613532d702c08302
+#       symbols     53872
+#       anchor(DuckLakeCatalog) 182
+#       provider    0 (defined + EXTERNAL only)
+#   exit 1
+#
+# Measured 2026-08-24 on the CURRENT cut of the gate (external-linkage filter
+# in force), with llvm-nm on macOS; the same file is re-measured on GNU nm in
+# CI on every run, which is what the pipeline actually depends on.
+#
+# 53872 symbols and 182 anchor sightings are what make the 0 mean something:
+# the symbol table is demonstrably real and demonstrably a DuckLake one, so the
+# zero is an absent provider and not a misaimed tool.
+ELF_CONTROL_URL=http://extensions.duckdb.org/v1.5.5/linux_amd64/ducklake.duckdb_extension.gz
+ELF_CONTROL_SHA256=e51bf9e8d933d0e83780ae096455501b542cf962569a2ce5613532d702c08302
+#
+# ---------------------------------------------------------------------------
+# SECONDARY control - PE32+ mingw DLL, from the release ducklake#33 was filed
+# about. Kept for FORMAT BREADTH only: it shows the gate is not accidentally
+# ELF-specific. It is NOT the primary control, because reading it needs a `nm`
+# with the pe-x86-64 BFD target, which stock ubuntu:22.04 does NOT have - there
+# `nm` says "file format not recognized" and the gate refuses with "not a symbol
+# table". That fails CLOSED, which is correct, but it diagnoses the artifact
+# when the fault is the toolchain. The workflow therefore installs
+# binutils-mingw-w64-x86-64 and asserts nm can read this file BEFORE the gate
+# runs, so a missing toolchain reports as a missing toolchain.
+#
+# Measured with a PE-capable nm: symbols 250316, anchor 505, provider 0, exit 1.
+PE_CONTROL_TAG=v0.2.0-rc.2
+PE_CONTROL_ASSET=ducklake.duckdb_extension
+PE_CONTROL_SHA256=4c68ec6d0ed6f85b8d3eb1893aaeb4220b6a701863553c61afbf259b72bda315

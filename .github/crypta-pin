@@ -1,0 +1,24 @@
+# The crypta KMS provider this repo's RELEASE build is overlaid with, pinned.
+#
+# sigil-enterprises/ducklake is a PUBLIC fork and carries only the abstract
+# DuckLakeEncryptionProvider; the concrete crypta implementation is private and
+# was deliberately removed here (ducklake@9e73bf28). What stayed behind is the
+# `if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/crypta-provider")` guard in
+# src/CMakeLists.txt and the DuckLakeRegisterKmsProvider() call in
+# src/ducklake_extension.cpp. Nothing in either repository ever populated that
+# directory, so every extension this fork has ever released registered no
+# factory and refused every ATTACH ... ENCRYPTION_SOCKET (ducklake#33, #46).
+#
+# Release.yml overlays the provider from this pin before building, and then
+# asserts it actually linked. Pinned, not floating: the provider compiles
+# against DuckLakeEncryptionProvider, and a crypta that moves under us produces
+# a build failure at best and a silently wrong link at worst.
+#
+# crypta@fcd507da is the default-branch head as of 2026-08-24. Its
+# ducklake-provider/src and ducklake-provider/include are BYTE-IDENTICAL to
+# crypta@e0353e67, the pin opvance/ducklake-migration-bench builds green
+# against; the commits between the two touch only ducklake-provider/scripts/.
+#   git diff --stat e0353e67 fcd507da -- ducklake-provider
+#     ducklake-provider/scripts/... only, 6 files, no .cpp/.hpp/CMakeLists
+CRYPTA_REPO=sigil-enterprises/crypta
+CRYPTA_REF=fcd507daff2dd97dcf595cf9ffb868754062d78e
