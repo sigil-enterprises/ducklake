@@ -90,10 +90,9 @@ void LocalTableChanges::PrepareEncryptionKeysForCommit(DuckLakeTransaction &tran
 			}
 		}
 		for (auto &compaction : table_changes.compactions) {
-			for (auto &written_file : compaction.written_files) {
-				identities.push_back(catalog.BuildEncryptionIdentity(table_id, written_file.file_name, false));
-				keys.push_back(written_file.encryption_key);
-			}
+			auto &written_file = compaction.written_file;
+			identities.push_back(catalog.BuildEncryptionIdentity(table_id, written_file.file_name, false));
+			keys.push_back(written_file.encryption_key);
 		}
 	}
 	catalog.PrepareFileKeysForCommit(identities, keys);
@@ -112,9 +111,7 @@ void LocalTableChanges::PrepareEncryptionKeysForCommit(DuckLakeTransaction &tran
 			}
 		}
 		for (auto &compaction : table_changes.compactions) {
-			for (auto &written_file : compaction.written_files) {
-				written_file.encryption_key = keys[pos++];
-			}
+			compaction.written_file.encryption_key = keys[pos++];
 		}
 	}
 }
@@ -1784,13 +1781,11 @@ void DuckLakeTransaction::AddCompaction(TableIndex table_id, DuckLakeCompactionE
 	// The SECOND producer of a catalog data-file row, and the reason the guard
 	// is not written once at AppendFiles. `ducklake_merge_adjacent_files` never
 	// calls AppendFiles: the rewritten files arrive as
-	// DuckLakeCompactionEntry::written_files and are turned into catalog rows by
+	// DuckLakeCompactionEntry::written_file and is turned into a catalog row by
 	// the same BuildDataFileInfo. A compacted file's stats are also the WIDEST -
 	// they span every source file's range - so this is the leak that would
 	// matter most if it were missed.
-	for (auto &file : entry.written_files) {
-		RedactStatsOnEnvelopedLake(file);
-	}
+	RedactStatsOnEnvelopedLake(entry.written_file);
 	// <<< FORK-LOCAL (sigil-enterprises) <<<
 	state->local_changes.AddCompaction(table_id, std::move(entry));
 }

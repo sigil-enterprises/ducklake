@@ -1,0 +1,154 @@
+name: Load Proof (released duckdb)
+
+# A green build proves COMPILATION, never LOADABILITY. This job proves the
+# extension loads into a duckdb the gateway can actually OBTAIN - the PyPI wheel
+# and the released CLI zip - and never into one compiled from source here, which
+# is the whole point of pinning duckdb to a release.
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches: [main, 'port/**', 'proof/**']
+
+permissions:
+  contents: read
+
+jobs:
+  build-extension:
+    name: Build ducklake for linux_amd64
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Refuse a duckdb pin that is not a release tag
+        run: |
+          set -euxo pipefail
+          want="$(cat .github/duckdb-version)"
+          cd duckdb
+          # `describe --exact-match` exits non-zero unless HEAD IS a tag, so an
+          # unreleased main sha cannot pass this step by any spelling.
+          got="$(git describe --tags --exact-match HEAD)"
+          echo "duckdb HEAD $(git rev-parse HEAD) is tag $got, wanted $want"
+          test "$got" = "$want"
+
+      - name: Install build deps
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake build-essential libssl-dev
+
+      - name: Bootstrap vcpkg
+        run: |
+          set -euxo pipefail
+          git clone --depth=1 https://github.com/microsoft/vcpkg.git "$HOME/vcpkg"
+          "$HOME/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+
+      - name: make release
+        env:
+          GEN: ninja
+        run: |
+          set -euxo pipefail
+          export VCPKG_ROOT="$HOME/vcpkg"
+          export VCPKG_TOOLCHAIN_PATH="$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake"
+          make release
+          ls -l build/release/extension/ducklake/ducklake.duckdb_extension
+          sha256sum build/release/extension/ducklake/ducklake.duckdb_extension
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ducklake-linux_amd64-duckdb-v1.5.5
+          path: build/release/extension/ducklake/ducklake.duckdb_extension
+          if-no-files-found: error
+
+  prove-pip-wheel:
+    name: LOAD into the PyPI duckdb wheel
+    needs: build-extension
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ducklake-linux_amd64-duckdb-v1.5.5
+          path: /tmp/ext
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install the duckdb the gateway installs
+        run: |
+          set -euxo pipefail
+          version="$(sed 's/^v//' .github/duckdb-version)"
+          pip install "duckdb==${version}"
+          python -c "import duckdb, sys; print('wheel duckdb', duckdb.__version__); sys.exit(0 if duckdb.__version__ == '${version}' else 1)"
+          pip download --no-deps --only-binary=:all: "duckdb==${version}" -d /tmp/whl
+          ls -l /tmp/whl
+
+      - name: PROVE load, encrypted write, detach, re-attach, and a keyless read failing
+        run: python .github/scripts/load_proof.py /tmp/ext/ducklake.duckdb_extension
+
+  prove-released-cli:
+    name: LOAD into the released duckdb CLI zip
+    needs: build-extension
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ducklake-linux_amd64-duckdb-v1.5.5
+          path: /tmp/ext
+
+      - name: Fetch the released CLI, not a build of one
+        run: |
+          set -euxo pipefail
+          version="$(cat .github/duckdb-version)"
+          curl -fsSL -o /tmp/cli.zip \
+            "https://github.com/duckdb/duckdb/releases/download/${version}/duckdb_cli-linux-amd64.zip"
+          sha256sum /tmp/cli.zip
+          unzip -o /tmp/cli.zip -d /tmp/cli
+          /tmp/cli/duckdb --version
+
+      - name: PROVE load, encrypted write, detach, re-attach, and a keyless read failing
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/lakefiles /tmp/proof.db
+          mkdir -p /tmp/lakefiles
+
+          # httpfs must be LOADed alongside ducklake: without it an encrypted
+          # write dies on "DuckDB currently has a read-only crypto module
+          # loaded" (opvance/teras-ext-pgwire#84).
+          /tmp/cli/duckdb -unsigned -c "
+            PRAGMA version;
+            INSTALL httpfs; LOAD httpfs;
+            LOAD '/tmp/ext/ducklake.duckdb_extension';
+            SELECT extension_name, loaded, installed FROM duckdb_extensions() WHERE extension_name IN ('ducklake','httpfs');
+            ATTACH 'ducklake:/tmp/proof.db' AS lake (DATA_PATH '/tmp/lakefiles/', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0);
+            CREATE TABLE lake.t AS SELECT range AS x FROM range(1000);
+            SELECT count(*) AS rows_written, sum(x) AS checksum FROM lake.t;
+            DETACH lake;
+          "
+
+          /tmp/cli/duckdb -unsigned -c "
+            INSTALL httpfs; LOAD httpfs;
+            LOAD '/tmp/ext/ducklake.duckdb_extension';
+            ATTACH 'ducklake:/tmp/proof.db' AS lake2;
+            SELECT count(*) AS rows_after_reattach, sum(x) AS checksum FROM lake2.t;
+          " | tee /tmp/reattach.txt
+          grep -q 1000 /tmp/reattach.txt
+
+          n=$(find /tmp/lakefiles -name '*.parquet' | wc -l)
+          echo "parquet files on disk: $n"
+          test "$n" -gt 0
+
+          # The keys live in the metadata catalog, so a read that never opens it
+          # has no key. It MUST fail; a success here means the lake is plaintext.
+          if /tmp/cli/duckdb -unsigned -c "
+                INSTALL httpfs; LOAD httpfs;
+                SELECT count(*) FROM read_parquet('/tmp/lakefiles/**/*.parquet');
+             "; then
+            echo "FAIL: an encrypted data file was readable with no key" >&2
+            exit 1
+          fi
+          echo "OK: the keyless read was refused"
