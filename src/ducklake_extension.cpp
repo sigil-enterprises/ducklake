@@ -17,6 +17,19 @@ namespace duckdb {
 
 ScalarFunction DuckLakeMurmur3Function();
 
+#ifdef DUCKLAKE_KMS_PROVIDER
+// Declared by whatever concrete provider was overlaid into
+// src/crypta-provider (see that directory's crypta_provider_init.cpp) and
+// compiled in as part of DuckLake's own object set. An explicit call here -
+// rather than a self-registering static initializer in that TU - is what
+// makes the linker REQUIRE the translation unit: a static-only registrar in
+// an archive member nothing references is dropped by the linker, so the
+// `duckdb` binary (which links libducklake_extension.a) would carry the
+// provider's source and none of its code while the loadable extension beside
+// it worked. Measured, not reasoned about - see crypta_provider_init.cpp.
+void DuckLakeRegisterKmsProvider();
+#endif
+
 static void LoadInternal(ExtensionLoader &loader) {
 	loader.SetDescription("Adds support for DuckLake, SQL as a Lakehouse Format");
 
@@ -133,6 +146,18 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// register ducklake_self_test — boot-time health check (M5)
 	auto self_test = DuckLakeSelfTestFunction();
 	loader.RegisterFunction(self_test);
+
+#ifdef DUCKLAKE_KMS_PROVIDER
+	// Wire the overlaid provider's factory into DuckLakeEncryptionProvider
+	// before any ATTACH runs. Without this call the provider's objects are
+	// still linked in (crypta-provider/CMakeLists.txt declares them OBJECT,
+	// not STATIC), but nothing ever invokes their registration, so
+	// DuckLakeEncryptionProvider::GetFactory() stays empty and every ATTACH
+	// with ENCRYPTION_SOCKET is refused with "this build of DuckLake has no
+	// KMS encryption provider" - indistinguishable from a build that never
+	// had the provider at all.
+	DuckLakeRegisterKmsProvider();
+#endif
 }
 
 void DucklakeExtension::Load(ExtensionLoader &loader) {
