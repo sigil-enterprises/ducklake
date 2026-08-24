@@ -28,4 +28,4 @@ data_inlining_row_limit
 statement error
 ATTACH 'ducklake:{TEST_DIR}/envelope_inline2.db' AS inline_refusal2 (DATA_PATH '{TEST_DIR}/envelope_inline2_files', ENCRYPTED, ENCRYPTION_SOCKET '/tmp/fake.sock', ENCRYPTION_LAKE_ID 'some-lake', DATA_INLINING_ROW_LIMIT 10)
 ----
-encryption
+envelope does not protect (it wraps the per-file Parquet keys only)

@@ -38,7 +38,16 @@ import sys
 import threading
 
 BLOB_HEADER = b"DLK1"
-WIRE_SCHEMA = "CryptaWireManifest@v2"
+#: MUST equal the version the CLIENT speaks. It said `@v2` while every client in
+#: the tree spoke `@v3`, so every request this fake served was answered
+#: `crypta refused the request: unsupported schema` and the fixtures around it
+#: could not even ATTACH - silently, because they carry require-env and a
+#: require-env skip exits ZERO. `scripts/ci/assert_kms_wire_version_agrees.py`
+#: now refuses a tree in which the fakes and the client disagree, so the drift
+#: cannot recur unnoticed. The response shapes were already v3: v3 added the
+#: batch count check and the identity binding contract, and this fake enforced
+#: both before it was renamed.
+WIRE_SCHEMA = "CryptaWireManifest@v3"
 
 
 def read_exact(connection, count):
