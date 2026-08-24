@@ -136,18 +136,18 @@ SELECT min(label) FROM unconfigured.alpha
 statement error
 SELECT sum(id) FROM unconfigured.alpha
 ----
-CRYPTA_SOCKET
+ENCRYPTION_SOCKET
 
 statement error
 SELECT sum(id) FROM unconfigured.alpha
 ----
-CRYPTA_LAKE_ID
+ENCRYPTION_LAKE_ID
 
 # And it says what to DO, which an assertion failure never did.
 statement error
 SELECT min(label) FROM unconfigured.alpha
 ----
-Re-attach with the crypta options
+Re-attach with the envelope options
 
 statement ok
 DETACH unconfigured

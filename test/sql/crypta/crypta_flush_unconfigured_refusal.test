@@ -180,12 +180,12 @@ carries a wrapped encryption key
 statement error
 CALL ducklake_flush_inlined_data('unconfigured')
 ----
-CRYPTA_SOCKET
+ENCRYPTION_SOCKET
 
 statement error
 CALL ducklake_flush_inlined_data('unconfigured')
 ----
-Re-attach with the crypta options
+Re-attach with the envelope options
 
 statement ok
 DETACH unconfigured
