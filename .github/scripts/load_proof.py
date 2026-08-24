@@ -21,6 +21,38 @@ def check(cond, what):
     raise SystemExit(f"LOAD PROOF FAILED: {what}")
 
 
+def magic(path):
+  """The first and last four bytes of a parquet file.
+
+  duckdb v1.5.5 parquet_writer.cpp:513-519 writes "PARE" at the head of an
+  encrypted file and "PAR1" at the head of a plaintext one, and repeats the
+  same four bytes at the tail (:1379-1383).
+  """
+  size = os.path.getsize(path)
+  with open(path, "rb") as f:
+    head = f.read(4)
+    f.seek(size - 4)
+    tail = f.read(4)
+  return head, tail
+
+
+def check_magic(files, want):
+  """Assert the bytes ON DISK, not duckdb's behaviour.
+
+  Every other check here asks duckdb what it thinks of the file, so a defect
+  that sets the encrypted footer flag over a plaintext payload passes them all.
+  These are the bytes that actually leave the hospital's hardware. Asserted in
+  BOTH directions - PARE on the encrypted lake, PAR1 on the plaintext control -
+  because a check that only ever sees PARE cannot show it is able to say PAR1.
+  """
+  check(bool(files), "check_magic called with no files")
+  for f in files:
+    head, tail = magic(f)
+    check(head == want, f"{f}: head magic {head!r}, wanted {want!r}")
+    check(tail == want, f"{f}: tail magic {tail!r}, wanted {want!r}")
+  print("magic bytes:", want.decode(), "head and tail on", len(files), "file(s)")
+
+
 def connect(ext):
   con = duckdb.connect(config={"allow_unsigned_extensions": "true"})
   # httpfs must be loaded alongside ducklake or an encrypted write dies on
@@ -53,6 +85,7 @@ def build_lake(ext, data, meta, encrypted):
 
   files = glob.glob(os.path.join(data, "**", "*.parquet"), recursive=True)
   check(bool(files), f"no data files written under {data}")
+  check_magic(files, b"PARE" if encrypted else b"PAR1")
   return files
 
 
