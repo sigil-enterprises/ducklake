@@ -1,6 +1,7 @@
 # name: test/sql/crypta/crypta_unconfigured_reader_refusal.test
 # description: A wrapped lake read by an UNCONFIGURED reader is refused by name, not by assertion failure
 # group: [crypta]
+
 #
 # PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
 #

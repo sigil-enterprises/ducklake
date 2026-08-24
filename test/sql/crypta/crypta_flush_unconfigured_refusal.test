@@ -1,6 +1,7 @@
 # name: test/sql/crypta/crypta_flush_unconfigured_refusal.test
 # description: The SECOND decode site - the inlined-deletion flush path - also refuses a wrapped key
 # group: [crypta]
+
 #
 # PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
 #

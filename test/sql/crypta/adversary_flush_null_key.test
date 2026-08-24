@@ -1,6 +1,7 @@
 # name: test/sql/crypta/adversary_flush_null_key.test
 # description: ADVERSARY - the SECOND decode site accepts a NULL key on an ENCRYPTED lake
 # group: [crypta]
+
 #
 # PRIVATE-FORK ONLY. Written against v0.1.0-rc.1 to REDDEN it.
 #

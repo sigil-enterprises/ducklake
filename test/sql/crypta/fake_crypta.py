@@ -94,7 +94,7 @@ def unwrap(identity, wrapped_base64):
     if not raw.startswith(BLOB_HEADER):
         return None
     try:
-        payload = json.loads(raw[len(BLOB_HEADER):].decode("utf-8"))
+        payload = json.loads(raw[len(BLOB_HEADER) :].decode("utf-8"))
     except Exception:
         return None
     # The whole point: all four components of the identity must match. A blob
@@ -147,9 +147,7 @@ def handle(body):
     # rather than the bytes it sent, and a byte comparison would refuse this
     # fixture on every single ATTACH.
     if operation == "wrap_batch":
-        wrapped = [
-            {"identity": item["identity"], "wrapped": wrap(item["identity"], item["dek"])} for item in items
-        ]
+        wrapped = [{"identity": item["identity"], "wrapped": wrap(item["identity"], item["dek"])} for item in items]
         return dumps({"schema": WIRE_SCHEMA, "status": "ok", "items": wrapped})
 
     if operation == "unwrap_batch":

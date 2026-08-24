@@ -1,6 +1,7 @@
 # name: test/sql/crypta/crypta_config_refusals.test
 # description: A half-configured or unencrypted crypta is REFUSED at ATTACH, not silently ignored
 # group: [crypta]
+
 #
 # PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
 #
