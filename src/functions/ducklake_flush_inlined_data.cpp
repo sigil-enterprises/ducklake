@@ -499,8 +499,8 @@ LEFT JOIN (
 					// crypta_flush_unconfigured_refusal.test exercise this.
 					auto stored_delete_key = chunk->GetValue(9, row_idx);
 					auto resolved_delete_path = file_info.existing_delete_path_is_relative
-					                                 ? table.DataPath() + file_info.existing_delete_path
-					                                 : file_info.existing_delete_path;
+					                                ? table.DataPath() + file_info.existing_delete_path
+					                                : file_info.existing_delete_path;
 					file_info.existing_delete_encryption_key = catalog.ResolveStoredEncryptionKey(
 					    table_id, file_info.existing_delete_path, resolved_delete_path, true, stored_delete_key);
 					if (!chunk->GetValue(10, row_idx).IsNull()) {
