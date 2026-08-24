@@ -8,13 +8,15 @@
 
 #pragma once
 
-#include "duckdb/common/common.hpp"
-#include "duckdb/common/types.hpp"
-#include "duckdb/common/enums/access_mode.hpp"
 #include "common/ducklake_encryption.hpp"
 #include "duckdb/planner/tableref/bound_at_clause.hpp"
 #include "duckdb/common/optional_idx.hpp"
 #include "common/index.hpp"
+#include "duckdb/common/common.hpp"
+#include "duckdb/common/enums/access_mode.hpp"
+#include "duckdb/common/optional_idx.hpp"
+#include "duckdb/common/types.hpp"
+#include "duckdb/planner/tableref/bound_at_clause.hpp"
 
 namespace duckdb {
 
@@ -37,6 +39,29 @@ struct DuckLakeOptions {
 	map<SchemaIndex, option_map_t> schema_options;
 	map<TableIndex, option_map_t> table_options;
 	idx_t busy_timeout = 5000;
+	//! KMS envelope encryption: Unix socket of the key service. NOT SUPPLIED
+	//! = no envelope, and the encryption_key column holds a plaintext key
+	//! exactly as upstream. Supplied but empty is a misconfiguration and is
+	//! refused - see the flags below.
+	string encryption_socket;
+	//! Compartment name that scopes every key in this lake. Required whenever
+	//! encryption_socket is set; without it keys are interchangeable between
+	//! lakes.
+	string encryption_lake_id;
+	//! Whether each option was SUPPLIED at ATTACH, which is NOT the same as
+	//! it being non-empty - and the difference is the whole of #19.
+	//! `ENCRYPTION_SOCKET ''`, the shape an unexpanded `${VAR}` takes in a
+	//! templated ATTACH, is indistinguishable from "no envelope wanted" if you
+	//! only look at the value, so it used to silently disable the envelope and
+	//! write PLAINTEXT per-file keys.
+	bool encryption_socket_supplied = false;
+	bool encryption_lake_id_supplied = false;
+	//! How long an unwrapped plaintext DEK may stay in the reader's cache.
+	//! Held with a `_supplied` flag rather than pre-set to the default so the
+	//! default lives in exactly ONE place - DuckLakeEncryptionProvider, which
+	//! is also where the range is enforced.
+	int64_t encryption_cache_ttl_seconds = 0;
+	bool encryption_cache_ttl_seconds_supplied = false;
 };
 
 } // namespace duckdb

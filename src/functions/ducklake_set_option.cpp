@@ -129,6 +129,23 @@ static unique_ptr<FunctionData> DuckLakeSetOptionBind(ClientContext &context, Ta
 		auto data_inlining_row_limit = val.DefaultCastAs(LogicalType::UBIGINT).GetValue<idx_t>();
 		value = to_string(data_inlining_row_limit);
 		if (data_inlining_row_limit > 0) {
+			// An enveloped lake never inlines rows: DuckLakeCatalog::
+			// DataInliningRowLimit() already forces 0 there, so setting this
+			// option would be inert rather than dangerous. Inert is exactly the
+			// problem - set_option returns Success and the operator walks away
+			// believing small writes are being inlined. Refuse, so an explicit
+			// request is never silently dropped. This sits in the VALUE branch,
+			// before scope resolution, so one check covers global, schema and
+			// table scope alike.
+			if (catalog.Cast<DuckLakeCatalog>().EncryptionProvider()) {
+				throw InvalidInputException(
+				    "data_inlining_row_limit cannot be set to %llu on a DuckLake configured for encryption envelope "
+				    "encryption - data inlining writes the row values themselves as cleartext SQL literals into "
+				    "the metadata catalog, which the encryption envelope does not protect (it wraps the per-file "
+				    "Parquet keys only). Either set data_inlining_row_limit to 0, or re-attach this lake without "
+				    "encryption_socket if cleartext rows in the metadata catalog are acceptable for it",
+				    static_cast<uint64_t>(data_inlining_row_limit));
+			}
 			ValidateNoReservedInliningColumns(context, catalog, input);
 		}
 	} else if (option == "require_commit_message") {

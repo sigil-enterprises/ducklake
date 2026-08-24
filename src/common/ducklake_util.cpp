@@ -2,6 +2,10 @@
 #include "duckdb/parser/column_list.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/types/blob.hpp"
+#include "duckdb/function/scalar/variant_utils.hpp"
+#include "duckdb/main/client_context.hpp"
+#include "duckdb/main/database.hpp"
+#include "duckdb/parser/column_list.hpp"
 #include "duckdb/parser/keyword_helper.hpp"
 #include "duckdb/parser/parser.hpp"
 #include "duckdb/common/file_system.hpp"
@@ -372,7 +376,8 @@ string DuckLakeUtil::ReplaceSkippingQuotes(const string &sql, const string &from
 
 	auto tokens = Parser::Tokenize(sql);
 
-	// Collect quoted ranges (string constants and double-quoted identifiers) where replacement doesn't happen
+	// Collect quoted ranges (string constants and double-quoted identifiers)
+	// where replacement doesn't happen
 	vector<pair<idx_t, idx_t>> no_replace_ranges;
 	for (idx_t i = 0; i < tokens.size(); i++) {
 		bool is_quoted = tokens[i].type == SimplifiedTokenType::SIMPLIFIED_TOKEN_STRING_CONSTANT;
@@ -456,4 +461,18 @@ string DuckLakeUtil::ChunkRowToSQL(DuckLakeMetadataManager &metadata_manager, Cl
 	return result;
 }
 
+string DuckLakeUtil::WrappedEncryptionKeyLiteral(const string &wrapped_base64, bool file_has_key) {
+	if (wrapped_base64.empty()) {
+		if (file_has_key) {
+			throw InternalException("refusing to write an empty wrapped encryption key for a file that "
+			                        "has one. The data file was "
+			                        "encrypted with a real key; writing SQL NULL in its wrapped-key "
+			                        "column would discard that key and "
+			                        "leave the file unreadable forever, with the commit reporting "
+			                        "success");
+		}
+		return "NULL";
+	}
+	return SQLLiteralToString(wrapped_base64);
+}
 } // namespace duckdb

@@ -1,9 +1,9 @@
 #include "duckdb.hpp"
 
-#include "storage/ducklake_storage.hpp"
 #include "storage/ducklake_catalog.hpp"
-#include "storage/ducklake_transaction_manager.hpp"
 #include "storage/ducklake_secret.hpp"
+#include "storage/ducklake_storage.hpp"
+#include "storage/ducklake_transaction_manager.hpp"
 
 namespace duckdb {
 
@@ -34,6 +34,15 @@ static void HandleDuckLakeOption(DuckLakeOptions &options, const string &option,
 		}
 	} else if (lcase == "data_inlining_row_limit") {
 		options.config_options["data_inlining_row_limit"] = value.DefaultCastAs(LogicalType::UBIGINT).ToString();
+	} else if (lcase == "crypta_socket" || lcase == "encryption_socket") {
+		options.encryption_socket = value.ToString();
+		options.encryption_socket_supplied = true;
+	} else if (lcase == "crypta_lake_id" || lcase == "encryption_lake_id") {
+		options.encryption_lake_id = value.ToString();
+		options.encryption_lake_id_supplied = true;
+	} else if (lcase == "crypta_cache_ttl_seconds" || lcase == "encryption_cache_ttl_seconds") {
+		options.encryption_cache_ttl_seconds = BigIntValue::Get(value.DefaultCastAs(LogicalType::BIGINT));
+		options.encryption_cache_ttl_seconds_supplied = true;
 	} else if (lcase == "snapshot_version") {
 		if (options.at_clause) {
 			throw InvalidInputException("Cannot specify both VERSION and TIMESTAMP");
@@ -70,16 +79,16 @@ static unique_ptr<Catalog> DuckLakeAttach(optional_ptr<StorageExtensionInfo> sto
 		// no path specified - load the default secret
 		secret = DuckLakeSecret::GetSecret(context, DuckLakeSecret::DEFAULT_SECRET);
 		if (!secret) {
-			throw InvalidInputException(
-			    "Default secret was not found - either specify a path to attach to directly, or create the secret");
+			throw InvalidInputException("Default secret was not found - either specify a path to attach to "
+			                            "directly, or create the secret");
 		}
 	} else if (DuckLakeSecret::PathIsSecret(info.path)) {
 		// if the path is a plain name - load the secret name
 		secret = DuckLakeSecret::GetSecret(context, info.path);
 		if (!secret) {
-			throw InvalidInputException(
-			    "Secret \"%s\" was not found - if this was meant to be a path to a DuckDB file, use duckdb:%s instead",
-			    info.path, info.path);
+			throw InvalidInputException("Secret \"%s\" was not found - if this was meant to be a path to a "
+			                            "DuckDB file, use duckdb:%s instead",
+			                            info.path, info.path);
 		}
 	} else {
 		// otherwise set the remainder of the path as the metadata path
@@ -109,7 +118,8 @@ static unique_ptr<Catalog> DuckLakeAttach(optional_ptr<StorageExtensionInfo> sto
 	}
 	if (options.at_clause) {
 		if (attach_options.access_mode == AccessMode::READ_WRITE) {
-			throw InvalidInputException("SNAPSHOT_VERSION / SNAPSHOT_TIME can only be used in read-only mode");
+			throw InvalidInputException("SNAPSHOT_VERSION / SNAPSHOT_TIME can only "
+			                            "be used in read-only mode");
 		}
 		attach_options.access_mode = AccessMode::READ_ONLY;
 		db.SetReadOnlyDatabase();

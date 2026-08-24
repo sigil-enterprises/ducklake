@@ -35,7 +35,11 @@ bool OptBoolFalse(ROW &row, idx_t col) {
 template <class ROW>
 void ReadEncryptionKey(ROW &row, idx_t col, string &out) {
 	if (!row.IsNull(col)) {
-		out = Blob::FromBase64(string_t(row.template GetValue<string>(col)));
+		// The staged table already carries the STORED form of the key: base64(DEK) on a
+		// non-enveloped lake, base64(wrapped-blob) on an enveloped one. The server-side commit
+		// re-writes that column verbatim (it has no KMS provider to re-wrap), so decode here and
+		// the key would reach WriteNewDataFilesSqlBatch as raw bytes and explode as invalid UTF-8.
+		out = row.template GetValue<string>(col);
 	}
 }
 

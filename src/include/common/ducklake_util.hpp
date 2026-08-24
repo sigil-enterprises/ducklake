@@ -11,8 +11,8 @@
 #include "common/index.hpp"
 #include "duckdb/common/common.hpp"
 #include "duckdb/common/optional_idx.hpp"
-#include "duckdb/common/unordered_set.hpp"
 #include "duckdb/common/types/value.hpp"
+#include "duckdb/common/unordered_set.hpp"
 
 namespace duckdb {
 class DataChunk;
@@ -34,6 +34,7 @@ public:
 	static vector<string> ParseQuotedList(const string &input, char list_separator = ',');
 	static string SQLIdentifierToString(const string &text);
 	static string SQLLiteralToString(const string &text);
+	static string WrappedEncryptionKeyLiteral(const string &wrapped_base64, bool file_has_key);
 	static string StatsToString(const string &text);
 	static string ValueToSQL(DuckLakeMetadataManager &metadata_manager, ClientContext &context, const Value &val);
 
@@ -49,7 +50,8 @@ public:
 	//! single-quoted string literals and double-quoted identifiers.
 	static string ReplaceSkippingQuotes(const string &sql, const string &from, const string &to);
 
-	//! Returns true if the given column name conflicts with inlined data system columns
+	//! Returns true if the given column name conflicts with inlined data system
+	//! columns
 	static bool IsInlinedSystemColumn(const string &name);
 
 	static string OptionalIdxOrNull(const optional_idx &v);
@@ -64,7 +66,8 @@ public:
 
 	static string ChunkRowToSQL(DuckLakeMetadataManager &metadata_manager, ClientContext &context, DataChunk &chunk,
 	                            idx_t row);
-	//! Throws if any column in the list conflicts with inlined data system columns
+	//! Throws if any column in the list conflicts with inlined data system
+	//! columns
 	static void ValidateNoInlinedSystemColumns(const ColumnList &columns, const string &table_name = "");
 };
 

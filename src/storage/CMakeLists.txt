@@ -2,6 +2,8 @@ add_subdirectory(statistics)
 add_library(
   ducklake_storage OBJECT
   ducklake_catalog.cpp
+  ducklake_encryption_provider.cpp
+  ducklake_envelope_guards.cpp
   ducklake_checkpoint.cpp
   ducklake_default_functions.cpp
   ducklake_delete_filter.cpp

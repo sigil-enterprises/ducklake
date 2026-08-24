@@ -89,6 +89,7 @@ def install_quack(duckdb_bin: Path) -> tuple[bool, str]:
             [str(duckdb_bin), "-unsigned", "-c", sql],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=120,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired) as ex:
@@ -232,6 +233,7 @@ def run_one_test(
                 cwd=str(REPO_ROOT),
                 capture_output=True,
                 text=True,
+                errors="replace",
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired as ex:

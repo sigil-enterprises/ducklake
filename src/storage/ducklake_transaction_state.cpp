@@ -1485,8 +1485,14 @@ string DuckLakeTransactionState::CommitChanges(DuckLakeCommitState &commit_state
 
 	// write new data / data files
 	bool has_table_data_changes = local_changes.HasChanges();
+	vector<DuckLakeOverwrittenDeleteFile> overwritten_delete_files;
+	vector<DuckLakeDeleteFileInfo> new_delete_files;
+	vector<DuckLakeDeleteFileInfo> no_delete_files;
 	if (has_table_data_changes) {
 		auto result = GetNewDataFiles(batch_queries, commit_state, stats, context);
+		new_delete_files = GetNewDeleteFiles(commit_state, overwritten_delete_files);
+		// Wrap every new-file and delete-file DEK in ONE KMS batch before any is written.
+		context.prepare_file_keys(result.new_files, new_delete_files, new_tables_result, new_schemas_result);
 		batch_queries += write_data_files_sql(result.new_files);
 		batch_queries += context.write_inlined_data(commit_snapshot, result.new_inlined_data, new_tables_result,
 		                                            new_inlined_data_tables_result);
@@ -1508,8 +1514,6 @@ string DuckLakeTransactionState::CommitChanges(DuckLakeCommitState &commit_state
 
 	if (has_table_data_changes) {
 		// write new delete files
-		vector<DuckLakeOverwrittenDeleteFile> overwritten_delete_files;
-		auto file_list = GetNewDeleteFiles(commit_state, overwritten_delete_files);
 		vector<DuckLakePath> resolved_overwritten_paths;
 		resolved_overwritten_paths.reserve(overwritten_delete_files.size());
 		for (auto &file : overwritten_delete_files) {
@@ -1518,13 +1522,13 @@ string DuckLakeTransactionState::CommitChanges(DuckLakeCommitState &commit_state
 		batch_queries +=
 		    DuckLakeMetadataManager::DeleteOverwrittenDeleteFiles(overwritten_delete_files, resolved_overwritten_paths);
 		vector<DuckLakePath> resolved_delete_paths;
-		resolved_delete_paths.reserve(file_list.size());
-		for (auto &file : file_list) {
+		resolved_delete_paths.reserve(new_delete_files.size());
+		for (auto &file : new_delete_files) {
 			resolved_delete_paths.push_back(DuckLakeMetadataManager::GetRelativePath(
 			    file.table_id, file.path, new_tables_result, new_schemas_result, context.query_metadata, data_path,
 			    separator));
 		}
-		batch_queries += DuckLakeMetadataManager::WriteNewDeleteFiles(file_list, resolved_delete_paths);
+		batch_queries += DuckLakeMetadataManager::WriteNewDeleteFiles(new_delete_files, resolved_delete_paths);
 
 		// write new inlined deletes (for inlined data tables)
 		auto inlined_deletes = GetNewInlinedDeletes(commit_state);
@@ -1545,9 +1549,13 @@ string DuckLakeTransactionState::CommitChanges(DuckLakeCommitState &commit_state
 		batch_queries +=
 		    DuckLakeMetadataManager::WriteCompactions(compaction_merge_adjacent_changes.compacted_files,
 		                                              CompactionType::MERGE_ADJACENT_TABLES, resolved_merge_paths);
+		context.prepare_file_keys(compaction_merge_adjacent_changes.new_files, no_delete_files, new_tables_result,
+		                          new_schemas_result);
 		batch_queries += write_data_files_sql(compaction_merge_adjacent_changes.new_files);
 
 		auto compaction_rewrite_delete_changes = GetCompactionChanges(commit_state, CompactionType::REWRITE_DELETES);
+		context.prepare_file_keys(compaction_rewrite_delete_changes.new_files, no_delete_files, new_tables_result,
+		                          new_schemas_result);
 		batch_queries += write_data_files_sql(compaction_rewrite_delete_changes.new_files);
 		// REWRITE_DELETES ignores resolved_paths; pass empty.
 		batch_queries += DuckLakeMetadataManager::WriteCompactions(

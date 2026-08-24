@@ -61,6 +61,64 @@ bool LocalTableChanges::HasChanges() const {
 	return !changes.empty();
 }
 
+void LocalTableChanges::PrepareEncryptionKeysForCommit(DuckLakeTransaction &transaction) {
+	auto &catalog = transaction.GetCatalog();
+	lock_guard<mutex> guard(lock);
+	vector<DuckLakeFileIdentity> identities;
+	vector<string> keys;
+	// The staged commit emits each `file_name` VERBATIM as the `path` column (see
+	// DuckLakeStagedCommit::EmitDataFileRow / EmitDeleteFileRow / EmitAttachedDeleteRow), so the
+	// AS-STORED path the KMS identity must match is the file_name itself. Do NOT route through
+	// GetRelativePath / GetPath here: those call GetSnapshot(), and this whole commit runs under
+	// transaction.snapshot_lock (FlushChanges holds it around FlushChangesServerSide), so
+	// re-entering GetSnapshot self-deadlocks.
+	for (auto &entry : changes) {
+		auto table_id = entry.first;
+		auto &table_changes = entry.second;
+		for (auto &file : table_changes.new_data_files) {
+			identities.push_back(catalog.BuildEncryptionIdentity(table_id, file.file_name, false));
+			keys.push_back(file.encryption_key);
+			for (auto &del : file.delete_files) {
+				identities.push_back(catalog.BuildEncryptionIdentity(table_id, del.file_name, true));
+				keys.push_back(del.encryption_key);
+			}
+		}
+		for (auto &delete_entry : table_changes.new_delete_files) {
+			for (auto &del : delete_entry.second) {
+				identities.push_back(catalog.BuildEncryptionIdentity(table_id, del.file_name, true));
+				keys.push_back(del.encryption_key);
+			}
+		}
+		for (auto &compaction : table_changes.compactions) {
+			for (auto &written_file : compaction.written_files) {
+				identities.push_back(catalog.BuildEncryptionIdentity(table_id, written_file.file_name, false));
+				keys.push_back(written_file.encryption_key);
+			}
+		}
+	}
+	catalog.PrepareFileKeysForCommit(identities, keys);
+	idx_t pos = 0;
+	for (auto &entry : changes) {
+		auto &table_changes = entry.second;
+		for (auto &file : table_changes.new_data_files) {
+			file.encryption_key = keys[pos++];
+			for (auto &del : file.delete_files) {
+				del.encryption_key = keys[pos++];
+			}
+		}
+		for (auto &delete_entry : table_changes.new_delete_files) {
+			for (auto &del : delete_entry.second) {
+				del.encryption_key = keys[pos++];
+			}
+		}
+		for (auto &compaction : table_changes.compactions) {
+			for (auto &written_file : compaction.written_files) {
+				written_file.encryption_key = keys[pos++];
+			}
+		}
+	}
+}
+
 void LocalTableChanges::CleanupFiles(DatabaseInstance &db) {
 	auto &fs = FileSystem::GetFileSystem(db);
 	lock_guard<mutex> guard(lock);
@@ -1328,6 +1386,10 @@ void DuckLakeTransaction::ApplyServerSideCommit(idx_t schema_version) {
 	}
 }
 
+void DuckLakeTransaction::PrepareFileKeysForCommit() {
+	state->local_changes.PrepareEncryptionKeysForCommit(*this);
+}
+
 void DuckLakeTransaction::DropEmptySupersededInlinedTablesClientSide() {
 	DuckLakeCommitContext context;
 	context.query_metadata = [&](string q) {
@@ -1385,6 +1447,11 @@ void DuckLakeTransaction::RunCommitLoop(DuckLakeSnapshot transaction_snapshot,
 	                                    const vector<DuckLakeTableInfo> &new_tables,
 	                                    vector<DuckLakeSchemaInfo> &new_schemas) {
 		return metadata_manager->TryAppendDataFiles(snapshot, files, new_tables, new_schemas);
+	};
+	context.prepare_file_keys = [&](vector<DuckLakeFileInfo> &new_files, vector<DuckLakeDeleteFileInfo> &delete_files,
+	                                const vector<DuckLakeTableInfo> &new_tables,
+	                                vector<DuckLakeSchemaInfo> &new_schemas) {
+		metadata_manager->PrepareFileKeysForCommit(new_files, delete_files, new_tables, new_schemas);
 	};
 	context.write_inlined_tables = [&](DuckLakeSnapshot snapshot, const vector<DuckLakeTableInfo> &tables) {
 		return metadata_manager->WriteNewInlinedTables(snapshot, tables);
@@ -1590,10 +1657,73 @@ void DuckLakeTransaction::DropTransactionLocalFile(TableIndex table_id, const st
 	state->local_changes.DropTransactionLocalFile(*context_ref, table_id, path);
 }
 
+// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids column VALUES in the catalog. >>>
+// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+//
+// `ducklake_file_column_stats` and `ducklake_table_column_stats` hold
+// min_value / max_value per column as plaintext VARCHAR, written by every
+// commit with no option to turn them off. They are per FILE, not an aggregate,
+// so on a small partition or a narrow-range column min/max IS the data - min
+// and max of a sensitive numeric column over a three-row file disclose two
+// records outright. ENCRYPTED governs the Parquet writer only and the
+// envelope wraps per-file DEKs, so neither covers this. On a lake whose
+// metadata catalog is a relational database, this is cleartext sensitive data
+// in the table, the WAL, every replica and every backup.
+//
+// RBAC is arithmetically excluded as the alternative and this is not an
+// opinion: revoking SELECT on ducklake_table_column_stats makes a plain
+// `SELECT count(*)` fail - "Failed to get global stats information from
+// DuckLake ... permission denied" - because a DuckLake reader has to read those
+// stats to plan. Every authenticated client of the catalog is therefore in the
+// disclosure set, not only the DBA / replica / backup actor. The value must not
+// be written at all.
+//
+// WHY HERE. This is the point where a newly written data file ENTERS the
+// transaction's committed set, and every producer passes through it: INSERT /
+// UPDATE / MERGE / CTAS (ducklake_insert.cpp), ducklake_flush_inlined_data, and
+// ducklake_add_data_files. Redacting at the entry rather than at each of the
+// places the metadata manager WRITES a stats row means no write path can be
+// missed - the appender path, the SQL-batch path, the staged-commit path and
+// the table-wide merge all read the same DuckLakeDataFile. It also covers the
+// table-wide store for free: DuckLakeTableStats::MergeFileStats merges FROM
+// these file stats and DuckLakeColumnStats::MergeStats clears has_min the
+// moment a merged input lacks one, so a lake that carried cleartext bounds
+// before the envelope was configured has them cleared by its next write rather
+// than kept stale.
+//
+// Compaction does NOT come through here - it registers its rewritten file
+// through AddCompaction below - which is why that call site carries the same
+// guard and its own test case. A guard written only here would pass an insert
+// test and leak on the first ducklake_merge_adjacent_files.
+//
+// SUPPRESSING RATHER THAN COARSENING, and what it costs: min/max file pruning.
+// A filtered scan on an enveloped lake reads every file instead of the files
+// whose range can contain the constant. Coarsening was rejected because there
+// is no bucket width that is both safe and useful across the column types a
+// sensitive-data lake carries - a truncated identifier is still a prefix of an
+// identifier, and a sensitive date coarsened to a year is still a year of
+// context. Absent stats are a path DuckLake already takes (a column with no stats
+// plans as unknown), so this degrades the plan along a road that is already
+// paved rather than inventing one.
+void DuckLakeTransaction::RedactStatsOnEnvelopedLake(DuckLakeDataFile &file) const {
+	if (!ducklake_catalog.EncryptionProvider()) {
+		return;
+	}
+	for (auto &entry : file.column_stats) {
+		entry.second.RedactValues();
+	}
+}
+// <<< FORK-LOCAL (sigil-enterprises) <<<
+
 void DuckLakeTransaction::AppendFiles(TableIndex table_id, vector<DuckLakeDataFile> files) {
 	if (files.empty()) {
 		return;
 	}
+	// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids column VALUES in the catalog. >>>
+	for (auto &file : files) {
+		RedactStatsOnEnvelopedLake(file);
+	}
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
 	state->local_changes.AppendFiles(table_id, std::move(files));
 }
 
@@ -1650,6 +1780,18 @@ void DuckLakeTransaction::AddDeletes(TableIndex table_id, vector<DuckLakeDeleteF
 }
 
 void DuckLakeTransaction::AddCompaction(TableIndex table_id, DuckLakeCompactionEntry entry) {
+	// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids column VALUES in the catalog. >>>
+	// The SECOND producer of a catalog data-file row, and the reason the guard
+	// is not written once at AppendFiles. `ducklake_merge_adjacent_files` never
+	// calls AppendFiles: the rewritten files arrive as
+	// DuckLakeCompactionEntry::written_files and are turned into catalog rows by
+	// the same BuildDataFileInfo. A compacted file's stats are also the WIDEST -
+	// they span every source file's range - so this is the leak that would
+	// matter most if it were missed.
+	for (auto &file : entry.written_files) {
+		RedactStatsOnEnvelopedLake(file);
+	}
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
 	state->local_changes.AddCompaction(table_id, std::move(entry));
 }
 
