@@ -1,0 +1,85 @@
+# name: test/sql/encryption/envelope_unenveloped_reader_refusal.test
+# description: An enveloped lake re-attached with NO envelope options must refuse every read that opens a file
+# group: [encryption]
+
+#
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# WHY THIS EXISTS BESIDE envelope_e2e_wrapped_catalog.test
+# --------------------------------------------------------
+# That file's fourth assertion - the one that says what the envelope is FOR -
+# is written on `SELECT count(*) FROM bare.t`, and count(*) over a whole table
+# is answered from ducklake_table_stats WITHOUT OPENING A SINGLE FILE. So it
+# returns the row count on a perfectly healthy enveloped lake and the assertion
+# cannot fail, whatever the state of the envelope. Measured on a build of
+# 87068373 with the crypta provider linked in:
+#
+#   SELECT count(*) FROM bare.t              -> 100          (no file opened)
+#   SELECT sum(id) FROM bare.t               -> IO Error: ... carries a wrapped
+#                                               encryption key, but this lake was
+#                                               attached without ENCRYPTION_SOCKET
+#   SELECT id FROM bare.t LIMIT 3            -> same refusal
+#   SELECT count(*) FROM bare.t WHERE id > 5 -> same refusal
+#
+# The refusal fires in ResolveStoredEncryptionKey, on the key row, so only a
+# query that actually resolves a file key can observe it. That file is left
+# exactly as its author wrote it - the correction is one line and belongs to
+# them. This file asserts the same property on queries that can carry it.
+#
+# The row count being readable without the envelope is NOT a defect: the
+# metadata catalog is outside the envelope by design, which is why an enveloped
+# ATTACH refuses a non-zero data_inlining_row_limit outright.
+#
+
+require ducklake
+
+require parquet
+
+require httpfs
+
+# ^ NOT decoration: writing an ENCRYPTED parquet file needs the mbedtls
+# write path httpfs carries. Without it every CREATE TABLE dies with
+# "DuckDB currently has a read-only crypto module loaded" - measured.
+# A missing httpfs SKIPS this file, and a skip exits zero, which is why
+# the runner refuses any output without the word "assertions".
+
+require-env DUCKLAKE_FAKE_KMS_SOCKET
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/reader_refusal.db' AS lk (DATA_PATH '__TEST_DIR__/reader_refusal_files', ENCRYPTED, METADATA_CATALOG 'lk_meta', ENCRYPTION_SOCKET '${DUCKLAKE_FAKE_KMS_SOCKET}', ENCRYPTION_LAKE_ID 'reader-refusal')
+
+statement ok
+CREATE TABLE lk.t AS SELECT i AS id FROM range(100) t(i)
+
+# The control that stops every refusal below from being vacuous: with the
+# envelope in place the SAME queries succeed. Without this, a lake that was
+# broken for any other reason would refuse identically and look like a pass.
+query II
+SELECT count(*), sum(id) FROM lk.t
+----
+100	4950
+
+statement ok
+DETACH lk
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/reader_refusal.db' AS bare (DATA_PATH '__TEST_DIR__/reader_refusal_files', METADATA_CATALOG 'bare_meta')
+
+# An aggregate over a COLUMN has to open the file.
+statement error
+SELECT sum(id) FROM bare.t
+----
+carries a wrapped encryption key, but this lake was attached without
+
+# So does projecting a single row.
+statement error
+SELECT id FROM bare.t LIMIT 1
+----
+carries a wrapped encryption key, but this lake was attached without
+
+# And so does a count with a predicate on it - which is what makes the bare
+# count(*) above a statistics answer rather than a read.
+statement error
+SELECT count(*) FROM bare.t WHERE id > 5
+----
+carries a wrapped encryption key, but this lake was attached without

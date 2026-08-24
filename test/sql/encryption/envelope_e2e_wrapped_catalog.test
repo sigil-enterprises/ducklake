@@ -1,0 +1,127 @@
+# name: test/sql/encryption/envelope_e2e_wrapped_catalog.test
+# description: RED - the KMS envelope end to end: the catalog must hold WRAPPED blobs, and an unenveloped reader must be refused
+# group: [encryption]
+
+#
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# WRITTEN TO REDDEN main (87068373). See issue #52.
+#
+# This is the end-to-end envelope coverage #52 says does not exist. Every other
+# encrypted fixture in this tree reaches `PrepareFileKeysForCommit`'s base64
+# branch (`src/storage/ducklake_envelope_guards.cpp:200-205`) and none reaches
+# the `encryption_provider` branch at `:178`. This file attaches with
+# ENCRYPTION_SOCKET / ENCRYPTION_LAKE_ID against a reachable fake KMS and
+# asserts, four independent ways, that the envelope actually engaged.
+#
+# WHAT MAKES IT RED, and why each assertion is not vacuous
+# --------------------------------------------------------
+#   1. THE OPLOG. `wrap_batch` must appear in the fake's operation log. This is
+#      the assertion that cannot be satisfied by accident: it is a claim about a
+#      call that either crossed the socket or did not. On main the log contains
+#      `health` and nothing else - the provider is constructed, the self-test
+#      passes, and then no key is ever wrapped.
+#   2. THE COLUMN SHAPE. `encryption_key` must carry the `RExL` prefix
+#      (base64 of the "DLK1" blob header) that `LooksWrapped` keys on. On main
+#      it holds 24 characters of base64 - the plaintext AES-128 DEK.
+#   3. THE LENGTH. A wrapped blob is longer than the 24/32/44 characters a bare
+#      base64 DEK occupies. Asserted separately from (2) so a fake that emitted
+#      the magic and nothing else could not satisfy both.
+#   4. THE UNENVELOPED READER. The same lake, re-attached with NO envelope
+#      options, must be REFUSED by `RefuseWrappedKeyWithoutProvider`. This is
+#      the assertion that says what the envelope is FOR: if it passes, the
+#      catalog plus the data files are enough to read the lake without the KMS,
+#      and the envelope protects nothing. On main it does not refuse - it
+#      returns the rows.
+#
+# The round trip in the middle is genuine: the rows are written through the real
+# write path and read back through the real read path, so a wrong key cannot
+# produce the asserted row set - it throws, or it returns garbage.
+#
+
+require ducklake
+
+require parquet
+
+require httpfs
+
+# ^ NOT decoration: writing an ENCRYPTED parquet file needs the mbedtls
+# write path httpfs carries. Without it every CREATE TABLE dies with
+# "DuckDB currently has a read-only crypto module loaded" - measured.
+# A missing httpfs SKIPS this file, and a skip exits zero, which is why
+# the runner refuses any output without the word "assertions".
+
+require-env DUCKLAKE_FAKE_KMS_SOCKET
+
+require-env DUCKLAKE_FAKE_KMS_OPLOG
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/envelope_e2e.db' AS lk (DATA_PATH '__TEST_DIR__/envelope_e2e_files', ENCRYPTED, METADATA_CATALOG 'lk_meta', ENCRYPTION_SOCKET '${DUCKLAKE_FAKE_KMS_SOCKET}', ENCRYPTION_LAKE_ID 'sql-fixture')
+
+statement ok
+CREATE TABLE lk.t AS SELECT i AS id FROM range(100) t(i)
+
+statement ok
+INSERT INTO lk.t SELECT i FROM range(100, 200) t(i)
+
+# (1) the wrap actually crossed the socket
+query I
+SELECT count(*) > 0 FROM read_csv('${DUCKLAKE_FAKE_KMS_OPLOG}', columns={'op': 'VARCHAR', 'n': 'BIGINT'}, header=false) WHERE op = 'wrap_batch'
+----
+true
+
+# (2) every stored key carries the wrapped-blob magic
+query I
+SELECT count(*) FROM lk_meta.ducklake_data_file WHERE encryption_key IS NULL OR NOT starts_with(encryption_key, 'RExL')
+----
+0
+
+# (3) and is longer than any bare base64 DEK
+query I
+SELECT count(*) FROM lk_meta.ducklake_data_file WHERE length(encryption_key) <= 44
+----
+0
+
+# the round trip reads back through the real unwrap
+query II
+SELECT count(*), sum(id) FROM lk.t
+----
+200	19900
+
+statement ok
+CALL ducklake_merge_adjacent_files('lk')
+
+# the compaction's OWN new file is wrapped too - the pairing loop in
+# ducklake_transaction.cpp is proven only on the base64 path otherwise
+query I
+SELECT count(*) FROM lk_meta.ducklake_data_file WHERE encryption_key IS NULL OR NOT starts_with(encryption_key, 'RExL')
+----
+0
+
+query II
+SELECT count(*), sum(id) FROM lk.t
+----
+200	19900
+
+statement ok
+DETACH lk
+
+# (4) THE POSITIVE CONTROL FOR THE WHOLE FILE. Re-attach the same lake with no
+# envelope options. If the blobs above are genuinely wrapped, this refuses; if
+# they are plaintext DEKs, this reads the data and the envelope was never
+# anything. A refused ATTACH would not be enough on its own - the refusal fires
+# at READ time, on the key row - so the SELECT is what is asserted.
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/envelope_e2e.db' AS bare (DATA_PATH '__TEST_DIR__/envelope_e2e_files', METADATA_CATALOG 'bare_meta')
+
+# `sum(id)`, and NOT `count(*)`: DuckLake answers an unfiltered `count(*)` from
+# ducklake_table_stats without opening a single Parquet file, so it never
+# reaches the wrapped-key check and returns 200 on a perfectly healthy
+# enveloped lake. As the positive control for this file that assertion could
+# never fail - measured, run 32761554440. Do not put `count(*)` back. Any
+# column-touching query works; the sibling fixture
+# envelope_unenveloped_reader_refusal.test pins all three shapes.
+statement error
+SELECT sum(id) FROM bare.t
+----
+carries a wrapped encryption key, but this lake was attached without
