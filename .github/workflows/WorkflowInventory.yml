@@ -1,0 +1,90 @@
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# The Actions tab must not advertise a check this repository does not have.
+#
+# GitHub keeps a workflow record alive after its file leaves every branch. The
+# record stays `active`, keeps its run history, and keeps its NAME - so a reader
+# of the Actions tab sees a live-looking check that cannot run. #36 found two:
+# `Crypta Refusal Tests` and `Storage-Layer Mutants`, both `active`, neither on
+# any ref, neither run since 2026-08-10, and both RED the last time they did.
+#
+# The name is the damage. "Crypta Refusal Tests" is, by its name, the suite that
+# asserts the envelope layer refuses what it must refuse - the surface #18 and
+# the wrap-on-write work turn on. A suite that cannot run reports nothing, and
+# nothing reads identically to nothing-wrong.
+#
+# The question asked is deliberately narrow: does the advertised workflow's file
+# exist on ANY ref? Not "is it on main" - a workflow added on a feature branch is
+# registered active the moment it is pushed and RUNS there, so reddening on that
+# would red every branch that adds a workflow. Not "did it pass", and not "did it
+# run recently" either; those are the workflow's own business. This checks the one
+# thing that makes every other reading of the tab meaningless.
+
+name: Workflow Inventory
+
+on:
+  push:
+    branches: [main, 'release/**']
+  pull_request:
+  schedule:
+    # A workflow becomes a ghost when a BRANCH is deleted, which produces no
+    # pull request and touches no file here. The daily run is what actually
+    # catches that; the push and pull-request triggers only catch this side
+    # moving.
+    - cron: '41 6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  inventory:
+    name: Every advertised workflow has a file
+    runs-on: ubuntu-latest
+    steps:
+      # Full history and all refs: the question is about every branch, not this
+      # one, and a shallow single-branch clone could not answer it.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # FIRST, because it decides whether the step after it means anything.
+      - name: The inventory check reds on a planted ghost
+        run: .github/scripts/workflow_inventory_control.sh
+
+      - name: Collect the workflow paths present on some ref
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*'
+          # `for-each-ref` rather than parsing `branch -r`: the latter carries a
+          # `origin/HEAD -> origin/main` line that is not a ref name.
+          #
+          # A `while read` over a PIPE runs its body in a subshell, so an `exit 1`
+          # inside it is swallowed. Nothing here needs to exit, but the redirect
+          # form is used anyway so a later edit cannot inherit that trap.
+          : > /tmp/paths.txt
+          while read -r ref; do
+            git ls-tree -r --name-only "${ref}" -- .github/workflows/ 2>/dev/null || true
+          done < <(git for-each-ref --format='%(refname)' refs/remotes/origin) | sort -u > /tmp/paths.txt
+          echo "workflow files present on some ref:"
+          sed 's/^/  /' /tmp/paths.txt
+
+      - name: No advertised workflow may be a ghost
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh api "repos/${GITHUB_REPOSITORY}/actions/workflows?per_page=100" > /tmp/workflows.json; then
+            echo "::error::could not list this repository's workflows - the inventory could not be taken, so it must not be reported clean"
+            exit 1
+          fi
+          python3 .github/scripts/workflow_inventory.py /tmp/workflows.json /tmp/paths.txt
