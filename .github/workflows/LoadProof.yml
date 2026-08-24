@@ -93,18 +93,63 @@ jobs:
             SELECT count(*) AS rows_after_reattach, sum(x) AS checksum FROM lake2.t;
           "
 
+      # A PLAINTEXT lake built the same way, as the positive control for the
+      # ciphertext assertion below. Without it, "the plain-parquet read was
+      # refused" is an absence assertion with nothing proving it can fire -
+      # and read_parquet refuses an EMPTY glob with the same non-zero exit,
+      # so a lake that wrote nothing would read as perfectly encrypted.
+      - name: Build the plaintext control lake
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/plainfiles /tmp/plain.db
+          mkdir -p /tmp/plainfiles
+          ./duckdb/build/release/duckdb -unsigned -c "
+            LOAD httpfs;
+            LOAD '/tmp/ducklake.duckdb_extension';
+            ATTACH 'ducklake:/tmp/plain.db' AS plain (DATA_PATH '/tmp/plainfiles/', DATA_INLINING_ROW_LIMIT 0);
+            CREATE TABLE plain.t AS SELECT range AS x FROM range(5);
+            DETACH plain;
+          "
+
       - name: PROVE the data files are actually ciphertext
         run: |
           set -euxo pipefail
-          find /tmp/lakefiles -type f | head -50
-          n=$(find /tmp/lakefiles -name '*.parquet' | wc -l)
-          echo "parquet files on disk: $n"
-          if [ "$n" -eq 0 ]; then
-            echo "no parquet files written - ciphertext assertion not exercised" >&2
-            exit 0
-          fi
+
+          # Magic bytes are the discriminator: DuckDB writes 'PAR1' for a plain
+          # parquet and 'PARE' for an encrypted one. Asserting the POSITIVE
+          # value cannot pass vacuously the way "some command failed" can.
+          assert_magic() {
+            dir="$1"; want="$2"; label="$3"
+            n=$(find "$dir" -name '*.parquet' | wc -l)
+            echo "$label: $n parquet file(s) under $dir"
+            if [ "$n" -eq 0 ]; then
+              echo "::error:: $label wrote NO parquet files, so the assertion was never exercised. Failing: a lake that writes nothing must never read as a pass." >&2
+              exit 1
+            fi
+            # Process substitution, NOT a pipe: `exit 1` inside a piped
+            # `while` runs in a subshell and the step still passes.
+            while read -r f; do
+              got=$(head -c 4 "$f")
+              if [ "$got" != "$want" ]; then
+                echo "::error:: $label: $f starts with '$got', expected '$want'." >&2
+                exit 1
+              fi
+            done < <(find "$dir" -name '*.parquet')
+          }
+
+          assert_magic /tmp/lakefiles  PARE "encrypted lake"
+          assert_magic /tmp/plainfiles PAR1 "plaintext control"
+
+          # Now the behavioural pair, which must go OPPOSITE ways. Both
+          # directions are asserted, so neither can pass by accident.
           if ./duckdb/build/release/duckdb -unsigned -c "SELECT count(*) FROM read_parquet('/tmp/lakefiles/**/*.parquet');"; then
-            echo "FAIL: encrypted data files were readable as plain parquet" >&2
+            echo "::error:: encrypted data files were readable as plain parquet" >&2
             exit 1
           fi
-          echo "OK: plain-parquet read of the encrypted files was refused"
+          echo "OK: plain-parquet read of the ENCRYPTED files was refused"
+
+          if ! ./duckdb/build/release/duckdb -unsigned -c "SELECT count(*) FROM read_parquet('/tmp/plainfiles/**/*.parquet');"; then
+            echo "::error:: the plaintext control was ALSO unreadable, so the refusal above proves nothing about encryption" >&2
+            exit 1
+          fi
+          echo "OK: the plaintext control read back, so the refusal above is specific to encryption"
