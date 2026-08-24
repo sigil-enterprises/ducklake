@@ -5,8 +5,12 @@ cmake-build-debug
 duckdb_unittest_tempdir/
 .DS_Store
 testext
-test/python/__pycache__/
+__pycache__/
+*.py[cod]
 .Rhistory
 scripts/data/
 duckdb_benchmark_data/
 .cache/
+
+# Agent state never ships in the tree (see issue #29); rules resolve at runtime.
+.claude/
