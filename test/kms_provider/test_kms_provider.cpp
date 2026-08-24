@@ -32,7 +32,10 @@
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/types/blob.hpp"
 #include "duckdb/common/types/string_type.hpp"
+#include "duckdb/common/helper.hpp"
 
+#include <cerrno>
+#include <cstdio>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -167,6 +170,16 @@ public:
 		if (lake_id.empty()) {
 			throw InvalidInputException("test kms provider: ENCRYPTION_LAKE_ID is empty - every key is scoped "
 			                            "by it, so an empty one would bind keys to nothing");
+		}
+		// This provider caches nothing, so the TTL bounds nothing here. It is
+		// still REFUSED when out of range rather than ignored: a fixture that
+		// set an out-of-range TTL and saw it accepted would be learning
+		// something false about the option.
+		int64_t ttl_ceiling = MAX_CACHE_TTL_SECONDS;
+		if (ttl_seconds <= 0 || ttl_seconds > ttl_ceiling) {
+			throw InvalidInputException("test kms provider: encryption_cache_ttl_seconds is %s, which is "
+			                            "outside 1..%s",
+			                            std::to_string(ttl_seconds), std::to_string(ttl_ceiling));
 		}
 	}
 
