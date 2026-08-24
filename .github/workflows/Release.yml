@@ -14,6 +14,13 @@ name: Release (linux_amd64 asset)
 #      other carries no information.
 #   3. the publish REFUSES - exit non-zero WITH an ::error:: annotation - rather
 #      than reporting success when it publishes nothing (#37).
+#   4. it LOADS into the released duckdb the pin names, BEFORE it is attached.
+#      duckdb derives the entrypoint it dlsyms from the FILE NAME, so a
+#      perfectly good extension published under the name #33 literally asks for
+#      is unloadable; run 32765364900 measured exactly that, on this pipeline's
+#      own output. Every gate therefore runs on the CANDIDATE first - an upload
+#      is irreversible, and a gate downstream of an irreversible step is not a
+#      gate - and then again on the bytes read back off the release.
 #
 # On #37: the `Deploy to nightly` jobs this repo used to run came from
 # duckdb/extension-ci-tools' reusable deploy workflow, invoked with an S3 secret
@@ -113,6 +120,23 @@ jobs:
             --real-providerless /tmp/control/elf \
             --real-providerless /tmp/control/pe
 
+      - name: Obtain the released duckdb CLI the pin names
+        run: |
+          set -euxo pipefail
+          version="$(cat .github/duckdb-version)"
+          curl -fsSL -o /tmp/cli.zip \
+            "https://github.com/duckdb/duckdb/releases/download/${version}/duckdb_cli-linux-amd64.zip" \
+            || { echo "::error::cannot obtain the duckdb ${version} CLI, so the asset-name control cannot be run. Refusing rather than skipping - a skip exits ZERO and reads as a pass."; exit 1; }
+          unzip -o /tmp/cli.zip -d /tmp/cli
+          /tmp/cli/duckdb --version
+
+      # duckdb derives the entrypoint it dlsyms from the FILE NAME, so the name
+      # the pipeline publishes under is load-determining. Both verdicts on one
+      # real binary: the loadable spelling must LOAD, and the spelling that
+      # shipped to v0.2.0-rc.4 must be refused FOR THE ENTRYPOINT REASON.
+      - name: PROVE the asset-name rule fires in both directions
+        run: bash .github/scripts/selftest_asset_name.sh /tmp/cli/duckdb /tmp/control/elf
+
       - name: PROVE the publish gate refuses a release that published nothing
         run: bash .github/scripts/refuse_unpublished_release.sh --selftest
 
@@ -149,12 +173,22 @@ jobs:
           tag="${{ github.event.release.tag_name || inputs.tag }}"
           if [ -z "$tag" ]; then tag="$(git rev-parse --short HEAD)"; fi
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          # #33 asks for `ducklake-<version>-<platform>.duckdb_extension`. The
-          # extra `-duckdb-<ver>` segment is a deliberate deviation: a
+          # #33 asks for `ducklake-<version>-<platform>.duckdb_extension`, and
+          # that EXACT spelling produces an UNLOADABLE asset. duckdb derives the
+          # entrypoint it dlsyms from the FILE NAME - everything up to the first
+          # `.` of the basename, plus `_duckdb_cpp_init` - so
+          # `ducklake-v0.2.0-rc.4-...` makes it look for
+          # `ducklake-v0_duckdb_cpp_init` and refuse the load. Measured on run
+          # 32765364900, job 97559586694, on the asset this pipeline itself
+          # attached to v0.2.0-rc.4.
+          #
+          # So: DOT-separated, `ducklake` first. The platform is still in the
+          # name, as #33 requires, and so is the duckdb version - a
           # .duckdb_extension only loads into a duckdb whose version string
-          # matches exactly, so which duckdb it is for is load-determining and
-          # belongs in the name beside the platform.
-          echo "asset=ducklake-${tag}-duckdb-${{ steps.pin.outputs.version }}-linux_amd64.duckdb_extension" >> "$GITHUB_OUTPUT"
+          # matches exactly, so which duckdb it is for is load-determining.
+          # .github/scripts/selftest_asset_name.sh proves both halves of the
+          # rule on one real binary, every run.
+          echo "asset=ducklake.linux_amd64.${tag}.duckdb-${{ steps.pin.outputs.version }}.duckdb_extension" >> "$GITHUB_OUTPUT"
 
       # The provider is private and lives out of tree. sigil-pt is installed on
       # every repo in the org and its secrets are visible to public repos, which
@@ -252,40 +286,17 @@ jobs:
           name: ${{ needs.build.outputs.asset }}
           path: /tmp/in
 
-      - name: Attach the asset to the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name || inputs.tag }}
-        run: |
-          set -euo pipefail
-          gh release upload "$TAG" "/tmp/in/${{ needs.build.outputs.asset }}" \
-            --clobber --repo "$GITHUB_REPOSITORY" \
-            || { echo "::error::gh release upload failed for ${TAG}. Nothing was attached. Refusing with an annotation rather than exiting bare non-zero - a bare non-zero is a crash, and a crash says nothing about the release."; exit 1; }
-
-      # NOT the upload step's exit code. An upload that reported success and
-      # attached nothing is the exact failure #37 records, so its own word is
-      # not evidence; the release is read back from the API.
-      - name: REFUSE a publish that published nothing
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name || inputs.tag }}
-          REQUIRE_PLATFORM_IN_NAME: '1'
-        run: |
-          bash .github/scripts/refuse_unpublished_release.sh \
-            "$GITHUB_REPOSITORY" "$TAG" "${{ needs.build.outputs.asset }}"
-
-      - name: Download the PUBLISHED asset back off the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      # Obtained once, used three times: the asset-name control, the gate on the
+      # CANDIDATE, and the gate on the PUBLISHED bytes.
+      - name: Obtain the released duckdb CLI the pin names
         run: |
           set -euxo pipefail
-          mkdir -p /tmp/published
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
-            --pattern "${{ needs.build.outputs.asset }}" --dir /tmp/published --clobber \
-            || { echo "::error::cannot download ${{ needs.build.outputs.asset }} back off ${TAG}. The upload reported success; the release does not carry it. That disagreement is the whole reason this step reads the release rather than trusting the upload."; exit 1; }
-          ls -l /tmp/published
-          sha256sum /tmp/published/* /tmp/in/*
+          version="$(cat .github/duckdb-version)"
+          curl -fsSL -o /tmp/cli.zip \
+            "https://github.com/duckdb/duckdb/releases/download/${version}/duckdb_cli-linux-amd64.zip" \
+            || { echo "::error::cannot obtain the duckdb ${version} CLI, so no loadability verdict is possible. Refusing rather than skipping - a skip exits ZERO and reads as a pass."; exit 1; }
+          unzip -o /tmp/cli.zip -d /tmp/cli
+          /tmp/cli/duckdb --version
 
       # #46, against the bytes that ship, with BOTH ends of the measurement in
       # one run: the pinned REAL provider-less asset, which the gate must
@@ -338,9 +349,73 @@ jobs:
             exit 1
           fi
 
+      # duckdb derives the entrypoint symbol from the FILE NAME, so a
+      # provider-linked artifact published under the wrong name is unloadable.
+      # Proven in BOTH directions on ONE real binary - the pinned upstream
+      # ducklake build for this same duckdb - so a green is attributable to the
+      # naming rule and to nothing else about the file.
+      - name: PROVE the naming scheme is the loadable one
+        run: bash .github/scripts/selftest_asset_name.sh /tmp/cli/duckdb /tmp/control/elf
+
+      # BEFORE the upload, not after. An earlier cut attached first and gated
+      # second, and on run 32765364900 that put an asset duckdb cannot load onto
+      # v0.2.0-rc.4: the job went red, correctly, and the bad bytes were already
+      # on the release and stayed there. A gate downstream of the irreversible
+      # step is not a gate.
+      - name: ASSERT the provider is linked into the CANDIDATE, and that the gate refuses a real provider-less one
+        run: |
+          bash .github/scripts/selftest_provider_gate.sh \
+            --real-providerless /tmp/control/elf \
+            --real-providerless /tmp/control/pe \
+            "/tmp/in/${{ needs.build.outputs.asset }}"
+
+      - name: PROVE the CANDIDATE loads into the released duckdb CLI
+        run: |
+          set -euxo pipefail
+          version="$(cat .github/duckdb-version)"
+          bash .github/scripts/load_proof_cli.sh /tmp/cli/duckdb \
+            "/tmp/in/${{ needs.build.outputs.asset }}" \
+            || { echo "::error::the candidate asset does not load into the released duckdb ${version} CLI. Refusing to ATTACH it. Compilation is not loadability, and an unloadable asset on a release is worse than no asset."; exit 1; }
+
+      - name: Attach the asset to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" "/tmp/in/${{ needs.build.outputs.asset }}" \
+            --clobber --repo "$GITHUB_REPOSITORY" \
+            || { echo "::error::gh release upload failed for ${TAG}. Nothing was attached. Refusing with an annotation rather than exiting bare non-zero - a bare non-zero is a crash, and a crash says nothing about the release."; exit 1; }
+
+      # NOT the upload step's exit code. An upload that reported success and
+      # attached nothing is the exact failure #37 records, so its own word is
+      # not evidence; the release is read back from the API.
+      - name: REFUSE a publish that published nothing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          REQUIRE_PLATFORM_IN_NAME: '1'
+        run: |
+          bash .github/scripts/refuse_unpublished_release.sh \
+            "$GITHUB_REPOSITORY" "$TAG" "${{ needs.build.outputs.asset }}"
+
+      - name: Download the PUBLISHED asset back off the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/published
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "${{ needs.build.outputs.asset }}" --dir /tmp/published --clobber \
+            || { echo "::error::cannot download ${{ needs.build.outputs.asset }} back off ${TAG}. The upload reported success; the release does not carry it. That disagreement is the whole reason this step reads the release rather than trusting the upload."; exit 1; }
+          ls -l /tmp/published
+          sha256sum /tmp/published/* /tmp/in/*
+
+      # The same two gates again, on the bytes READ BACK OFF THE RELEASE. The
+      # candidate passing says nothing about what the release actually carries.
       - name: ASSERT the provider is linked into the PUBLISHED asset, and that the gate refuses a real provider-less one
         run: |
-          . .github/provider-less-control
           bash .github/scripts/selftest_provider_gate.sh \
             --real-providerless /tmp/control/elf \
             --real-providerless /tmp/control/pe \
@@ -352,10 +427,6 @@ jobs:
         run: |
           set -euxo pipefail
           version="$(cat .github/duckdb-version)"
-          curl -fsSL -o /tmp/cli.zip \
-            "https://github.com/duckdb/duckdb/releases/download/${version}/duckdb_cli-linux-amd64.zip"
-          unzip -o /tmp/cli.zip -d /tmp/cli
-          /tmp/cli/duckdb --version
           bash .github/scripts/load_proof_cli.sh /tmp/cli/duckdb \
             "/tmp/published/${{ needs.build.outputs.asset }}" \
             || { echo "::error::the PUBLISHED asset does not load into the released duckdb ${version} CLI. Compilation is not loadability; this is the artifact consumers install."; exit 1; }
