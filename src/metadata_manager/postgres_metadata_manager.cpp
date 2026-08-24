@@ -24,7 +24,6 @@ bool PostgresMetadataManager::TypeIsNativelySupported(const LogicalType &type) {
 	case LogicalTypeId::DATE:
 	case LogicalTypeId::TIMESTAMP:
 	case LogicalTypeId::TIMESTAMP_TZ:
-	case LogicalTypeId::TIMESTAMP_TZ_NS:
 	case LogicalTypeId::TIMESTAMP_SEC:
 	case LogicalTypeId::TIMESTAMP_MS:
 	case LogicalTypeId::TIMESTAMP_NS:
@@ -70,7 +69,6 @@ string PostgresMetadataManager::GetColumnTypeInternal(const LogicalType &column_
 	case LogicalTypeId::DATE:
 	case LogicalTypeId::TIMESTAMP:
 	case LogicalTypeId::TIMESTAMP_TZ:
-	case LogicalTypeId::TIMESTAMP_TZ_NS:
 	case LogicalTypeId::TIMESTAMP_SEC:
 	case LogicalTypeId::TIMESTAMP_MS:
 	case LogicalTypeId::TIMESTAMP_NS:
@@ -182,16 +180,9 @@ string PostgresMetadataManager::GenerateFileColumnStatsCTEBody(const CTERequirem
 // We need a specialized function here to do a reinterpret for postgres from BLOB to VARCHAR
 shared_ptr<DuckLakeInlinedData>
 PostgresMetadataManager::TransformInlinedData(QueryResult &result, const vector<LogicalType> &expected_types) {
-	if (result.HasError()) {
-		result.GetErrorObject().Throw("Failed to read inlined data from DuckLake: ");
-	}
 	bool needs_reinterpret = false;
 	if (!expected_types.empty()) {
-		if (result.types.size() < expected_types.size()) {
-			throw InvalidInputException(
-			    "Failed to read inlined data from DuckLake: expected %llu columns but read %llu", expected_types.size(),
-			    result.types.size());
-		}
+		D_ASSERT(expected_types.size() == result.types.size());
 		for (idx_t i = 0; i < expected_types.size(); i++) {
 			if (result.types[i] != expected_types[i]) {
 				D_ASSERT(result.types[i].id() == LogicalTypeId::BLOB &&
@@ -204,6 +195,9 @@ PostgresMetadataManager::TransformInlinedData(QueryResult &result, const vector<
 		return DuckLakeMetadataManager::TransformInlinedData(result, expected_types);
 	}
 
+	if (result.HasError()) {
+		result.GetErrorObject().Throw("Failed to read inlined data from DuckLake: ");
+	}
 	auto context = transaction.context.lock();
 	auto data = make_uniq<ColumnDataCollection>(*context, expected_types);
 	DataChunk reinterpret_chunk;
@@ -216,11 +210,7 @@ PostgresMetadataManager::TransformInlinedData(QueryResult &result, const vector<
 		for (idx_t i = 0; i < expected_types.size(); i++) {
 			reinterpret_chunk.data[i].Reinterpret(chunk->data[i]);
 		}
-		// Use SetChildCardinality (not SetCardinality): on current duckdb SetCardinality only updates the
-		// chunk count, while ColumnDataCollection::Append reads each vector via ToUnifiedFormat(), which
-		// relies on the vector's own size. SetChildCardinality also FlatVector::SetSize()s every vector, so
-		// the reinterpreted (BLOB->VARCHAR) vectors are sized to the row count and the rows are appended.
-		reinterpret_chunk.SetChildCardinality(chunk->size());
+		reinterpret_chunk.SetCardinality(chunk->size());
 		data->Append(reinterpret_chunk);
 	}
 	auto inlined_data = make_shared_ptr<DuckLakeInlinedData>();

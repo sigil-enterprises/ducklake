@@ -13,7 +13,6 @@
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/parallel/thread_context.hpp"
 #include "duckdb/planner/table_filter.hpp"
-#include "duckdb/planner/table_filter_set.hpp"
 #include "storage/ducklake_metadata_info.hpp"
 
 namespace duckdb {

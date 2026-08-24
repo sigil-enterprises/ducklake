@@ -1,7 +1,4 @@
 #include "duckdb.hpp"
-#include "duckdb/catalog/catalog.hpp"
-#include "duckdb/main/attached_database.hpp"
-#include "duckdb/parser/parsed_data/attach_info.hpp"
 
 #include "storage/ducklake_catalog.hpp"
 #include "storage/ducklake_secret.hpp"
@@ -68,12 +65,6 @@ static void HandleDuckLakeOption(DuckLakeOptions &options, const string &option,
 		options.automatic_migration = BooleanValue::Get(value.DefaultCastAs(LogicalType::BOOLEAN));
 	} else if (lcase == "busy_timeout") {
 		options.busy_timeout = UBigIntValue::Get(value.DefaultCastAs(LogicalType::UBIGINT));
-	} else if (lcase == "ducklake_version") {
-		auto version = DuckLakeVersionFromString(value.ToString());
-		if (version < DuckLakeVersion::V1_0) {
-			throw InvalidInputException("ducklake_version must be >= '1.0', got '%s'", value.ToString());
-		}
-		options.ducklake_version = version;
 	} else {
 		throw NotImplementedException("Unsupported option %s for DuckLake", option);
 	}
@@ -107,7 +98,7 @@ static unique_ptr<Catalog> DuckLakeAttach(optional_ptr<StorageExtensionInfo> sto
 		// if we have a secret - handle the options
 		const auto &kv_secret = dynamic_cast<const KeyValueSecret &>(*secret->secret);
 		for (auto &entry : kv_secret.secret_map) {
-			HandleDuckLakeOption(options, entry.first.GetIdentifierName(), entry.second);
+			HandleDuckLakeOption(options, entry.first, entry.second);
 		}
 	}
 	options.access_mode = attach_options.access_mode;

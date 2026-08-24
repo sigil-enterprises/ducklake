@@ -9,13 +9,12 @@
 #pragma once
 
 #include "common/ducklake_encryption.hpp"
-#include "common/ducklake_version.hpp"
+#include "duckdb/planner/tableref/bound_at_clause.hpp"
+#include "duckdb/common/optional_idx.hpp"
 #include "common/index.hpp"
 #include "duckdb/common/common.hpp"
 #include "duckdb/common/enums/access_mode.hpp"
-#include "duckdb/common/optional_idx.hpp"
 #include "duckdb/common/types.hpp"
-#include "duckdb/planner/tableref/bound_at_clause.hpp"
 
 namespace duckdb {
 
@@ -38,8 +37,6 @@ struct DuckLakeOptions {
 	map<SchemaIndex, option_map_t> schema_options;
 	map<TableIndex, option_map_t> table_options;
 	idx_t busy_timeout = 5000;
-	DuckLakeVersion ducklake_version = DuckLakeVersion::UNSET;
-
 	//! KMS envelope encryption: Unix socket of the key service. NOT SUPPLIED
 	//! = no envelope, and the encryption_key column holds a plaintext key
 	//! exactly as upstream. Supplied but empty is a misconfiguration and is

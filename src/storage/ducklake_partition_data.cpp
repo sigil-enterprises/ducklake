@@ -1,13 +1,8 @@
 #include "storage/ducklake_partition_data.hpp"
-#include "common/ducklake_murmur3.hpp"
-#include "storage/ducklake_table_entry.hpp"
-#include "duckdb/common/hive_partitioning.hpp"
 #include "duckdb/common/types/value.hpp"
 #include "duckdb/function/function_binder.hpp"
 #include "duckdb/planner/expression.hpp"
 #include "duckdb/planner/expression/bound_constant_expression.hpp"
-
-#include <cstring>
 
 namespace duckdb {
 
@@ -39,16 +34,7 @@ string DuckLakePartitionUtils::GetPartitionKeyName(DuckLakeTransformType transfo
 	if (used_names.find(prefix) == used_names.end()) {
 		return prefix;
 	}
-	string base_name = prefix + "_" + field_name;
-	if (used_names.find(base_name) == used_names.end()) {
-		return base_name;
-	}
-	string candidate = base_name;
-	int counter = 2;
-	while (used_names.find(candidate) != used_names.end()) {
-		candidate = base_name + "_" + to_string(counter++);
-	}
-	return candidate;
+	return prefix + "_" + field_name;
 }
 
 string DuckLakePartitionUtils::GetPartitionSQLExpression(const DuckLakeTransform &transform, const string &col_name) {
@@ -98,55 +84,13 @@ string DuckLakePartitionUtils::BuildPartitionFilter(const vector<string> &partit
 	return filter;
 }
 
-string DuckLakePartitionUtils::BuildHivePartitionPath(DuckLakeTableEntry &table, const vector<Value> &partition_values,
-                                                      const string &separator) {
-	auto partition_data = table.GetPartitionData();
-	if (!partition_data) {
-		return string();
-	}
-	if (partition_data->fields.size() != partition_values.size()) {
-		throw InternalException("DuckLake partition value count does not match partition spec");
-	}
-	string result;
-	case_insensitive_set_t used_names;
-	for (auto &field : partition_data->fields) {
-		if (field.partition_key_index >= partition_values.size()) {
-			throw InternalException("DuckLake partition key index is out of range");
-		}
-		auto field_id = table.GetFieldData().GetByFieldIndex(field.field_id);
-		if (!field_id) {
-			throw InternalException("DuckLake partition field id not found");
-		}
-		auto partition_key_name = GetPartitionKeyName(field.transform.type, field_id->Name(), used_names);
-		used_names.insert(partition_key_name);
-
-		auto &partition_value = partition_values[field.partition_key_index];
-		string partition_value_str;
-		if (partition_value.IsNull()) {
-			// Keep this in sync with DuckDB's HivePartitioning::IsNull parser.
-			partition_value_str = "__HIVE_DEFAULT_PARTITION__";
-		} else {
-			partition_value_str = partition_value.ToString();
-		}
-		if (!result.empty()) {
-			result += separator;
-		}
-		result += HivePartitioning::Escape(partition_key_name) + "=" + HivePartitioning::Escape(partition_value_str);
-	}
-	if (!result.empty()) {
-		result += separator;
-	}
-	return result;
-}
-
 unique_ptr<Expression> DuckLakePartitionUtils::ApplyScalarFunction(ClientContext &context, const string &function_name,
                                                                    unique_ptr<Expression> column_expr) {
 	vector<unique_ptr<Expression>> children;
 	children.push_back(std::move(column_expr));
 	ErrorData error;
 	FunctionBinder binder(context);
-	auto function = binder.BindScalarFunction(Identifier::DefaultSchema(), Identifier(function_name),
-	                                          std::move(children), error, false);
+	auto function = binder.BindScalarFunction(DEFAULT_SCHEMA, function_name, std::move(children), error, false);
 	if (!function) {
 		error.Throw();
 	}
@@ -169,7 +113,7 @@ unique_ptr<Expression> DuckLakePartitionUtils::ApplyBucketTransform(ClientContex
 
 	ErrorData error;
 	FunctionBinder binder(context);
-	auto and_expr = binder.BindScalarFunction(Identifier::DefaultSchema(), "&", std::move(and_children), error, false);
+	auto and_expr = binder.BindScalarFunction(DEFAULT_SCHEMA, "&", std::move(and_children), error, false);
 	if (!and_expr) {
 		error.Throw();
 	}
@@ -178,7 +122,7 @@ unique_ptr<Expression> DuckLakePartitionUtils::ApplyBucketTransform(ClientContex
 	mod_children.push_back(std::move(and_expr));
 	mod_children.push_back(make_uniq<BoundConstantExpression>(Value::INTEGER(NumericCast<int32_t>(bucket_count))));
 
-	auto mod_expr = binder.BindScalarFunction(Identifier::DefaultSchema(), "%", std::move(mod_children), error, false);
+	auto mod_expr = binder.BindScalarFunction(DEFAULT_SCHEMA, "%", std::move(mod_children), error, false);
 	if (!mod_expr) {
 		error.Throw();
 	}

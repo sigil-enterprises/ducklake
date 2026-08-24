@@ -1,17 +1,16 @@
 #include "ducklake_extension.hpp"
-#include "common/ducklake_version.hpp"
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
-#include "duckdb/function/scalar_function.hpp"
+#include "storage/ducklake_storage.hpp"
+#include "storage/ducklake_scan.hpp"
+#include "functions/ducklake_table_functions.hpp"
+#include "storage/ducklake_secret.hpp"
 #include "duckdb/logging/log_manager.hpp"
+#include "duckdb/function/scalar_function.hpp"
 #include "duckdb/main/config.hpp"
 #include "duckdb/storage/storage_extension.hpp"
-#include "functions/ducklake_table_functions.hpp"
 #include "storage/ducklake_log_type.hpp"
-#include "storage/ducklake_scan.hpp"
-#include "storage/ducklake_secret.hpp"
-#include "storage/ducklake_storage.hpp"
 
 namespace duckdb {
 
@@ -62,8 +61,6 @@ static void LoadInternal(ExtensionLoader &loader) {
 	config.AddExtensionOption("ducklake_default_data_inlining_row_limit",
 	                          "Default row limit for data inlining (0 disables inlining)", LogicalType::UBIGINT,
 	                          Value::UBIGINT(10), nullptr, SetScope::GLOBAL);
-	config.AddExtensionOption("ducklake_default_version", "Default DuckLake version for new catalogs",
-	                          LogicalType::VARCHAR, Value(), nullptr, SetScope::GLOBAL);
 	auto set_target_file_size = [](ClientContext &, SetScope, Value &parameter) {
 		if (!parameter.IsNull() && !parameter.ToString().empty()) {
 			DBConfig::ParseMemoryLimit(parameter.ToString());

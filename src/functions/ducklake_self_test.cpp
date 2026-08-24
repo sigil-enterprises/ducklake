@@ -60,7 +60,7 @@ static unique_ptr<FunctionData> DuckLakeSelfTestBind(ClientContext &context, Tab
 	if (!input.inputs.empty() && !input.inputs[0].IsNull()) {
 		auto db_name = input.inputs[0].GetValue<string>();
 		auto &db_manager = DatabaseManager::Get(context);
-		auto db = db_manager.GetDatabase(context, Identifier(db_name));
+		auto db = db_manager.GetDatabase(context, db_name);
 		if (!db) {
 			throw InvalidInputException("ducklake_self_test: failed to find attached database \"%s\"", db_name);
 		}

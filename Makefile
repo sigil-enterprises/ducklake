@@ -9,13 +9,6 @@ DEFAULT_TEST_EXTENSION_DEPS=
 # For cloud testing we also need these extensions
 FULL_TEST_EXTENSION_DEPS=httpfs;postgres_scanner
 
-# Stabilize all tests in CI
-ifdef CI
-TEST_FLAGS:=--stabilize-tests
-endif
-# ~[.] excludes hidden/slow (.test_slow) tests
-T ?= $(TEST_FLAGS) "~[.]test/*"
-
 # Aws and Azure have vcpkg dependencies and therefore need vcpkg merging
 ifeq (${BUILD_EXTENSION_TEST_DEPS}, full)
 	USE_MERGED_VCPKG_MANIFEST:=1
@@ -23,9 +16,6 @@ endif
 
 # Include the Makefile from extension-ci-tools
 include extension-ci-tools/makefiles/duckdb_extension.Makefile
-
-unittest_relassert:
-	python3 duckdb/scripts/ci/run_tests.py build/relassert/test/unittest $(T)
 
 #### Local check gate (ducklake#27)
 # The included duckdb_extension.Makefile's format-check invokes plain
