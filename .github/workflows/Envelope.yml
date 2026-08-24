@@ -122,6 +122,15 @@ jobs:
       - name: KMS envelope end to end (issue #52)
         run: test/sql/encryption/run_envelope_e2e.sh
 
+      # Asserts the property envelope_e2e_wrapped_catalog.test's fourth
+      # assertion is aimed at, on queries that can actually carry it. That
+      # file asserts it on `SELECT count(*)`, which is answered from
+      # ducklake_table_stats without opening a file and so cannot fail on a
+      # healthy lake - see this fixture's header for the measurement.
+      - name: An unenveloped reader is refused (issue #52)
+        if: always()
+        run: test/sql/encryption/run_envelope_fixture.sh test/sql/encryption/envelope_unenveloped_reader_refusal.test
+
       - name: The crypta fixture group, with a key service behind it
         if: always()
         run: test/sql/crypta/run_sql_crypta_tests.sh
