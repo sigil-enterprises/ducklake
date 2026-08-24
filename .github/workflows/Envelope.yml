@@ -45,7 +45,7 @@ jobs:
     name: Envelope guards (no build)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Refuse a vacuous refusal assertion (issue #50)
         run: python3 scripts/ci/assert_refusal_assertions_distinguish.py
@@ -72,7 +72,7 @@ jobs:
           sudo apt-get update -y -qq
           sudo apt-get install -y -qq build-essential cmake ninja-build ccache python3
 
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: 'true'
