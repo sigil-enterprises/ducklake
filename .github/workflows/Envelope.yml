@@ -90,10 +90,18 @@ jobs:
           key: ${{ github.job }}
           save: ${{ github.ref == 'refs/heads/main' || github.repository != 'duckdb/ducklake' }}
 
+      # 84bab45d, NOT the a42af01b the other jobs use. This job builds with
+      # BUILD_EXTENSION_TEST_DEPS=full, which pulls httpfs and so curl, openssl,
+      # lz4, roaring and zlib. a42af01b's version database predates the versions
+      # the manifest asks for and vcpkg install dies with
+      #     error: no version database entry for curl at 8.17.0
+      # Measured twice, on two heads. Every workflow here that sets
+      # BUILD_EXTENSION_TEST_DEPS=full - Catalogs.yml, MinIO.yml - already pins
+      # 84bab45d; only the jobs that do not need the extra ports pin a42af01b.
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11.1
         with:
-          vcpkgGitCommitId: a42af01b72c28a8e1d7b48107b33e4f286a55ef6
+          vcpkgGitCommitId: 84bab45d415d22042bd0b9081aea57f362da3f35
 
       # The pickup hook is `if(EXISTS src/crypta-provider)`. Overlaying through
       # it, rather than teaching CMake a second path for tests, is deliberate:
