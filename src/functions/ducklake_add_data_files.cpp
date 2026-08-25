@@ -42,9 +42,9 @@ static unique_ptr<FunctionData> DuckLakeAddDataFilesBind(ClientContext &context,
 	}
 	const auto table_name = StringValue::Get(input.inputs[1]);
 
-	auto schema_path = schema_name.empty() ? vector<Identifier>() : vector<Identifier> {Identifier(schema_name)};
 	auto entry = catalog.GetEntry<TableCatalogEntry>(
-	    context, QualifiedName(std::move(schema_path), Identifier(table_name)), OnEntryNotFound::THROW_EXCEPTION);
+	    context, QualifiedName(Identifier(catalog.GetName()), Identifier(schema_name), Identifier(table_name)),
+	    OnEntryNotFound::THROW_EXCEPTION);
 	auto &table = entry->Cast<DuckLakeTableEntry>();
 
 	auto result = make_uniq<DuckLakeAddDataFilesData>(catalog, table);
