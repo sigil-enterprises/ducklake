@@ -153,7 +153,7 @@ vector<Value> DuckLakeSnapshotsFunction::GetSnapshotValues(const DuckLakeSnapsho
 }
 
 static unique_ptr<FunctionData> DuckLakeSnapshotsBind(ClientContext &context, TableFunctionBindInput &input,
-                                                      vector<LogicalType> &return_types, vector<string> &names) {
+                                                      vector<LogicalType> &return_types, vector<Identifier> &names) {
 	auto &catalog = DuckLakeBaseMetadataFunction::GetCatalog(context, input.inputs[0]);
 	auto &transaction = DuckLakeTransaction::Get(context, catalog);
 
@@ -164,7 +164,11 @@ static unique_ptr<FunctionData> DuckLakeSnapshotsBind(ClientContext &context, Ta
 		auto row_values = DuckLakeSnapshotsFunction::GetSnapshotValues(snapshot);
 		result->rows.push_back(std::move(row_values));
 	}
-	DuckLakeSnapshotsFunction::GetSnapshotTypes(return_types, names);
+	vector<string> string_names;
+	DuckLakeSnapshotsFunction::GetSnapshotTypes(return_types, string_names);
+	for (auto &name : string_names) {
+		names.emplace_back(std::move(name));
+	}
 	return std::move(result);
 }
 

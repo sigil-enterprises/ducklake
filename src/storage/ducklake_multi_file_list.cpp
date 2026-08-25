@@ -12,6 +12,7 @@
 #include "duckdb/main/secret/secret_manager.hpp"
 #include "duckdb/optimizer/filter_combiner.hpp"
 #include "duckdb/planner/table_filter.hpp"
+#include "duckdb/planner/filter/expression_filter.hpp"
 #include "storage/ducklake_table_entry.hpp"
 
 namespace duckdb {
@@ -55,19 +56,19 @@ void DuckLakeMultiFileList::AddFilterToPushdownInfo(FilterPushdownInfo &pushdown
 }
 
 unique_ptr<MultiFileList>
-DuckLakeMultiFileList::DynamicFilterPushdown(ClientContext &context, const MultiFileOptions &options,
-                                             const vector<string> &names, const vector<LogicalType> &types,
-                                             const vector<column_t> &column_ids, TableFilterSet &filters) const {
-	if (read_info.scan_type != DuckLakeScanType::SCAN_TABLE || filters.filters.empty()) {
+DuckLakeMultiFileList::DynamicFilterPushdown(MultiFileDynamicPushdownInfo &dynamic_pushdown_info) const {
+	auto &filters = dynamic_pushdown_info.filters;
+	auto &column_ids = dynamic_pushdown_info.column_ids;
+	if (read_info.scan_type != DuckLakeScanType::SCAN_TABLE || !filters.HasFilters()) {
 		// filter pushdown is only supported when scanning full tables
 		return nullptr;
 	}
 
 	auto pushdown_info = make_uniq<FilterPushdownInfo>();
 
-	for (auto &entry : filters.filters) {
-		auto column_id = column_ids[entry.first];
-		AddFilterToPushdownInfo(*pushdown_info, column_id, entry.second->Copy());
+	for (auto &entry : filters) {
+		auto column_id = column_ids[entry.GetIndex()];
+		AddFilterToPushdownInfo(*pushdown_info, column_id, entry.Filter().Cast<ExpressionFilter>().Copy());
 	}
 
 	if (pushdown_info->column_filters.empty()) {
@@ -94,14 +95,14 @@ unique_ptr<MultiFileList> DuckLakeMultiFileList::ComplexFilterPushdown(ClientCon
 	vector<FilterPushdownResult> pushdown_results;
 	auto table_filter_set = combiner.GenerateTableScanFilters(info.column_indexes, pushdown_results);
 
-	if (table_filter_set.filters.empty()) {
+	if (!table_filter_set.HasFilters()) {
 		return nullptr;
 	}
 
 	auto pushdown_info = filter_info ? filter_info->Copy() : make_uniq<FilterPushdownInfo>();
 
-	for (auto &entry : table_filter_set.filters) {
-		AddFilterToPushdownInfo(*pushdown_info, entry.first, std::move(entry.second));
+	for (auto &entry : table_filter_set) {
+		AddFilterToPushdownInfo(*pushdown_info, entry.GetIndex(), entry.TakeFilter());
 	}
 
 	if (pushdown_info->column_filters.empty()) {

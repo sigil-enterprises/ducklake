@@ -229,7 +229,7 @@ void DuckLakeServerSideCommit::ReadColumnTypes() {
 	                                schema_id, id_list);
 	auto result = RunQuery(query, "read column types");
 	for (auto &row : *result) {
-		column_types.emplace(ColumnKey {TableIndex(AsIdx(row, 0)), FieldIndex(AsIdx(row, 1))},
+		column_types.emplace(ColumnKey {DuckLakeTableIndex(AsIdx(row, 0)), FieldIndex(AsIdx(row, 1))},
 		                     DuckLakeTypes::FromString(row.GetValue<string>(2)));
 	}
 }
@@ -241,7 +241,7 @@ void DuckLakeServerSideCommit::ReadStagedDataFiles() {
 		auto stats_result = ScanStagedTable(DuckLakeStagedTableType::DATA_FILE_COLUMN_STATS);
 		for (auto &row : *stats_result) {
 			DataFileIndex local_file_id(AsIdx(row, 0));
-			ColumnKey key {TableIndex(AsIdx(row, 1)), FieldIndex(AsIdx(row, 2))};
+			ColumnKey key {DuckLakeTableIndex(AsIdx(row, 1)), FieldIndex(AsIdx(row, 2))};
 			auto type_it = column_types.find(key);
 			if (type_it == column_types.end()) {
 				continue;
@@ -262,7 +262,7 @@ void DuckLakeServerSideCommit::ReadStagedDataFiles() {
 		}
 	}
 
-	map<TableIndex, vector<DuckLakeDataFile>> files_per_table;
+	map<DuckLakeTableIndex, vector<DuckLakeDataFile>> files_per_table;
 	auto files_result = ScanStagedTable(DuckLakeStagedTableType::DATA_FILE);
 	for (auto &row : *files_result) {
 		DataFileIndex local_file_id(AsIdx(row, 0));
@@ -305,7 +305,7 @@ void DuckLakeServerSideCommit::ReadStagedDataFiles() {
 			compaction_output_files.emplace(AsIdx(row, 15), std::move(f));
 			continue;
 		}
-		files_per_table[TableIndex(AsIdx(row, 1))].push_back(std::move(f));
+		files_per_table[DuckLakeTableIndex(AsIdx(row, 1))].push_back(std::move(f));
 	}
 
 	for (auto &entry : files_per_table) {
@@ -314,11 +314,11 @@ void DuckLakeServerSideCommit::ReadStagedDataFiles() {
 }
 
 void DuckLakeServerSideCommit::ReadStagedInlinedData() {
-	map<TableIndex, bool> has_preserved_row_ids;
+	map<DuckLakeTableIndex, bool> has_preserved_row_ids;
 
 	auto meta_result = ScanStagedTable(DuckLakeStagedTableType::INLINED_DATA);
 	for (auto &row : *meta_result) {
-		has_preserved_row_ids[TableIndex(AsIdx(row, 0))] = row.GetValue<bool>(1);
+		has_preserved_row_ids[DuckLakeTableIndex(AsIdx(row, 0))] = row.GetValue<bool>(1);
 	}
 	if (has_preserved_row_ids.empty()) {
 		return;
@@ -326,7 +326,7 @@ void DuckLakeServerSideCommit::ReadStagedInlinedData() {
 
 	auto rows_result = ScanStagedTable(DuckLakeStagedTableType::INLINED_ROW);
 	for (auto &row : *rows_result) {
-		TableIndex table_id(AsIdx(row, 0));
+		DuckLakeTableIndex table_id(AsIdx(row, 0));
 		auto pt_it = has_preserved_row_ids.find(table_id);
 		if (pt_it == has_preserved_row_ids.end()) {
 			continue;
@@ -340,9 +340,9 @@ void DuckLakeServerSideCommit::ReadStagedInlinedData() {
 	}
 
 	auto stats_result = ScanStagedTable(DuckLakeStagedTableType::INLINED_COLUMN_STATS);
-	map<TableIndex, map<FieldIndex, DuckLakeColumnStats>> stats_per_table;
+	map<DuckLakeTableIndex, map<FieldIndex, DuckLakeColumnStats>> stats_per_table;
 	for (auto &row : *stats_result) {
-		TableIndex table_id(AsIdx(row, 0));
+		DuckLakeTableIndex table_id(AsIdx(row, 0));
 		FieldIndex column_id(AsIdx(row, 1));
 		auto type_it = column_types.find({table_id, column_id});
 		if (type_it == column_types.end()) {
@@ -381,7 +381,7 @@ void DuckLakeServerSideCommit::ReadStagedInlinedDeletes() {
 		grouped[{AsIdx(row, 0), row.GetValue<string>(1)}].insert(AsIdx(row, 2));
 	}
 	for (auto &entry : grouped) {
-		state->local_changes.AddNewInlinedDeletes(TableIndex(entry.first.table_id), entry.first.file_path,
+		state->local_changes.AddNewInlinedDeletes(DuckLakeTableIndex(entry.first.table_id), entry.first.file_path,
 		                                          std::move(entry.second));
 	}
 }
@@ -393,7 +393,7 @@ void DuckLakeServerSideCommit::ReadStagedInlinedFileDeletes() {
 		grouped[{AsIdx(row, 0), AsIdx(row, 1)}].insert(AsIdx(row, 2));
 	}
 	for (auto &entry : grouped) {
-		state->local_changes.AddNewInlinedFileDeletes(TableIndex(entry.first.table_id), entry.first.file_id,
+		state->local_changes.AddNewInlinedFileDeletes(DuckLakeTableIndex(entry.first.table_id), entry.first.file_id,
 		                                              std::move(entry.second));
 	}
 }
@@ -425,7 +425,7 @@ void DuckLakeServerSideCommit::ReadStagedDeleteFiles() {
 		grouped[key].push_back(std::move(f));
 	}
 	for (auto &entry : grouped) {
-		state->local_changes.AppendDeleteFiles(TableIndex(entry.first.table_id), entry.first.file_path,
+		state->local_changes.AppendDeleteFiles(DuckLakeTableIndex(entry.first.table_id), entry.first.file_path,
 		                                       std::move(entry.second));
 	}
 	for (auto &entry : attached_deletes_map) {
@@ -440,7 +440,7 @@ void DuckLakeServerSideCommit::ReadStagedDroppedFiles() {
 	}
 	auto tables = ScanStagedTable(DuckLakeStagedTableType::TABLES_DELETED_FROM);
 	for (auto &row : *tables) {
-		state->tables_deleted_from.insert(TableIndex(AsIdx(row, 0)));
+		state->tables_deleted_from.insert(DuckLakeTableIndex(AsIdx(row, 0)));
 	}
 }
 
@@ -457,7 +457,7 @@ void DuckLakeServerSideCommit::ReadStagedFlushedInlinedTables() {
 
 void DuckLakeServerSideCommit::ReadStagedCompactions() {
 	struct CompactionShell {
-		TableIndex table_id;
+		DuckLakeTableIndex table_id;
 		CompactionType type;
 		optional_idx row_id_start;
 		optional_idx output_local_file_id;
@@ -466,7 +466,7 @@ void DuckLakeServerSideCommit::ReadStagedCompactions() {
 	auto header_result = ScanStagedTable(DuckLakeStagedTableType::COMPACTION);
 	for (auto &row : *header_result) {
 		CompactionShell shell;
-		shell.table_id = TableIndex(AsIdx(row, 1));
+		shell.table_id = DuckLakeTableIndex(AsIdx(row, 1));
 		shell.type = CompactionTypeFromString(row.GetValue<string>(2));
 		shell.row_id_start = OptIdx(row, 3);
 		shell.output_local_file_id = OptIdx(row, 4);
@@ -542,7 +542,7 @@ void DuckLakeServerSideCommit::ReadStagedNameMaps() {
 	for (auto &row : *header_result) {
 		auto name_map = make_uniq<DuckLakeNameMap>();
 		name_map->id = MappingIndex(row.GetValue<uint64_t>(0));
-		name_map->table_id = TableIndex(AsIdx(row, 1));
+		name_map->table_id = DuckLakeTableIndex(AsIdx(row, 1));
 
 		auto entries_it = entries_by_map.find(name_map->id.index);
 		if (entries_it != entries_by_map.end()) {
@@ -608,7 +608,7 @@ unique_ptr<DuckLakeStats> DuckLakeServerSideCommit::BuildStatsMap(vector<DuckLak
 	return result;
 }
 
-vector<string> DuckLakeServerSideCommit::LookupInlinedTableNames(TableIndex table_id) {
+vector<string> DuckLakeServerSideCommit::LookupInlinedTableNames(DuckLakeTableIndex table_id) {
 	vector<string> names;
 	auto sql = SubstitutePlaceholders(DuckLakeMetadataManager::GetInlinedTableNamesSql(table_id), transaction_snapshot);
 	auto result = RunQuery(sql, "lookup inlined table names");
@@ -618,7 +618,7 @@ vector<string> DuckLakeServerSideCommit::LookupInlinedTableNames(TableIndex tabl
 	return names;
 }
 
-const string &DuckLakeServerSideCommit::ResolveInlinedTableName(TableIndex table_id) {
+const string &DuckLakeServerSideCommit::ResolveInlinedTableName(DuckLakeTableIndex table_id) {
 	auto it = inlined_table_name_cache.find(table_id.index);
 	if (it != inlined_table_name_cache.end()) {
 		return it->second;
@@ -706,14 +706,14 @@ DuckLakeCommitContext DuckLakeServerSideCommit::BuildContext(idx_t &committed_sn
 	                                const vector<DuckLakeTableInfo> &, const vector<DuckLakeTableInfo> &) -> string {
 		return BuildInlinedDataInserts(new_data);
 	};
-	ctx.get_table_stats = [this](TableIndex table_id) -> shared_ptr<DuckLakeTableStats> {
+	ctx.get_table_stats = [this](DuckLakeTableIndex table_id) -> shared_ptr<DuckLakeTableStats> {
 		auto it = existing_table_stats.find(table_id);
 		return it == existing_table_stats.end() ? nullptr : it->second;
 	};
 	ctx.build_stats_map = [this](vector<DuckLakeGlobalStatsInfo> &stats) {
 		return BuildStatsMap(stats);
 	};
-	ctx.get_table_column_schema = [this](TableIndex table_id) {
+	ctx.get_table_column_schema = [this](DuckLakeTableIndex table_id) {
 		vector<DuckLakeColumnSchemaEntry> schema;
 		auto sql =
 		    SubstitutePlaceholders(DuckLakeMetadataManager::GetTableColumnSchemaSql(table_id), transaction_snapshot);
@@ -726,10 +726,10 @@ DuckLakeCommitContext DuckLakeServerSideCommit::BuildContext(idx_t &committed_sn
 		}
 		return schema;
 	};
-	ctx.get_inlined_table_names = [this](TableIndex table_id) {
+	ctx.get_inlined_table_names = [this](DuckLakeTableIndex table_id) {
 		return LookupInlinedTableNames(table_id);
 	};
-	ctx.get_net_data_file_row_count = [this](TableIndex table_id) -> idx_t {
+	ctx.get_net_data_file_row_count = [this](DuckLakeTableIndex table_id) -> idx_t {
 		// The inlined-file-deletion table is deterministically named but created lazily.
 		// Probe its existence; if absent, the SQL omits the inlined-deletion subterm.
 		auto inlined_deletion_table = DuckLakeMetadataManager::InlinedFileDeletionTableName(table_id);
@@ -748,7 +748,7 @@ DuckLakeCommitContext DuckLakeServerSideCommit::BuildContext(idx_t &committed_sn
 		}
 		return 0;
 	};
-	ctx.get_net_inlined_row_count = [this](TableIndex table_id) -> idx_t {
+	ctx.get_net_inlined_row_count = [this](DuckLakeTableIndex table_id) -> idx_t {
 		idx_t total = 0;
 		for (auto &name : LookupInlinedTableNames(table_id)) {
 			auto sql =
@@ -793,13 +793,14 @@ unique_ptr<MaterializedQueryResult> DuckLakeServerSideCommit::RunQuery(const str
 unique_ptr<MaterializedQueryResult> DuckLakeServerSideCommit::ScanStagedTable(DuckLakeStagedTableType kind) {
 	string table_name = DuckLakeStagedTable::BaseName(kind);
 	auto &temp_catalog = Catalog::GetCatalog(context, TEMP_CATALOG);
-	auto &table_entry =
-	    temp_catalog.GetEntry<TableCatalogEntry>(context, DEFAULT_SCHEMA, table_name).Cast<DuckTableEntry>();
+	auto &table_entry = temp_catalog
+	                        .GetEntry<TableCatalogEntry>(context, Identifier(DEFAULT_SCHEMA), Identifier(table_name))
+	                        .Cast<DuckTableEntry>();
 	auto &storage = table_entry.GetStorage();
 
 	auto types = storage.GetTypes();
 	auto &columns = storage.Columns();
-	vector<string> names;
+	vector<Identifier> names;
 	vector<StorageIndex> column_ids;
 	for (idx_t i = 0; i < columns.size(); i++) {
 		names.push_back(columns[i].Name());

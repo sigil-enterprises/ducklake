@@ -170,7 +170,7 @@ SnapshotChangeInformation SnapshotChangeInformation::ParseChangesMade(const stri
 			result.dropped_schemas.insert(SchemaIndex(StringUtil::ToUnsigned(entry.change_value)));
 			break;
 		case ChangeType::DROPPED_TABLE:
-			result.dropped_tables.insert(TableIndex(StringUtil::ToUnsigned(entry.change_value)));
+			result.dropped_tables.insert(DuckLakeTableIndex(StringUtil::ToUnsigned(entry.change_value)));
 			break;
 		case ChangeType::DROPPED_SCALAR_MACRO:
 			result.dropped_scalar_macros.insert(MacroIndex(StringUtil::ToUnsigned(entry.change_value)));
@@ -179,37 +179,37 @@ SnapshotChangeInformation SnapshotChangeInformation::ParseChangesMade(const stri
 			result.dropped_table_macros.insert(MacroIndex(StringUtil::ToUnsigned(entry.change_value)));
 			break;
 		case ChangeType::DROPPED_VIEW:
-			result.dropped_views.insert(TableIndex(StringUtil::ToUnsigned(entry.change_value)));
+			result.dropped_views.insert(DuckLakeTableIndex(StringUtil::ToUnsigned(entry.change_value)));
 			break;
 		case ChangeType::INSERTED_INTO_TABLE:
-			result.inserted_tables.insert(TableIndex(StringUtil::ToUnsigned(entry.change_value)));
+			result.inserted_tables.insert(DuckLakeTableIndex(StringUtil::ToUnsigned(entry.change_value)));
 			break;
 		case ChangeType::DELETED_FROM_TABLE:
-			result.tables_deleted_from.insert(TableIndex(StringUtil::ToUnsigned(entry.change_value)));
+			result.tables_deleted_from.insert(DuckLakeTableIndex(StringUtil::ToUnsigned(entry.change_value)));
 			break;
 		case ChangeType::ALTERED_TABLE:
-			result.altered_tables.insert(TableIndex(StringUtil::ToUnsigned(entry.change_value)));
+			result.altered_tables.insert(DuckLakeTableIndex(StringUtil::ToUnsigned(entry.change_value)));
 			break;
 		case ChangeType::ALTERED_VIEW:
-			result.altered_views.insert(TableIndex(StringUtil::ToUnsigned(entry.change_value)));
+			result.altered_views.insert(DuckLakeTableIndex(StringUtil::ToUnsigned(entry.change_value)));
 			break;
 		case ChangeType::COMPACTED_TABLE:
-			result.tables_compacted.insert(TableIndex(StringUtil::ToUnsigned(entry.change_value)));
+			result.tables_compacted.insert(DuckLakeTableIndex(StringUtil::ToUnsigned(entry.change_value)));
 			break;
 		case ChangeType::MERGE_ADJACENT:
-			result.tables_merge_adjacent.insert(TableIndex(StringUtil::ToUnsigned(entry.change_value)));
+			result.tables_merge_adjacent.insert(DuckLakeTableIndex(StringUtil::ToUnsigned(entry.change_value)));
 			break;
 		case ChangeType::REWRITE_DELETE:
-			result.tables_rewrite_delete.insert(TableIndex(StringUtil::ToUnsigned(entry.change_value)));
+			result.tables_rewrite_delete.insert(DuckLakeTableIndex(StringUtil::ToUnsigned(entry.change_value)));
 			break;
 		case ChangeType::INSERTED_INTO_TABLE_INLINED:
-			result.tables_inserted_inlined.insert(TableIndex(StringUtil::ToUnsigned(entry.change_value)));
+			result.tables_inserted_inlined.insert(DuckLakeTableIndex(StringUtil::ToUnsigned(entry.change_value)));
 			break;
 		case ChangeType::DELETED_FROM_TABLE_INLINED:
-			result.tables_deleted_inlined.insert(TableIndex(StringUtil::ToUnsigned(entry.change_value)));
+			result.tables_deleted_inlined.insert(DuckLakeTableIndex(StringUtil::ToUnsigned(entry.change_value)));
 			break;
 		case ChangeType::FLUSHED_INLINE_DATA_FOR_TABLE:
-			result.tables_flushed_inlined.insert(TableIndex(StringUtil::ToUnsigned(entry.change_value)));
+			result.tables_flushed_inlined.insert(DuckLakeTableIndex(StringUtil::ToUnsigned(entry.change_value)));
 			break;
 		default:
 			throw InternalException("Unsupported change type in ParseChangesMade");

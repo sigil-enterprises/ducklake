@@ -6,6 +6,9 @@
 #include "storage/ducklake_table_entry.hpp"
 #include "storage/ducklake_transaction.hpp"
 #include "duckdb/common/types/column/column_data_collection.hpp"
+#include "duckdb/common/vector/struct_vector.hpp"
+#include "duckdb/common/vector/list_vector.hpp"
+#include "duckdb/common/vector/map_vector.hpp"
 
 namespace duckdb {
 
@@ -250,13 +253,13 @@ void UpdateStats(vector<DuckLakeBaseColumnStats> &stats, idx_t c, Vector &data, 
 		case LogicalTypeId::STRUCT: {
 			auto &children = StructVector::GetEntries(data);
 			for (idx_t child_idx = 0; child_idx < children.size(); child_idx++) {
-				UpdateStats(column_stats.children, child_idx, *children[child_idx], row_count,
+				UpdateStats(column_stats.children, child_idx, children[child_idx], row_count,
 				            field_id.GetChildByIndex(child_idx));
 			}
 			break;
 		}
 		case LogicalTypeId::LIST: {
-			auto &child = ListVector::GetEntry(data);
+			auto &child = ListVector::GetChildMutable(data);
 			UpdateStats(column_stats.children, 0, child, ListVector::GetListSize(data), field_id.GetChildByIndex(0));
 			break;
 		}
@@ -335,9 +338,10 @@ OperatorFinalResultType DuckLakeInlineData::OperatorFinalize(Pipeline &pipeline,
 		SetFinalStats(column_stats, *result);
 
 		if (column_stats.stats.null_count > 0) {
-			auto column_name = table.GetColumn(LogicalIndex(c)).GetName();
+			auto column_name = table.GetColumn(LogicalIndex(c)).GetName().GetIdentifierName();
 			if (not_null_fields.count(column_name)) {
-				throw ConstraintException("NOT NULL constraint failed: %s.%s", table.name, column_name);
+				throw ConstraintException("NOT NULL constraint failed: %s.%s", table.name.GetIdentifierName(),
+				                          column_name);
 			}
 		}
 	}
