@@ -58,7 +58,7 @@ struct DuckLakeSchemaSetting {
 };
 
 struct DuckLakeTableSetting {
-	TableIndex table_id;
+	DuckLakeTableIndex table_id;
 	DuckLakeTag tag;
 };
 
@@ -94,7 +94,7 @@ struct DuckLakeInlinedTableInfo {
 };
 
 struct DuckLakeTableInfo {
-	TableIndex id;
+	DuckLakeTableIndex id;
 	SchemaIndex schema_id;
 	string uuid;
 	string name;
@@ -155,7 +155,7 @@ struct DuckLakeFilePartitionInfo {
 
 struct DuckLakeFileInfo {
 	DataFileIndex id;
-	TableIndex table_id;
+	DuckLakeTableIndex table_id;
 	string file_name;
 	idx_t row_count;
 	idx_t file_size_bytes;
@@ -171,27 +171,27 @@ struct DuckLakeFileInfo {
 };
 
 struct DuckLakeInlinedDataInfo {
-	TableIndex table_id;
+	DuckLakeTableIndex table_id;
 	idx_t row_id_start;
 	optional_ptr<DuckLakeInlinedData> data;
 };
 
 struct DuckLakeDeletedInlinedDataInfo {
-	TableIndex table_id;
+	DuckLakeTableIndex table_id;
 	string table_name;
 	vector<idx_t> deleted_row_ids;
 };
 
 //! Info for all inlined file deletions for a single table
 struct DuckLakeInlinedFileDeletionInfo {
-	TableIndex table_id;
+	DuckLakeTableIndex table_id;
 	//! Maps file_id -> set of deleted row_ids
 	DuckLakeInlinedFileDeletes file_deletions;
 };
 
 struct DuckLakeDeleteFileInfo {
 	DataFileIndex id;
-	TableIndex table_id;
+	DuckLakeTableIndex table_id;
 	DataFileIndex data_file_id;
 	string path;
 	DeleteFileFormat format = DeleteFileFormat::PARQUET;
@@ -215,7 +215,7 @@ struct DuckLakePartitionFieldInfo {
 
 struct DuckLakePartitionInfo {
 	optional_idx id;
-	TableIndex table_id;
+	DuckLakeTableIndex table_id;
 	vector<DuckLakePartitionFieldInfo> fields;
 	bool operator==(const DuckLakePartitionInfo &new_partition) const {
 		if (table_id != new_partition.table_id || fields.size() != new_partition.fields.size()) {
@@ -247,7 +247,7 @@ struct DuckLakeSortFieldInfo {
 
 struct DuckLakeSortInfo {
 	optional_idx id;
-	TableIndex table_id;
+	DuckLakeTableIndex table_id;
 	vector<DuckLakeSortFieldInfo> fields;
 	bool operator==(const DuckLakeSortInfo &new_sort) const {
 		if (table_id != new_sort.table_id || fields.size() != new_sort.fields.size()) {
@@ -285,7 +285,7 @@ struct DuckLakeGlobalColumnStatsInfo {
 };
 
 struct DuckLakeGlobalStatsInfo {
-	TableIndex table_id;
+	DuckLakeTableIndex table_id;
 	bool initialized;
 	idx_t record_count;
 	idx_t next_row_id;
@@ -313,7 +313,7 @@ struct DuckLakeSnapshotInfo {
 };
 
 struct DuckLakeViewInfo {
-	TableIndex id;
+	DuckLakeTableIndex id;
 	SchemaIndex schema_id;
 	string uuid;
 	string name;
@@ -330,19 +330,19 @@ struct DuckLakeTagInfo {
 };
 
 struct DuckLakeColumnTagInfo {
-	TableIndex table_id;
+	DuckLakeTableIndex table_id;
 	FieldIndex field_index;
 	string key;
 	Value value;
 };
 
 struct DuckLakeDroppedColumn {
-	TableIndex table_id;
+	DuckLakeTableIndex table_id;
 	FieldIndex field_id;
 };
 
 struct DuckLakeNewColumn {
-	TableIndex table_id;
+	DuckLakeTableIndex table_id;
 	DuckLakeColumnInfo column_info;
 	optional_idx parent_idx;
 };
@@ -485,7 +485,7 @@ struct DuckLakeCompactedFileInfo {
 	string delete_file_path;
 	DataFileIndex delete_file_id;
 	optional_idx start_snapshot;
-	TableIndex table_index;
+	DuckLakeTableIndex table_index;
 	optional_idx delete_file_start_snapshot;
 	optional_idx delete_file_end_snapshot;
 };
@@ -504,7 +504,7 @@ struct DuckLakeFileSizeOptions {
 
 struct DuckLakeTableSizeInfo {
 	SchemaIndex schema_id;
-	TableIndex table_id;
+	DuckLakeTableIndex table_id;
 	string table_name;
 	string table_uuid;
 	idx_t file_size_bytes = 0;
@@ -534,7 +534,7 @@ struct DuckLakeConfigOption {
 	//! schema_id, if scoped to a schema
 	SchemaIndex schema_id;
 	//! table_id, if scoped to a table
-	TableIndex table_id;
+	DuckLakeTableIndex table_id;
 };
 
 struct DuckLakeNameMapColumnInfo {
@@ -546,7 +546,7 @@ struct DuckLakeNameMapColumnInfo {
 };
 
 struct DuckLakeColumnMappingInfo {
-	TableIndex table_id;
+	DuckLakeTableIndex table_id;
 	MappingIndex mapping_id;
 	string map_type;
 	vector<DuckLakeNameMapColumnInfo> map_columns;

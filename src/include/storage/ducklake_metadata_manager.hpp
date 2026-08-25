@@ -23,6 +23,7 @@
 #include "common/ducklake_options.hpp"
 #include "common/index.hpp"
 #include "duckdb/planner/table_filter.hpp"
+#include "duckdb/planner/filter/expression_filter.hpp"
 
 #include <functional>
 
@@ -37,7 +38,7 @@ struct TransactionChangeInformation;
 class BoundAtClause;
 class QueryResult;
 class FileSystem;
-class ConstantFilter;
+class LegacyConstantFilter;
 
 struct SnapshotAndStats;
 struct FlushedInlinedTableInfo;
@@ -74,7 +75,7 @@ struct ColumnFilterInfo {
 
 	ColumnFilterInfo(const ColumnFilterInfo &other)
 	    : column_field_index(other.column_field_index), column_type(other.column_type),
-	      table_filter(other.table_filter->Copy()) {
+	      table_filter(other.table_filter->Cast<ExpressionFilter>().Copy()) {
 	}
 };
 
@@ -196,7 +197,7 @@ public:
 	BuildCatalogForSnapshot(DuckLakeSnapshot snapshot,
 	                        const std::function<unique_ptr<QueryResult>(DuckLakeSnapshot, string)> &query_executor,
 	                        const string &base_data_path, const string &separator);
-	virtual vector<DuckLakeGlobalStatsInfo> GetGlobalTableStats(DuckLakeSnapshot snapshot, TableIndex table_id);
+	virtual vector<DuckLakeGlobalStatsInfo> GetGlobalTableStats(DuckLakeSnapshot snapshot, DuckLakeTableIndex table_id);
 	virtual vector<DuckLakeFileListEntry> GetFilesForTable(DuckLakeTableEntry &table, DuckLakeSnapshot snapshot,
 	                                                       const FilterPushdownInfo *filter_info = nullptr);
 	virtual vector<DuckLakeFileListEntry> GetTableInsertions(DuckLakeTableEntry &table, DuckLakeSnapshot start_snapshot,
@@ -210,15 +211,15 @@ public:
 	                                                                  double deletion_threshold,
 	                                                                  DuckLakeSnapshot snapshot,
 	                                                                  DuckLakeFileSizeOptions options);
-	virtual idx_t GetBeginSnapshotForTable(TableIndex table_id);
-	virtual idx_t GetBeginSnapshotForSchemaVersion(TableIndex table_id, idx_t schema_version);
-	virtual idx_t GetNetDataFileRowCount(TableIndex table_id, DuckLakeSnapshot snapshot);
+	virtual idx_t GetBeginSnapshotForTable(DuckLakeTableIndex table_id);
+	virtual idx_t GetBeginSnapshotForSchemaVersion(DuckLakeTableIndex table_id, idx_t schema_version);
+	virtual idx_t GetNetDataFileRowCount(DuckLakeTableIndex table_id, DuckLakeSnapshot snapshot);
 	virtual idx_t GetNetInlinedRowCount(const string &inlined_table_name, DuckLakeSnapshot snapshot);
 	//! SQL builders for stats-refresh metadata lookups; caller substitutes placeholders + executes.
-	static string GetNetDataFileRowCountSql(TableIndex table_id, const string &inlined_deletion_table);
+	static string GetNetDataFileRowCountSql(DuckLakeTableIndex table_id, const string &inlined_deletion_table);
 	static string GetNetInlinedRowCountSql(const string &inlined_table_name);
-	static string GetTableColumnSchemaSql(TableIndex table_id);
-	static string GetInlinedTableNamesSql(TableIndex table_id);
+	static string GetTableColumnSchemaSql(DuckLakeTableIndex table_id);
+	static string GetInlinedTableNamesSql(DuckLakeTableIndex table_id);
 	virtual vector<DuckLakeFileForCleanup> GetOldFilesForCleanup(const string &filter);
 	virtual vector<DuckLakeFileForCleanup> GetOrphanFilesForCleanup(const string &filter, const string &separator);
 	virtual vector<DuckLakeFileForCleanup> GetFilesForCleanup(const string &filter, CleanupType type,
@@ -226,8 +227,8 @@ public:
 
 	virtual void RemoveFilesScheduledForCleanup(const vector<DuckLakeFileForCleanup> &cleaned_up_files);
 	static string DropSchemas(const set<SchemaIndex> &ids);
-	static string DropTables(const set<TableIndex> &ids, bool renamed);
-	static string DropViews(const set<TableIndex> &ids, bool renamed);
+	static string DropTables(const set<DuckLakeTableIndex> &ids, bool renamed);
+	static string DropViews(const set<DuckLakeTableIndex> &ids, bool renamed);
 	static string DropMacros(const set<MacroIndex> &ids);
 
 	//! Emits the INSERT for new schemas. Caller supplies resolved paths (one per schema, same order)
@@ -281,13 +282,13 @@ public:
 	virtual string WriteNewInlinedFileDeletes(DuckLakeSnapshot &commit_snapshot,
 	                                          const vector<DuckLakeInlinedFileDeletionInfo> &new_deletes);
 	//! Static deterministic name of the per-table inlined deletion table.
-	static string InlinedFileDeletionTableName(TableIndex table_id);
+	static string InlinedFileDeletionTableName(DuckLakeTableIndex table_id);
 	//! SQL branch of WriteNewInlinedFileDeletes — returns the INSERT statements only. Callers must
 	//! ensure the per-table deletion tables already exist (the instance overload does that via
 	//! GetInlinedDeletionTableName with create_if_not_exists=true).
 	static string WriteNewInlinedFileDeletesSqlBatch(const vector<DuckLakeInlinedFileDeletionInfo> &new_deletes);
 	//! Get the name of the inlined deletion table for a given table ID
-	virtual string GetInlinedDeletionTableName(TableIndex table_id, DuckLakeSnapshot snapshot,
+	virtual string GetInlinedDeletionTableName(DuckLakeTableIndex table_id, DuckLakeSnapshot snapshot,
 	                                           bool create_if_not_exists = false);
 	virtual string WriteNewInlinedTables(DuckLakeSnapshot commit_snapshot, const vector<DuckLakeTableInfo> &tables);
 	virtual string GetInlinedTableQueries(DuckLakeSnapshot commit_snapshot, const DuckLakeTableInfo &table,
@@ -330,7 +331,7 @@ public:
 	virtual unique_ptr<DuckLakeSnapshot> GetSnapshot();
 	virtual unique_ptr<DuckLakeSnapshot> GetSnapshot(BoundAtClause &at_clause, SnapshotBound bound);
 
-	virtual idx_t GetNextColumnId(TableIndex table_id);
+	virtual idx_t GetNextColumnId(DuckLakeTableIndex table_id);
 	virtual unique_ptr<QueryResult> ReadInlinedData(DuckLakeSnapshot snapshot, const string &inlined_table_name,
 	                                                const vector<string> &columns_to_read);
 	virtual unique_ptr<QueryResult> ReadInlinedDataInsertions(DuckLakeSnapshot start_snapshot,
@@ -347,7 +348,7 @@ public:
 	//! SQL builders for the stats-refresh queries used by DuckLakeTransactionState::RecomputeGlobalStatsAfterRewrite.
 	//! Caller substitutes `{METADATA_CATALOG}` / `{SNAPSHOT_ID}` and executes via the commit context's executor.
 	static string ReadInlinedDataAggregatesSql(const string &inlined_table_name, const string &select_list);
-	static string ReadFileColumnStatsForTableSql(TableIndex table_id);
+	static string ReadFileColumnStatsForTableSql(DuckLakeTableIndex table_id);
 	virtual shared_ptr<DuckLakeInlinedData> TransformInlinedData(QueryResult &result,
 	                                                             const vector<LogicalType> &expected_types);
 
@@ -356,14 +357,14 @@ public:
 	virtual void DeleteFlushedInlinedData(const DuckLakeInlinedTableInfo &inlined_table, idx_t flush_snapshot_id);
 	//! If it conflicts we batch everything at the retry
 	static string GenerateDeleteFlushedInlinedData(const vector<FlushedInlinedTableInfo> &flushed_tables);
-	static string InsertNewSchema(const DuckLakeSnapshot &snapshot, const set<TableIndex> &table_ids);
+	static string InsertNewSchema(const DuckLakeSnapshot &snapshot, const set<DuckLakeTableIndex> &table_ids);
 
 	virtual vector<DuckLakeSnapshotInfo> GetAllSnapshots(const string &filter = string());
 	virtual void DeleteSnapshots(const vector<DuckLakeSnapshotInfo> &snapshots);
 	virtual vector<DuckLakeTableSizeInfo> GetTableSizes(DuckLakeSnapshot snapshot);
 	virtual void SetConfigOption(const DuckLakeConfigOption &option);
 	virtual string GetPathForSchema(SchemaIndex schema_id, vector<DuckLakeSchemaInfo> &new_schemas_result);
-	virtual string GetPathForTable(TableIndex table_id, const vector<DuckLakeTableInfo> &new_tables,
+	virtual string GetPathForTable(DuckLakeTableIndex table_id, const vector<DuckLakeTableInfo> &new_tables,
 	                               const vector<DuckLakeSchemaInfo> &new_schemas_result);
 	virtual bool IsColumnCreatedWithTable(const string &table_name, const string &column_name);
 	virtual void MigrateV01();
@@ -380,7 +381,7 @@ public:
 protected:
 	virtual string GetLatestSnapshotQuery() const;
 
-	virtual string GenerateFileColumnStatsCTEBody(const CTERequirement &req, TableIndex table_id);
+	virtual string GenerateFileColumnStatsCTEBody(const CTERequirement &req, DuckLakeTableIndex table_id);
 
 	//! Wrap field selections with list aggregation of struct objects (DBMS-specific)
 	//! For DuckDB: LIST({'key1': val1, 'key2': val2, ...})
@@ -400,14 +401,14 @@ public:
 	DuckLakePath GetRelativePath(SchemaIndex schema_id, const string &path,
 	                             vector<DuckLakeSchemaInfo> &new_schemas_result);
 	//! Get path relative to table path
-	DuckLakePath GetRelativePath(TableIndex table_id, const string &path, const vector<DuckLakeTableInfo> &new_tables,
+	DuckLakePath GetRelativePath(DuckLakeTableIndex table_id, const string &path, const vector<DuckLakeTableInfo> &new_tables,
 	                             vector<DuckLakeSchemaInfo> &new_schemas_result);
 
 	static DuckLakePath GetRelativePath(SchemaIndex schema_id, const string &path,
 	                                    const vector<DuckLakeSchemaInfo> &new_schemas_result,
 	                                    const std::function<unique_ptr<QueryResult>(string)> &query_executor,
 	                                    const string &base_data_path, const string &separator);
-	static DuckLakePath GetRelativePath(TableIndex table_id, const string &path,
+	static DuckLakePath GetRelativePath(DuckLakeTableIndex table_id, const string &path,
 	                                    const vector<DuckLakeTableInfo> &new_tables,
 	                                    const vector<DuckLakeSchemaInfo> &new_schemas_result,
 	                                    const std::function<unique_ptr<QueryResult>(string)> &query_executor,
@@ -425,9 +426,9 @@ protected:
 	DuckLakePath GetRelativePath(const string &path, const string &data_path);
 	string FromRelativePath(const DuckLakePath &path, const string &base_path);
 	string FromRelativePath(const DuckLakePath &path);
-	string FromRelativePath(TableIndex table_id, const DuckLakePath &path);
+	string FromRelativePath(DuckLakeTableIndex table_id, const DuckLakePath &path);
 	string GetPath(SchemaIndex schema_id, vector<DuckLakeSchemaInfo> &new_schemas_result);
-	string GetPath(TableIndex table_id, const vector<DuckLakeTableInfo> &new_tables,
+	string GetPath(DuckLakeTableIndex table_id, const vector<DuckLakeTableInfo> &new_tables,
 	               const vector<DuckLakeSchemaInfo> &new_schemas_result);
 	FileSystem &GetFileSystem();
 
@@ -438,7 +439,7 @@ protected:
 	static string GetPathForSchema(SchemaIndex schema_id, const vector<DuckLakeSchemaInfo> &new_schemas_result,
 	                               const std::function<unique_ptr<QueryResult>(string)> &query_executor,
 	                               const string &base_data_path, const string &separator);
-	static string GetPathForTable(TableIndex table_id, const vector<DuckLakeTableInfo> &new_tables,
+	static string GetPathForTable(DuckLakeTableIndex table_id, const vector<DuckLakeTableInfo> &new_tables,
 	                              const vector<DuckLakeSchemaInfo> &new_schemas_result,
 	                              const std::function<unique_ptr<QueryResult>(string)> &query_executor,
 	                              const string &base_data_path, const string &separator);
@@ -456,29 +457,29 @@ private:
 	string GetFileSelectList(const string &prefix);
 	string GetDeleteFileSelectList(const string &prefix);
 	FilterPushdownQueryComponents GenerateFilterPushdownComponents(const FilterPushdownInfo &filter_info,
-	                                                               TableIndex table_id);
+	                                                               DuckLakeTableIndex table_id);
 	//! Build an additional WHERE fragment that prunes files by bucket() partition value.
 	//! Returns "" when no foldable equality / IN-list predicate exists on a bucket-partitioned column.
 	//! The fragment uses only string equality against ducklake_file_partition_value, so it works against
 	//! any metadata backend (DuckDB / Postgres / SQLite). Bucket hashes are pre-computed in C++.
 	string BuildBucketPartitionPruningClause(DuckLakeTableEntry &table, const FilterPushdownInfo &filter_info);
 	string GenerateCTESectionFromRequirements(const unordered_map<idx_t, CTERequirement> &requirements,
-	                                          TableIndex table_id);
+	                                          DuckLakeTableIndex table_id);
 	virtual FilterSQLResult ConvertFilterPushdownToSQL(const FilterPushdownInfo &filter_info);
 	virtual string GenerateFilterFromTableFilter(const TableFilter &filter, const LogicalType &type,
 	                                             unordered_set<string> &referenced_stats);
 	virtual bool ValueIsFinite(const Value &val);
 	virtual string CastValueToTarget(const Value &val, const LogicalType &type);
 	virtual string CastStatsToTarget(const string &stats, const LogicalType &type);
-	virtual string GenerateConstantFilter(const ConstantFilter &constant_filter, const LogicalType &type,
+	virtual string GenerateConstantFilter(const LegacyConstantFilter &constant_filter, const LogicalType &type,
 	                                      unordered_set<string> &referenced_stats);
-	virtual string GenerateConstantFilterDouble(const ConstantFilter &constant_filter, const LogicalType &type,
+	virtual string GenerateConstantFilterDouble(const LegacyConstantFilter &constant_filter, const LogicalType &type,
 	                                            unordered_set<string> &referenced_stats);
 	virtual string GenerateFilterPushdown(const TableFilter &filter, unordered_set<string> &referenced_stats);
 
 public:
 	//! Read inlined file deletions for regular table scans (no snapshot info per row)
-	map<idx_t, set<idx_t>> ReadInlinedFileDeletions(TableIndex table_id, DuckLakeSnapshot snapshot);
+	map<idx_t, set<idx_t>> ReadInlinedFileDeletions(DuckLakeTableIndex table_id, DuckLakeSnapshot snapshot);
 	//! Clear inlined table caches (needed after rollback so retry re-creates the tables)
 	void ClearInlinedTableCaches();
 
@@ -487,10 +488,10 @@ private:
 	static mutex metadata_managers_lock;
 
 	//! Check which file IDs have inlined deletions (returns set of file IDs that have deletions)
-	unordered_set<idx_t> GetFileIdsWithInlinedDeletions(TableIndex table_id, DuckLakeSnapshot snapshot,
+	unordered_set<idx_t> GetFileIdsWithInlinedDeletions(DuckLakeTableIndex table_id, DuckLakeSnapshot snapshot,
 	                                                    const vector<idx_t> &file_ids);
 	//! Read inlined file deletions for deletion scans (includes snapshot info per row)
-	map<idx_t, unordered_map<idx_t, idx_t>> ReadInlinedFileDeletionsForRange(TableIndex table_id,
+	map<idx_t, unordered_map<idx_t, idx_t>> ReadInlinedFileDeletionsForRange(DuckLakeTableIndex table_id,
 	                                                                         DuckLakeSnapshot start_snapshot,
 	                                                                         DuckLakeSnapshot end_snapshot);
 
@@ -501,7 +502,7 @@ protected:
 	DuckLakeTransaction &transaction;
 	mutex paths_lock;
 	map<SchemaIndex, string> schema_paths;
-	map<TableIndex, string> table_paths;
+	map<DuckLakeTableIndex, string> table_paths;
 	bool pending_cache_clear = false;
 };
 

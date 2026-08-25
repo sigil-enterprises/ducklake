@@ -54,10 +54,10 @@ struct DuckLakeCommitState {
 
 	DuckLakeSnapshot &commit_snapshot;
 	map<SchemaIndex, SchemaIndex> committed_schemas;
-	map<TableIndex, TableIndex> committed_tables;
+	map<DuckLakeTableIndex, DuckLakeTableIndex> committed_tables;
 	map<idx_t, idx_t> committed_partition_ids;
 	map<MappingIndex, MappingIndex> committed_mapping_indexes;
-	map<TableIndex, vector<DuckLakeDeleteFile>> local_delete_files;
+	map<DuckLakeTableIndex, vector<DuckLakeDeleteFile>> local_delete_files;
 
 	void RemapIdentifier(SchemaIndex &schema_id) const {
 		auto entry = committed_schemas.find(schema_id);
@@ -65,7 +65,7 @@ struct DuckLakeCommitState {
 			schema_id = entry->second;
 		}
 	}
-	void RemapIdentifier(TableIndex &table_id) const {
+	void RemapIdentifier(DuckLakeTableIndex &table_id) const {
 		auto entry = committed_tables.find(table_id);
 		if (entry != committed_tables.end()) {
 			table_id = entry->second;
@@ -92,16 +92,16 @@ struct DuckLakeCommitState {
 		RemapIdentifier(schema_id);
 		return schema_id;
 	}
-	TableIndex GetTableId(DuckLakeTableEntry &table) const {
+	DuckLakeTableIndex GetTableId(DuckLakeTableEntry &table) const {
 		auto table_id = table.GetTableId();
 		RemapIdentifier(table_id);
 		return table_id;
 	}
-	TableIndex GetTableId(TableIndex table_id) const {
+	DuckLakeTableIndex GetTableId(DuckLakeTableIndex table_id) const {
 		RemapIdentifier(table_id);
 		return table_id;
 	}
-	TableIndex GetViewId(DuckLakeViewEntry &view) const {
+	DuckLakeTableIndex GetViewId(DuckLakeViewEntry &view) const {
 		auto view_id = view.GetViewId();
 		RemapIdentifier(view_id);
 		return view_id;

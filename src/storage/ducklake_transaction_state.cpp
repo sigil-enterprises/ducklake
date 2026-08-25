@@ -123,7 +123,7 @@ void ConflictCheck(const case_insensitive_map_t<reference_set_t<CatalogEntry>> &
 			auto tbl_entry = other_created_changes.find(schema_name);
 			if (tbl_entry != other_created_changes.end()) {
 				auto &other_created_tables = tbl_entry->second;
-				auto sub_entry = other_created_tables.find(catalog_entry.name);
+				auto sub_entry = other_created_tables.find(catalog_entry.name.GetIdentifierName());
 				if (sub_entry != other_created_tables.end()) {
 					// a table with this name in this schema was already created
 					throw TransactionException("Transaction conflict - attempting to create %s \"%s\" in schema \"%s\" "
@@ -162,7 +162,7 @@ void DuckLakeTransactionState::CheckForConflicts(const TransactionChangeInformat
 		auto dropped_idx = entry.first;
 		ConflictCheck(dropped_idx, other_changes.dropped_schemas, "drop schema", "dropped it already");
 
-		ConflictCheck(dropped_schema.name, other_changes.created_tables, "drop schema",
+		ConflictCheck(dropped_schema.name.GetIdentifierName(), other_changes.created_tables, "drop schema",
 		              "created an entry in this schema");
 	}
 	// check if we are creating the same schema as another transaction
@@ -190,7 +190,7 @@ void DuckLakeTransactionState::CheckForConflicts(const TransactionChangeInformat
 			auto tbl_entry = other_changes.created_tables.find(schema_name);
 			if (tbl_entry != other_changes.created_tables.end()) {
 				auto &other_created_tables = tbl_entry->second;
-				auto sub_entry = other_created_tables.find(table.name);
+				auto sub_entry = other_created_tables.find(table.name.GetIdentifierName());
 				if (sub_entry != other_created_tables.end()) {
 					// a table with this name in this schema was already created
 					throw TransactionException("Transaction conflict - attempting to create %s \"%s\" in schema \"%s\" "
@@ -337,7 +337,7 @@ string DuckLakeTransactionState::WriteSnapshotChanges(DuckLakeCommitState &commi
 			}
 			auto is_view = created_table.get().type == CatalogType::VIEW_ENTRY;
 			change_info.changes_made += is_view ? "created_view:" : "created_table:";
-			change_info.changes_made += schema_prefix + KeywordHelper::WriteQuoted(created_table.get().name, '"');
+			change_info.changes_made += schema_prefix + KeywordHelper::WriteQuoted(created_table.get().name.GetIdentifierName(), '"');
 		}
 	}
 
@@ -349,7 +349,7 @@ string DuckLakeTransactionState::WriteSnapshotChanges(DuckLakeCommitState &commi
 				change_info.changes_made += ",";
 			}
 			change_info.changes_made += "created_scalar_macro:";
-			change_info.changes_made += schema_prefix + KeywordHelper::WriteQuoted(created_macro.get().name, '"');
+			change_info.changes_made += schema_prefix + KeywordHelper::WriteQuoted(created_macro.get().name.GetIdentifierName(), '"');
 		}
 	}
 	for (auto &entry : changes.created_table_macros) {
@@ -360,7 +360,7 @@ string DuckLakeTransactionState::WriteSnapshotChanges(DuckLakeCommitState &commi
 				change_info.changes_made += ",";
 			}
 			change_info.changes_made += "created_table_macro:";
-			change_info.changes_made += schema_prefix + KeywordHelper::WriteQuoted(created_macro.get().name, '"');
+			change_info.changes_made += schema_prefix + KeywordHelper::WriteQuoted(created_macro.get().name.GetIdentifierName(), '"');
 		}
 	}
 
@@ -396,7 +396,7 @@ string DuckLakeTransactionState::WriteSnapshotChanges(DuckLakeCommitState &commi
 	return DuckLakeMetadataManager::WriteSnapshotChangesSql(change_info, commit_info);
 }
 
-void CancelOrDropField(TableIndex table_id, FieldIndex field_id, NewTableInfo &result,
+void CancelOrDropField(DuckLakeTableIndex table_id, FieldIndex field_id, NewTableInfo &result,
                        unordered_map<idx_t, idx_t> &txn_added_fields) {
 	auto it = txn_added_fields.find(field_id.index);
 	if (it != txn_added_fields.end()) {
@@ -418,7 +418,7 @@ void CancelOrDropField(TableIndex table_id, FieldIndex field_id, NewTableInfo &r
 }
 
 template <typename T>
-void RenameEmittedEntry(vector<T> &entries, TableIndex remapped_id, const string &new_name) {
+void RenameEmittedEntry(vector<T> &entries, DuckLakeTableIndex remapped_id, const string &new_name) {
 	for (auto &entry : entries) {
 		if (entry.id == remapped_id) {
 			entry.name = new_name;
@@ -427,7 +427,7 @@ void RenameEmittedEntry(vector<T> &entries, TableIndex remapped_id, const string
 	}
 }
 
-void HandleChangedFields(TableIndex table_id, const ColumnChangeInfo &change_info, NewTableInfo &result,
+void HandleChangedFields(DuckLakeTableIndex table_id, const ColumnChangeInfo &change_info, NewTableInfo &result,
                          unordered_map<idx_t, idx_t> &txn_added_fields) {
 	for (auto &dropped_field_id : change_info.dropped_fields) {
 		CancelOrDropField(table_id, dropped_field_id, result, txn_added_fields);
@@ -448,7 +448,7 @@ void GetNewMacroInfo(DuckLakeCommitState &commit_state, reference<CatalogEntry> 
 	auto &ducklake_schema = macro_entry.schema.Cast<DuckLakeSchemaEntry>();
 
 	new_macro_info.macro_id = MacroIndex(commit_state.commit_snapshot.next_catalog_id++);
-	new_macro_info.macro_name = macro_entry.name;
+	new_macro_info.macro_name = macro_entry.name.GetIdentifierName();
 	new_macro_info.schema_id = commit_state.GetSchemaId(ducklake_schema);
 	// Let's do the implementations
 	for (const auto &impl : macro_entry.macros) {
@@ -473,13 +473,13 @@ void GetNewMacroInfo(DuckLakeCommitState &commit_state, reference<CatalogEntry> 
 		// Let's do the parameters
 		for (idx_t i = 0; i < impl->parameters.size(); i++) {
 			DuckLakeMacroParameters parameter;
-			parameter.parameter_name = impl->parameters[i]->GetName();
+			parameter.parameter_name = impl->parameters[i]->GetName().GetIdentifierName();
 			parameter.parameter_type = DuckLakeTypes::ToString(impl->types[i]);
-			auto default_it = impl->default_parameters.find(parameter.parameter_name);
+			auto default_it = impl->default_parameters.find(Identifier(parameter.parameter_name));
 			if (default_it != impl->default_parameters.end()) {
 				auto &const_expr = default_it->second->Cast<ConstantExpression>();
-				parameter.default_value = const_expr.value.ToString();
-				parameter.default_value_type = DuckLakeTypes::ToString(const_expr.value.type());
+				parameter.default_value = const_expr.GetValue().ToString();
+				parameter.default_value_type = DuckLakeTypes::ToString(const_expr.GetValue().type());
 			} else {
 				parameter.default_value_type = "unknown";
 			}
@@ -510,7 +510,7 @@ static void ConvertNameMapColumn(const DuckLakeNameMapEntry &name_map_entry, Map
 }
 
 DuckLakeFileInfo DuckLakeTransactionState::GetNewDataFile(const DuckLakeDataFile &file,
-                                                          DuckLakeCommitState &commit_state, TableIndex table_id,
+                                                          DuckLakeCommitState &commit_state, DuckLakeTableIndex table_id,
                                                           optional_idx row_id_start) {
 	auto data_file = DuckLakeTransaction::BuildDataFileInfo(file, commit_state.commit_snapshot, table_id, row_id_start);
 	commit_state.RemapPartitionId(data_file.partition_id);
@@ -790,7 +790,7 @@ bool DuckLakeTransactionState::TryMergeInlinedStats(const vector<DuckLakeColumnS
 	return true;
 }
 
-void DuckLakeTransactionState::RecomputeGlobalStatsAfterRewrite(string &batch_query, TableIndex table_id,
+void DuckLakeTransactionState::RecomputeGlobalStatsAfterRewrite(string &batch_query, DuckLakeTableIndex table_id,
                                                                 DuckLakeSnapshot snapshot,
                                                                 const CompactionInformation &rewrite_changes,
                                                                 const set<DataFileIndex> &removed_source_ids,
@@ -1219,7 +1219,7 @@ void DuckLakeTransactionState::GetNewTableInfo(DuckLakeCommitState &commit_state
 				auto existing = commit_state.committed_tables.find(old_table_id);
 				if (existing != commit_state.committed_tables.end()) {
 					// If we are rename a table in the same transaction it was created, we need to patch it
-					RenameEmittedEntry(result.new_tables, existing->second, table.name);
+					RenameEmittedEntry(result.new_tables, existing->second, table.name.GetIdentifierName());
 					break;
 				}
 			}
@@ -1317,7 +1317,7 @@ void DuckLakeTransactionState::GetNewViewInfo(DuckLakeCommitState &commit_state,
 				auto existing = commit_state.committed_tables.find(old_view_id);
 				if (existing != commit_state.committed_tables.end()) {
 					// renaming a view in the same transaction it was created - patch the name on the existing row
-					RenameEmittedEntry(result.new_views, existing->second, view.name);
+					RenameEmittedEntry(result.new_views, existing->second, view.name.GetIdentifierName());
 					break;
 				}
 			}
@@ -1363,7 +1363,7 @@ vector<DuckLakeSchemaInfo> DuckLakeTransactionState::GetNewSchemas(DuckLakeCommi
 		DuckLakeSchemaInfo schema_info;
 		schema_info.id = SchemaIndex(commit_state.commit_snapshot.next_catalog_id++);
 		schema_info.uuid = schema_entry.GetSchemaUUID();
-		schema_info.name = schema_entry.name;
+		schema_info.name = schema_entry.name.GetIdentifierName();
 		schema_info.path = schema_entry.DataPath();
 
 		// add this schema id to the schema id map
@@ -1566,7 +1566,7 @@ string DuckLakeTransactionState::CommitChanges(DuckLakeCommitState &commit_state
 		// again. Recompute their EXACT global stats from the post-rewrite file set so MIN/MAX can once more be
 		// answered from metadata (see DuckLakeGetPartitionStats). Safe no-op when a table is not fully delete-free.
 		if (!compaction_rewrite_delete_changes.compacted_files.empty()) {
-			map<TableIndex, set<DataFileIndex>> removed_source_ids_by_table;
+			map<DuckLakeTableIndex, set<DataFileIndex>> removed_source_ids_by_table;
 			for (auto &compacted : compaction_rewrite_delete_changes.compacted_files) {
 				removed_source_ids_by_table[compacted.table_index].insert(compacted.source_id);
 			}
@@ -1579,7 +1579,7 @@ string DuckLakeTransactionState::CommitChanges(DuckLakeCommitState &commit_state
 	}
 
 	// Tracking for tables that had schema changes
-	set<TableIndex> tables_with_schema_changes;
+	set<DuckLakeTableIndex> tables_with_schema_changes;
 	for (auto &table_id : transaction_changes.altered_tables) {
 		if (!table_id.IsTransactionLocal() &&
 		    transaction_changes.altered_tables_with_schema_version_changes.find(table_id) !=

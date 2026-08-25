@@ -19,6 +19,7 @@ class DuckLakeTableEntry;
 class DuckLakeTransaction;
 class Serializer;
 class Deserializer;
+class CopyFunctionCatalogEntry;
 
 class DuckLakeFunctions {
 public:
@@ -49,7 +50,7 @@ struct DuckLakeFunctionInfo : public TableFunctionInfo {
 	vector<string> column_names;
 	vector<LogicalType> column_types;
 	DuckLakeSnapshot snapshot;
-	TableIndex table_id;
+	DuckLakeTableIndex table_id;
 	DuckLakeScanType scan_type = DuckLakeScanType::SCAN_TABLE;
 	//! Start snapshot - only set for DuckLakeScanType::SCAN_INSERTIONS and DuckLakeScanType::SCAN_DELETIONS
 	unique_ptr<DuckLakeSnapshot> start_snapshot;

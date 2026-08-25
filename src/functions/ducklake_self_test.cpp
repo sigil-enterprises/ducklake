@@ -54,13 +54,13 @@ struct SelfTestGlobalState : public GlobalTableFunctionState {
 };
 
 static unique_ptr<FunctionData> DuckLakeSelfTestBind(ClientContext &context, TableFunctionBindInput &input,
-                                                     vector<LogicalType> &return_types, vector<string> &names) {
+                                                     vector<LogicalType> &return_types, vector<Identifier> &names) {
 	auto result = make_uniq<SelfTestBindData>();
 
 	if (!input.inputs.empty() && !input.inputs[0].IsNull()) {
 		auto db_name = input.inputs[0].GetValue<string>();
 		auto &db_manager = DatabaseManager::Get(context);
-		auto db = db_manager.GetDatabase(context, db_name);
+		auto db = db_manager.GetDatabase(context, Identifier(db_name));
 		if (!db) {
 			throw InvalidInputException("ducklake_self_test: failed to find attached database \"%s\"", db_name);
 		}
@@ -146,7 +146,7 @@ static void DuckLakeSelfTestExecute(ClientContext &context, TableFunctionInput &
 }
 
 DuckLakeSelfTestFunction::DuckLakeSelfTestFunction()
-    : TableFunction("ducklake_self_test", {}, DuckLakeSelfTestExecute, DuckLakeSelfTestBind, DuckLakeSelfTestInit) {
+    : TableFunction(Identifier("ducklake_self_test"), {}, DuckLakeSelfTestExecute, DuckLakeSelfTestBind, DuckLakeSelfTestInit) {
 	varargs = LogicalType::VARCHAR;
 }
 

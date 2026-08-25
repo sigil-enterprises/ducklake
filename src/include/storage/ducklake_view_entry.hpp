@@ -20,11 +20,11 @@ class DuckLakeTransaction;
 
 class DuckLakeViewEntry : public ViewCatalogEntry {
 public:
-	DuckLakeViewEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateViewInfo &info, TableIndex view_id,
+	DuckLakeViewEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateViewInfo &info, DuckLakeTableIndex view_id,
 	                  string view_uuid, string query_sql, LocalChange local_change);
 
 public:
-	TableIndex GetViewId() const {
+	DuckLakeTableIndex GetViewId() const {
 		return view_id;
 	}
 	const string &GetViewUUID() const {
@@ -58,7 +58,7 @@ private:
 
 private:
 	mutable mutex lock;
-	TableIndex view_id;
+	DuckLakeTableIndex view_id;
 	string view_uuid;
 	string query_sql;
 	LocalChange local_change;

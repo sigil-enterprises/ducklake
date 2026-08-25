@@ -1,4 +1,5 @@
 #include "storage/ducklake_view_entry.hpp"
+#include "duckdb/catalog/catalog.hpp"
 #include "duckdb/parser/parsed_data/create_view_info.hpp"
 #include "duckdb/parser/parser.hpp"
 #include "duckdb/parser/parsed_data/alter_info.hpp"
@@ -10,7 +11,7 @@
 namespace duckdb {
 
 DuckLakeViewEntry::DuckLakeViewEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateViewInfo &info,
-                                     TableIndex view_id, string view_uuid_p, string query_sql_p,
+                                     DuckLakeTableIndex view_id, string view_uuid_p, string query_sql_p,
                                      LocalChange local_change)
     : ViewCatalogEntry(catalog, schema, info), view_id(view_id), view_uuid(std::move(view_uuid_p)),
       query_sql(std::move(query_sql_p)), local_change(local_change) {
@@ -37,7 +38,7 @@ unique_ptr<CatalogEntry> DuckLakeViewEntry::AlterEntry(ClientContext &context, A
 			auto &rename_view = alter_view.Cast<RenameViewInfo>();
 			auto create_info = GetInfo();
 			auto &view_info = create_info->Cast<CreateViewInfo>();
-			view_info.view_name = rename_view.new_view_name;
+			view_info.SetViewName(rename_view.new_view_name);
 			// create a complete copy of this view with only the name changed
 			return make_uniq<DuckLakeViewEntry>(*this, view_info, LocalChangeType::RENAMED);
 		}
@@ -61,11 +62,13 @@ unique_ptr<CreateInfo> DuckLakeViewEntry::GetInfo() const {
 
 string DuckLakeViewEntry::ToSQL() const {
 	string result = "CREATE VIEW ";
-	result += KeywordHelper::WriteOptionallyQuoted(name);
+	result += KeywordHelper::WriteOptionallyQuoted(name.GetIdentifierName());
 	if (!aliases.empty()) {
 		result += " (";
 		result += StringUtil::Join(aliases, aliases.size(), ", ",
-		                           [](const string &alias) { return KeywordHelper::WriteOptionallyQuoted(alias); });
+		                           [](const Identifier &alias) {
+		                             return KeywordHelper::WriteOptionallyQuoted(alias.GetIdentifierName());
+		                           });
 		result += ")";
 	}
 	result += " AS ";
