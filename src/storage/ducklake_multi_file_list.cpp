@@ -102,7 +102,10 @@ unique_ptr<MultiFileList> DuckLakeMultiFileList::ComplexFilterPushdown(ClientCon
 	auto pushdown_info = filter_info ? filter_info->Copy() : make_uniq<FilterPushdownInfo>();
 
 	for (auto &entry : table_filter_set) {
-		AddFilterToPushdownInfo(*pushdown_info, entry.GetIndex(), entry.TakeFilter());
+		// entry.GetIndex() is a projection index into info.column_indexes, not a physical table column id -
+		// resolve it the same way MultiFileDynamicPushdownInfo does for the dynamic-filter path.
+		auto column_id = info.column_indexes[entry.GetIndex()].GetPrimaryIndex();
+		AddFilterToPushdownInfo(*pushdown_info, column_id, entry.TakeFilter());
 	}
 
 	if (pushdown_info->column_filters.empty()) {
