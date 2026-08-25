@@ -1,13 +1,18 @@
 name: Refuse an unreleased duckdb pin
 description: >-
   Fail unless the duckdb submodule sits exactly on the release tag named in
-  .github/duckdb-version. An extension built against an unreleased main sha
-  cannot be loaded by any duckdb a consumer can obtain, which is how #43
-  happened; this refuses the pin rather than discovering it downstream.
+  .github/duckdb-version, OR on a SHA explicitly allowlisted in
+  .github/duckdb-unreleased-pin-exceptions. An extension built against an
+  unreleased main sha cannot be loaded by any duckdb a consumer can obtain,
+  which is how #43 happened; this refuses the pin rather than discovering it
+  downstream. The exceptions file exists for the narrow case where no
+  release tag is available past a breaking upstream API generation
+  (ducklake#69) - every entry there must be individually documented with its
+  verification evidence, not merely allowlisted.
 
 outputs:
   version:
-    description: The release tag the duckdb submodule is pinned to.
+    description: The release tag, or allowlisted SHA, the duckdb submodule is pinned to.
     value: ${{ steps.check.outputs.version }}
 
 runs:
@@ -19,12 +24,23 @@ runs:
         set -euxo pipefail
         want="$(cat .github/duckdb-version)"
         cd duckdb
+        head="$(git rev-parse HEAD)"
+
+        exceptions_file="../.github/duckdb-unreleased-pin-exceptions"
+        if [ -f "$exceptions_file" ] && grep -qxE '[0-9a-f]{40}' <<<"$head" \
+          && grep -qxF "$head" "$exceptions_file"; then
+          echo "duckdb HEAD $head matches an allowlisted unreleased-pin exception (see $exceptions_file)"
+          echo "version=$head" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
         # actions/checkout clones submodules at depth 1 with no tags, so
         # `describe` would fail on a correct pin as loudly as on a bad one.
         git fetch --no-tags --depth=1 origin tag "$want"
         # `describe --exact-match` exits non-zero unless HEAD IS a tag, so an
-        # unreleased main sha cannot pass this step by any spelling.
+        # unreleased main sha cannot pass this step by any spelling, unless
+        # allowlisted above.
         got="$(git describe --tags --exact-match HEAD)"
-        echo "duckdb HEAD $(git rev-parse HEAD) is tag $got, wanted $want"
+        echo "duckdb HEAD $head is tag $got, wanted $want"
         test "$got" = "$want"
         echo "version=$got" >> "$GITHUB_OUTPUT"
