@@ -267,7 +267,8 @@ void LocalTableChanges::AppendInlinedData(ClientContext &context, DuckLakeTableI
 				casted_chunk.Initialize(context, new_types);
 				for (idx_t col_idx = 0; col_idx < chunk.ColumnCount(); col_idx++) {
 					if (existing_types[col_idx] != new_types[col_idx]) {
-						VectorOperations::Cast(context, chunk.data[col_idx], casted_chunk.data[col_idx], chunk.size());
+						DuckLakeTypes::CastEvolvedVector(context, chunk.data[col_idx], casted_chunk.data[col_idx],
+						                                 chunk.size());
 					} else {
 						casted_chunk.data[col_idx].Reference(chunk.data[col_idx]);
 					}
