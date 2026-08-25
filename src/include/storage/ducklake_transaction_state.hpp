@@ -72,22 +72,22 @@ struct DuckLakeCommitContext {
 	                           const vector<DuckLakeTableInfo> &, vector<DuckLakeSchemaInfo> &) {
 	    };
 	//! Returns the current global table stats for a single table id (first-attempt path).
-	std::function<shared_ptr<DuckLakeTableStats>(TableIndex)> get_table_stats;
+	std::function<shared_ptr<DuckLakeTableStats>(DuckLakeTableIndex)> get_table_stats;
 	//! Top-level columns of a table at the commit snapshot — needed by stats-refresh to iterate
 	//! columns and look up types when merging per-file stats.
-	std::function<vector<DuckLakeColumnSchemaEntry>(TableIndex)> get_table_column_schema = [](TableIndex) {
+	std::function<vector<DuckLakeColumnSchemaEntry>(DuckLakeTableIndex)> get_table_column_schema = [](DuckLakeTableIndex) {
 		return vector<DuckLakeColumnSchemaEntry> {};
 	};
 	//! Names of the inlined-data tables associated with a table id at the commit snapshot.
-	std::function<vector<string>(TableIndex)> get_inlined_table_names = [](TableIndex) {
+	std::function<vector<string>(DuckLakeTableIndex)> get_inlined_table_names = [](DuckLakeTableIndex) {
 		return vector<string> {};
 	};
 	//! Net (delete-adjusted) row count of a table's regular data files.
-	std::function<idx_t(TableIndex)> get_net_data_file_row_count = [](TableIndex) {
+	std::function<idx_t(DuckLakeTableIndex)> get_net_data_file_row_count = [](DuckLakeTableIndex) {
 		return 0;
 	};
 	//! Net (delete-adjusted) row count of a table's inlined-data tables.
-	std::function<idx_t(TableIndex)> get_net_inlined_row_count = [](TableIndex) {
+	std::function<idx_t(DuckLakeTableIndex)> get_net_inlined_row_count = [](DuckLakeTableIndex) {
 		return 0;
 	};
 	//! Builds a DuckLakeStats map from a vector of per-snapshot global stats (retry path).
@@ -150,7 +150,7 @@ public:
 	//! (+ committed inlined data) and append the UpdateGlobalTableStats SQL to `batch_query`. No-op (leaving the
 	//! existing stale stats, and the scan fallback) if the table is not fully delete-free post-rewrite or the
 	//! inlined data cannot be accounted for exactly.
-	void RecomputeGlobalStatsAfterRewrite(string &batch_query, TableIndex table_id, DuckLakeSnapshot snapshot,
+	void RecomputeGlobalStatsAfterRewrite(string &batch_query, DuckLakeTableIndex table_id, DuckLakeSnapshot snapshot,
 	                                      const CompactionInformation &rewrite_changes,
 	                                      const set<DataFileIndex> &removed_source_ids,
 	                                      const DuckLakeCommitContext &context);
@@ -167,7 +167,7 @@ public:
 	vector<DuckLakeInlinedFileDeletionInfo> GetNewInlinedFileDeletes(DuckLakeCommitState &commit_state);
 	NewNameMapInfo GetNewNameMaps(DuckLakeCommitState &commit_state);
 	static DuckLakeFileInfo GetNewDataFile(const DuckLakeDataFile &file, DuckLakeCommitState &commit_state,
-	                                       TableIndex table_id, optional_idx row_id_start);
+	                                       DuckLakeTableIndex table_id, optional_idx row_id_start);
 
 	static void DropEmptySupersededInlinedTables(const DuckLakeCommitContext &context);
 
@@ -188,18 +188,18 @@ public:
 	DuckLakeSnapshotCommit commit_info;
 
 	case_insensitive_map_t<unique_ptr<DuckLakeCatalogSet>> new_tables;
-	set<TableIndex> dropped_tables;
+	set<DuckLakeTableIndex> dropped_tables;
 
 	case_insensitive_map_t<unique_ptr<DuckLakeCatalogSet>> new_scalar_macros;
 	case_insensitive_map_t<unique_ptr<DuckLakeCatalogSet>> new_table_macros;
 	set<MacroIndex> dropped_scalar_macros;
 	set<MacroIndex> dropped_table_macros;
 
-	set<TableIndex> renamed_tables;
-	set<TableIndex> renamed_views;
-	set<TableIndex> dropped_views;
+	set<DuckLakeTableIndex> renamed_tables;
+	set<DuckLakeTableIndex> renamed_views;
+	set<DuckLakeTableIndex> dropped_views;
 	unordered_map<string, DataFileIndex> dropped_files;
-	set<TableIndex> tables_deleted_from;
+	set<DuckLakeTableIndex> tables_deleted_from;
 	unique_ptr<DuckLakeCatalogSet> new_schemas;
 	map<SchemaIndex, reference<DuckLakeSchemaEntry>> dropped_schemas;
 	LocalTableChanges local_changes;

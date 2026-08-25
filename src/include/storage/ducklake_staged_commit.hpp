@@ -73,16 +73,16 @@ public:
 
 private:
 	//! Emits INSERT for a single data file, its column stats, and partition values.
-	void EmitDataFileRow(string &sql, const DuckLakeDataFile &file, idx_t local_file_id, TableIndex table_id,
+	void EmitDataFileRow(string &sql, const DuckLakeDataFile &file, idx_t local_file_id, DuckLakeTableIndex table_id,
 	                     idx_t file_order, const string &compaction_id_literal) const;
 	//! Emits INSERT for a loose delete file against a pre-existing data file.
-	void EmitDeleteFileRow(string &sql, const DuckLakeDeleteFile &file, TableIndex table_id,
+	void EmitDeleteFileRow(string &sql, const DuckLakeDeleteFile &file, DuckLakeTableIndex table_id,
 	                       const string &data_file_path) const;
 	//! Emits INSERT for a delete file attached to a transaction-local data file.
-	void EmitAttachedDeleteRow(string &sql, const DuckLakeDeleteFile &del, TableIndex table_id,
+	void EmitAttachedDeleteRow(string &sql, const DuckLakeDeleteFile &del, DuckLakeTableIndex table_id,
 	                           idx_t local_file_id) const;
 	//! Emits INSERT for a single inlined column stats row.
-	void EmitInlinedColumnStatsRow(string &sql, TableIndex table_id, FieldIndex column_id,
+	void EmitInlinedColumnStatsRow(string &sql, DuckLakeTableIndex table_id, FieldIndex column_id,
 	                               const DuckLakeColumnStats &s) const;
 	//! Builds the shared 13-value column-stats payload (column_size_bytes .. extra_stats) used by both
 	//! the data-file and inlined column-stats staging rows. Read back by ReadColumnStatsRow.

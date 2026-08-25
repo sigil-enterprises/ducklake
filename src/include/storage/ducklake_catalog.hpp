@@ -118,23 +118,23 @@ public:
 	const string &MetadataType() const {
 		return metadata_type;
 	}
-	idx_t DataInliningRowLimit(SchemaIndex schema_index, TableIndex table_index) const;
-	idx_t DataInliningRowLimit(ClientContext &context, SchemaIndex schema_index, TableIndex table_index) const;
+	idx_t DataInliningRowLimit(SchemaIndex schema_index, DuckLakeTableIndex table_index) const;
+	idx_t DataInliningRowLimit(ClientContext &context, SchemaIndex schema_index, DuckLakeTableIndex table_index) const;
 	//! Returns the inlining limit (0 if the table is not eligible)
 	idx_t GetInliningLimit(ClientContext &context, DuckLakeTableEntry &table);
-	idx_t GetTargetFileSize(ClientContext &context, SchemaIndex schema_id, TableIndex table_id) const;
+	idx_t GetTargetFileSize(ClientContext &context, SchemaIndex schema_id, DuckLakeTableIndex table_id) const;
 	idx_t GetTargetFileSize(ClientContext &context, DuckLakeTableEntry &table) const;
 	string &Separator() {
 		return separator;
 	}
 	void SetConfigOption(const DuckLakeConfigOption &option);
-	bool TryGetConfigOption(const string &option, string &result, SchemaIndex schema_id, TableIndex table_id) const;
+	bool TryGetConfigOption(const string &option, string &result, SchemaIndex schema_id, DuckLakeTableIndex table_id) const;
 	//! Check if a config option has a table-level or schema-level override
 	//! (excluding global scope)
 	bool TryGetScopedConfigOption(const string &option, string &result, SchemaIndex schema_id,
-	                              TableIndex table_id) const;
+	                              DuckLakeTableIndex table_id) const;
 	template <class T>
-	T GetConfigOption(const string &option, SchemaIndex schema_id, TableIndex table_id, T default_value) const {
+	T GetConfigOption(const string &option, SchemaIndex schema_id, DuckLakeTableIndex table_id, T default_value) const {
 		string value_str;
 		if (TryGetConfigOption(option, value_str, schema_id, table_id)) {
 			return Value(value_str).GetValue<T>();
@@ -169,14 +169,14 @@ public:
 	                                              unique_ptr<CreateIndexInfo> create_info,
 	                                              unique_ptr<AlterTableInfo> alter_info) override;
 	DatabaseSize GetDatabaseSize(ClientContext &context) override;
-	shared_ptr<DuckLakeTableStats> GetTableStats(DuckLakeTransaction &transaction, TableIndex table_id);
+	shared_ptr<DuckLakeTableStats> GetTableStats(DuckLakeTransaction &transaction, DuckLakeTableIndex table_id);
 	shared_ptr<DuckLakeTableStats> GetTableStats(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
-	                                             TableIndex table_id);
+	                                             DuckLakeTableIndex table_id);
 
 	optional_ptr<CatalogEntry> GetEntryById(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
 	                                        SchemaIndex schema_id);
 	optional_ptr<CatalogEntry> GetEntryById(DuckLakeTransaction &transaction, DuckLakeSnapshot snapshot,
-	                                        TableIndex table_id);
+	                                        DuckLakeTableIndex table_id);
 	string GeneratePathFromName(const string &uuid, const string &name);
 
 	bool InMemory() override;
@@ -203,13 +203,13 @@ public:
 
 	void EnsureCommitInfoProvided(const DuckLakeSnapshotCommit &commit_info) const;
 
-	bool UseHiveFilePattern(bool default_value, SchemaIndex schema_id, TableIndex table_id) const {
+	bool UseHiveFilePattern(bool default_value, SchemaIndex schema_id, DuckLakeTableIndex table_id) const {
 		auto hive_file_pattern =
 		    GetConfigOption<string>("hive_file_pattern", schema_id, table_id, default_value ? "true" : "false");
 		return hive_file_pattern == "true";
 	}
 
-	bool WriteDeletionVectors(SchemaIndex schema_id, TableIndex table_id) const {
+	bool WriteDeletionVectors(SchemaIndex schema_id, DuckLakeTableIndex table_id) const {
 		auto write_dv = GetConfigOption<string>("write_deletion_vectors", schema_id, table_id, "false");
 		return write_dv == "true";
 	}
@@ -227,7 +227,7 @@ public:
 	}
 	//! Build a file identity for the KMS binding. `stored_path` must be the
 	//! path AS PERSISTED in the catalog, not one resolved against the data path.
-	DuckLakeFileIdentity BuildEncryptionIdentity(TableIndex table_id, const string &stored_path,
+	DuckLakeFileIdentity BuildEncryptionIdentity(DuckLakeTableIndex table_id, const string &stored_path,
 	                                             bool is_delete_file) const;
 	//! KMS envelope encryption: throw if `stored_key` is a wrapped blob while
 	//! THIS lake has no envelope provider - i.e. the lake was attached without
@@ -245,7 +245,7 @@ public:
 	//! KMS envelope encryption: THE key-resolution choke point. Turn a stored
 	//! `encryption_key` column value into the raw key bytes the Parquet reader
 	//! wants, through the KMS envelope provider when one is configured.
-	string ResolveStoredEncryptionKey(TableIndex table_id, const string &stored_path, const string &resolved_path,
+	string ResolveStoredEncryptionKey(DuckLakeTableIndex table_id, const string &stored_path, const string &resolved_path,
 	                                  bool is_delete_file, const Value &stored_key) const;
 	//! KMS envelope encryption: turn each non-empty raw DEK in `keys` into the
 	//! value the catalog `encryption_key` column must carry, in place. On an
@@ -294,8 +294,8 @@ public:
 
 	optional_ptr<const DuckLakeNameMap> TryGetMappingById(DuckLakeTransaction &transaction, MappingIndex mapping_id);
 	MappingIndex TryGetCompatibleNameMap(DuckLakeTransaction &transaction, const DuckLakeNameMap &name_map);
-	idx_t GetBeginSnapshotForTable(TableIndex table_id, DuckLakeTransaction &transaction);
-	idx_t GetBeginSnapshotForSchemaVersion(TableIndex table_id, idx_t schema_version, DuckLakeTransaction &transaction);
+	idx_t GetBeginSnapshotForTable(DuckLakeTableIndex table_id, DuckLakeTransaction &transaction);
+	idx_t GetBeginSnapshotForSchemaVersion(DuckLakeTableIndex table_id, idx_t schema_version, DuckLakeTransaction &transaction);
 
 	static unique_ptr<DuckLakeStats> ConstructStatsMap(vector<DuckLakeGlobalStatsInfo> &global_stats,
 	                                                   DuckLakeCatalogSet &schema);
@@ -315,12 +315,12 @@ public:
 
 	//! Check if an inlined deletion table is known to exist or not exist for the
 	//! given table and snapshot
-	InlinedDeletionCacheResult CheckInlinedDeletionTableCache(TableIndex table_id, DuckLakeSnapshot snapshot);
+	InlinedDeletionCacheResult CheckInlinedDeletionTableCache(DuckLakeTableIndex table_id, DuckLakeSnapshot snapshot);
 	//! Cache the result of an inlined deletion table existence check
-	void CacheInlinedDeletionTableResult(TableIndex table_id, DuckLakeSnapshot snapshot, bool exists);
+	void CacheInlinedDeletionTableResult(DuckLakeTableIndex table_id, DuckLakeSnapshot snapshot, bool exists);
 
 	//! Invalidate the cached table stats entry for a given stats cache key.
-	void InvalidateTableStatsCache(idx_t next_file_id, TableIndex table_id);
+	void InvalidateTableStatsCache(idx_t next_file_id, DuckLakeTableIndex table_id);
 	//! Invalidate the cached schema entry for a given schema_version.
 	void InvalidateSchemaCache(idx_t schema_version);
 
@@ -334,7 +334,7 @@ private:
 	//! safe memory access.
 	void PinSchemaForQuery(DuckLakeTransaction &transaction, shared_ptr<DuckLakeSchemaCacheEntry> entry);
 	void LoadNameMaps(DuckLakeTransaction &transaction);
-	string StatsCacheKey(idx_t next_file_id, TableIndex table_id) const;
+	string StatsCacheKey(idx_t next_file_id, DuckLakeTableIndex table_id) const;
 	string SchemaCacheKey(idx_t schema_version) const;
 	string SchemaPinStateKey() const;
 	ObjectCache &GetObjectCacheInstance();

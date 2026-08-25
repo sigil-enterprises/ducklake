@@ -2,10 +2,16 @@
 #include "storage/ducklake_deletion_vector.hpp"
 #include "common/parquet_file_scanner.hpp"
 #include "duckdb/planner/filter/constant_filter.hpp"
+#include "duckdb/planner/filter/expression_filter.hpp"
 #include "duckdb/planner/table_filter.hpp"
+#include "duckdb/planner/expression/bound_reference_expression.hpp"
+#include "duckdb/planner/expression/bound_conjunction_expression.hpp"
 #include "duckdb/common/multi_file/multi_file_list.hpp"
 #include "duckdb/common/multi_file/multi_file_reader.hpp"
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/common/file_system.hpp"
+#include "duckdb/common/file_open_flags.hpp"
+#include "duckdb/common/projection_index.hpp"
 
 namespace duckdb {
 
@@ -176,20 +182,29 @@ DeleteFileScanResult DuckLakeDeleteFilter::ScanDeleteFile(ClientContext &context
 	// Create snapshot filters if we have a snapshot column and filter range is specified
 	if (has_snapshot_id && (snapshot_filter_min.IsValid() || snapshot_filter_max.IsValid())) {
 		auto filters = make_uniq<TableFilterSet>();
-		ColumnIndex snapshot_col_idx(2); // snapshot_id is column 2
+		ProjectionIndex snapshot_col_idx(2); // snapshot_id is column 2
+		BoundReferenceExpression snapshot_col(LogicalType::BIGINT, 0);
 
+		unique_ptr<Expression> combined_expr;
 		if (snapshot_filter_min.IsValid()) {
 			auto min_constant = Value::BIGINT(NumericCast<int64_t>(snapshot_filter_min.GetIndex()));
-			auto min_filter =
-			    make_uniq<ConstantFilter>(ExpressionType::COMPARE_GREATERTHANOREQUALTO, std::move(min_constant));
-			filters->PushFilter(snapshot_col_idx, std::move(min_filter));
+			LegacyConstantFilter min_filter(ExpressionType::COMPARE_GREATERTHANOREQUALTO, std::move(min_constant));
+			combined_expr = min_filter.ToExpression(snapshot_col);
 		}
 		if (snapshot_filter_max.IsValid()) {
 			auto max_constant = Value::BIGINT(NumericCast<int64_t>(snapshot_filter_max.GetIndex()));
-			auto max_filter =
-			    make_uniq<ConstantFilter>(ExpressionType::COMPARE_LESSTHANOREQUALTO, std::move(max_constant));
-			filters->PushFilter(snapshot_col_idx, std::move(max_filter));
+			LegacyConstantFilter max_filter(ExpressionType::COMPARE_LESSTHANOREQUALTO, std::move(max_constant));
+			auto max_expr = max_filter.ToExpression(snapshot_col);
+			if (combined_expr) {
+				auto and_expr = make_uniq<BoundConjunctionExpression>(ExpressionType::CONJUNCTION_AND);
+				and_expr->GetChildrenMutable().push_back(std::move(combined_expr));
+				and_expr->GetChildrenMutable().push_back(std::move(max_expr));
+				combined_expr = std::move(and_expr);
+			} else {
+				combined_expr = std::move(max_expr);
+			}
 		}
+		filters->PushFilter(snapshot_col_idx, make_uniq<ExpressionFilter>(std::move(combined_expr)));
 		scanner.SetFilters(std::move(filters));
 	}
 

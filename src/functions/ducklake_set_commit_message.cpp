@@ -30,7 +30,7 @@ unique_ptr<GlobalTableFunctionState> DuckLakeSetCommitMessageInit(ClientContext 
 }
 
 static unique_ptr<FunctionData> DuckLakeSetCommitMessageBind(ClientContext &context, TableFunctionBindInput &input,
-                                                             vector<LogicalType> &return_types, vector<string> &names) {
+                                                             vector<LogicalType> &return_types, vector<Identifier> &names) {
 	auto &catalog = DuckLakeBaseMetadataFunction::GetCatalog(context, input.inputs[0]);
 	return_types.push_back(LogicalType::BOOLEAN);
 	names.push_back("Success");
@@ -51,7 +51,7 @@ void DuckLakeSetCommitMessageExecute(ClientContext &context, TableFunctionInput 
 }
 
 DuckLakeSetCommitMessage::DuckLakeSetCommitMessage()
-    : TableFunction("ducklake_set_commit_message", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
+    : TableFunction(Identifier("ducklake_set_commit_message"), {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
                     DuckLakeSetCommitMessageExecute, DuckLakeSetCommitMessageBind, DuckLakeSetCommitMessageInit) {
 	named_parameters["extra_info"] = LogicalType::VARCHAR;
 }

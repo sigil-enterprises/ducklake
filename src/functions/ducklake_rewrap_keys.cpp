@@ -136,7 +136,7 @@ static const RewrapTarget REWRAP_TARGETS[] = {
 };
 
 static unique_ptr<FunctionData> DuckLakeRewrapKeysBind(ClientContext &context, TableFunctionBindInput &input,
-                                                       vector<LogicalType> &return_types, vector<string> &names) {
+                                                       vector<LogicalType> &return_types, vector<Identifier> &names) {
 	auto &catalog = DuckLakeBaseMetadataFunction::GetCatalog(context, input.inputs[0]);
 	auto &ducklake_catalog = catalog.Cast<DuckLakeCatalog>();
 	auto result = make_uniq<RewrapKeysBindData>(catalog);
@@ -308,7 +308,7 @@ static void SweepTable(Connection &connection, DuckLakeCatalog &catalog, DuckLak
 			// tables we are walking. `stored_path` is the `path` COLUMN, never a
 			// path resolved against the table's data path, because that is what
 			// the key was bound to when it was minted.
-			identities.push_back(catalog.BuildEncryptionIdentity(TableIndex(static_cast<idx_t>(table_id)), stored_path,
+			identities.push_back(catalog.BuildEncryptionIdentity(DuckLakeTableIndex(static_cast<idx_t>(table_id)), stored_path,
 			                                                     target.is_delete_file));
 			last_id = file_id;
 		}
@@ -398,7 +398,7 @@ static void DuckLakeRewrapKeysExecute(ClientContext &context, TableFunctionInput
 }
 
 DuckLakeRewrapKeysFunction::DuckLakeRewrapKeysFunction()
-    : TableFunction("ducklake_rewrap_keys", {LogicalType::VARCHAR}, DuckLakeRewrapKeysExecute, DuckLakeRewrapKeysBind,
+    : TableFunction(Identifier("ducklake_rewrap_keys"), {LogicalType::VARCHAR}, DuckLakeRewrapKeysExecute, DuckLakeRewrapKeysBind,
                     DuckLakeRewrapKeysInit) {
 	named_parameters["dry_run"] = LogicalType::BOOLEAN;
 	named_parameters["batch_size"] = LogicalType::BIGINT;

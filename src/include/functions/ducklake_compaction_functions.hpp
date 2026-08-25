@@ -65,10 +65,10 @@ public:
 	}
 	vector<ColumnBinding> GetColumnBindings() override {
 		vector<ColumnBinding> result;
-		result.emplace_back(table_index, 0);
-		result.emplace_back(table_index, 1);
-		result.emplace_back(table_index, 2);
-		result.emplace_back(table_index, 3);
+		result.emplace_back(TableIndex(table_index), ProjectionIndex(0));
+		result.emplace_back(TableIndex(table_index), ProjectionIndex(1));
+		result.emplace_back(TableIndex(table_index), ProjectionIndex(2));
+		result.emplace_back(TableIndex(table_index), ProjectionIndex(3));
 		return result;
 	}
 
@@ -83,9 +83,9 @@ public:
 class DuckLakeCompactor {
 public:
 	DuckLakeCompactor(ClientContext &context, DuckLakeCatalog &catalog, DuckLakeTransaction &transaction,
-	                  Binder &binder, TableIndex table_id, DuckLakeMergeAdjacentOptions options);
+	                  Binder &binder, DuckLakeTableIndex table_id, DuckLakeMergeAdjacentOptions options);
 	DuckLakeCompactor(ClientContext &context, DuckLakeCatalog &catalog, DuckLakeTransaction &transaction,
-	                  Binder &binder, TableIndex table_id, double delete_threshold);
+	                  Binder &binder, DuckLakeTableIndex table_id, double delete_threshold);
 	void GenerateCompactions(DuckLakeTableEntry &table, vector<unique_ptr<LogicalOperator>> &compactions);
 	unique_ptr<LogicalOperator> GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry> source_files);
 	static unique_ptr<LogicalOperator> InsertSort(Binder &binder, unique_ptr<LogicalOperator> &plan,
@@ -100,7 +100,7 @@ private:
 	DuckLakeCatalog &catalog;
 	DuckLakeTransaction &transaction;
 	Binder &binder;
-	TableIndex table_id;
+	DuckLakeTableIndex table_id;
 	double delete_threshold = 0.95;
 	DuckLakeMergeAdjacentOptions options;
 

@@ -165,7 +165,7 @@ string PostgresMetadataManager::GetLatestSnapshotQuery() const {
 	)";
 }
 
-string PostgresMetadataManager::GenerateFileColumnStatsCTEBody(const CTERequirement &req, TableIndex table_id) {
+string PostgresMetadataManager::GenerateFileColumnStatsCTEBody(const CTERequirement &req, DuckLakeTableIndex table_id) {
 	string select_list = "data_file_id";
 	for (const auto &stat : req.referenced_stats) {
 		select_list += ", " + stat;
@@ -182,10 +182,10 @@ shared_ptr<DuckLakeInlinedData>
 PostgresMetadataManager::TransformInlinedData(QueryResult &result, const vector<LogicalType> &expected_types) {
 	bool needs_reinterpret = false;
 	if (!expected_types.empty()) {
-		D_ASSERT(expected_types.size() == result.types.size());
+		D_ASSERT(expected_types.size() == result.GetTypes().size());
 		for (idx_t i = 0; i < expected_types.size(); i++) {
-			if (result.types[i] != expected_types[i]) {
-				D_ASSERT(result.types[i].id() == LogicalTypeId::BLOB &&
+			if (result.GetTypes()[i] != expected_types[i]) {
+				D_ASSERT(result.GetTypes()[i].id() == LogicalTypeId::BLOB &&
 				         expected_types[i].id() == LogicalTypeId::VARCHAR);
 				needs_reinterpret = true;
 			}

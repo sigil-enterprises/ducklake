@@ -24,7 +24,7 @@
 
 namespace duckdb {
 
-DuckLakeFileIdentity DuckLakeCatalog::BuildEncryptionIdentity(TableIndex table_id, const string &stored_path,
+DuckLakeFileIdentity DuckLakeCatalog::BuildEncryptionIdentity(DuckLakeTableIndex table_id, const string &stored_path,
                                                               bool is_delete_file) const {
 	DuckLakeFileIdentity identity;
 	identity.lake_id = options.encryption_lake_id;
@@ -132,7 +132,7 @@ void DuckLakeCatalog::RefuseUnencryptedTempSpill(const string &what) const {
 	                  what);
 }
 
-string DuckLakeCatalog::ResolveStoredEncryptionKey(TableIndex table_id, const string &stored_path,
+string DuckLakeCatalog::ResolveStoredEncryptionKey(DuckLakeTableIndex table_id, const string &stored_path,
                                                    const string &resolved_path, bool is_delete_file,
                                                    const Value &stored_key_value) const {
 	if (stored_key_value.IsNull()) {

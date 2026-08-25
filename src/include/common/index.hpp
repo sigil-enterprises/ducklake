@@ -48,21 +48,21 @@ struct SchemaIndex {
 	}
 };
 
-struct TableIndex {
-	TableIndex() : index(DConstants::INVALID_INDEX) {
+struct DuckLakeTableIndex {
+	DuckLakeTableIndex() : index(DConstants::INVALID_INDEX) {
 	}
-	explicit TableIndex(idx_t index) : index(index) {
+	explicit DuckLakeTableIndex(idx_t index) : index(index) {
 	}
 
 	idx_t index;
 
-	inline bool operator==(const TableIndex &rhs) const {
+	inline bool operator==(const DuckLakeTableIndex &rhs) const {
 		return index == rhs.index;
 	};
-	inline bool operator!=(const TableIndex &rhs) const {
+	inline bool operator!=(const DuckLakeTableIndex &rhs) const {
 		return index != rhs.index;
 	};
-	inline bool operator<(const TableIndex &rhs) const {
+	inline bool operator<(const DuckLakeTableIndex &rhs) const {
 		return index < rhs.index;
 	};
 	bool IsValid() const {
