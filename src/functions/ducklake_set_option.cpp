@@ -12,9 +12,9 @@ namespace duckdb {
 
 static void ValidateTableScope(ClientContext &context, Catalog &catalog, const string &schema_name,
                                const string &table_name) {
-	auto schema_path = schema_name.empty() ? vector<Identifier>() : vector<Identifier> {Identifier(schema_name)};
 	auto table_catalog_entry = catalog.GetEntry<TableCatalogEntry>(
-	    context, QualifiedName(std::move(schema_path), Identifier(table_name)), OnEntryNotFound::THROW_EXCEPTION);
+	    context, QualifiedName(Identifier(catalog.GetName()), Identifier(schema_name), Identifier(table_name)),
+	    OnEntryNotFound::THROW_EXCEPTION);
 	auto &ducklake_table = table_catalog_entry->Cast<DuckLakeTableEntry>();
 	DuckLakeUtil::ValidateNoInlinedSystemColumns(ducklake_table.GetColumns(), ducklake_table.name.GetIdentifierName());
 }
@@ -198,9 +198,9 @@ static unique_ptr<FunctionData> DuckLakeSetOptionBind(ClientContext &context, Ta
 	}
 	if (!table.empty()) {
 		// find the scope
-		auto schema_path = schema.empty() ? vector<Identifier>() : vector<Identifier> {Identifier(schema)};
 		auto table_catalog_entry = catalog.GetEntry<TableCatalogEntry>(
-		    context, QualifiedName(std::move(schema_path), Identifier(table)), OnEntryNotFound::THROW_EXCEPTION);
+		    context, QualifiedName(Identifier(catalog.GetName()), Identifier(schema), Identifier(table)),
+		    OnEntryNotFound::THROW_EXCEPTION);
 		auto &ducklake_table = table_catalog_entry->Cast<DuckLakeTableEntry>();
 		config_option.table_id = ducklake_table.GetTableId();
 		if (config_option.table_id.IsTransactionLocal()) {

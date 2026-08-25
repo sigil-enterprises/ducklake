@@ -636,9 +636,9 @@ static unique_ptr<LogicalOperator> FlushInlinedDataBind(ClientContext &context, 
 		}
 	} else {
 		// specific table - fetch the table
-		auto schema_path = schema.empty() ? vector<Identifier>() : vector<Identifier> {Identifier(schema)};
 		auto table_catalog_entry = ducklake_catalog.GetEntry<TableCatalogEntry>(
-		    context, QualifiedName(std::move(schema_path), Identifier(table)), OnEntryNotFound::THROW_EXCEPTION);
+		    context, QualifiedName(Identifier(ducklake_catalog.GetName()), Identifier(schema), Identifier(table)),
+		    OnEntryNotFound::THROW_EXCEPTION);
 		auto &dl_schema = table_catalog_entry->schema.Cast<DuckLakeSchemaEntry>();
 		schema_table_map[dl_schema.Cast<DuckLakeSchemaEntry>().GetSchemaId().index].push_back(
 		    table_catalog_entry.get()->Cast<DuckLakeTableEntry>());
