@@ -455,7 +455,16 @@ milestones:
     # The prior `tracker_ref`/`evidence` of "ducklake:#1" was a citation error -
     # ducklake PR #1 (created 2026-08-10, workflow containment) carries no RFC
     # content and no 2026-07-28 body; the real RFC and PRs are cited below.
-    ship_criterion: "The standalone upstream-eligible changes (CSPRNG, 256-bit keys) are submitted to duckdb/ducklake from a dedicated public upstream-only fork, and the new-columns spec change is submitted only if Labs engages on the RFC. Gated on an explicit human exception to the no-public-repos rule."
+    #
+    # STATUS NOTE 2026-08-25: Labs engaged. duckdb/ducklake#1351 comment
+    # (mrendi29, 2026-08-25T02:45:45Z) asks the interface be aligned with
+    # Iceberg's envelope-encryption design (https://iceberg.apache.org/docs/latest/encryption/)
+    # before the spec-change PR is drafted. This is engagement per the ship
+    # criterion's own gate, so E6.2 (Iceberg-aligned interface revision) is
+    # added below as the next real step - the new-columns PR still waits on
+    # that alignment being resolved, not on Labs engaging (engagement itself
+    # is now satisfied).
+    ship_criterion: "The standalone upstream-eligible changes (CSPRNG, 256-bit keys) are submitted to duckdb/ducklake from a dedicated public upstream-only fork, and the new-columns spec change is submitted only if Labs engages on the RFC, with the interface shape reconciled against any design feedback Labs gives during that engagement (2026-08-25: Iceberg-alignment ask). Gated on an explicit human exception to the no-public-repos rule."
     target_date: 2026-10-14     # PROPOSED - needs ratification
     version: v0.6.0             # PROPOSED
     rc_soaked: false
@@ -483,6 +492,19 @@ milestones:
         derived_at: 2026-08-23
         evidence: ["ducklake@4ab2193c", "ducklake@94144c31"]
         confidence: high
+
+      - id: E6.2
+        title: "Reconcile the pluggable-key-management interface with Iceberg's envelope-encryption design"
+        capability: "The wrap/unwrap interface proposed on duckdb/ducklake#1351 (EncryptionKeyProvider: wrap(plaintext_key) -> (wrapped_blob, provider, key_id) / unwrap(wrapped_blob, provider, key_id) -> plaintext_key) is compared against Iceberg's envelope-encryption model (KEK/DEK separation, key-wrapping metadata carried per-manifest/per-file, KMS-client abstraction - see https://iceberg.apache.org/docs/latest/encryption/) and revised where the shapes diverge, before the new-columns spec-change PR is drafted. The revision is posted as a follow-up comment on #1351 for Labs to confirm before the PR opens, per the issue's own coordinate-first convention."
+        tracker_ref: "duckdb/ducklake#1351"
+        class: planned
+        status: open
+        depends_on: [ducklake:E6.1]
+        intent: planned
+        provenance: retro-derived
+        derived_at: 2026-08-25
+        evidence: []
+        confidence: medium
 
   - id: M7
     title: "KMS-agnostic EncryptionProvider architecture"
