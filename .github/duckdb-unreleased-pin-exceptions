@@ -1,0 +1,31 @@
+# Narrow, explicit, auditable exceptions to refuse-unreleased-duckdb-pin.
+#
+# This file allowlists specific non-release duckdb/duckdb SHAs that have been
+# manually verified compatible with this repo's current duckdb-python
+# consumer requirements, past the point .github/duckdb-version's release tag
+# can reach. The guard still refuses every other unreleased pin by default -
+# only a SHA listed here, exactly, passes.
+#
+# Format: one SHA per line, `#` comments allowed. Each entry MUST be preceded
+# by a comment block recording:
+#   - WHY: verification method and evidence (not date proximity - duckdb's
+#     own history has been rebased around API-breaking refactors before,
+#     see ducklake#69)
+#   - WHO/WHEN: who added it and when
+#
+# entry: c99ade5cb6028a4ae0a3d71ef1fd97f4c2154931
+#   WHY: no duckdb/duckdb release tag exists yet past the Identifier
+#   refactor (QualifiedName as methods, identifier_map_t, Connection::
+#   PendingQuery/CreateView/View, SQLQuotedIdentifier, ExtensionLoadOptions,
+#   MaterializedRelation, DataChunk::SetChildCardinality, DropInfo::SetName)
+#   that every current duckdb-python nanobind revision already assumes -
+#   see ducklake#69. This SHA is the exact commit duckdb-python's nanobind
+#   lineage pins at external/duckdb, as of its `ea670a4` "Bump submodule"
+#   commit (2026-08-19) - not a date-adjacent guess. Verified live via:
+#     git merge-base --is-ancestor c99ade5cb6028a4ae0a3d71ef1fd97f4c2154931 \
+#       $(git -C <duckdb-python checkout> ls-tree ea670a4 external/duckdb | awk '{print $3}')
+#   which confirms this SHA is duckdb-python's actual target, not merely
+#   nearby in time.
+#   WHO/WHEN: tiagotaveiragomes (agent, relaying principal's standing
+#   authorization for this FC push), 2026-08-25, ducklake#69 / ducklake#70.
+c99ade5cb6028a4ae0a3d71ef1fd97f4c2154931
