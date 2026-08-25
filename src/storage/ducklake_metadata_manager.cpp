@@ -26,6 +26,9 @@
 #include "duckdb/planner/filter/table_filter_functions.hpp"
 #include "duckdb/planner/expression.hpp"
 #include "duckdb/planner/expression/bound_constant_expression.hpp"
+#include "duckdb/planner/expression/bound_comparison_expression.hpp"
+#include "duckdb/planner/expression/bound_operator_expression.hpp"
+#include "duckdb/planner/expression/bound_conjunction_expression.hpp"
 #include "duckdb/execution/expression_executor.hpp"
 #include "storage/ducklake_partition_data.hpp"
 #include "duckdb/parser/parser.hpp"
@@ -1272,9 +1275,145 @@ string DuckLakeMetadataManager::GenerateConstantFilterDouble(const LegacyConstan
 	}
 }
 
+//! Convert an EXPRESSION_FILTER's underlying Expression tree back into the legacy TableFilter shapes that
+//! GenerateFilterPushdown understands. Under the pinned duckdb-core, FilterCombiner::GenerateTableScanFilters
+//! (and the dynamic filter pushdown path) always produce EXPRESSION_FILTER-wrapped filters now - the LEGACY_*
+//! filter types are only ever seen when constructed internally by this class itself (e.g. the synthetic
+//! LegacyConstantFilter built for IN-list elements below). Only the shapes zone-map pruning cares about are
+//! handled; anything else returns nullptr and pruning is skipped for that filter (correctness-safe, just
+//! less aggressive pruning).
+static unique_ptr<TableFilter> ConvertExpressionFilterToLegacy(const Expression &expr) {
+	// Comparisons are represented as BOUND_FUNCTION expressions in this duckdb-core - there is no
+	// separate BOUND_COMPARISON expression class. BoundComparisonExpression is a helper struct of
+	// static accessors operating on the underlying BoundFunctionExpression.
+	if (expr.GetExpressionClass() == ExpressionClass::BOUND_FUNCTION &&
+	    BoundComparisonExpression::IsComparison(expr)) {
+		auto &comparison = expr.Cast<BoundFunctionExpression>();
+		auto &left = BoundComparisonExpression::Left(comparison);
+		auto &right = BoundComparisonExpression::Right(comparison);
+		bool lhs_constant = left.GetExpressionClass() == ExpressionClass::BOUND_CONSTANT;
+		bool rhs_constant = right.GetExpressionClass() == ExpressionClass::BOUND_CONSTANT;
+		if (!lhs_constant && !rhs_constant) {
+			return nullptr;
+		}
+		auto &subject = rhs_constant ? left : right;
+		// The subject must be a direct reference to the (single) filtered column - not an arbitrary
+		// expression over it (e.g. "id % 2 = 0"). Zone-map stats describe the raw column's min/max,
+		// not the value of some derived expression, so anything other than a bare column reference
+		// must not be turned into a range filter here (it would silently mis-prune).
+		if (subject.GetExpressionClass() != ExpressionClass::BOUND_REF) {
+			return nullptr;
+		}
+		auto &constant_expr = rhs_constant ? right : left;
+		auto comparison_type = comparison.GetExpressionType();
+		if (!rhs_constant) {
+			switch (comparison_type) {
+			case ExpressionType::COMPARE_LESSTHAN:
+				comparison_type = ExpressionType::COMPARE_GREATERTHAN;
+				break;
+			case ExpressionType::COMPARE_LESSTHANOREQUALTO:
+				comparison_type = ExpressionType::COMPARE_GREATERTHANOREQUALTO;
+				break;
+			case ExpressionType::COMPARE_GREATERTHAN:
+				comparison_type = ExpressionType::COMPARE_LESSTHAN;
+				break;
+			case ExpressionType::COMPARE_GREATERTHANOREQUALTO:
+				comparison_type = ExpressionType::COMPARE_LESSTHANOREQUALTO;
+				break;
+			default:
+				break;
+			}
+		}
+		const auto &constant = constant_expr.Cast<BoundConstantExpression>().GetValue();
+		if (constant.IsNull()) {
+			return nullptr;
+		}
+		switch (comparison_type) {
+		case ExpressionType::COMPARE_EQUAL:
+		case ExpressionType::COMPARE_NOTEQUAL:
+		case ExpressionType::COMPARE_LESSTHAN:
+		case ExpressionType::COMPARE_LESSTHANOREQUALTO:
+		case ExpressionType::COMPARE_GREATERTHAN:
+		case ExpressionType::COMPARE_GREATERTHANOREQUALTO:
+			return make_uniq<LegacyConstantFilter>(comparison_type, constant);
+		default:
+			return nullptr;
+		}
+	}
+	switch (expr.GetExpressionClass()) {
+	case ExpressionClass::BOUND_OPERATOR: {
+		auto &op = expr.Cast<BoundOperatorExpression>();
+		switch (op.GetExpressionType()) {
+		case ExpressionType::OPERATOR_IS_NULL:
+		case ExpressionType::OPERATOR_IS_NOT_NULL: {
+			auto &children = op.GetChildren();
+			if (children.size() != 1 || children[0]->GetExpressionClass() != ExpressionClass::BOUND_REF) {
+				return nullptr;
+			}
+			return op.GetExpressionType() == ExpressionType::OPERATOR_IS_NULL
+			           ? unique_ptr<TableFilter>(make_uniq<LegacyIsNullFilter>())
+			           : unique_ptr<TableFilter>(make_uniq<LegacyIsNotNullFilter>());
+		}
+		case ExpressionType::COMPARE_IN: {
+			auto &children = op.GetChildren();
+			if (children.empty() || children[0]->GetExpressionClass() != ExpressionClass::BOUND_REF) {
+				return nullptr;
+			}
+			vector<Value> values;
+			values.reserve(children.size() - 1);
+			for (idx_t i = 1; i < children.size(); i++) {
+				if (children[i]->GetExpressionClass() != ExpressionClass::BOUND_CONSTANT) {
+					return nullptr;
+				}
+				auto value = children[i]->Cast<BoundConstantExpression>().GetValue();
+				if (value.IsNull()) {
+					return nullptr;
+				}
+				values.push_back(std::move(value));
+			}
+			if (values.empty()) {
+				return nullptr;
+			}
+			return make_uniq<LegacyInFilter>(std::move(values));
+		}
+		default:
+			return nullptr;
+		}
+	}
+	case ExpressionClass::BOUND_CONJUNCTION: {
+		auto &conjunction = expr.Cast<BoundConjunctionExpression>();
+		unique_ptr<LegacyConjunctionFilter> result;
+		if (conjunction.GetExpressionType() == ExpressionType::CONJUNCTION_AND) {
+			result = make_uniq<LegacyConjunctionAndFilter>();
+		} else {
+			result = make_uniq<LegacyConjunctionOrFilter>();
+		}
+		for (auto &child : conjunction.GetChildren()) {
+			auto child_filter = ConvertExpressionFilterToLegacy(*child);
+			if (!child_filter) {
+				return nullptr;
+			}
+			result->child_filters.push_back(std::move(child_filter));
+		}
+		return std::move(result);
+	}
+	default:
+		return nullptr;
+	}
+}
+
 string DuckLakeMetadataManager::GenerateFilterPushdown(const TableFilter &filter,
                                                        unordered_set<string> &referenced_stats) {
 	switch (filter.filter_type) {
+	case TableFilterType::EXPRESSION_FILTER: {
+		auto &expr_filter = filter.Cast<ExpressionFilter>();
+		auto legacy_filter = ConvertExpressionFilterToLegacy(*expr_filter.expr);
+		if (!legacy_filter) {
+			// unsupported expression shape - skip pruning for this filter (correctness-safe)
+			return string();
+		}
+		return GenerateFilterPushdown(*legacy_filter, referenced_stats);
+	}
 	case TableFilterType::LEGACY_CONSTANT_COMPARISON: {
 		auto &constant_filter = filter.Cast<LegacyConstantFilter>();
 		auto &type = constant_filter.constant.type();
