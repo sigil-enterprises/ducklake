@@ -147,6 +147,7 @@ string ToSQLString(DuckLakeMetadataManager &metadata_manager, const Value &value
 	case LogicalTypeId::TIMESTAMP_SEC:
 	case LogicalTypeId::TIMESTAMP_MS:
 	case LogicalTypeId::TIMESTAMP_NS:
+	case LogicalTypeId::TIMESTAMP_TZ_NS:
 	case LogicalTypeId::BLOB:
 	case LogicalTypeId::GEOMETRY:
 		// ANSI CAST(value AS type) instead of the PostgreSQL-flavored
