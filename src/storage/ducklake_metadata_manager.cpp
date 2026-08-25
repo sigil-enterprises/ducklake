@@ -1283,6 +1283,31 @@ string DuckLakeMetadataManager::GenerateConstantFilterDouble(const LegacyConstan
 //! handled; anything else returns nullptr and pruning is skipped for that filter (correctness-safe, just
 //! less aggressive pruning).
 static unique_ptr<TableFilter> ConvertExpressionFilterToLegacy(const Expression &expr) {
+	// Optimizer-inserted marker functions (__internal_tablefilter_optional and its selectivity-gated
+	// variant) wrap the *actual* predicate for statistics-only purposes - the wrapper itself always
+	// evaluates to TRUE at execution time and carries the real filter expression off to the side in
+	// its bind data (OptionalFilterFunctionData/SelectivityOptionalFilterFunctionData::child_filter_expr),
+	// not as a scan-time child argument. Zone-map pruning only cares about that underlying predicate:
+	// unwrap it and recurse. This is what marks OR/AND compounds "optional:" in EXPLAIN output - without
+	// unwrapping, every such filter falls through to "unsupported" below and pruning silently no-ops.
+	if (expr.GetExpressionClass() == ExpressionClass::BOUND_FUNCTION) {
+		auto &func_expr = expr.Cast<BoundFunctionExpression>();
+		auto &bind_info = func_expr.BindInfo();
+		if (func_expr.Function().GetName() == "__internal_tablefilter_optional" && bind_info) {
+			auto &bind_data = bind_info->Cast<OptionalFilterFunctionData>();
+			if (bind_data.child_filter_expr) {
+				return ConvertExpressionFilterToLegacy(*bind_data.child_filter_expr);
+			}
+			return nullptr;
+		}
+		if (func_expr.Function().GetName() == "__internal_tablefilter_selectivity_optional" && bind_info) {
+			auto &bind_data = bind_info->Cast<SelectivityOptionalFilterFunctionData>();
+			if (bind_data.child_filter_expr) {
+				return ConvertExpressionFilterToLegacy(*bind_data.child_filter_expr);
+			}
+			return nullptr;
+		}
+	}
 	// Comparisons are represented as BOUND_FUNCTION expressions in this duckdb-core - there is no
 	// separate BOUND_COMPARISON expression class. BoundComparisonExpression is a helper struct of
 	// static accessors operating on the underlying BoundFunctionExpression.
