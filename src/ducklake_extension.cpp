@@ -51,6 +51,19 @@ static void LoadInternal(ExtensionLoader &loader) {
 	auto &config = DBConfig::GetConfig(instance);
 	StorageExtension::Register(config, "ducklake", make_shared_ptr<DuckLakeStorageExtension>());
 
+	// DuckDB's default_transaction_invalidation_policy now defaults to
+	// ALL_ERRORS_INVALIDATE_TRANSACTION (every error - CATALOG/BINDER included - aborts an
+	// explicit transaction until ROLLBACK). DuckLake's own catalog is built on the older,
+	// long-standing semantics where a benign catalog-lookup failure (e.g. querying a table
+	// that does not exist, or any other expected-error existence probe) does not poison the
+	// rest of an explicit transaction - the same assumption behind the metadata connection's
+	// own ROLLBACK-and-reset in DuckLakeMetadataManager::Query(). Restore that default so
+	// sessions that ATTACH a DuckLake keep working the way DuckLake's catalog code (and its
+	// test suite) has always assumed, without forcing every DuckLake user to discover and set
+	// this new DuckDB setting by hand.
+	config.SetOptionByName(Identifier("default_transaction_invalidation_policy"),
+	                       Value("SYNTACTIC_ERRORS_DO_NOT_INVALIDATE"));
+
 	config.AddExtensionOption("ducklake_max_retry_count",
 	                          "The maximum amount of retry attempts for a ducklake transaction", LogicalType::UBIGINT,
 	                          Value::UBIGINT(10), nullptr, SetScope::GLOBAL);

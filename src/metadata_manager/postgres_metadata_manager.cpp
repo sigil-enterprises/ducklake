@@ -27,6 +27,7 @@ bool PostgresMetadataManager::TypeIsNativelySupported(const LogicalType &type) {
 	case LogicalTypeId::TIMESTAMP_SEC:
 	case LogicalTypeId::TIMESTAMP_MS:
 	case LogicalTypeId::TIMESTAMP_NS:
+	case LogicalTypeId::TIMESTAMP_TZ_NS:
 	// Postgres bytea input format differs from DuckDB's blob text format
 	case LogicalTypeId::BLOB:
 	// Postgres cannot store null bytes in VARCHAR/TEXT columns
@@ -72,6 +73,7 @@ string PostgresMetadataManager::GetColumnTypeInternal(const LogicalType &column_
 	case LogicalTypeId::TIMESTAMP_SEC:
 	case LogicalTypeId::TIMESTAMP_MS:
 	case LogicalTypeId::TIMESTAMP_NS:
+	case LogicalTypeId::TIMESTAMP_TZ_NS:
 		return "VARCHAR";
 	default:
 		return column_type.ToString();

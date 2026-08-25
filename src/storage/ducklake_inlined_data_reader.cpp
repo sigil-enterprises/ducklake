@@ -7,6 +7,7 @@
 #include "storage/ducklake_catalog.hpp"
 #include "storage/ducklake_delete_filter.hpp"
 #include "duckdb/common/vector_operations/vector_operations.hpp"
+#include "common/ducklake_types.hpp"
 
 namespace duckdb {
 
@@ -218,7 +219,8 @@ AsyncResult DuckLakeInlinedDataReader::Scan(ClientContext &context, GlobalTableF
 				}
 				if (chunk.data[c].GetType() != scan_chunk.data[column_id].GetType()) {
 					// type was changed, we gotta cast the data
-					VectorOperations::Cast(context, scan_chunk.data[column_id], chunk.data[c], scan_chunk.size());
+					DuckLakeTypes::CastEvolvedVector(context, scan_chunk.data[column_id], chunk.data[c],
+					                                 scan_chunk.size());
 				} else {
 					chunk.data[c].Reference(scan_chunk.data[column_id]);
 				}

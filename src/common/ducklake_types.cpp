@@ -4,6 +4,10 @@
 #include "duckdb/common/array.hpp"
 #include "duckdb/common/optional_idx.hpp"
 #include "duckdb/common/type_visitor.hpp"
+#include "duckdb/common/vector_operations/vector_operations.hpp"
+#include "duckdb/common/vector/flat_vector.hpp"
+#include "duckdb/common/vector/struct_vector.hpp"
+#include "duckdb/common/vector/list_vector.hpp"
 
 namespace duckdb {
 
@@ -12,7 +16,7 @@ struct DefaultType {
 	LogicalTypeId id;
 };
 
-using ducklake_type_array = std::array<DefaultType, 32>;
+using ducklake_type_array = std::array<DefaultType, 33>;
 
 static constexpr const ducklake_type_array DUCKLAKE_TYPES {{{"boolean", LogicalTypeId::BOOLEAN},
                                                             {"int8", LogicalTypeId::TINYINT},
@@ -37,6 +41,7 @@ static constexpr const ducklake_type_array DUCKLAKE_TYPES {{{"boolean", LogicalT
                                                             {"timestamp_ns", LogicalTypeId::TIMESTAMP_NS},
                                                             {"timestamp_s", LogicalTypeId::TIMESTAMP_SEC},
                                                             {"timestamptz", LogicalTypeId::TIMESTAMP_TZ},
+                                                            {"timestamptz_ns", LogicalTypeId::TIMESTAMP_TZ_NS},
                                                             {"timetz", LogicalTypeId::TIME_TZ},
                                                             {"interval", LogicalTypeId::INTERVAL},
                                                             {"varchar", LogicalTypeId::VARCHAR},
@@ -151,6 +156,58 @@ void DuckLakeTypes::CheckSupportedType(const LogicalType &type) {
 		DuckLakeTypes::ToString(type);
 		return type;
 	});
+}
+
+void DuckLakeTypes::CastEvolvedVector(ClientContext &context, Vector &source, Vector &target, idx_t count) {
+	auto &source_type = source.GetType();
+	auto &target_type = target.GetType();
+	if (source_type == target_type) {
+		target.Reference(source);
+		return;
+	}
+	if (source_type.id() == LogicalTypeId::STRUCT && target_type.id() == LogicalTypeId::STRUCT) {
+		source.Flatten(count);
+		auto &source_children = StructVector::GetEntries(source);
+		auto &target_children = StructVector::GetEntries(target);
+		auto &source_child_types = StructType::GetChildTypes(source_type);
+		auto &target_child_types = StructType::GetChildTypes(target_type);
+		for (idx_t target_idx = 0; target_idx < target_children.size(); target_idx++) {
+			auto &target_name = target_child_types[target_idx].first;
+			bool found = false;
+			for (idx_t source_idx = 0; source_idx < source_children.size(); source_idx++) {
+				if (source_child_types[source_idx].first == target_name) {
+					CastEvolvedVector(context, source_children[source_idx], target_children[target_idx], count);
+					found = true;
+					break;
+				}
+			}
+			if (!found) {
+				// field did not exist in the old (source) struct layout - fill with NULL
+				target_children[target_idx].SetVectorType(VectorType::CONSTANT_VECTOR);
+				ConstantVector::SetNull(target_children[target_idx], true);
+			}
+		}
+		target.SetVectorType(VectorType::FLAT_VECTOR);
+		FlatVector::SetValidity(target, FlatVector::Validity(source));
+		return;
+	}
+	if (source_type.id() == LogicalTypeId::LIST && target_type.id() == LogicalTypeId::LIST) {
+		source.Flatten(count);
+		auto list_size = ListVector::GetListSize(source);
+		ListVector::Reserve(target, list_size);
+		ListVector::SetListSize(target, list_size);
+		target.SetVectorType(VectorType::FLAT_VECTOR);
+		memcpy(FlatVector::GetDataMutable<list_entry_t>(target), FlatVector::GetData<list_entry_t>(source),
+		      count * sizeof(list_entry_t));
+		FlatVector::SetValidity(target, FlatVector::Validity(source));
+		auto &source_child = ListVector::GetEntry(source);
+		auto &target_child = ListVector::GetEntry(target);
+		CastEvolvedVector(context, source_child, target_child, list_size);
+		return;
+	}
+	// fall back to the regular (name/id agnostic) cast for everything else (primitives, and nested types
+	// that did not change shape/name in an incompatible way)
+	VectorOperations::Cast(context, source, target, count);
 }
 
 } // namespace duckdb

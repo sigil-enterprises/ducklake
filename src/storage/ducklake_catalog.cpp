@@ -602,7 +602,17 @@ unique_ptr<DuckLakeCatalogSet> DuckLakeCatalog::LoadSchemaForSnapshot(DuckLakeTr
 	ducklake_entries_map_t schema_map;
 	for (auto &schema : catalog.schemas) {
 		CreateSchemaInfo schema_info;
-		schema_info.SetName(Identifier(schema.name));
+		// CreateSchemaInfo encodes the to-be-created schema's own name in the
+		// qualified name's SCHEMA slot, not its trailing NAME slot (see
+		// create_schema_info.hpp: "the path encodes [catalog, parent_schemas...,
+		// new_schema, <empty name>]"). SchemaCatalogEntry's constructor reads
+		// info.SchemaName(), which is that Schema() slot. Calling SetName() here
+		// instead left every loaded schema's Schema() slot at its
+		// Identifier::DefaultSchema() ("main"), so every DuckLakeSchemaEntry came
+        // out internally named "main" regardless of its real name (only
+		// coincidentally correct for the actual "main" schema) - e.g. TryDropSchema
+		// operating on "test" would report and act as if it were "main".
+		schema_info.SetSchema(Identifier(schema.name));
 		auto schema_entry = make_uniq<DuckLakeSchemaEntry>(*this, schema_info, schema.id, std::move(schema.uuid),
 		                                                   std::move(schema.path));
 		schema_map.insert(make_pair(std::move(schema.name), std::move(schema_entry)));
