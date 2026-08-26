@@ -2,8 +2,6 @@
 """
 The positive control for `mutants.py resolve`.
 
-PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
-
 `resolve` asserts an ABSENCE - that no mutant in the roster has come unstuck
 from the tree. An absence assertion that is silently broken prints exactly what
 a healthy one prints: "all N mutants resolve", exit 0. So its clean run is worth

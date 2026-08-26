@@ -151,3 +151,110 @@ jobs:
       - name: The crypta fixture group, with a key service behind it
         if: always()
         run: test/sql/crypta/run_sql_crypta_tests.sh
+
+  # bench#182 / bench#176: `test/cpp/crypta/mutants.py resolve --extension`
+  # (MutantRoster.yml) proves every EXTENSION_MUTANTS entry's `old` text
+  # matches and every `reddens` file exists - milliseconds, no build. It does
+  # NOT prove that applying one actually turns a green fixture red; a resolver
+  # that is satisfied by a mutant which BUILDS but changes nothing would say
+  # the same "all N mutants resolve". This job is that missing half: it
+  # PATCHES one guard out of the tree, in place, and requires the exact
+  # fixture named in `reddens` to fail on the exact statement named in
+  # `redden_at` - not merely "the group had a failure somewhere". The envelope
+  # job above is this job's GREEN control: same fixture group, same build
+  # recipe, unpatched tree, and it is required to pass.
+  crypta-mutant-red-control:
+    name: A crypta guard removed by mutants.py actually reddens its fixture
+    runs-on: ubuntu-latest
+    env:
+      VCPKG_TARGET_TRIPLET: x64-linux
+      GEN: Ninja
+      VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+
+    steps:
+      - name: Install required ubuntu packages
+        run: |
+          sudo apt-get update -y -qq
+          sudo apt-get install -y -qq build-essential cmake ninja-build ccache python3
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: 'true'
+
+      - name: Checkout DuckDB to version
+        run: |
+          cd duckdb
+          git checkout $(cat ../.github/duckdb-version)
+
+      - uses: ./.github/actions/refuse-unreleased-duckdb-pin
+
+      - name: Setup Ccache
+        uses: hendrikmuhs/ccache-action@main
+        with:
+          key: ${{ github.job }}
+          save: ${{ github.ref == 'refs/heads/main' || github.repository != 'duckdb/ducklake' }}
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11.1
+        with:
+          vcpkgGitCommitId: 84bab45d415d22042bd0b9081aea57f362da3f35
+
+      - name: Overlay the test-only KMS provider
+        run: |
+          test ! -e src/crypta-provider || { echo "::error::src/crypta-provider already exists - refusing to overlay over it"; exit 1; }
+          cp -R test/kms_provider src/crypta-provider
+          test -f src/crypta-provider/test_kms_provider.cpp
+          test -f src/crypta-provider/CMakeLists.txt
+
+      # ONE mutant, patched IN THE TREE before the only build this job does.
+      # `no_resolved_encryption_check` removes FinalizeLoad's refusal of an
+      # ATTACH where crypta was configured but the lake resolved to
+      # unencrypted - `mutants.py resolve --extension` already proved its
+      # `old` text matches exactly once and `crypta_config_refusals.test`
+      # exists; this proves the removal actually turns that fixture red.
+      - name: Patch out a crypta guard (mutants.py, no_resolved_encryption_check)
+        run: python3 test/cpp/crypta/mutants.py patch no_resolved_encryption_check .
+
+      - name: Build extension and test binaries (guard removed)
+        env:
+          GEN: ninja
+          BUILD_EXTENSION_TEST_DEPS: full
+        run: make release
+
+      - name: Control - this build really carries a KMS provider
+        run: scripts/ci/assert_kms_provider_reachable.sh build/release/duckdb
+
+      # MUST fail. `run_sql_crypta_tests.sh` exits non-zero on any fixture
+      # failure, so `!` inverts that into the pass condition here, and the
+      # captured output is grepped for the mutant's own `redden_at` fragment -
+      # not just "something failed" - so a fixture that died on its own
+      # ATTACH or a build-order fluke cannot be counted as evidence for this
+      # guard.
+      - name: crypta_config_refusals.test MUST redden (no_resolved_encryption_check)
+        run: |
+          set +e
+          output="$(test/sql/crypta/run_sql_crypta_tests.sh 2>&1)"
+          status=$?
+          echo "${output}"
+          if [ "${status}" -eq 0 ]; then
+            echo "::error::the crypta fixture group PASSED with the guard removed - the mutant did not redden anything"
+            exit 1
+          fi
+          if ! grep -qF "crypta_automatic.db' AS automatic" <<< "${output}"; then
+            echo "::error::the fixture group failed, but not on the statement this mutant is supposed to redden - this red is not attributable to it"
+            exit 1
+          fi
+          echo "confirmed: crypta_config_refusals.test reddened on the statement no_resolved_encryption_check names"
+
+      # Restores the tree to the state the resolver's own positive control
+      # (MutantRoster.yml) already requires: `old` present exactly once,
+      # nothing applied. Not load-bearing for this job's proof - the red above
+      # already happened - but a runner that left a mutated tree behind after
+      # asserting something about it would be the next `verify-clean` was
+      # written to catch.
+      - name: Unpatch and verify the tree is clean
+        if: always()
+        run: |
+          python3 test/cpp/crypta/mutants.py unpatch no_resolved_encryption_check .
+          git diff --exit-code -- src/storage/ducklake_catalog.cpp
