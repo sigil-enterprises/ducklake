@@ -130,6 +130,9 @@ string DuckLakeTypes::ToString(const LogicalType &type) {
 	}
 	switch (type.id()) {
 	case LogicalTypeId::STRUCT:
+	case LogicalTypeId::TUPLE:
+		// TUPLE is an unnamed struct that shares STRUCT's physical representation (duckdb-core) -
+		// DuckLake has no separate storage type for it, so store it as "struct"
 		return "struct";
 	case LogicalTypeId::VARIANT:
 		return "variant";
@@ -165,7 +168,10 @@ void DuckLakeTypes::CastEvolvedVector(ClientContext &context, Vector &source, Ve
 		target.Reference(source);
 		return;
 	}
-	if (source_type.id() == LogicalTypeId::STRUCT && target_type.id() == LogicalTypeId::STRUCT) {
+	auto is_struct_like = [](const LogicalType &t) {
+		return t.id() == LogicalTypeId::STRUCT || t.id() == LogicalTypeId::TUPLE;
+	};
+	if (is_struct_like(source_type) && is_struct_like(target_type)) {
 		source.Flatten(count);
 		auto &source_children = StructVector::GetEntries(source);
 		auto &target_children = StructVector::GetEntries(target);
