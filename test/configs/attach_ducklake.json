@@ -40,7 +40,8 @@
     "Unsupported type \"TIME_NS\" in Parquet writer",
     "DuckLakeScan not implemented",
     "Unsupported ALTER TABLE",
-    "reserved by DuckLake"
+    "reserved by DuckLake",
+    "DuckLake does not support nested schemas"
   ],
   "skip_tests": [
     {
