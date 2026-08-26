@@ -180,11 +180,21 @@ void DuckLakeCatalog::PrepareFileKeysForCommit(const vector<DuckLakeFileIdentity
 		vector<string> deks;
 		vector<idx_t> positions;
 		for (idx_t i = 0; i < keys.size(); i++) {
-			if (!keys[i].empty()) {
-				wrap_identities.push_back(identities[i]);
-				deks.push_back(keys[i]);
-				positions.push_back(i);
+			if (keys[i].empty()) {
+				continue;
 			}
+			if (DuckLakeEncryptionProvider::LooksWrapped(keys[i])) {
+				// IDEMPOTENCE GUARD (#51). A key that already carries the wrapped
+				// marker has already been through WrapKeys once - handing it back
+				// in would double-wrap the ciphertext, and UnwrapKey would then
+				// return ciphertext instead of the DEK on read. Leave it exactly
+				// as it is: it is already what a caller of this function is
+				// supposed to end up with.
+				continue;
+			}
+			wrap_identities.push_back(identities[i]);
+			deks.push_back(keys[i]);
+			positions.push_back(i);
 		}
 		if (deks.empty()) {
 			return;
