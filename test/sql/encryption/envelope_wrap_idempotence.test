@@ -36,6 +36,15 @@ require ducklake
 
 require parquet
 
+require httpfs
+
+# ^ NOT decoration, and its absence is why this file could never have passed:
+# writing an ENCRYPTED parquet file needs the mbedtls write path httpfs carries.
+# Without it the first CREATE TABLE dies with "DuckDB currently has a read-only
+# crypto module loaded" - measured, and asserted by the two sibling fixtures
+# that already carry this line. A missing httpfs SKIPS the file, and a skip
+# exits zero, which is why the runner refuses output without "assertions".
+
 require-env DUCKLAKE_FAKE_KMS_SOCKET
 
 require-env DUCKLAKE_FAKE_KMS_OPLOG
@@ -64,13 +73,42 @@ COMMIT
 statement ok
 CALL ducklake_merge_adjacent_files('lk')
 
+# MEASURED IN CI, run 32780115102, with the test provider and a live fake key
+# service behind it. This assertion FAILS, and it is the assertion that is
+# wrong, not the product:
+#
+#   sum(n) over wrap_batch                        = 4
+#   count(*) FROM lk_meta.ducklake_data_file      = 1
+#   ... WHERE end_snapshot IS NULL                = 1
+#   count(DISTINCT encryption_key)                = 1
+#
+# and the operation log reads health,0 / wrap_batch,1 x3 / unwrap_batch,1 x3 /
+# wrap_batch,1. Four files were written - CREATE TABLE, two INSERTs, and the
+# output of ducklake_merge_adjacent_files - and each was wrapped EXACTLY ONCE.
+# No DEK was wrapped twice.
+#
+# `ducklake_merge_adjacent_files` DELETES the superseded rows from
+# `ducklake_data_file` entirely (WriteMergeAdjacent in
+# ducklake_metadata_manager.cpp) rather than only stamping end_snapshot, so
+# counting the CURRENT `ducklake_data_file` rows alone under-counts: it sees
+# only the ONE surviving file, not the three compacted away. Those three are
+# not lost, though - the same statement that deletes them inserts their
+# data_file_id into `ducklake_files_scheduled_for_deletion` in the same
+# transaction (see WriteMergeAdjacent), so that table plus the surviving
+# `ducklake_data_file` rows together are exactly the set of files that have
+# EVER carried a key.
+#
 # EXACTLY as many DEKs were presented to the key service as there are files that
 # have ever carried one. More means a key was wrapped a second time.
 query I
 SELECT
   (SELECT coalesce(sum(n), 0) FROM read_csv('${DUCKLAKE_FAKE_KMS_OPLOG}', columns={'op': 'VARCHAR', 'n': 'BIGINT'}, header=false) WHERE op = 'wrap_batch')
   =
-  (SELECT count(*) FROM lk_meta.ducklake_data_file)
+  (
+    (SELECT count(*) FROM lk_meta.ducklake_data_file)
+    +
+    (SELECT count(*) FROM lk_meta.ducklake_files_scheduled_for_deletion)
+  )
 ----
 true
 
@@ -80,3 +118,4 @@ query II
 SELECT count(*), sum(id) FROM lk.t
 ----
 300	44850
+
