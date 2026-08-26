@@ -174,6 +174,12 @@ TableFunction DuckLakeFunctions::GetDuckLakeScanFunction(DatabaseInstance &insta
 	}
 
 	function.statistics = DuckLakeStatistics;
+	// The parquet scan function grabbed above may set statistics_extended (parquet's own multi-file-footer-stats
+	// callback), which DuckDB's optimizer now prefers over the plain `statistics` callback whenever both are set
+	// (see StatisticsPropagator::PropagateStatistics). Left in place, it shadows DuckLakeStatistics above, so the
+	// optimizer sees only parquet's raw per-file footer stats instead of DuckLake's authoritative catalog column
+	// stats - which also cover inlined data that has no parquet footer at all. Clear it so our callback is used.
+	function.statistics_extended = nullptr;
 	function.get_bind_info = DuckLakeBindInfo;
 	function.get_virtual_columns = DuckLakeVirtualColumns;
 	function.get_row_id_columns = DuckLakeGetRowIdColumn;
