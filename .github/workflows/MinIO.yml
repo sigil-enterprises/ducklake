@@ -76,6 +76,14 @@ jobs:
           make release
 
       - name: Test MinIO - AWS
+        # A real client-side network hang (not CI infra flakiness) has been observed here 4x
+        # in test/sql/compaction/compaction_session_target_file_size.test: the S3 PUT for the
+        # merged parquet file blocks forever in curl's poll() with zero bytes ever reaching
+        # MinIO (confirmed via local repro - MinIO stays fully responsive to other requests
+        # throughout). Root cause is upstream in duckdb-core/httpfs's statically-linked curl
+        # client, not in this extension - see ducklake#88. Bound the blast radius here so a
+        # repeat costs minutes of CI time instead of 90+.
+        timeout-minutes: 30
         run: |
           ./scripts/start-docker.sh
           build/release/test/unittest --test-config test/configs/minio.json "test/sql/*"
