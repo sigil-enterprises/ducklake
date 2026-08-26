@@ -21,6 +21,11 @@ cannot fail on a broken system is not a check.
 
 HOW THIS PROVES IT, RATHER THAN ASSERTING IT
 --------------------------------------------
+THE GUARDED SET IS DISCOVERED, not listed: every `envelope_*.test` under
+`test/sql/encryption/`. The first version named ONE file, so a vacuous
+expectation in any sibling was invisible to it - the same blind spot the
+fixture-reachability guard had.
+
 A DECOY CORPUS of messages that ACTUALLY EXIST on this path, each quoted
 verbatim from the source and each pinned to the file it lives in. For every
 `statement error` expectation in the guarded files, the expectation is matched
@@ -90,9 +95,24 @@ DECOYS = [
     ),
 ]
 
-GUARDED_FILES = [
-    "test/sql/encryption/envelope_attach_refusals.test",
-]
+#: The guarded set is DISCOVERED, never listed. A hand-maintained list guards
+#: the files someone remembered; the next envelope fixture to carry a vacuous
+#: `statement error` would simply not be in it. The same inversion that
+#: assert_envelope_fixtures_run_in_ci.py needed.
+GUARDED_DIR = os.path.join("test", "sql", "encryption")
+GUARDED_PREFIX = "envelope_"
+GUARDED_SUFFIX = ".test"
+
+
+def guarded_files(root):
+    directory = os.path.join(root, GUARDED_DIR)
+    if not os.path.isdir(directory):
+        return []
+    return sorted(
+        os.path.join(GUARDED_DIR, name).replace(os.sep, "/")
+        for name in os.listdir(directory)
+        if name.startswith(GUARDED_PREFIX) and name.endswith(GUARDED_SUFFIX)
+    )
 
 STATEMENT_ERROR = re.compile(r"^statement error\s*$")
 SEPARATOR = re.compile(r"^----\s*$")
@@ -198,16 +218,23 @@ def main():
         return 1
     print("positive control: the guard fires on a planted vacuous expectation and spares a distinguishing one")
 
+    guarded = guarded_files(args.root)
+    if not guarded:
+        print(
+            "::error::no %s*%s under %s - the guard has nothing to check"
+            % (GUARDED_PREFIX, GUARDED_SUFFIX, GUARDED_DIR)
+        )
+        return 1
+
     findings = 0
-    for relative in GUARDED_FILES:
+    total_expectations = 0
+    for relative in guarded:
         path = os.path.join(args.root, relative)
-        if not os.path.exists(path):
-            print("::error::guarded file %s does not exist" % relative)
-            return 1
         expectations = parse_expectations(path)
-        if not expectations:
-            print("::error::%s contains no `statement error` expectation - the guard has nothing to check" % relative)
-            return 1
+        total_expectations += len(expectations)
+        # A fixture with no `statement error` at all is not a defect - not every
+        # envelope fixture asserts a refusal. What WOULD be a fail-open is the
+        # whole discovered set carrying none, and that is checked after the loop.
         print("%s: %d expectation(s)" % (relative, len(expectations)))
         for line_number, expected in expectations:
             hits = matching_decoys(expected, corpus)
@@ -220,10 +247,18 @@ def main():
                     "instead." % (relative, line_number, expected, len(hits), ", ".join(hits))
                 )
 
+    if not total_expectations:
+        print(
+            "::error::none of the %d discovered fixture(s) contains a `statement error` expectation - the "
+            "guard scanned nothing and its green means nothing" % len(guarded)
+        )
+        return 1
+
     if findings:
         print("::error::%d vacuous refusal assertion(s)" % findings)
         return 1
-    print("no vacuous refusal assertions")
+    print("no vacuous refusal assertions across %d expectation(s) in %d discovered fixture(s)"
+          % (total_expectations, len(guarded)))
     return 0
 
 
