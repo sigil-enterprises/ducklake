@@ -65,12 +65,6 @@ private:
 	void GetTableDeletions() const;
 	void AddFilterToPushdownInfo(FilterPushdownInfo &pushdown_info, column_t column_id,
 	                             unique_ptr<TableFilter> filter) const;
-	//! Try to convert a raw (pre-decomposition) top-level filter expression into a FilterOrGroup and add it to
-	//! pushdown_info, when the expression is a cross-column OR that FilterCombiner could not express as a
-	//! single-column TableFilterSet entry. No-op (safe) if the expression isn't such an OR, or any branch
-	//! can't be decomposed into per-column filters.
-	void AddOrGroupToPushdownInfo(FilterPushdownInfo &pushdown_info, const Expression &filter,
-	                              MultiFilePushdownInfo &info) const;
 	//! Get the row_id_start for transaction-local inlined data.
 	idx_t GetTransactionLocalRowIdStart(idx_t transaction_row_start) const;
 

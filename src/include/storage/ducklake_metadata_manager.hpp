@@ -79,36 +79,15 @@ struct ColumnFilterInfo {
 	}
 };
 
-struct FilterPushdownInfo;
-
-//! One branch of a top-level OR whose branches reference different columns - each branch is itself an AND-of
-//! per-column filters (a FilterPushdownInfo), same shape as a full pushdown, just nested one level.
-struct FilterOrGroup {
-	vector<unique_ptr<FilterPushdownInfo>> branches;
-};
-
 struct FilterPushdownInfo {
 	unordered_map<idx_t, ColumnFilterInfo> column_filters;
-	//! Cross-column OR groups that FilterCombiner cannot express as a single-column TableFilterSet entry.
-	vector<FilterOrGroup> or_groups;
 
 	FilterPushdownInfo() = default;
-
-	bool HasFilters() const {
-		return !column_filters.empty() || !or_groups.empty();
-	}
 
 	unique_ptr<FilterPushdownInfo> Copy() const {
 		auto result = make_uniq<FilterPushdownInfo>();
 		for (const auto &entry : column_filters) {
 			result->column_filters.emplace(entry.first, entry.second);
-		}
-		for (const auto &group : or_groups) {
-			FilterOrGroup copied_group;
-			for (const auto &branch : group.branches) {
-				copied_group.branches.push_back(branch->Copy());
-			}
-			result->or_groups.push_back(std::move(copied_group));
 		}
 		return result;
 	}
@@ -503,16 +482,6 @@ public:
 	map<idx_t, set<idx_t>> ReadInlinedFileDeletions(DuckLakeTableIndex table_id, DuckLakeSnapshot snapshot);
 	//! Clear inlined table caches (needed after rollback so retry re-creates the tables)
 	void ClearInlinedTableCaches();
-	//! Try to decompose an AND-tree of simple predicates (comparisons / IS (NOT) NULL / IN) into a set of
-	//! per-column leaf expressions (rewritten so the column is a BoundReferenceExpression, matching what
-	//! ExpressionFilter expects), keyed by that column's projection index into MultiFilePushdownInfo's
-	//! column_indexes. Used to recover cross-column OR branches that FilterCombiner cannot express as a
-	//! single-column TableFilterSet entry. Returns false (out left untouched) if any leaf in the AND-tree
-	//! cannot be expressed as a zone-map-prunable predicate - correctness-safe, caller just skips pruning.
-	static bool TryDecomposeConjunctionToColumnFilters(const Expression &expr,
-	                                                   vector<pair<idx_t, unique_ptr<Expression>>> &out);
-	string GenerateColumnFilterCondition(const ColumnFilterInfo &column_filter,
-	                                     unordered_map<idx_t, CTERequirement> &required_ctes);
 
 private:
 	static unordered_map<string /* name */, create_t> metadata_managers;
