@@ -139,6 +139,15 @@ jobs:
         if: always()
         run: test/sql/encryption/run_envelope_fixture.sh test/sql/encryption/envelope_unenveloped_reader_refusal.test
 
+      # A SEPARATE invocation, not another argument to the step above: the
+      # runner mints one operation log per run, and this fixture's first
+      # assertion counts wrap_batch entries in that log against the number of
+      # data files in ITS OWN lake. Sharing a log with another fixture would
+      # make the count meaningless.
+      - name: No DEK is wrapped twice (issue #51)
+        if: always()
+        run: test/sql/encryption/run_envelope_fixture.sh test/sql/encryption/envelope_wrap_idempotence.test
+
       - name: The crypta fixture group, with a key service behind it
         if: always()
         run: test/sql/crypta/run_sql_crypta_tests.sh
