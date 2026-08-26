@@ -353,6 +353,12 @@ string DuckLakeCatalog::GeneratePathFromName(const string &uuid, const string &n
 }
 
 optional_ptr<CatalogEntry> DuckLakeCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {
+	if (info.IsNested()) {
+		// DuckLakeSchemaEntry has no CatalogSet of its own sub-schemas - a nested schema would be
+		// misread through DuckSchemaEntry's incompatible layout by duckdb-core's generic nested-schema
+		// lookup (NavigateNestedSchema), corrupting memory instead of erroring cleanly.
+		throw NotImplementedException("DuckLake does not support nested schemas");
+	}
 	auto schema = GetSchema(transaction, info.SchemaName(), OnEntryNotFound::RETURN_NULL);
 	if (schema) {
 		if (info.on_conflict == OnCreateConflict::IGNORE_ON_CONFLICT) {
