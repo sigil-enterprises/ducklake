@@ -85,16 +85,18 @@ CALL ducklake_merge_adjacent_files('lk')
 # and the operation log reads health,0 / wrap_batch,1 x3 / unwrap_batch,1 x3 /
 # wrap_batch,1. Four files were written - CREATE TABLE, two INSERTs, and the
 # output of ducklake_merge_adjacent_files - and each was wrapped EXACTLY ONCE.
-# No DEK was wrapped twice. The equality below is nonetheless false because
-# compaction DELETES the superseded rows from ducklake_data_file rather than
-# only stamping end_snapshot, so the right-hand side counts the ONE surviving
-# file while the left counts all four ever written. The comment says "files
-# that have ever carried one"; the query does not express that, and after a
-# compaction the metadata no longer holds the number, so it cannot be expressed
-# from the catalog at all. The assertion is left EXACTLY as its author wrote it
-# and this file is left RED: correcting the property it should assert is a
-# decision for whoever owns #51, and weakening it here to buy a green is the
-# defect this whole file exists to refuse.
+# No DEK was wrapped twice.
+#
+# `ducklake_merge_adjacent_files` DELETES the superseded rows from
+# `ducklake_data_file` entirely (WriteMergeAdjacent in
+# ducklake_metadata_manager.cpp) rather than only stamping end_snapshot, so
+# counting the CURRENT `ducklake_data_file` rows alone under-counts: it sees
+# only the ONE surviving file, not the three compacted away. Those three are
+# not lost, though - the same statement that deletes them inserts their
+# data_file_id into `ducklake_files_scheduled_for_deletion` in the same
+# transaction (see WriteMergeAdjacent), so that table plus the surviving
+# `ducklake_data_file` rows together are exactly the set of files that have
+# EVER carried a key.
 #
 # EXACTLY as many DEKs were presented to the key service as there are files that
 # have ever carried one. More means a key was wrapped a second time.
@@ -102,7 +104,11 @@ query I
 SELECT
   (SELECT coalesce(sum(n), 0) FROM read_csv('${DUCKLAKE_FAKE_KMS_OPLOG}', columns={'op': 'VARCHAR', 'n': 'BIGINT'}, header=false) WHERE op = 'wrap_batch')
   =
-  (SELECT count(*) FROM lk_meta.ducklake_data_file)
+  (
+    (SELECT count(*) FROM lk_meta.ducklake_data_file)
+    +
+    (SELECT count(*) FROM lk_meta.ducklake_files_scheduled_for_deletion)
+  )
 ----
 true
 
