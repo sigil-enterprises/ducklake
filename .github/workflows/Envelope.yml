@@ -127,6 +127,52 @@ jobs:
       - name: Control - this build really carries a KMS provider
         run: scripts/ci/assert_kms_provider_reachable.sh build/release/duckdb
 
+      # POSITIVE CONTROL FOR ISSUE #67. envelope_e2e_wrapped_catalog.test,
+      # envelope_unenveloped_reader_refusal.test and envelope_wrap_idempotence.test
+      # all assert something HAPPENED (wrap_batch called, encryption_key wrapped,
+      # a bare re-attach refused) or DIDN'T (no double wrap). An assertion of that
+      # shape reports the same green whether it is checking anything or not - it
+      # has to be shown to FAIL on a deliberately broken envelope before a pass
+      # against the real one means anything (mirrors issue #61).
+      #
+      # DUCKLAKE_TEST_KMS_NOOP=1 swaps in NoOpKmsProvider (test/kms_provider/
+      # test_kms_provider.cpp): ATTACH still succeeds and the self-test still
+      # passes, but WrapKeys/UnwrapKey never touch the socket and hand keys back
+      # unwrapped - exactly the "envelope never engaged" bug these fixtures exist
+      # to catch. Each of the three below must FAIL against it, or the fixture
+      # is not proving anything.
+      - name: RED control - these fixtures must fail against a no-op envelope (issue #67)
+        env:
+          DUCKLAKE_TEST_KMS_NOOP: "1"
+        run: |
+          fail=0
+
+          if test/sql/encryption/run_envelope_e2e.sh; then
+            echo "::error::envelope_e2e_wrapped_catalog.test PASSED against a no-op envelope - its wrap_batch/RExL/length/refusal assertions do not catch a bypassed envelope"
+            fail=1
+          else
+            echo "confirmed: envelope_e2e_wrapped_catalog.test fails against a no-op envelope"
+          fi
+
+          if test/sql/encryption/run_envelope_fixture.sh test/sql/encryption/envelope_unenveloped_reader_refusal.test; then
+            echo "::error::envelope_unenveloped_reader_refusal.test PASSED against a no-op envelope - the bare re-attach refusal does not catch a bypassed envelope"
+            fail=1
+          else
+            echo "confirmed: envelope_unenveloped_reader_refusal.test fails against a no-op envelope"
+          fi
+
+          if test/sql/encryption/run_envelope_fixture.sh test/sql/encryption/envelope_wrap_idempotence.test; then
+            echo "::error::envelope_wrap_idempotence.test PASSED against a no-op envelope - the wrap-count assertion does not catch a bypassed envelope"
+            fail=1
+          else
+            echo "confirmed: envelope_wrap_idempotence.test fails against a no-op envelope"
+          fi
+
+          if [ "${fail}" -ne 0 ]; then
+            echo "::error::at least one envelope fixture did not go red against a no-op envelope - see above"
+            exit 1
+          fi
+
       - name: KMS envelope end to end (issue #52)
         run: test/sql/encryption/run_envelope_e2e.sh
 
@@ -138,6 +184,14 @@ jobs:
       - name: An unenveloped reader is refused (issue #52)
         if: always()
         run: test/sql/encryption/run_envelope_fixture.sh test/sql/encryption/envelope_unenveloped_reader_refusal.test
+
+      # Never invoked by any workflow before issue #67 - a require-env fixture
+      # nothing runs SKIPS and exits zero. Its own header says its RED colour on
+      # main is currently attributable to #52, not #51 - it is a standing probe,
+      # not proof of #51 - but that is no reason to leave it unrun.
+      - name: No DEK is wrapped twice (issue #67, standing probe for #51)
+        if: always()
+        run: test/sql/encryption/run_envelope_fixture.sh test/sql/encryption/envelope_wrap_idempotence.test
 
       - name: The crypta fixture group, with a key service behind it
         if: always()
