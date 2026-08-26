@@ -13,6 +13,8 @@
 #include "duckdb/optimizer/filter_combiner.hpp"
 #include "duckdb/planner/table_filter.hpp"
 #include "duckdb/planner/filter/expression_filter.hpp"
+#include "duckdb/planner/filter/conjunction_filter.hpp"
+#include "duckdb/planner/expression/bound_conjunction_expression.hpp"
 #include "storage/ducklake_table_entry.hpp"
 
 namespace duckdb {
@@ -95,10 +97,6 @@ unique_ptr<MultiFileList> DuckLakeMultiFileList::ComplexFilterPushdown(ClientCon
 	vector<FilterPushdownResult> pushdown_results;
 	auto table_filter_set = combiner.GenerateTableScanFilters(info.column_indexes, pushdown_results);
 
-	if (!table_filter_set.HasFilters()) {
-		return nullptr;
-	}
-
 	auto pushdown_info = filter_info ? filter_info->Copy() : make_uniq<FilterPushdownInfo>();
 
 	for (auto &entry : table_filter_set) {
@@ -108,12 +106,78 @@ unique_ptr<MultiFileList> DuckLakeMultiFileList::ComplexFilterPushdown(ClientCon
 		AddFilterToPushdownInfo(*pushdown_info, column_id, entry.TakeFilter());
 	}
 
-	if (pushdown_info->column_filters.empty()) {
+	// FilterCombiner can only express an AND of per-column TableFilters. A top-level OR whose branches
+	// reference different columns (e.g. "(a >= 1 AND a < 5) OR (b >= 10 AND b < 20)") cannot be represented
+	// that way and is dropped by it entirely - recover that case here directly from the raw filter
+	// expressions, adding it as a FilterOrGroup instead.
+	for (auto &filter : filters) {
+		AddOrGroupToPushdownInfo(*pushdown_info, *filter, info);
+	}
+
+	if (!pushdown_info->HasFilters()) {
 		return nullptr;
 	}
 
 	return make_uniq<DuckLakeMultiFileList>(read_info, transaction_local_files, transaction_local_data,
 	                                        std::move(pushdown_info));
+}
+
+void DuckLakeMultiFileList::AddOrGroupToPushdownInfo(FilterPushdownInfo &pushdown_info, const Expression &filter,
+                                                     MultiFilePushdownInfo &info) const {
+	if (filter.GetExpressionClass() != ExpressionClass::BOUND_CONJUNCTION) {
+		return;
+	}
+	auto &conjunction = filter.Cast<BoundConjunctionExpression>();
+	if (conjunction.GetExpressionType() != ExpressionType::CONJUNCTION_OR) {
+		return;
+	}
+
+	FilterOrGroup or_group;
+	for (auto &branch_expr : conjunction.GetChildren()) {
+		vector<pair<idx_t, unique_ptr<Expression>>> column_exprs;
+		if (!DuckLakeMetadataManager::TryDecomposeConjunctionToColumnFilters(*branch_expr, column_exprs)) {
+			// one branch couldn't be decomposed into per-column filters - abandon the whole OR-group,
+			// correctness-safe (just no extra pruning for this predicate)
+			return;
+		}
+		// Multiple leaves can reference the same column within one branch (e.g. "i >= 0 AND i < 1000") -
+		// merge those into a single AND expression per column before wrapping in an ExpressionFilter, same
+		// as FilterCombiner does for the (simpler) single-column case above.
+		unordered_map<column_t, vector<unique_ptr<Expression>>> per_column;
+		for (auto &entry : column_exprs) {
+			// entry.first is a projection index into info.column_indexes, same space as table_filter_set
+			// entries above.
+			if (entry.first >= info.column_indexes.size()) {
+				return;
+			}
+			auto column_id = info.column_indexes[entry.first].GetPrimaryIndex();
+			per_column[column_id].push_back(std::move(entry.second));
+		}
+		auto branch_info = make_uniq<FilterPushdownInfo>();
+		for (auto &col_entry : per_column) {
+			unique_ptr<Expression> merged_expr;
+			if (col_entry.second.size() == 1) {
+				merged_expr = std::move(col_entry.second[0]);
+			} else {
+				auto conjunction_and = make_uniq<BoundConjunctionExpression>(ExpressionType::CONJUNCTION_AND);
+				for (auto &e : col_entry.second) {
+					conjunction_and->GetChildrenMutable().push_back(std::move(e));
+				}
+				merged_expr = std::move(conjunction_and);
+			}
+			auto merged_filter = make_uniq<ExpressionFilter>(std::move(merged_expr));
+			AddFilterToPushdownInfo(*branch_info, col_entry.first, std::move(merged_filter));
+		}
+		if (branch_info->column_filters.empty()) {
+			return;
+		}
+		or_group.branches.push_back(std::move(branch_info));
+	}
+
+	if (or_group.branches.empty()) {
+		return;
+	}
+	pushdown_info.or_groups.push_back(std::move(or_group));
 }
 
 vector<OpenFileInfo> DuckLakeMultiFileList::GetAllFiles() const {

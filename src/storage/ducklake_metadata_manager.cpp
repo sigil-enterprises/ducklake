@@ -29,6 +29,8 @@
 #include "duckdb/planner/expression/bound_comparison_expression.hpp"
 #include "duckdb/planner/expression/bound_operator_expression.hpp"
 #include "duckdb/planner/expression/bound_conjunction_expression.hpp"
+#include "duckdb/planner/expression/bound_reference_expression.hpp"
+#include "duckdb/planner/expression/bound_columnref_expression.hpp"
 #include "duckdb/execution/expression_executor.hpp"
 #include "storage/ducklake_partition_data.hpp"
 #include "duckdb/parser/parser.hpp"
@@ -1427,6 +1429,108 @@ static unique_ptr<TableFilter> ConvertExpressionFilterToLegacy(const Expression 
 	}
 }
 
+//! Raw (pre-FilterCombiner) filter expressions passed to ComplexFilterPushdown reference columns via
+//! BoundColumnRefExpression (logical ColumnBinding), not BoundReferenceExpression (physical chunk index,
+//! only produced after FilterCombiner/table-filter rewriting) - accept either.
+static bool GetColumnRefIndex(const Expression &expr, idx_t &out_index) {
+	if (expr.GetExpressionClass() == ExpressionClass::BOUND_REF) {
+		out_index = expr.Cast<BoundReferenceExpression>().Index();
+		return true;
+	}
+	if (expr.GetExpressionClass() == ExpressionClass::BOUND_COLUMN_REF) {
+		out_index = expr.Cast<BoundColumnRefExpression>().Binding().column_index;
+		return true;
+	}
+	return false;
+}
+
+//! Determine which column (by projection index) a single leaf predicate (comparison / IS (NOT) NULL / IN)
+//! constrains, accepting either BoundColumnRefExpression or BoundReferenceExpression subjects.
+static bool GetLeafReferenceIndex(const Expression &expr, idx_t &out_index) {
+	if (expr.GetExpressionClass() == ExpressionClass::BOUND_FUNCTION && BoundComparisonExpression::IsComparison(expr)) {
+		auto &comparison = expr.Cast<BoundFunctionExpression>();
+		auto &left = BoundComparisonExpression::Left(comparison);
+		auto &right = BoundComparisonExpression::Right(comparison);
+		idx_t left_index, right_index;
+		bool lhs_ref = GetColumnRefIndex(left, left_index);
+		bool rhs_ref = GetColumnRefIndex(right, right_index);
+		if (lhs_ref == rhs_ref) {
+			// need exactly one side to be a column reference (the other must be the constant)
+			return false;
+		}
+		out_index = lhs_ref ? left_index : right_index;
+		return true;
+	}
+	if (expr.GetExpressionClass() == ExpressionClass::BOUND_OPERATOR) {
+		auto &op = expr.Cast<BoundOperatorExpression>();
+		auto &children = op.GetChildren();
+		switch (op.GetExpressionType()) {
+		case ExpressionType::OPERATOR_IS_NULL:
+		case ExpressionType::OPERATOR_IS_NOT_NULL:
+		case ExpressionType::COMPARE_IN:
+			if (children.empty() || !GetColumnRefIndex(*children[0], out_index)) {
+				return false;
+			}
+			return true;
+		default:
+			return false;
+		}
+	}
+	return false;
+}
+
+//! Rewrite a leaf predicate's BoundColumnRefExpression children into BoundReferenceExpression, matching what
+//! ConvertExpressionFilterToLegacy (and ExpressionFilter more generally) expects.
+static unique_ptr<Expression> RewriteColumnRefToReference(const Expression &expr) {
+	auto copy = expr.Copy();
+	auto rewrite_child = [](unique_ptr<Expression> &child) {
+		if (child->GetExpressionClass() == ExpressionClass::BOUND_COLUMN_REF) {
+			auto &colref = child->Cast<BoundColumnRefExpression>();
+			child = make_uniq<BoundReferenceExpression>(colref.GetReturnType(), colref.Binding().column_index);
+		}
+	};
+	if (copy->GetExpressionClass() == ExpressionClass::BOUND_FUNCTION) {
+		for (auto &child : copy->Cast<BoundFunctionExpression>().GetChildrenMutable()) {
+			rewrite_child(child);
+		}
+	} else if (copy->GetExpressionClass() == ExpressionClass::BOUND_OPERATOR) {
+		for (auto &child : copy->Cast<BoundOperatorExpression>().GetChildrenMutable()) {
+			rewrite_child(child);
+		}
+	}
+	return copy;
+}
+
+bool DuckLakeMetadataManager::TryDecomposeConjunctionToColumnFilters(const Expression &expr,
+                                                                     vector<pair<idx_t, unique_ptr<Expression>>> &out) {
+	if (expr.GetExpressionClass() == ExpressionClass::BOUND_CONJUNCTION) {
+		auto &conjunction = expr.Cast<BoundConjunctionExpression>();
+		if (conjunction.GetExpressionType() != ExpressionType::CONJUNCTION_AND) {
+			return false;
+		}
+		for (auto &child : conjunction.GetChildren()) {
+			if (!TryDecomposeConjunctionToColumnFilters(*child, out)) {
+				return false;
+			}
+		}
+		return true;
+	}
+	idx_t column_index;
+	if (!GetLeafReferenceIndex(expr, column_index)) {
+		return false;
+	}
+	auto rewritten = RewriteColumnRefToReference(expr);
+	// Validate the rewritten leaf can actually be turned into a zone-map-prunable shape; discard the Legacy
+	// TableFilter this produces though - we keep the Expression form so it can be wrapped in a genuine
+	// ExpressionFilter later (ColumnFilterInfo's copy constructor assumes table_filter is always dynamically
+	// an ExpressionFilter, so we must never store a Legacy* TableFilter directly here).
+	if (!ConvertExpressionFilterToLegacy(*rewritten)) {
+		return false;
+	}
+	out.emplace_back(column_index, std::move(rewritten));
+	return true;
+}
+
 string DuckLakeMetadataManager::GenerateFilterPushdown(const TableFilter &filter,
                                                        unordered_set<string> &referenced_stats) {
 	switch (filter.filter_type) {
@@ -1516,52 +1620,100 @@ string DuckLakeMetadataManager::GenerateFilterPushdown(const TableFilter &filter
 	}
 }
 
+string DuckLakeMetadataManager::GenerateColumnFilterCondition(const ColumnFilterInfo &column_filter,
+                                                              unordered_map<idx_t, CTERequirement> &required_ctes) {
+	unordered_set<string> referenced_stats;
+	auto filter_condition = GenerateFilterPushdown(*column_filter.table_filter, referenced_stats);
+
+	if (filter_condition.empty()) {
+		return string();
+	}
+
+	string cte_name = StringUtil::Format("col_%d_stats", column_filter.column_field_index);
+
+	string null_checks;
+	for (const auto &stat : referenced_stats) {
+		null_checks += stat + " IS NULL OR ";
+	}
+
+	const bool needs_value_count_guard =
+	    referenced_stats.count("min_value") > 0 || referenced_stats.count("max_value") > 0;
+	if (needs_value_count_guard) {
+		referenced_stats.insert("value_count");
+	}
+
+	string condition;
+	// Files that have no stats entry for this column (i.e., written before the column was added) must
+	// NOT be pruned, we cannot determine filter satisfaction without stats.
+	if (needs_value_count_guard) {
+		condition = StringUtil::Format("(data.data_file_id NOT IN (SELECT data_file_id FROM %s) OR "
+		                               "data.data_file_id IN (SELECT data_file_id FROM %s WHERE "
+		                               "(value_count IS NULL OR value_count > 0) AND (%s(%s))))",
+		                               cte_name, cte_name, null_checks.c_str(), filter_condition.c_str());
+	} else {
+		condition = StringUtil::Format("(data.data_file_id NOT IN (SELECT data_file_id FROM %s) OR "
+		                               "data.data_file_id IN (SELECT data_file_id FROM %s WHERE %s(%s)))",
+		                               cte_name, cte_name, null_checks.c_str(), filter_condition.c_str());
+	}
+
+	CTERequirement req(column_filter.column_field_index, referenced_stats);
+	req.reference_count = 2;
+	required_ctes.emplace(column_filter.column_field_index, std::move(req));
+	return condition;
+}
+
 FilterSQLResult DuckLakeMetadataManager::ConvertFilterPushdownToSQL(const FilterPushdownInfo &filter_info) {
 	FilterSQLResult result;
 	string conditions;
 
 	for (const auto &entry : filter_info.column_filters) {
-		const auto &column_filter = entry.second;
-
-		unordered_set<string> referenced_stats;
-		auto filter_condition = GenerateFilterPushdown(*column_filter.table_filter, referenced_stats);
-
-		if (filter_condition.empty()) {
+		auto condition = GenerateColumnFilterCondition(entry.second, result.required_ctes);
+		if (condition.empty()) {
 			continue;
 		}
-
-		string cte_name = StringUtil::Format("col_%d_stats", column_filter.column_field_index);
-
-		string null_checks;
-		for (const auto &stat : referenced_stats) {
-			null_checks += stat + " IS NULL OR ";
-		}
-
-		const bool needs_value_count_guard =
-		    referenced_stats.count("min_value") > 0 || referenced_stats.count("max_value") > 0;
-		if (needs_value_count_guard) {
-			referenced_stats.insert("value_count");
-		}
-
 		if (!conditions.empty()) {
 			conditions += " AND ";
 		}
-		// Files that have no stats entry for this column (i.e., written before the column was added) must
-		// NOT be pruned, we cannot determine filter satisfaction without stats.
-		if (needs_value_count_guard) {
-			conditions += StringUtil::Format("(data.data_file_id NOT IN (SELECT data_file_id FROM %s) OR "
-			                                 "data.data_file_id IN (SELECT data_file_id FROM %s WHERE "
-			                                 "(value_count IS NULL OR value_count > 0) AND (%s(%s))))",
-			                                 cte_name, cte_name, null_checks.c_str(), filter_condition.c_str());
-		} else {
-			conditions += StringUtil::Format("(data.data_file_id NOT IN (SELECT data_file_id FROM %s) OR "
-			                                 "data.data_file_id IN (SELECT data_file_id FROM %s WHERE %s(%s)))",
-			                                 cte_name, cte_name, null_checks.c_str(), filter_condition.c_str());
-		}
+		conditions += condition;
+	}
 
-		CTERequirement req(column_filter.column_field_index, referenced_stats);
-		req.reference_count = 2;
-		result.required_ctes.emplace(column_filter.column_field_index, std::move(req));
+	// Cross-column OR groups: AND of per-column conditions within each branch, OR across branches. If any
+	// branch has no expressible column condition at all, that branch is "everything" from pruning's
+	// perspective, so the whole OR-group must be skipped (correctness-safe - just no extra pruning).
+	for (const auto &or_group : filter_info.or_groups) {
+		if (or_group.branches.empty()) {
+			continue;
+		}
+		string or_condition;
+		bool unconstrained_branch = false;
+		for (const auto &branch : or_group.branches) {
+			string branch_condition;
+			for (const auto &entry : branch->column_filters) {
+				auto condition = GenerateColumnFilterCondition(entry.second, result.required_ctes);
+				if (condition.empty()) {
+					continue;
+				}
+				if (!branch_condition.empty()) {
+					branch_condition += " AND ";
+				}
+				branch_condition += condition;
+			}
+			if (branch_condition.empty()) {
+				unconstrained_branch = true;
+				break;
+			}
+			if (!or_condition.empty()) {
+				or_condition += " OR ";
+			}
+			or_condition += "(" + branch_condition + ")";
+		}
+		if (unconstrained_branch || or_condition.empty()) {
+			continue;
+		}
+		if (!conditions.empty()) {
+			conditions += " AND ";
+		}
+		conditions += "(" + or_condition + ")";
 	}
 
 	result.where_conditions = conditions;
@@ -1610,7 +1762,7 @@ FilterPushdownQueryComponents
 DuckLakeMetadataManager::GenerateFilterPushdownComponents(const FilterPushdownInfo &filter_info, DuckLakeTableIndex table_id) {
 	FilterPushdownQueryComponents result;
 
-	if (filter_info.column_filters.empty()) {
+	if (!filter_info.HasFilters()) {
 		return result;
 	}
 
@@ -1816,7 +1968,7 @@ vector<DuckLakeFileListEntry> DuckLakeMetadataManager::GetFilesForTable(DuckLake
 	string where_clause;
 
 	// Generate CTE section and WHERE clause if we have filter pushdown info
-	if (filter_info && !filter_info->column_filters.empty()) {
+	if (filter_info && filter_info->HasFilters()) {
 		auto components = GenerateFilterPushdownComponents(*filter_info, table_id);
 		query = components.cte_section;
 		where_clause = components.where_clause;
@@ -2168,7 +2320,7 @@ DuckLakeMetadataManager::GetExtendedFilesForTable(DuckLakeTableEntry &table, Duc
 	string where_clause;
 
 	// Generate CTE section and WHERE clause if we have filter pushdown info
-	if (filter_info && !filter_info->column_filters.empty()) {
+	if (filter_info && filter_info->HasFilters()) {
 		auto components = GenerateFilterPushdownComponents(*filter_info, table_id);
 		query = components.cte_section;
 		where_clause = components.where_clause;
