@@ -6,6 +6,8 @@
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/database.hpp"
+#include "duckdb/main/database_manager.hpp"
+#include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/materialized_query_result.hpp"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/catalog/catalog_entry/duck_table_entry.hpp"
@@ -13,6 +15,7 @@
 #include "duckdb/storage/data_table.hpp"
 #include "duckdb/storage/table/scan_state.hpp"
 #include "duckdb/transaction/duck_transaction.hpp"
+#include "storage/ducklake_catalog.hpp"
 
 namespace duckdb {
 
@@ -127,6 +130,44 @@ DuckLakeServerSideCommit::DuckLakeServerSideCommit(ClientContext &context_p, str
 void DuckLakeServerSideCommit::SetRetryConfigOverride(const DuckLakeRetryConfig &retry_config_p) {
 	retry_config = retry_config_p;
 }
+
+// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids partition VALUES in the catalog. >>>
+// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+//
+// ducklake_commit takes a metadata SCHEMA name, not a DuckLake catalog name -
+// it is designed to run without ever ATTACHing a DuckLake in this session at
+// all (that is the point: a multi-engine writer stages rows over a plain SQL
+// connection to the metadata store and calls this to finalize). So there is
+// no DuckLakeCatalog guaranteed to exist here the way there is for every
+// ducklake_* table function that takes a catalog name
+// (DuckLakeBaseMetadataFunction::GetCatalog). What we CAN do: if a DuckLake
+// happens to be attached in the calling context whose metadata schema matches
+// this commit's, its EncryptionProvider is authoritative for whether this
+// lake is enveloped, and we use it. A commit with no matching attachment
+// (the fully catalog-less case) has no envelope information available to
+// check here at all - closing that residual gap needs either a persisted
+// per-lake encryption flag or a required parameter on ducklake_commit itself,
+// which is out of scope for this fix; recorded, not silently assumed safe.
+optional_ptr<DuckLakeCatalog> DuckLakeServerSideCommit::ResolveEnvelopedCatalog() {
+	if (enveloped_catalog_resolved) {
+		return enveloped_catalog;
+	}
+	enveloped_catalog_resolved = true;
+	auto &db_manager = DatabaseManager::Get(context);
+	for (auto &attached : db_manager.GetDatabases(context)) {
+		auto &catalog = attached->GetCatalog();
+		if (catalog.GetCatalogType() != "ducklake") {
+			continue;
+		}
+		auto &duck_catalog = catalog.Cast<DuckLakeCatalog>();
+		if (duck_catalog.MetadataSchemaName() == metadata_schema_name && duck_catalog.EncryptionProvider()) {
+			enveloped_catalog = duck_catalog;
+			break;
+		}
+	}
+	return enveloped_catalog;
+}
+// <<< FORK-LOCAL (sigil-enterprises) <<<
 
 DuckLakeServerSideCommitResult DuckLakeServerSideCommit::Run() {
 	ReadCommitHeader();
@@ -307,6 +348,26 @@ void DuckLakeServerSideCommit::ReadStagedDataFiles() {
 		}
 		files_per_table[TableIndex(AsIdx(row, 1))].push_back(std::move(f));
 	}
+
+	// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids partition VALUES in the catalog. >>>
+	// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+	//
+	// This is the multi-engine chokepoint DuckLakeTransaction::AppendFiles/
+	// AddCompaction cannot see: a server-side commit built from files staged
+	// directly into ducklake_staged_data_file(_partition) by a writer that
+	// never ran through DuckLake's own C++ write path at all (the intended use
+	// of ducklake_commit - Spark/Trino stage files and call this table
+	// function to finalize). Applying the same guard here, right before the
+	// files enter local_changes, closes that gap without duplicating its
+	// judgement - see DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake.
+	if (auto catalog = ResolveEnvelopedCatalog()) {
+		for (auto &entry : files_per_table) {
+			for (auto &file : entry.second) {
+				DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(*catalog, entry.first, file);
+			}
+		}
+	}
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
 
 	for (auto &entry : files_per_table) {
 		state->local_changes.AppendFiles(entry.first, std::move(entry.second));
@@ -519,6 +580,15 @@ void DuckLakeServerSideCommit::ReadStagedCompactions() {
 		if (src_it != sources_by_compaction.end()) {
 			entry.source_files = std::move(src_it->second);
 		}
+		// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids partition VALUES in the catalog. >>>
+		// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+		// Twin of the ReadStagedDataFiles guard above: a compacted file staged
+		// directly by a non-DuckLake writer never runs through
+		// DuckLakeTransaction::AddCompaction either.
+		if (auto catalog = ResolveEnvelopedCatalog()) {
+			DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(*catalog, shell.table_id, entry.written_file);
+		}
+		// <<< FORK-LOCAL (sigil-enterprises) <<<
 		state->local_changes.AddCompaction(shell.table_id, std::move(entry));
 	}
 }

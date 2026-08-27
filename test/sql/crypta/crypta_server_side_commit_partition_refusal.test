@@ -1,0 +1,271 @@
+# name: test/sql/crypta/crypta_server_side_commit_partition_refusal.test
+# description: The multi-engine ducklake_commit server-side path refuses staged partition values on an enveloped lake too
+# group: [crypta]
+#
+# ISSUE #100 GAP, CLOSED. An adversarial security review of PR #95 found that
+# DuckLakeServerSideCommit (src/storage/ducklake_server_side_commit.cpp) -
+# which backs the public `ducklake_commit` SQL table function - calls
+# `state->local_changes.AppendFiles` / `::AddCompaction` DIRECTLY, bypassing
+# DuckLakeTransaction::AppendFiles/AddCompaction, the only place
+# RefusePartitionValuesOnEnvelopedLake was wired in by that PR. `ducklake_commit`
+# is the multi-engine write path: a writer that never runs any of DuckLake's own
+# C++ code (Spark, Trino, ...) stages files directly into the
+# `ducklake_staged_data_file*` temp tables over a plain SQL connection to the
+# metadata catalog, then calls `ducklake_commit(schema, version)` to finalize.
+# On a crypta-enveloped lake this wrote a cleartext partition value into
+# `ducklake_file_partition_value` with ZERO refusal - see
+# crypta_partition_refusals.test for the same leak on the client-side
+# (ATTACH + INSERT/ALTER) path, which this file mirrors for the server-side one.
+#
+# `ducklake_commit` takes a metadata SCHEMA name, not a DuckLake catalog name,
+# and is designed to run without any DuckLake ever being ATTACHed in the
+# calling session at all - so there is no DuckLakeCatalog guaranteed to exist
+# to ask "is this lake enveloped?" the way every other ducklake_* table
+# function can (DuckLakeBaseMetadataFunction::GetCatalog). The fix resolves an
+# attached DuckLakeCatalog whose metadata schema matches, when one exists in
+# the calling context, and applies the identical guard
+# (DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake) against it. This
+# file's ATTACHes exist for exactly that: to give the guard something to find.
+# A commit with no matching DuckLake attached anywhere in the session has no
+# envelope information available at all - that residual gap is out of scope
+# here (it needs either a persisted per-lake encryption flag or a required
+# parameter on ducklake_commit) and is NOT what this file claims to prove.
+#
+# WHAT THIS FILE STAGES BY HAND. A real external writer creates the staging
+# tables itself (DuckLakeStagedTable::CreateAllSql /
+# src/storage/ducklake_staged_commit.cpp) and populates them through its own
+# client library. This file does the identical thing directly in SQL, standing
+# in for that writer - the staged rows below are not synthetic in the sense of
+# being unreachable; they are exactly the rows a non-DuckLake writer places on
+# this catalog by design.
+
+require ducklake
+
+require parquet
+
+require httpfs
+
+require-env DUCKLAKE_FAKE_CRYPTA_SOCKET
+
+# --------------------------------------------------------------------------
+# Staging tables, created once and reused (TRUNCATEd) across every case below.
+# --------------------------------------------------------------------------
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_commit(commit_author VARCHAR, commit_message VARCHAR, commit_extra_info VARCHAR, transaction_snapshot_id BIGINT, data_path VARCHAR, path_separator VARCHAR, transaction_next_catalog_id UBIGINT, transaction_next_file_id UBIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_data_file(data_file_id BIGINT, table_id BIGINT, file_order BIGINT, path VARCHAR, path_is_relative BOOLEAN, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, row_id_start BIGINT, partition_id BIGINT, encryption_key VARCHAR, mapping_id UBIGINT, partial_max BIGINT, begin_snapshot BIGINT, compaction_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_data_file_column_stats(data_file_id BIGINT, table_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, has_num_values BOOLEAN, num_values BIGINT, has_null_count BOOLEAN, null_count BIGINT, has_min BOOLEAN, min_value VARCHAR, has_max BOOLEAN, max_value VARCHAR, has_contains_nan BOOLEAN, contains_nan BOOLEAN, any_valid BOOLEAN, extra_stats VARCHAR)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_data_file_partition(local_file_id BIGINT, partition_column_idx BIGINT, partition_value VARCHAR)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_delete_file(table_id BIGINT, data_file_path VARCHAR, data_file_id BIGINT, file_name VARCHAR, format VARCHAR, delete_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, encryption_key VARCHAR, begin_snapshot BIGINT, max_snapshot BIGINT, source VARCHAR, overwrites_existing_delete BOOLEAN, overwrite_delete_file_id BIGINT, overwrite_delete_file_path VARCHAR, attached_local_file_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_inlined_data(table_id BIGINT, has_preserved_row_ids BOOLEAN)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_inlined_row(table_id BIGINT, row_order BIGINT, preserved_row_id BIGINT, value_literals VARCHAR)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_inlined_column_stats(table_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, has_num_values BOOLEAN, num_values BIGINT, has_null_count BOOLEAN, null_count BIGINT, has_min BOOLEAN, min_value VARCHAR, has_max BOOLEAN, max_value VARCHAR, has_contains_nan BOOLEAN, contains_nan BOOLEAN, any_valid BOOLEAN, extra_stats VARCHAR)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_inlined_delete(table_id BIGINT, inlined_table_name VARCHAR, deleted_row_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_inlined_file_delete(table_id BIGINT, file_id BIGINT, deleted_row_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_dropped_file(path VARCHAR, data_file_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_tables_deleted_from(table_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_flushed_inlined(inlined_table_name VARCHAR, schema_version BIGINT, flush_snapshot_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_compaction(compaction_id BIGINT, table_id BIGINT, compaction_type VARCHAR, row_id_start BIGINT, output_local_file_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_compaction_source(compaction_id BIGINT, source_order BIGINT, source_data_file_id BIGINT, source_path VARCHAR, source_row_count BIGINT, source_begin_snapshot BIGINT, source_max_partial_file_snapshot BIGINT, source_inlined_delete_count BIGINT, last_delete_file_id BIGINT, last_delete_path VARCHAR, last_delete_row_count BIGINT, last_delete_end_snapshot BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_name_map(map_id UBIGINT, table_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_name_map_entry(map_id UBIGINT, entry_id BIGINT, parent_entry_id BIGINT, source_name VARCHAR, target_field_id BIGINT, hive_partition BOOLEAN)
+
+# --------------------------------------------------------------------------
+# Case 1 - the ducklake_commit APPEND path
+# (DuckLakeServerSideCommit::ReadStagedDataFiles) is refused.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ss_commit_append.db' AS ssappend (DATA_PATH '__TEST_DIR__/ss_commit_append_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'ssappend_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'ss-commit-append')
+
+statement ok
+CREATE TABLE ssappend.person(part_key INTEGER, person_source_value VARCHAR)
+
+statement ok
+INSERT INTO ssappend.person VALUES (1, 'PT-000050-SENTINEL')
+
+statement ok
+INSERT INTO ducklake_staged_commit VALUES ('external-writer', 'staged append', NULL, NULL, NULL, NULL, NULL, NULL)
+
+statement ok
+INSERT INTO ducklake_staged_data_file VALUES (9001, (SELECT table_id FROM ssappend_meta.ducklake_table WHERE table_name = 'person'), 0, '/fake/staged_append.parquet', false, 'parquet', 1, 100, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+
+statement ok
+INSERT INTO ducklake_staged_data_file_partition VALUES (9001, 0, '1')
+
+# The staged file never ran through DuckLake's own write path at all - this is
+# exactly the multi-engine chokepoint the review named. It is still refused.
+statement error
+SELECT * FROM ducklake_commit('ssappend_meta', -1)
+----
+encryption_socket
+
+statement error
+SELECT * FROM ducklake_commit('ssappend_meta', -1)
+----
+ducklake_file_partition_value
+
+# Nothing was written by either refused attempt.
+query I
+SELECT count(*) FROM ssappend_meta.ducklake_file_partition_value
+----
+0
+
+query I
+SELECT count(*) FROM ssappend_meta.ducklake_data_file WHERE table_id = (SELECT table_id FROM ssappend_meta.ducklake_table WHERE table_name = 'person')
+----
+1
+
+statement ok
+DETACH ssappend
+
+# --------------------------------------------------------------------------
+# Case 2 - the ducklake_commit COMPACTION path
+# (DuckLakeServerSideCommit::ReadStagedCompactions) is refused.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ss_commit_compact.db' AS sscompact (DATA_PATH '__TEST_DIR__/ss_commit_compact_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'sscompact_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'ss-commit-compact')
+
+statement ok
+CREATE TABLE sscompact.person(part_key INTEGER, person_source_value VARCHAR)
+
+statement ok
+INSERT INTO sscompact.person VALUES (1, 'PT-000051-SENTINEL')
+
+statement ok
+TRUNCATE ducklake_staged_commit
+
+statement ok
+TRUNCATE ducklake_staged_data_file
+
+statement ok
+TRUNCATE ducklake_staged_data_file_partition
+
+statement ok
+INSERT INTO ducklake_staged_commit VALUES ('external-writer', 'staged compaction', NULL, NULL, NULL, NULL, NULL, NULL)
+
+# output_local_file_id (below, in ducklake_staged_compaction) correlates to
+# THIS row's own compaction_id column (7001) - not to the compaction header's
+# own compaction_id (5001) - see DuckLakeServerSideCommit::ReadStagedCompactions
+# / ReadStagedDataFiles: compaction_output_files is keyed by the data file
+# row's compaction_id value.
+statement ok
+INSERT INTO ducklake_staged_data_file VALUES (9002, (SELECT table_id FROM sscompact_meta.ducklake_table WHERE table_name = 'person'), 0, '/fake/staged_compacted.parquet', false, 'parquet', 2, 200, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 7001)
+
+statement ok
+INSERT INTO ducklake_staged_data_file_partition VALUES (9002, 0, '1')
+
+statement ok
+INSERT INTO ducklake_staged_compaction VALUES (5001, (SELECT table_id FROM sscompact_meta.ducklake_table WHERE table_name = 'person'), 'merge_adjacent', NULL, 7001)
+
+statement error
+SELECT * FROM ducklake_commit('sscompact_meta', -1)
+----
+encryption_socket
+
+statement error
+SELECT * FROM ducklake_commit('sscompact_meta', -1)
+----
+ducklake_file_partition_value
+
+query I
+SELECT count(*) FROM sscompact_meta.ducklake_file_partition_value
+----
+0
+
+query I
+SELECT count(*) FROM sscompact_meta.ducklake_data_file WHERE table_id = (SELECT table_id FROM sscompact_meta.ducklake_table WHERE table_name = 'person')
+----
+1
+
+statement ok
+DETACH sscompact
+
+# --------------------------------------------------------------------------
+# Case 3 - THE POSITIVE CONTROL. An identical staged append AND compaction, on
+# a lake with NO crypta socket attached, is completely unaffected: the commit
+# succeeds and the cleartext partition value lands, exactly like the
+# ATTACH+INSERT path's own positive control in crypta_partition_refusals.test.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ss_commit_control.db' AS sscontrol (DATA_PATH '__TEST_DIR__/ss_commit_control_files', METADATA_CATALOG 'sscontrol_meta')
+
+statement ok
+CREATE TABLE sscontrol.person(part_key INTEGER, person_source_value VARCHAR)
+
+statement ok
+INSERT INTO sscontrol.person VALUES (1, 'PT-000052-SENTINEL')
+
+statement ok
+TRUNCATE ducklake_staged_commit
+
+statement ok
+TRUNCATE ducklake_staged_data_file
+
+statement ok
+TRUNCATE ducklake_staged_data_file_partition
+
+statement ok
+TRUNCATE ducklake_staged_compaction
+
+statement ok
+INSERT INTO ducklake_staged_commit VALUES ('external-writer', 'staged append control', NULL, NULL, NULL, NULL, NULL, NULL)
+
+statement ok
+INSERT INTO ducklake_staged_data_file VALUES (9003, (SELECT table_id FROM sscontrol_meta.ducklake_table WHERE table_name = 'person'), 0, '/fake/staged_control.parquet', false, 'parquet', 1, 100, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+
+statement ok
+INSERT INTO ducklake_staged_data_file_partition VALUES (9003, 0, '1')
+
+statement ok
+SELECT * FROM ducklake_commit('sscontrol_meta', -1)
+
+# The instrument fires: absent an envelope, the server-side commit path is
+# unaffected by this fix, and the cleartext partition value lands exactly as
+# it always did.
+query I
+SELECT count(*) FROM sscontrol_meta.ducklake_file_partition_value
+----
+1
+
+query I
+SELECT count(*) FROM sscontrol_meta.ducklake_data_file WHERE table_id = (SELECT table_id FROM sscontrol_meta.ducklake_table WHERE table_name = 'person')
+----
+2
+
+statement ok
+DETACH sscontrol

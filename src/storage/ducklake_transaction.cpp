@@ -1742,7 +1742,12 @@ void DuckLakeTransaction::RedactStatsOnEnvelopedLake(DuckLakeDataFile &file) con
 // silently going cleartext or silently going wrong.
 void DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(TableIndex table_id,
                                                                 const DuckLakeDataFile &file) const {
-	if (!ducklake_catalog.EncryptionProvider()) {
+	RefusePartitionValuesOnEnvelopedLake(ducklake_catalog, table_id, file);
+}
+
+void DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(DuckLakeCatalog &catalog, TableIndex table_id,
+                                                                const DuckLakeDataFile &file) {
+	if (!catalog.EncryptionProvider()) {
 		return;
 	}
 	if (file.partition_values.empty()) {

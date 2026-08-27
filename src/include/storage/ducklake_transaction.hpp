@@ -239,6 +239,16 @@ public:
 	//! than silently drops - there is no plan a partitioned scan can fall back
 	//! to once its partition_value rows are gone.
 	void RefusePartitionValuesOnEnvelopedLake(TableIndex table_id, const DuckLakeDataFile &file) const;
+
+	//! Same guard, callable with an explicit DuckLakeCatalog instead of the
+	//! transaction's own - for a producer that never holds a DuckLakeTransaction
+	//! at all. See DuckLakeServerSideCommit (ducklake_server_side_commit.cpp):
+	//! the ducklake_commit table function stages files as raw rows and commits
+	//! them straight against the metadata catalog, so there is no
+	//! DuckLakeTransaction to call the instance overload on. The instance
+	//! overload above delegates to this one.
+	static void RefusePartitionValuesOnEnvelopedLake(DuckLakeCatalog &catalog, TableIndex table_id,
+	                                                 const DuckLakeDataFile &file);
 	// <<< FORK-LOCAL (sigil-enterprises) <<<
 
 	MappingIndex AddNameMap(unique_ptr<DuckLakeNameMap> name_map);

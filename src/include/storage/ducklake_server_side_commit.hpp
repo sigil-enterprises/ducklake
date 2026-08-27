@@ -16,6 +16,7 @@
 
 namespace duckdb {
 class ClientContext;
+class DuckLakeCatalog;
 
 struct DuckLakeServerSideCommitResult {
 	int64_t committed_snapshot_id = 0;
@@ -70,6 +71,16 @@ private:
 	//! Load current global table stats from the metadata catalog.
 	void ReadExistingTableStats();
 
+	// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids partition VALUES in the catalog. >>>
+	// PRIVATE-FORK ONLY. Never cherry-pick this declaration upstream.
+	//! Find the attached DuckLakeCatalog (if any, in the calling context) whose
+	//! metadata schema matches this commit's, so partition values staged
+	//! directly by a non-DuckLake writer (Spark/Trino via ducklake_commit) can
+	//! still be checked against DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake.
+	//! See ReadStagedDataFiles / ReadStagedCompactions.
+	optional_ptr<DuckLakeCatalog> ResolveEnvelopedCatalog();
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
+
 	//! Query the metadata catalog for the latest snapshot.
 	DuckLakeSnapshot ReadLatestSnapshot();
 	//! Build a DuckLakeTableStats from parsed global stats.
@@ -116,6 +127,13 @@ private:
 	map<idx_t, vector<DuckLakeDeleteFile>> attached_deletes;
 	//! Compaction-output files indexed by compaction_id.
 	map<idx_t, DuckLakeDataFile> compaction_output_files;
+
+	// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids partition VALUES in the catalog. >>>
+	// PRIVATE-FORK ONLY. Never cherry-pick this declaration upstream.
+	//! Cache for ResolveEnvelopedCatalog - resolved at most once per commit.
+	bool enveloped_catalog_resolved = false;
+	optional_ptr<DuckLakeCatalog> enveloped_catalog;
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
 };
 
 } // namespace duckdb

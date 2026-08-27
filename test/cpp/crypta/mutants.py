@@ -368,7 +368,7 @@ EXTENSION_MUTANTS = [
         "producer CONSULTS this function; only this one proves what it "
         "ANSWERS, and it is the mutant that would survive if the predicate "
         "itself were inverted or stubbed",
-        "old": "\tif (!ducklake_catalog.EncryptionProvider()) {\n"
+        "old": "\tif (!catalog.EncryptionProvider()) {\n"
         "\t\treturn;\n"
         "\t}\n"
         "\tif (file.partition_values.empty()) {\n"
@@ -421,6 +421,47 @@ EXTENSION_MUTANTS = [
         "new": "\tRedactStatsOnEnvelopedLake(entry.written_file);",
         "reddens": ["test/sql/crypta/crypta_partition_refusals.test"],
         "redden_at": "CALL ducklake_merge_adjacent_files('reattached', 'person')",
+    },
+    {
+        "name": "no_partition_write_refusal_on_server_side_append",
+        "file": "src/storage/ducklake_server_side_commit.cpp",
+        "why": "bench security review of PR #95 found DuckLakeServerSideCommit - the "
+        "class behind the public ducklake_commit table function, the "
+        "multi-engine (Spark/Trino) write path - calls "
+        "state->local_changes.AppendFiles directly, bypassing "
+        "DuckLakeTransaction::AppendFiles entirely, so the guard above never "
+        "saw a file staged straight into ducklake_staged_data_file* by a "
+        "writer that runs no DuckLake C++ code at all. This mutant removes "
+        "just the call this fix added in ReadStagedDataFiles; the ALTER-time "
+        "and client-side write-time guards above are untouched, so this "
+        "reddens on the server-side APPEND path alone",
+        "old": "\t\t\tfor (auto &file : entry.second) {\n"
+        "\t\t\t\tDuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(*catalog, entry.first, file);\n"
+        "\t\t\t}\n",
+        "new": "\t\t\tfor (auto &file : entry.second) {\n"
+        "\t\t\t}\n",
+        "reddens": ["test/sql/crypta/crypta_server_side_commit_partition_refusal.test"],
+        "redden_at": "SELECT * FROM ducklake_commit('ssappend_meta', -1)",
+    },
+    {
+        "name": "no_partition_write_refusal_on_server_side_compaction",
+        "file": "src/storage/ducklake_server_side_commit.cpp",
+        "why": "the compaction twin of the mutant above - "
+        "DuckLakeServerSideCommit::ReadStagedCompactions calls "
+        "state->local_changes.AddCompaction directly for a compacted file "
+        "staged the same non-DuckLake way. Only this call site is removed; "
+        "the server-side append call site above is untouched, so this "
+        "reddens on the server-side COMPACTION path alone. This is the same "
+        "chokepoint issue #80 (column-stats redaction) also bypasses on this "
+        "file - #80's copy of this bug is unfixed here on purpose, out of "
+        "scope for #100",
+        "old": "\t\tif (auto catalog = ResolveEnvelopedCatalog()) {\n"
+        "\t\t\tDuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(*catalog, shell.table_id, entry.written_file);\n"
+        "\t\t}",
+        "new": "\t\tif (auto catalog = ResolveEnvelopedCatalog()) {\n"
+        "\t\t}",
+        "reddens": ["test/sql/crypta/crypta_server_side_commit_partition_refusal.test"],
+        "redden_at": "SELECT * FROM ducklake_commit('sscompact_meta', -1)",
     },
 ]
 
