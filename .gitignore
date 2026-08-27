@@ -14,3 +14,4 @@ duckdb_benchmark_data/
 
 # Agent state never ships in the tree (see issue #29); rules resolve at runtime.
 .claude/
+/vcpkg/
