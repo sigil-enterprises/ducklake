@@ -215,9 +215,17 @@ bool DuckLakeServerSideCommit::IsEnvelopedLake() {
 	}
 
 	// Authoritative fallback: no matching attachment exists (or none at all) -
-	// ask the metadata catalog itself.
-	auto query = StringUtil::Format("SELECT value FROM %s.ducklake_metadata WHERE key = 'encrypted'", schema_id);
-	auto result = RunQuery(query, "read encryption flag");
+	// ask the metadata catalog itself. 'encryption_envelope' (not 'encrypted' -
+	// that only tracks plain per-file ENCRYPTED, which a non-crypta lake can
+	// have without ever being enveloped) is written at ATTACH-time lake
+	// creation once encryption_socket is resolved - see
+	// DuckLakeMetadataManager::InitializeDuckLake. Absent on a lake created by
+	// a build predating this fix; there is no way to recover that signal for
+	// such a lake from the metadata catalog alone, which is a narrower version
+	// of the pre-existing residual gap this guard already documents.
+	auto query =
+	    StringUtil::Format("SELECT value FROM %s.ducklake_metadata WHERE key = 'encryption_envelope'", schema_id);
+	auto result = RunQuery(query, "read envelope flag");
 	auto chunk = result->Fetch();
 	if (chunk && chunk->size() > 0 && !chunk->GetValue(0, 0).IsNull()) {
 		is_enveloped_lake = chunk->GetValue(0, 0).ToString() == "true";

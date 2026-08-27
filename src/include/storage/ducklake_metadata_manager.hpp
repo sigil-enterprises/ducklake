@@ -165,7 +165,13 @@ public:
 	virtual string MetadataExistsQuery() const;
 
 	//! Initialize a new DuckLake
-	virtual void InitializeDuckLake(bool has_explicit_schema, DuckLakeEncryption encryption);
+	//! is_enveloped: whether this DuckLake was ATTACHed with encryption_socket
+	//! (a KMS envelope wraps per-file keys) - persisted as a 'encryption_envelope'
+	//! row in ducklake_metadata so a session with no DuckLakeCatalog attached at
+	//! all (the server-side ducklake_commit multi-engine write path) can still
+	//! authoritatively tell an enveloped lake apart from a merely ENCRYPTED one.
+	//! See DuckLakeServerSideCommit::IsEnvelopedLake.
+	virtual void InitializeDuckLake(bool has_explicit_schema, DuckLakeEncryption encryption, bool is_enveloped);
 	virtual DuckLakeMetadata LoadDuckLake();
 
 	virtual unique_ptr<QueryResult> Execute(DuckLakeSnapshot snapshot, string &query);

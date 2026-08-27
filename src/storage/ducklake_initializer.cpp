@@ -137,7 +137,8 @@ void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction
 		InitializeDataPath();
 	}
 	auto &metadata_manager = transaction.GetMetadataManager();
-	metadata_manager.InitializeDuckLake(has_explicit_schema, catalog.Encryption());
+	metadata_manager.InitializeDuckLake(has_explicit_schema, catalog.Encryption(),
+	                                    catalog.EncryptionProvider() != nullptr);
 	if (catalog.Encryption() == DuckLakeEncryption::AUTOMATIC) {
 		// default to unencrypted
 		catalog.SetEncryption(DuckLakeEncryption::UNENCRYPTED);

@@ -179,7 +179,8 @@ bool DuckLakeMetadataManager::MetadataExists() {
 	return true;
 }
 
-void DuckLakeMetadataManager::InitializeDuckLake(bool has_explicit_schema, DuckLakeEncryption encryption) {
+void DuckLakeMetadataManager::InitializeDuckLake(bool has_explicit_schema, DuckLakeEncryption encryption,
+                                                 bool is_enveloped) {
 	string initialize_query;
 	if (has_explicit_schema) {
 		// if the schema is user provided create it
@@ -190,6 +191,18 @@ void DuckLakeMetadataManager::InitializeDuckLake(bool has_explicit_schema, DuckL
 	auto &base_data_path = ducklake_catalog.DataPath();
 	string data_path = StorePath(base_data_path);
 	string encryption_str = encryption == DuckLakeEncryption::ENCRYPTED ? "true" : "false";
+	// >>> FORK-LOCAL (sigil-enterprises): persist envelope status independent of encrypted flag. >>>
+	// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+	//
+	// 'encrypted' above only tracks DuckLakeEncryption::ENCRYPTED (plain
+	// per-file keys, no KMS). encryption_socket (the envelope) is a strictly
+	// narrower, separate condition - ENCRYPTED is necessary but not sufficient
+	// for it. Persisting it separately lets a session with zero DuckLake
+	// attached (DuckLakeServerSideCommit::IsEnvelopedLake) tell them apart;
+	// querying 'encrypted' alone would wrongly refuse plain-ENCRYPTED, non-crypta
+	// lakes too (caught by test/sql/encryption/partitioning_encryption.test).
+	string envelope_str = is_enveloped ? "true" : "false";
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
 	initialize_query += StringUtil::Format(R"(
 CREATE TABLE {METADATA_CATALOG}.ducklake_metadata(key VARCHAR NOT NULL, value VARCHAR NOT NULL, scope VARCHAR, scope_id BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot(snapshot_id BIGINT PRIMARY KEY, snapshot_time TIMESTAMPTZ, schema_version BIGINT, next_catalog_id BIGINT, next_file_id BIGINT);
@@ -221,10 +234,10 @@ CREATE TABLE {METADATA_CATALOG}.ducklake_sort_info(sort_id BIGINT, table_id BIGI
 CREATE TABLE {METADATA_CATALOG}.ducklake_sort_expression(sort_id BIGINT, table_id BIGINT, sort_key_index BIGINT, expression VARCHAR, dialect VARCHAR, sort_direction VARCHAR, null_order VARCHAR);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot VALUES (0, NOW(), 0, 1, 0);
 INSERT INTO {METADATA_CATALOG}.ducklake_snapshot_changes VALUES (0, 'created_schema:"main"',  NULL, NULL, NULL);
-INSERT INTO {METADATA_CATALOG}.ducklake_metadata (key, value) VALUES ('version', '1.0'), ('created_by', 'DuckDB %s'), ('data_path', %s), ('encrypted', '%s');
+INSERT INTO {METADATA_CATALOG}.ducklake_metadata (key, value) VALUES ('version', '1.0'), ('created_by', 'DuckDB %s'), ('data_path', %s), ('encrypted', '%s'), ('encryption_envelope', '%s');
 INSERT INTO {METADATA_CATALOG}.ducklake_schema VALUES (0, UUID(), 0, NULL, 'main', 'main/', true);
 	)",
-	                                       DuckDB::SourceID(), SQLString(data_path), encryption_str);
+	                                       DuckDB::SourceID(), SQLString(data_path), encryption_str, envelope_str);
 	auto result = transaction.Query(initialize_query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to initialize DuckLake: ");
