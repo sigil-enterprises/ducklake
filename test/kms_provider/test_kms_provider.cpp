@@ -36,6 +36,7 @@
 
 #include <cerrno>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -152,6 +153,74 @@ vector<string> ExtractStrings(const string &body, const string &key) {
 		position = cursor + 1;
 	}
 }
+
+//! POSITIVE-CONTROL DOUBLE for issue #67. Deliberately broken: it wraps
+//! nothing, unwraps nothing, and never touches the socket. Its only purpose is
+//! to prove that the three envelope fixtures below would actually CATCH a
+//! bypassed/no-op envelope implementation - a check that has never been shown
+//! to fire on a known-bad input proves nothing (issue #67, mirroring #61).
+//!
+//! Selected at registration time via DUCKLAKE_TEST_KMS_NOOP=1, never by
+//! default and never in any path a release build takes - this class exists
+//! only under test/kms_provider/, which is never present in a release build.
+class NoOpKmsProvider : public DuckLakeEncryptionProvider {
+public:
+	NoOpKmsProvider(string socket_path_p, string lake_id_p, int64_t ttl_seconds_p)
+	    : lake_id(std::move(lake_id_p)) {
+		if (lake_id.empty()) {
+			throw InvalidInputException("noop kms provider: ENCRYPTION_LAKE_ID is empty");
+		}
+		// socket_path/ttl are accepted, for ATTACH option compatibility, and
+		// then deliberately ignored - a no-op envelope makes no key-service
+		// call at all, wrap or unwrap.
+		(void)socket_path_p;
+		(void)ttl_seconds_p;
+	}
+
+	//! The defect this simulates: PrepareFileKeysForCommit's wrap step never
+	//! runs, and the plaintext DEK is stored as-is.
+	vector<string> WrapKeys(const vector<DuckLakeFileIdentity> &identities, const vector<string> &deks) override {
+		if (identities.size() != deks.size()) {
+			throw IOException("noop kms provider: %llu identities for %llu keys",
+			                  static_cast<uint64_t>(identities.size()), static_cast<uint64_t>(deks.size()));
+		}
+		return deks;
+	}
+
+	//! The stored key was never wrapped, so there is nothing to unwrap:
+	//! whatever is in the catalog is handed straight back.
+	string UnwrapKey(const DuckLakeFileIdentity &identity, const string &base64_value) override {
+		(void)identity;
+		return base64_value;
+	}
+
+	vector<DuckLakeRewrapResult> RewrapKeys(const vector<DuckLakeFileIdentity> &identities,
+	                                        const vector<string> &blobs) override {
+		vector<DuckLakeRewrapResult> results;
+		for (idx_t i = 0; i < blobs.size(); i++) {
+			(void)identities[i];
+			DuckLakeRewrapResult result;
+			result.wrapped = blobs[i];
+			result.rewrapped = false;
+			results.push_back(result);
+		}
+		return results;
+	}
+
+	//! Reports healthy unconditionally: the whole point of this double is
+	//! that ATTACH succeeds and the envelope branches are reached, just
+	//! without ever doing anything at them.
+	string SelfTest() override {
+		return "test-kms-noop";
+	}
+
+	const string &LakeId() const override {
+		return lake_id;
+	}
+
+private:
+	string lake_id;
+};
 
 class TestKmsProvider : public DuckLakeEncryptionProvider {
 public:
@@ -416,8 +485,18 @@ private:
 //! register nothing while the build reported success. This external definition
 //! is the reference that obliges the linker to pull the member in.
 void DuckLakeRegisterKmsProvider() {
+	// DUCKLAKE_TEST_KMS_NOOP selects the broken double above instead of the
+	// real test provider. This is read ONCE, at registration, not per-ATTACH:
+	// it exists solely so issue #67's CI job can prove the three envelope
+	// fixtures actually go red against a bypassed envelope before proving
+	// they pass against the real one - never a runtime knob for anything
+	// else.
+	bool noop = std::getenv("DUCKLAKE_TEST_KMS_NOOP") != nullptr;
 	DuckLakeEncryptionProvider::RegisterFactory(
-	    [](string socket, string lake_id, int64_t ttl) -> unique_ptr<DuckLakeEncryptionProvider> {
+	    [noop](string socket, string lake_id, int64_t ttl) -> unique_ptr<DuckLakeEncryptionProvider> {
+		    if (noop) {
+			    return make_uniq<NoOpKmsProvider>(std::move(socket), std::move(lake_id), ttl);
+		    }
 		    return make_uniq<TestKmsProvider>(std::move(socket), std::move(lake_id), ttl);
 	    });
 }
