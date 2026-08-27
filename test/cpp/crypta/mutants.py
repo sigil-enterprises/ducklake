@@ -334,6 +334,94 @@ EXTENSION_MUTANTS = [
         "reddens": ["test/sql/crypta/adversary_flush_null_key.test"],
         "redden_at": "CALL ducklake_flush_inlined_data('flusher')",
     },
+    {
+        "name": "no_partition_alter_refusal",
+        "file": "src/storage/ducklake_table_entry.cpp",
+        "why": "issue #100's ALTER-time guard - ALTER TABLE ... SET PARTITIONED BY "
+        "with a non-empty key list is refused on an enveloped lake because "
+        "ducklake_file_partition_value is load-bearing (a partitioned scan "
+        "reads it back to resolve which files satisfy a predicate), unlike "
+        "column stats, which can just be dropped. Without this guard, "
+        "requesting partitioning on a crypta lake silently succeeds and the "
+        "very next INSERT writes a cleartext cohort-identifying value into "
+        "the metadata catalog. This is the guard AND its only call site at "
+        "once - there is no other statement in this codebase that enables "
+        "partitioning",
+        "old": "\tif (!partition_data->fields.empty()) {\n"
+        "\t\tauto &duck_catalog = ParentCatalog().Cast<DuckLakeCatalog>();\n"
+        "\t\tif (duck_catalog.EncryptionProvider()) {",
+        "new": "\tif (false) {\n"
+        "\t\tauto &duck_catalog = ParentCatalog().Cast<DuckLakeCatalog>();\n"
+        "\t\tif (duck_catalog.EncryptionProvider()) {",
+        "reddens": ["test/sql/crypta/crypta_partition_refusals.test"],
+        "redden_at": "ALTER TABLE naive.person SET PARTITIONED BY (part_key)",
+    },
+    {
+        "name": "no_partition_write_refusal_body",
+        "file": "src/storage/ducklake_transaction.cpp",
+        "why": "the JUDGEMENT inside RefusePartitionValuesOnEnvelopedLake - the "
+        "write-side half of #100, for a table partitioned BEFORE the lake's "
+        "envelope was configured (LoadExistingDuckLake rebuilds "
+        "DuckLakePartition straight from persisted metadata, never through "
+        "the ALTER statement the guard above sits on, so that guard cannot "
+        "see this case). The two call-site mutants below prove each "
+        "producer CONSULTS this function; only this one proves what it "
+        "ANSWERS, and it is the mutant that would survive if the predicate "
+        "itself were inverted or stubbed",
+        "old": "\tif (!ducklake_catalog.EncryptionProvider()) {\n"
+        "\t\treturn;\n"
+        "\t}\n"
+        "\tif (file.partition_values.empty()) {\n"
+        "\t\treturn;\n"
+        "\t}",
+        "new": "\tif (true) {\n"
+        "\t\treturn;\n"
+        "\t}\n"
+        "\tif (file.partition_values.empty()) {\n"
+        "\t\treturn;\n"
+        "\t}",
+        # Both files: the persisted-before-crypta test drives both the
+        # AppendFiles and AddCompaction call sites, so a mutant of the shared
+        # body reddens both of that file's assertions at once. Naming both
+        # marker fragments keeps the runner honest about which statement
+        # actually failed, rather than one non-zero status standing for two.
+        "reddens": [
+            "test/sql/crypta/crypta_partition_refusals.test",
+            "test/sql/crypta/crypta_partition_refusals.test",
+        ],
+        "redden_at": [
+            "INSERT INTO reattached.person VALUES (1, 'PT-000046-SENTINEL')",
+            "CALL ducklake_merge_adjacent_files('reattached', 'person')",
+        ],
+    },
+    {
+        "name": "no_partition_write_refusal_on_append",
+        "file": "src/storage/ducklake_transaction.cpp",
+        "why": "the AppendFiles call site of RefusePartitionValuesOnEnvelopedLake "
+        "- proves an ordinary INSERT/UPDATE/MERGE/CTAS actually CONSULTS the "
+        "guard rather than the guard merely existing unreachable. Only this "
+        "call is removed; RedactStatsOnEnvelopedLake and the AddCompaction "
+        "call site are untouched, so this reddens on the INSERT path alone",
+        "old": "\t\tRedactStatsOnEnvelopedLake(file);\n"
+        "\t\tRefusePartitionValuesOnEnvelopedLake(table_id, file);",
+        "new": "\t\tRedactStatsOnEnvelopedLake(file);",
+        "reddens": ["test/sql/crypta/crypta_partition_refusals.test"],
+        "redden_at": "INSERT INTO reattached.person VALUES (1, 'PT-000046-SENTINEL')",
+    },
+    {
+        "name": "no_partition_write_refusal_on_compaction",
+        "file": "src/storage/ducklake_transaction.cpp",
+        "why": "the AddCompaction call site of RefusePartitionValuesOnEnvelopedLake "
+        "- ducklake_merge_adjacent_files never calls AppendFiles, so the "
+        "INSERT-path mutant above cannot see this producer. Only this call "
+        "is removed; the AppendFiles call site is untouched, so this reddens "
+        "on the compaction path alone",
+        "old": "\tRedactStatsOnEnvelopedLake(entry.written_file);\n"
+        "\tRefusePartitionValuesOnEnvelopedLake(table_id, entry.written_file);",
+        "new": "\tRedactStatsOnEnvelopedLake(entry.written_file);",
+        "reddens": ["test/sql/crypta/crypta_partition_refusals.test"],
+        "redden_at": "CALL ducklake_merge_adjacent_files('reattached', 'person')",
+    },
 ]
 
 BY_NAME = {mutant["name"]: mutant for mutant in EXTENSION_MUTANTS}

@@ -1714,6 +1714,52 @@ void DuckLakeTransaction::RedactStatsOnEnvelopedLake(DuckLakeDataFile &file) con
 }
 // <<< FORK-LOCAL (sigil-enterprises) <<<
 
+// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids partition VALUES in the catalog. >>>
+// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+//
+// The write-side half of the ALTER TABLE ... SET PARTITIONED BY refusal in
+// DuckLakeTableEntry::AlterTable (src/storage/ducklake_table_entry.cpp). That
+// guard cannot see a table whose partition was defined BEFORE this lake's
+// encryption envelope was configured - LoadExistingDuckLake reconstructs
+// DuckLakePartition straight from persisted metadata, never through the ALTER
+// statement - so a re-attach with encryption_socket added afterward would
+// otherwise resume writing cleartext partition values with no diagnostic at
+// all. This is the same shape as RedactStatsOnEnvelopedLake immediately
+// above, and it sits beside it deliberately: both guard the point a file
+// ENTERS the transaction's committed set, so every producer (INSERT / UPDATE
+// / MERGE / CTAS, ducklake_add_data_files, ducklake_merge_adjacent_files) is
+// covered without having to be found and guarded individually.
+//
+// THROWS RATHER THAN REDACTS. RedactStatsOnEnvelopedLake can drop min/max
+// because an unstated bound is a plan DuckLake already takes - the column
+// scans as unknown. There is no equivalent fallback for a partition value:
+// `ducklake_file_partition_value` is how a partitioned scan finds the files
+// for a predicate at all, so dropping it silently would not degrade the
+// plan, it would corrupt it - a file whose partition key cannot be resolved
+// is a file pruning can wrongly skip. Refusing the write is the only closed
+// option, and it is loud on purpose: an insert into a pre-existing
+// partitioned table on a newly-enveloped lake fails outright rather than
+// silently going cleartext or silently going wrong.
+void DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(TableIndex table_id,
+                                                                const DuckLakeDataFile &file) const {
+	if (!ducklake_catalog.EncryptionProvider()) {
+		return;
+	}
+	if (file.partition_values.empty()) {
+		return;
+	}
+	throw InvalidInputException(
+	    "encryption_socket is set for this DuckLake, and a write to table id %llu would add rows to "
+	    "ducklake_file_partition_value - a partitioned scan reads that value back to resolve which files satisfy a "
+	    "predicate, so it is written as a cleartext SQL literal into the metadata catalog, which the encryption "
+	    "envelope does not protect (it wraps the per-file Parquet keys only). This table was partitioned before "
+	    "encryption_socket was configured, so the ALTER TABLE refusal never saw the request. Run ALTER TABLE ... "
+	    "SET PARTITIONED BY () to remove the partition before writing to this table on an enveloped lake, or drop "
+	    "encryption_socket if cleartext partition values in the metadata catalog are acceptable for this lake",
+	    table_id.index);
+}
+// <<< FORK-LOCAL (sigil-enterprises) <<<
+
 void DuckLakeTransaction::AppendFiles(TableIndex table_id, vector<DuckLakeDataFile> files) {
 	if (files.empty()) {
 		return;
@@ -1721,6 +1767,7 @@ void DuckLakeTransaction::AppendFiles(TableIndex table_id, vector<DuckLakeDataFi
 	// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids column VALUES in the catalog. >>>
 	for (auto &file : files) {
 		RedactStatsOnEnvelopedLake(file);
+		RefusePartitionValuesOnEnvelopedLake(table_id, file);
 	}
 	// <<< FORK-LOCAL (sigil-enterprises) <<<
 	state->local_changes.AppendFiles(table_id, std::move(files));
@@ -1788,6 +1835,7 @@ void DuckLakeTransaction::AddCompaction(TableIndex table_id, DuckLakeCompactionE
 	// they span every source file's range - so this is the leak that would
 	// matter most if it were missed.
 	RedactStatsOnEnvelopedLake(entry.written_file);
+	RefusePartitionValuesOnEnvelopedLake(table_id, entry.written_file);
 	// <<< FORK-LOCAL (sigil-enterprises) <<<
 	state->local_changes.AddCompaction(table_id, std::move(entry));
 }

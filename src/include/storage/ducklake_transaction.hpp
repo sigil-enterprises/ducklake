@@ -232,6 +232,13 @@ public:
 	//! file before it can enter the transaction's committed set. No-op on every
 	//! other lake.
 	void RedactStatsOnEnvelopedLake(DuckLakeDataFile &file) const;
+
+	//! On an envelope-encrypted lake, refuse a data file that carries partition
+	//! values before it can enter the transaction's committed set. No-op on
+	//! every other lake. Unlike RedactStatsOnEnvelopedLake this throws rather
+	//! than silently drops - there is no plan a partitioned scan can fall back
+	//! to once its partition_value rows are gone.
+	void RefusePartitionValuesOnEnvelopedLake(TableIndex table_id, const DuckLakeDataFile &file) const;
 	// <<< FORK-LOCAL (sigil-enterprises) <<<
 
 	MappingIndex AddNameMap(unique_ptr<DuckLakeNameMap> name_map);

@@ -634,6 +634,46 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 	if (PartitionFieldsMatch(GetPartitionData(), *partition_data)) {
 		return nullptr;
 	}
+	// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids partition VALUES in the catalog. >>>
+	// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+	//
+	// Unlike the inlined-row and column-stats leaks, there is nothing safe to
+	// degrade partitioning TO: `ducklake_file_partition_value.partition_value`
+	// is how a partitioned scan resolves which files satisfy a predicate at all
+	// (see the `partition_value IN (...)` filter this metadata manager builds,
+	// and the per-file key list it rebuilds on read). Suppressing the value the
+	// way RedactStatsOnEnvelopedLake suppresses min/max would not degrade the
+	// plan - it would silently break correctness. So: refuse enabling
+	// partitioning on an enveloped lake instead, loud, at the one statement that
+	// asks for it - ALTER TABLE ... SET PARTITIONED BY with a non-empty key
+	// list. Clearing an existing partition (an empty key list) is exempt: that
+	// removes the leak rather than creating it, and an operator undoing a
+	// mistake on an enveloped lake must not be told the fix itself is refused.
+	//
+	// This does not by itself cover a table that was partitioned BEFORE the
+	// lake's encryption envelope was configured - persisted partition metadata
+	// never runs back through this ALTER statement. That case is caught at the
+	// write chokepoint instead: DuckLakeTransaction::AppendFiles and
+	// ::AddCompaction refuse to write a NEW partition value on an enveloped
+	// lake regardless of how the partition was defined, in
+	// src/storage/ducklake_transaction.cpp. The two guards are deliberately not
+	// merged: this one is loud at the moment partitioning is REQUESTED, the
+	// other is loud at the moment a value would actually be WRITTEN.
+	if (!partition_data->fields.empty()) {
+		auto &duck_catalog = ParentCatalog().Cast<DuckLakeCatalog>();
+		if (duck_catalog.EncryptionProvider()) {
+			throw InvalidInputException(
+			    "encryption_socket was set for this DuckLake, and ALTER TABLE ... SET PARTITIONED BY was requested "
+			    "for table \"%s\" - partition values are written as cleartext SQL literals into "
+			    "ducklake_file_partition_value in the metadata catalog, and a partitioned scan reads them back to "
+			    "resolve which files satisfy a predicate, so the value cannot be dropped the way column statistics "
+			    "are. The encryption envelope does not protect this table (it wraps the per-file Parquet keys "
+			    "only). Either drop the PARTITIONED BY clause, or drop encryption_socket if cleartext partition "
+			    "values in the metadata catalog are acceptable for this lake",
+			    table_info.table);
+		}
+	}
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
 
 	auto new_entry = make_uniq<DuckLakeTableEntry>(*this, table_info, std::move(partition_data));
 	return std::move(new_entry);

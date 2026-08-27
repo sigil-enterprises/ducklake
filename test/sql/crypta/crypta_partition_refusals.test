@@ -1,0 +1,327 @@
+# name: test/sql/crypta/crypta_partition_refusals.test
+# description: A crypta-enveloped lake never writes cleartext partition values into the metadata catalog
+# group: [crypta]
+#
+# WHAT THIS FILE PROVES, AND WHY IT EXISTS. Issue #100 (split from bench#66
+# item 3): `ducklake_file_partition_value.partition_value` is a plaintext
+# VARCHAR (src/storage/ducklake_metadata_manager.cpp), written per file per
+# partition key. On a partitioned lake it holds the actual partition key
+# values - a date, a site, a source system, the cohort-identifying values a
+# health lake typically partitions on. Neither #25 (data inlining) nor #80
+# (column statistics) touches it: the envelope wraps per-file Parquet keys
+# only, and a partition key on a health lake is a column value, not a key.
+#
+# UNLIKE COLUMN STATISTICS, THIS VALUE IS LOAD-BEARING. #80 could suppress
+# min/max because an absent bound is a plan DuckLake already takes - the
+# column scans as unknown. `ducklake_file_partition_value` is how a
+# partitioned scan resolves which files satisfy a predicate at all
+# (`partition_value IN (...)`, the filter this metadata manager builds on
+# read). Blanking it does not degrade a plan, it breaks pruning correctness.
+# So the fix here is REFUSAL, not redaction: partitioning cannot be enabled at
+# all on an enveloped lake. This is a real capability loss, stated plainly in
+# the PR that carries this file, not hidden in a test comment.
+#
+# THE CONTRACT ASSERTED HERE. When the catalog carries an EncryptionProvider
+# (i.e. CRYPTA_SOCKET / ENCRYPTION_SOCKET was given at ATTACH):
+#
+#   1. `ALTER TABLE ... SET PARTITIONED BY (<non-empty key list>)` is a hard
+#      error, at the statement that asks for it (ducklake_table_entry.cpp);
+#   2. a table that was partitioned BEFORE the lake's envelope was configured
+#      - so the ALTER refusal above never saw the request - is refused at the
+#      next WRITE that would add a row to ducklake_file_partition_value
+#      (the AppendFiles/AddCompaction chokepoint in ducklake_transaction.cpp),
+#      not silently allowed to keep leaking;
+#   3. `SET PARTITIONED BY ()` - CLEARING an existing partition - is exempt
+#      from both refusals, because it removes the leak rather than creating
+#      it.
+#
+# ON ABSENCE ASSERTIONS. Every "no partition value in the catalog" query below
+# passes trivially if the ALTER or the INSERT never happened, or if the query
+# looks in the wrong place. That is why case 4 - the positive control - is not
+# optional: it runs the IDENTICAL DDL and insert on a lake with no envelope
+# and proves the instrument fires, i.e. that the cleartext value really does
+# land in the catalog absent this fix.
+
+require ducklake
+
+require parquet
+
+# Encrypted Parquet writes need the full mbedtls crypto module. Without it the
+# write fails closed, which is correct but would red this file for the wrong
+# reason.
+require httpfs
+
+require-env DUCKLAKE_FAKE_CRYPTA_SOCKET
+
+# --------------------------------------------------------------------------
+# Case 1 - explicit ALTER TABLE ... SET PARTITIONED BY is REFUSED
+#
+# The operator does everything the fork asks: ENCRYPTED, a reachable crypta, a
+# lake id. They then ask to partition a table, which is the ordinary next step
+# for a large lake and nothing here warns them off it.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_partition_naive.db' AS naive (DATA_PATH '__TEST_DIR__/crypta_partition_naive_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'naive_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'partition-naive')
+
+statement ok
+CREATE TABLE naive.person(part_key INTEGER, person_source_value VARCHAR)
+
+statement error
+ALTER TABLE naive.person SET PARTITIONED BY (part_key)
+----
+encryption_socket
+
+statement error
+ALTER TABLE naive.person SET PARTITIONED BY (part_key)
+----
+ducklake_file_partition_value
+
+# The table is unaffected - it still has no partition, and ordinary
+# (unpartitioned) inserts still work on this lake.
+statement ok
+INSERT INTO naive.person VALUES (1, 'PT-000042-SENTINEL'), (2, 'PT-000043-SENTINEL')
+
+query II
+SELECT sum(part_key), min(person_source_value) FROM naive.person
+----
+3	PT-000042-SENTINEL
+
+query I
+SELECT count(*) FROM naive_meta.ducklake_file_partition_value
+----
+0
+
+statement ok
+DETACH naive
+
+# --------------------------------------------------------------------------
+# Case 2 - a table partitioned BEFORE crypta was configured is refused at the
+# next WRITE, not silently allowed to keep leaking
+#
+# LoadExistingDuckLake reconstructs a table's DuckLakePartition straight from
+# persisted metadata - it never runs back through the ALTER statement case 1
+# guards - so a table that carries partition metadata some OTHER way than
+# today's guarded ALTER (an older binary that predates this fix; a restored
+# snapshot) is exactly the gap case 1 cannot see. Read case 1 first: this is
+# the same defect, on the path that survives it.
+#
+# BUILDING THE FIXTURE HONESTLY. No public statement can put a table in this
+# state on a crypta lake - case 1 above IS that guard working. So the state is
+# PLANTED, the same way adversary_flush_null_key.test plants its NULL key: two
+# files are written for real, through `person` itself, while it is genuinely
+# unpartitioned (real content, real crypta-wrapped keys, this table's own
+# identity throughout - nothing about their encryption is synthetic). Only the
+# PARTITION DEFINITION - the fact that `part_key` is a partition key at all -
+# is added afterward, directly in the metadata catalog, standing in for
+# whatever pre-fix mechanism once let that happen without this guard seeing it.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_partition_persisted.db' AS persisted (DATA_PATH '__TEST_DIR__/crypta_partition_persisted_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'persisted_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'partition-persisted')
+
+statement ok
+CREATE TABLE persisted.person(part_key INTEGER, person_source_value VARCHAR)
+
+# Two ordinary inserts on a table with NO partition defined yet - the
+# AppendFiles guard has nothing to refuse, because file.partition_values is
+# empty for every unpartitioned write, crypta or not.
+statement ok
+INSERT INTO persisted.person VALUES (1, 'PT-000044-SENTINEL')
+
+statement ok
+INSERT INTO persisted.person VALUES (1, 'PT-000045-SENTINEL')
+
+query I
+SELECT count(*) FROM persisted_meta.ducklake_data_file
+----
+2
+
+statement ok
+DETACH persisted
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_partition_persisted.db' AS planter (DATA_PATH '__TEST_DIR__/crypta_partition_persisted_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'planter_meta')
+
+# THE PLANT: declare `part_key` (column_id 0, the table's first column) a
+# partition key on `person`, and point its two already-written files at it -
+# the file content already matches (both rows carry part_key=1).
+statement ok
+INSERT INTO planter_meta.ducklake_partition_info VALUES (9001, (SELECT table_id FROM planter_meta.ducklake_table WHERE table_name = 'person'), 0, NULL)
+
+statement ok
+INSERT INTO planter_meta.ducklake_partition_column
+SELECT 9001, table_id, 0, column_id, 'identity'
+FROM planter_meta.ducklake_column
+WHERE table_id = (SELECT table_id FROM planter_meta.ducklake_table WHERE table_name = 'person')
+  AND column_name = 'part_key' AND end_snapshot IS NULL
+
+statement ok
+UPDATE planter_meta.ducklake_data_file
+SET partition_id = 9001
+WHERE table_id = (SELECT table_id FROM planter_meta.ducklake_table WHERE table_name = 'person')
+
+statement ok
+INSERT INTO planter_meta.ducklake_file_partition_value (data_file_id, table_id, partition_key_index, partition_value)
+SELECT data_file_id, table_id, 0, '1'
+FROM planter_meta.ducklake_data_file
+WHERE table_id = (SELECT table_id FROM planter_meta.ducklake_table WHERE table_name = 'person')
+
+# The plant took: `person` is now partitioned, at global (table) scope, and
+# both existing files carry the value the guard must now see.
+query I
+SELECT count(*) FROM planter_meta.ducklake_partition_column
+----
+1
+
+query I
+SELECT count(*) FROM planter_meta.ducklake_file_partition_value
+----
+2
+
+statement ok
+DETACH planter
+
+# Re-attach the SAME lake, crypta unchanged - which is what an operator who
+# never touched partitioning this session, but inherited a table partitioned
+# some earlier way, would see.
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_partition_persisted.db' AS reattached (DATA_PATH '__TEST_DIR__/crypta_partition_persisted_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'reattached_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'partition-persisted')
+
+# The planted files really are readable - real content, real wrapped keys, the
+# same table's own identity throughout - so a refusal below is the partition
+# guard, not a decode failure.
+query II
+SELECT sum(part_key), min(person_source_value) FROM reattached.person
+----
+2	PT-000044-SENTINEL
+
+# A NEW write that would ADD a cleartext partition value is refused - the
+# INSERT-side call site (DuckLakeTransaction::AppendFiles).
+statement error
+INSERT INTO reattached.person VALUES (1, 'PT-000046-SENTINEL')
+----
+encryption_socket
+
+statement error
+INSERT INTO reattached.person VALUES (1, 'PT-000046-SENTINEL')
+----
+ducklake_file_partition_value
+
+# Nothing new was written by either refused attempt.
+query I
+SELECT count(*) FROM reattached_meta.ducklake_file_partition_value
+----
+2
+
+# The COMPACTION call site is refused the same way - the rewritten, merged
+# file it would write carries the same partition_values as its two planted
+# sources (DuckLakeTransaction::AddCompaction).
+statement error
+CALL ducklake_merge_adjacent_files('reattached', 'person')
+----
+encryption_socket
+
+statement error
+CALL ducklake_merge_adjacent_files('reattached', 'person')
+----
+ducklake_file_partition_value
+
+# Compaction did not merge anything either - both planted files are still
+# there.
+query I
+SELECT count(*) FROM reattached_meta.ducklake_file_partition_value
+----
+2
+
+statement ok
+DETACH reattached
+
+# --------------------------------------------------------------------------
+# Case 3 - clearing an existing partition still works, on a crypta lake
+#
+# The refusal is for ENABLING the leak, not for naming the option or for
+# undoing it. An operator undoing case 2's mistake - dropping the partition so
+# the table can be written to again on this lake - must not be told the fix
+# itself is refused.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_partition_clear.db' AS seedclear (DATA_PATH '__TEST_DIR__/crypta_partition_clear_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'seedclear_meta')
+
+statement ok
+CREATE TABLE seedclear.person(part_key INTEGER, person_source_value VARCHAR)
+
+statement ok
+ALTER TABLE seedclear.person SET PARTITIONED BY (part_key)
+
+statement ok
+DETACH seedclear
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_partition_clear.db' AS clear (DATA_PATH '__TEST_DIR__/crypta_partition_clear_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'clear_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'partition-clear')
+
+# Clearing the partition - an empty key list - is NOT refused, even though the
+# lake is fully crypta-configured.
+statement ok
+ALTER TABLE clear.person RESET PARTITIONED BY
+
+# And the table can be written to again, unpartitioned, without error.
+statement ok
+INSERT INTO clear.person VALUES (1, 'PT-000045-SENTINEL')
+
+query I
+SELECT count(*) FROM clear_meta.ducklake_file_partition_value
+----
+0
+
+statement ok
+DETACH clear
+
+# --------------------------------------------------------------------------
+# Case 4 - THE POSITIVE CONTROL. It is not optional.
+#
+# Every assertion above that reads 0 or an error out of the catalog is an
+# ABSENCE assertion, and an absence assertion cannot tell a fixed lake from a
+# broken instrument. So: the identical DDL and insert, on a lake attached
+# WITHOUT crypta, proving the cleartext partition value IS readable out of the
+# metadata catalog absent this fix, and that partitioning and partition
+# pruning are otherwise completely unaffected by this change - see
+# test/sql/partitioning/*.test for the fuller regression surface this mirrors.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_partition_control.db' AS control (DATA_PATH '__TEST_DIR__/crypta_partition_control_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'control_meta')
+
+statement ok
+CREATE TABLE control.person(part_key INTEGER, person_source_value VARCHAR)
+
+statement ok
+ALTER TABLE control.person SET PARTITIONED BY (part_key)
+
+statement ok
+INSERT INTO control.person VALUES (1, 'PT-000042-SENTINEL'), (2, 'PT-000043-SENTINEL')
+
+query II
+SELECT sum(part_key), min(person_source_value) FROM control.person
+----
+3	PT-000042-SENTINEL
+
+# The instrument fires: the cohort-identifying partition key sits in the
+# metadata catalog in cleartext, on a lake whose `encrypted` flag is true,
+# readable with an ordinary SELECT by anyone who can read the catalog.
+query IIII
+SELECT * FROM control_meta.ducklake_file_partition_value ORDER BY ALL
+----
+0	1	0	1
+1	1	0	2
+
+# Partition pruning still works, exactly as upstream: a predicate on the
+# partition key reads only the file(s) that can satisfy it.
+query II
+EXPLAIN ANALYZE SELECT COUNT(*) FROM control.person WHERE part_key=1
+----
+analyzed_plan	<REGEX>:.*Total Files Read: 1.*
+
+statement ok
+DETACH control
