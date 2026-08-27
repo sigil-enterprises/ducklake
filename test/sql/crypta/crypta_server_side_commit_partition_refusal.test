@@ -246,7 +246,7 @@ statement ok
 INSERT INTO ducklake_staged_commit VALUES ('external-writer', 'staged append control', NULL, NULL, NULL, NULL, NULL, NULL)
 
 statement ok
-INSERT INTO ducklake_staged_data_file VALUES (9003, (SELECT table_id FROM sscontrol_meta.ducklake_table WHERE table_name = 'person'), 0, '/fake/staged_control.parquet', false, 'parquet', 1, 100, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+INSERT INTO ducklake_staged_data_file VALUES (9003, (SELECT table_id FROM sscontrol_meta.ducklake_table WHERE table_name = 'person'), 0, '/fake/staged_control.parquet', false, 'parquet', 1, 100, NULL, NULL, 0, NULL, NULL, NULL, NULL, NULL)
 
 statement ok
 INSERT INTO ducklake_staged_data_file_partition VALUES (9003, 0, '1')
@@ -262,10 +262,14 @@ SELECT count(*) FROM sscontrol_meta.ducklake_file_partition_value
 ----
 1
 
+# Only the staged file has a ducklake_data_file row here - the earlier
+# INSERT INTO sscontrol.person (a single row, no DATA_INLINING_ROW_LIMIT 0 on
+# this ATTACH) was data-inlined into the metadata catalog rather than written
+# out as its own Parquet file.
 query I
 SELECT count(*) FROM sscontrol_meta.ducklake_data_file WHERE table_id = (SELECT table_id FROM sscontrol_meta.ducklake_table WHERE table_name = 'person')
 ----
-2
+1
 
 statement ok
 DETACH sscontrol

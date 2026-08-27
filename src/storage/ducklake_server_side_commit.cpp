@@ -160,7 +160,27 @@ optional_ptr<DuckLakeCatalog> DuckLakeServerSideCommit::ResolveEnvelopedCatalog(
 			continue;
 		}
 		auto &duck_catalog = catalog.Cast<DuckLakeCatalog>();
-		if (duck_catalog.MetadataSchemaName() == metadata_schema_name && duck_catalog.EncryptionProvider()) {
+		// >>> FORK-LOCAL (sigil-enterprises): match on the metadata DATABASE, not schema. >>>
+		// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+		//
+		// ducklake_commit's first argument is the name a caller ATTACHes the
+		// metadata catalog under - METADATA_CATALOG '<name>' - which
+		// DuckLakeStorage::SetOption stores as options.metadata_database, read
+		// back via DuckLakeCatalog::MetadataDatabaseName(). MetadataSchemaName()
+		// is a different, independent option (METADATA_SCHEMA, default "main")
+		// that this test never sets. Comparing against MetadataSchemaName()
+		// here meant the match NEVER succeeded for the exact case this guard
+		// exists for - ducklake_commit('ssappend_meta', ...) against an ATTACH
+		// using METADATA_CATALOG 'ssappend_meta' - so the guard silently never
+		// fired and execution fell through to DuckLake's own internal
+		// partition/data-file consistency checks instead of ever refusing.
+		// Also accept MetadataSchemaName() for a lake ATTACHed without
+		// METADATA_CATALOG (metadata hidden in the current database's own
+		// schema), where metadata_schema_name legitimately names that schema.
+		if ((duck_catalog.MetadataDatabaseName() == metadata_schema_name ||
+		    duck_catalog.MetadataSchemaName() == metadata_schema_name) &&
+		    duck_catalog.EncryptionProvider()) {
+			// <<< FORK-LOCAL (sigil-enterprises) <<<
 			enveloped_catalog = duck_catalog;
 			break;
 		}
@@ -214,11 +234,28 @@ void DuckLakeServerSideCommit::ReadCommitHeader() {
 	}
 
 	string data_path;
-	string separator;
+	// >>> FORK-LOCAL (sigil-enterprises): default an unset path separator to "/". >>>
+	// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+	//
+	// A real ATTACH's DuckLakeCatalog::Separator() is never empty - it falls
+	// back to the filesystem's own separator - but a server-side committer
+	// staging directly into ducklake_staged_commit can leave path_separator
+	// NULL (many external writers have no reason to populate a field they
+	// never look at). An empty separator used to reach
+	// DuckLakeMetadataManager::StorePath(path, separator), which only guards
+	// against separator == "/" and otherwise calls
+	// StringUtil::Replace(path, separator, "/") - an empty search string,
+	// which DuckDB's StringUtil::Replace refuses with an unrelated internal
+	// error ("Invalid argument to StringUtil::Replace - empty FROM") instead
+	// of ever reaching a DuckLake-level error message. Bug found because it
+	// masked crypta_server_side_commit_partition_refusal.test's expected
+	// refusal message with this internal error instead.
+	string separator = "/";
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
 	if (!chunk->GetValue(4, 0).IsNull()) {
 		data_path = chunk->GetValue(4, 0).ToString();
 	}
-	if (!chunk->GetValue(5, 0).IsNull()) {
+	if (!chunk->GetValue(5, 0).IsNull() && !chunk->GetValue(5, 0).ToString().empty()) {
 		separator = chunk->GetValue(5, 0).ToString();
 	}
 	state = make_uniq<DuckLakeTransactionState>(*context.db, /*require_commit_message=*/false, new_name_maps,
@@ -877,20 +914,34 @@ unique_ptr<MaterializedQueryResult> DuckLakeServerSideCommit::ScanStagedTable(Du
 	}
 
 	auto &duck_transaction = DuckTransaction::Get(context, temp_catalog);
-	TableScanState scan_state;
-	storage.InitializeScan(context, duck_transaction, scan_state, column_ids);
-
 	auto collection = make_uniq<ColumnDataCollection>(context, types);
-	DataChunk chunk;
-	chunk.Initialize(context, types);
-	while (true) {
-		chunk.Reset();
-		storage.Scan(duck_transaction, chunk, scan_state);
-		if (chunk.size() == 0) {
-			break;
+	// >>> FORK-LOCAL (sigil-enterprises): skip InitializeScan on a never-appended staged table. >>>
+	// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+	//
+	// A staging temp table that has never had a row appended to it has zero
+	// row groups at all (not one empty one) - RowGroupCollection::InitializeScan
+	// unconditionally D_ASSERTs its root segment is non-null, so calling it
+	// here on an untouched table (e.g. ducklake_staged_data_file_column_stats
+	// when a staged file carries no column stats) crashes a debug build
+	// outright instead of returning zero rows the way a normal SQL SELECT
+	// over the same empty table would. Guard it the same way a real query
+	// plan does: skip the scan and hand back an empty result.
+	if (storage.GetTotalRows() > 0) {
+		TableScanState scan_state;
+		storage.InitializeScan(context, duck_transaction, scan_state, column_ids);
+
+		DataChunk chunk;
+		chunk.Initialize(context, types);
+		while (true) {
+			chunk.Reset();
+			storage.Scan(duck_transaction, chunk, scan_state);
+			if (chunk.size() == 0) {
+				break;
+			}
+			collection->Append(chunk);
 		}
-		collection->Append(chunk);
 	}
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
 	StatementProperties properties;
 	properties.return_type = StatementReturnType::QUERY_RESULT;
 	return make_uniq<MaterializedQueryResult>(StatementType::SELECT_STATEMENT, properties, std::move(names),

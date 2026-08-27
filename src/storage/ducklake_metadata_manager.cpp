@@ -3328,14 +3328,21 @@ string DuckLakeMetadataManager::FromRelativePath(TableIndex table_id, const Duck
 }
 
 string DuckLakeMetadataManager::StorePath(string path, const string &separator) {
-	if (separator == "/") {
+	// >>> FORK-LOCAL (sigil-enterprises): guard against an empty separator. >>>
+	// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+	// StringUtil::Replace throws an internal error on an empty search string;
+	// an empty separator means "no separator to translate", the same as "/",
+	// not "translate every character". Mirrors the guard already present in
+	// DuckLakeTransactionState::GetRelativePath for the same reason.
+	if (separator.empty() || separator == "/") {
+		// <<< FORK-LOCAL (sigil-enterprises) <<<
 		return path;
 	}
 	return StringUtil::Replace(path, separator, "/");
 }
 
 string DuckLakeMetadataManager::LoadPath(string path, const string &separator) {
-	if (separator == "/") {
+	if (separator.empty() || separator == "/") {
 		return path;
 	}
 	return StringUtil::Replace(path, "/", separator);
@@ -3833,8 +3840,25 @@ string DuckLakeMetadataManager::WriteNewDataFilesSqlBatch(const vector<DuckLakeF
 	    StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_data_file VALUES %s;", data_file_insert_query);
 
 	// insert the column stats
-	batch_query += StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_file_column_stats VALUES %s;",
-	                                  column_stats_insert_query);
+	// >>> FORK-LOCAL (sigil-enterprises): skip the column-stats INSERT entirely when there are no stats. >>>
+	// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+	//
+	// column_stats_insert_query, unlike partition_insert_query and
+	// variant_stats_insert_query right below, was appended unconditionally -
+	// "INSERT INTO ... ducklake_file_column_stats VALUES ;" with an empty
+	// VALUES list is a SQL syntax error, not an empty no-op. A normal
+	// DuckLake write always computes per-file column stats itself, so this
+	// never fires through DuckLake's own write path, but ducklake_commit's
+	// whole purpose is finalizing files staged by an external writer
+	// (Spark, Trino, ...) that is not obligated to populate
+	// ducklake_staged_data_file_column_stats at all - a legitimate,
+	// unencrypted server-side commit with zero staged column stats hit this
+	// exact syntax error.
+	if (!column_stats_insert_query.empty()) {
+		batch_query += StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_file_column_stats VALUES %s;",
+		                                  column_stats_insert_query);
+	}
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
 	if (!partition_insert_query.empty()) {
 		// insert the partition values
 		batch_query += StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_file_partition_value VALUES %s;",
