@@ -79,6 +79,16 @@ private:
 	//! still be checked against DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake.
 	//! See ReadStagedDataFiles / ReadStagedCompactions.
 	optional_ptr<DuckLakeCatalog> ResolveEnvelopedCatalog();
+	//! Authoritative encryption verdict for this commit's metadata schema,
+	//! independent of whether any DuckLakeCatalog is attached in this session
+	//! at all. The real multi-engine (Spark/Trino) ducklake_commit write path
+	//! runs with zero DuckLake ever attached, so ResolveEnvelopedCatalog alone
+	//! silently never fires for it. Fast path: reuse ResolveEnvelopedCatalog()
+	//! when a matching attachment exists (no extra query). Authoritative
+	//! fallback: query the metadata catalog's own persisted `ducklake_metadata`
+	//! row directly via RunQuery, which works with nothing attached. Resolved
+	//! and cached at most once per commit.
+	bool IsEnvelopedLake();
 	// <<< FORK-LOCAL (sigil-enterprises) <<<
 
 	//! Query the metadata catalog for the latest snapshot.
@@ -133,6 +143,9 @@ private:
 	//! Cache for ResolveEnvelopedCatalog - resolved at most once per commit.
 	bool enveloped_catalog_resolved = false;
 	optional_ptr<DuckLakeCatalog> enveloped_catalog;
+	//! Cache for IsEnvelopedLake - resolved at most once per commit.
+	bool is_enveloped_lake_resolved = false;
+	bool is_enveloped_lake = false;
 	// <<< FORK-LOCAL (sigil-enterprises) <<<
 };
 

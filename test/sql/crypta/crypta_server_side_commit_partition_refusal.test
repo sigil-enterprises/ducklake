@@ -273,3 +273,187 @@ SELECT count(*) FROM sscontrol_meta.ducklake_data_file WHERE table_id = (SELECT 
 
 statement ok
 DETACH sscontrol
+
+# --------------------------------------------------------------------------
+# Case 4 - THE ACTUAL MULTI-ENGINE SHAPE: ducklake_commit called with ZERO
+# DuckLake catalogs attached anywhere in the session.
+#
+# A THIRD independent security review confirmed cases 1-3 above are not
+# representative: they keep the DuckLake ATTACHed for the entire
+# ducklake_commit call, which only exercises ResolveEnvelopedCatalog()'s
+# session-scan fast path. The real deployment ducklake_commit exists for
+# (Spark/Trino writing through the metadata store directly) never attaches a
+# DuckLake at all - that is why ducklake_commit takes a bare metadata-schema
+# name instead of a catalog reference. Before this fix, that meant
+# ResolveEnvelopedCatalog() returned null and the guard was a complete no-op
+# in exactly this shape.
+#
+# To reproduce it: ATTACH the DuckLake once, just long enough to create the
+# encrypted table and read back its table_id and the metadata catalog's own
+# persisted encryption flag - both are just data, exactly what an external
+# writer would already know without ever loading the DuckLake extension. Then
+# DETACH it (DuckLakeCatalog::OnDetach tears down the metadata attachment
+# too), and re-open ONLY the same physical metadata store as a plain,
+# non-DuckLake DuckDB ATTACH - standing in for a Spark/Trino JDBC connection
+# straight to the metadata catalog. From that point on this session holds no
+# DuckLake catalog whatsoever.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ss_commit_zero_append.db' AS sszero (DATA_PATH '__TEST_DIR__/ss_commit_zero_append_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'sszero_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'ss-commit-zero-append')
+
+statement ok
+CREATE TABLE sszero.person(part_key INTEGER, person_source_value VARCHAR)
+
+statement ok
+INSERT INTO sszero.person VALUES (1, 'PT-000053-SENTINEL')
+
+statement ok
+CREATE TEMPORARY TABLE zero_attach_table_id AS SELECT table_id FROM sszero_meta.ducklake_table WHERE table_name = 'person'
+
+# DETACH tears down BOTH sszero (the DuckLake wrapper) and sszero_meta (its
+# metadata attachment, via DuckLakeCatalog::OnDetach) - zero DuckLake
+# catalogs, zero attachments of any kind tied to this lake, remain.
+statement ok
+DETACH sszero
+
+# Re-open the identical physical file as a PLAIN DuckDB attach under the same
+# name the metadata schema originally had - no `ducklake:` prefix, no
+# DuckLake extension catalog involved at all. This is the multi-engine
+# writer's own connection shape.
+statement ok
+ATTACH '__TEST_DIR__/ss_commit_zero_append.db' AS sszero_meta
+
+# Confirm the premise before proceeding: no DuckLake catalog is attached.
+query I
+SELECT count(*) FROM duckdb_databases() WHERE database_name = 'sszero'
+----
+0
+
+# The metadata catalog itself is queryable (as any plain SQL connection to it
+# would be) and independently confirms this lake is enveloped.
+query I
+SELECT value FROM sszero_meta.ducklake_metadata WHERE key = 'encrypted'
+----
+true
+
+statement ok
+TRUNCATE ducklake_staged_commit
+
+statement ok
+TRUNCATE ducklake_staged_data_file
+
+statement ok
+TRUNCATE ducklake_staged_data_file_partition
+
+statement ok
+INSERT INTO ducklake_staged_commit VALUES ('external-writer', 'staged append, zero attach', NULL, NULL, NULL, NULL, NULL, NULL)
+
+statement ok
+INSERT INTO ducklake_staged_data_file VALUES (9004, (SELECT table_id FROM zero_attach_table_id), 0, '/fake/staged_zero_append.parquet', false, 'parquet', 1, 100, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+
+statement ok
+INSERT INTO ducklake_staged_data_file_partition VALUES (9004, 0, '1')
+
+# This is the exact scenario the review says was unrefused: ducklake_commit
+# with no DuckLake attached anywhere in the session, against an enveloped
+# lake, staging a partition value. It must still refuse.
+statement error
+SELECT * FROM ducklake_commit('sszero_meta', -1)
+----
+encryption_socket
+
+statement error
+SELECT * FROM ducklake_commit('sszero_meta', -1)
+----
+ducklake_file_partition_value
+
+# Nothing was written by either refused attempt.
+query I
+SELECT count(*) FROM sszero_meta.ducklake_file_partition_value
+----
+0
+
+query I
+SELECT count(*) FROM sszero_meta.ducklake_data_file WHERE table_id = (SELECT table_id FROM zero_attach_table_id)
+----
+1
+
+statement ok
+DETACH sszero_meta
+
+statement ok
+DROP TABLE zero_attach_table_id
+
+# --------------------------------------------------------------------------
+# Case 5 - positive control for Case 4: the identical zero-attach shape
+# against a NON-crypta lake must still succeed normally, and the cleartext
+# partition value must still land exactly as it always did. Proves Case 4's
+# refusal is driven by the envelope, not by the absence of any DuckLake
+# attachment.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ss_commit_zero_control.db' AS sszerocontrol (DATA_PATH '__TEST_DIR__/ss_commit_zero_control_files', METADATA_CATALOG 'sszerocontrol_meta')
+
+statement ok
+CREATE TABLE sszerocontrol.person(part_key INTEGER, person_source_value VARCHAR)
+
+statement ok
+INSERT INTO sszerocontrol.person VALUES (1, 'PT-000054-SENTINEL')
+
+statement ok
+CREATE TEMPORARY TABLE zero_attach_control_table_id AS SELECT table_id FROM sszerocontrol_meta.ducklake_table WHERE table_name = 'person'
+
+statement ok
+DETACH sszerocontrol
+
+statement ok
+ATTACH '__TEST_DIR__/ss_commit_zero_control.db' AS sszerocontrol_meta
+
+query I
+SELECT count(*) FROM duckdb_databases() WHERE database_name = 'sszerocontrol'
+----
+0
+
+query I
+SELECT value FROM sszerocontrol_meta.ducklake_metadata WHERE key = 'encrypted'
+----
+false
+
+statement ok
+TRUNCATE ducklake_staged_commit
+
+statement ok
+TRUNCATE ducklake_staged_data_file
+
+statement ok
+TRUNCATE ducklake_staged_data_file_partition
+
+statement ok
+INSERT INTO ducklake_staged_commit VALUES ('external-writer', 'staged append control, zero attach', NULL, NULL, NULL, NULL, NULL, NULL)
+
+statement ok
+INSERT INTO ducklake_staged_data_file VALUES (9005, (SELECT table_id FROM zero_attach_control_table_id), 0, '/fake/staged_zero_control.parquet', false, 'parquet', 1, 100, NULL, NULL, 0, NULL, NULL, NULL, NULL, NULL)
+
+statement ok
+INSERT INTO ducklake_staged_data_file_partition VALUES (9005, 0, '1')
+
+statement ok
+SELECT * FROM ducklake_commit('sszerocontrol_meta', -1)
+
+query I
+SELECT count(*) FROM sszerocontrol_meta.ducklake_file_partition_value
+----
+1
+
+query I
+SELECT count(*) FROM sszerocontrol_meta.ducklake_data_file WHERE table_id = (SELECT table_id FROM zero_attach_control_table_id)
+----
+1
+
+statement ok
+DETACH sszerocontrol_meta
+
+statement ok
+DROP TABLE zero_attach_control_table_id

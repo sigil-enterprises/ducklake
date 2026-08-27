@@ -1747,7 +1747,12 @@ void DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(TableIndex table_
 
 void DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(DuckLakeCatalog &catalog, TableIndex table_id,
                                                                 const DuckLakeDataFile &file) {
-	if (!catalog.EncryptionProvider()) {
+	RefusePartitionValuesOnEnvelopedLake(catalog.EncryptionProvider() != nullptr, table_id, file);
+}
+
+void DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(bool is_enveloped, TableIndex table_id,
+                                                                const DuckLakeDataFile &file) {
+	if (!is_enveloped) {
 		return;
 	}
 	if (file.partition_values.empty()) {

@@ -368,7 +368,7 @@ EXTENSION_MUTANTS = [
         "producer CONSULTS this function; only this one proves what it "
         "ANSWERS, and it is the mutant that would survive if the predicate "
         "itself were inverted or stubbed",
-        "old": "\tif (!catalog.EncryptionProvider()) {\n"
+        "old": "\tif (!is_enveloped) {\n"
         "\t\treturn;\n"
         "\t}\n"
         "\tif (file.partition_values.empty()) {\n"
@@ -436,7 +436,7 @@ EXTENSION_MUTANTS = [
         "and client-side write-time guards above are untouched, so this "
         "reddens on the server-side APPEND path alone",
         "old": "\t\t\tfor (auto &file : entry.second) {\n"
-        "\t\t\t\tDuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(*catalog, entry.first, file);\n"
+        "\t\t\t\tDuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(enveloped, entry.first, file);\n"
         "\t\t\t}\n",
         "new": "\t\t\tfor (auto &file : entry.second) {\n"
         "\t\t\t}\n",
@@ -455,11 +455,9 @@ EXTENSION_MUTANTS = [
         "chokepoint issue #80 (column-stats redaction) also bypasses on this "
         "file - #80's copy of this bug is unfixed here on purpose, out of "
         "scope for #100",
-        "old": "\t\tif (auto catalog = ResolveEnvelopedCatalog()) {\n"
-        "\t\t\tDuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(*catalog, shell.table_id, entry.written_file);\n"
-        "\t\t}",
-        "new": "\t\tif (auto catalog = ResolveEnvelopedCatalog()) {\n"
-        "\t\t}",
+        "old": "\t\tDuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(IsEnvelopedLake(), shell.table_id,\n"
+        "\t\t                                                          entry.written_file);",
+        "new": "\t\t// mutant no_partition_write_refusal_on_server_side_compaction: guard call removed",
         "reddens": ["test/sql/crypta/crypta_server_side_commit_partition_refusal.test"],
         "redden_at": "SELECT * FROM ducklake_commit('sscompact_meta', -1)",
     },

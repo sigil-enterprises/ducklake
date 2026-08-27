@@ -187,6 +187,43 @@ optional_ptr<DuckLakeCatalog> DuckLakeServerSideCommit::ResolveEnvelopedCatalog(
 	}
 	return enveloped_catalog;
 }
+
+// The real multi-engine ducklake_commit write path (Spark/Trino staging
+// directly into ducklake_staged_*) runs with zero DuckLake ever attached in
+// the calling session at all, so ResolveEnvelopedCatalog() above - which can
+// only ever find an answer via a session ATTACH - silently never fires for
+// it and the guard above never triggers. IsEnvelopedLake() closes that gap:
+// it keeps ResolveEnvelopedCatalog() as a fast path (no extra query) for the
+// case a matching DuckLakeCatalog happens to be attached, and falls back to
+// an authoritative direct read of the metadata catalog's own persisted
+// `ducklake_metadata` row (key = 'encrypted', written by
+// DuckLakeMetadataManager on ATTACH ... ENCRYPTED) via the same RunQuery
+// mechanism this class already uses for every other metadata read - which
+// requires nothing attached beyond the metadata schema name already passed
+// to ducklake_commit itself.
+bool DuckLakeServerSideCommit::IsEnvelopedLake() {
+	if (is_enveloped_lake_resolved) {
+		return is_enveloped_lake;
+	}
+	is_enveloped_lake_resolved = true;
+
+	// Fast path: an attached DuckLakeCatalog for this metadata schema already
+	// carries the answer (and its EncryptionProvider()) without a query.
+	if (ResolveEnvelopedCatalog()) {
+		is_enveloped_lake = true;
+		return is_enveloped_lake;
+	}
+
+	// Authoritative fallback: no matching attachment exists (or none at all) -
+	// ask the metadata catalog itself.
+	auto query = StringUtil::Format("SELECT value FROM %s.ducklake_metadata WHERE key = 'encrypted'", schema_id);
+	auto result = RunQuery(query, "read encryption flag");
+	auto chunk = result->Fetch();
+	if (chunk && chunk->size() > 0 && !chunk->GetValue(0, 0).IsNull()) {
+		is_enveloped_lake = chunk->GetValue(0, 0).ToString() == "true";
+	}
+	return is_enveloped_lake;
+}
 // <<< FORK-LOCAL (sigil-enterprises) <<<
 
 DuckLakeServerSideCommitResult DuckLakeServerSideCommit::Run() {
@@ -397,10 +434,11 @@ void DuckLakeServerSideCommit::ReadStagedDataFiles() {
 	// function to finalize). Applying the same guard here, right before the
 	// files enter local_changes, closes that gap without duplicating its
 	// judgement - see DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake.
-	if (auto catalog = ResolveEnvelopedCatalog()) {
+	{
+		bool enveloped = IsEnvelopedLake();
 		for (auto &entry : files_per_table) {
 			for (auto &file : entry.second) {
-				DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(*catalog, entry.first, file);
+				DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(enveloped, entry.first, file);
 			}
 		}
 	}
@@ -622,9 +660,8 @@ void DuckLakeServerSideCommit::ReadStagedCompactions() {
 		// Twin of the ReadStagedDataFiles guard above: a compacted file staged
 		// directly by a non-DuckLake writer never runs through
 		// DuckLakeTransaction::AddCompaction either.
-		if (auto catalog = ResolveEnvelopedCatalog()) {
-			DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(*catalog, shell.table_id, entry.written_file);
-		}
+		DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(IsEnvelopedLake(), shell.table_id,
+		                                                          entry.written_file);
 		// <<< FORK-LOCAL (sigil-enterprises) <<<
 		state->local_changes.AddCompaction(shell.table_id, std::move(entry));
 	}

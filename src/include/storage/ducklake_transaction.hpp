@@ -249,6 +249,17 @@ public:
 	//! overload above delegates to this one.
 	static void RefusePartitionValuesOnEnvelopedLake(DuckLakeCatalog &catalog, TableIndex table_id,
 	                                                 const DuckLakeDataFile &file);
+
+	//! Same guard again, taking the already-resolved encryption verdict
+	//! directly instead of a DuckLakeCatalog to read it from. For
+	//! DuckLakeServerSideCommit: the encryption verdict there does not always
+	//! come from an attached DuckLakeCatalog (ducklake_commit's whole point is
+	//! running with no DuckLake attached at all) - it can come from a direct
+	//! `SELECT value FROM {schema}.ducklake_metadata WHERE key = 'encrypted'`
+	//! against the metadata schema instead. The DuckLakeCatalog overload above
+	//! delegates to this one.
+	static void RefusePartitionValuesOnEnvelopedLake(bool is_enveloped, TableIndex table_id,
+	                                                 const DuckLakeDataFile &file);
 	// <<< FORK-LOCAL (sigil-enterprises) <<<
 
 	MappingIndex AddNameMap(unique_ptr<DuckLakeNameMap> name_map);

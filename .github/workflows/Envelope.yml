@@ -214,9 +214,30 @@ jobs:
   # `redden_at` - not merely "the group had a failure somewhere". The envelope
   # job above is this job's GREEN control: same fixture group, same build
   # recipe, unpatched tree, and it is required to pass.
+  #
+  # bench#157 gap, PARTIALLY CLOSED: a third security review of PR #95 found
+  # this job live-fired only `no_resolved_encryption_check`, leaving the other
+  # extension mutants - including the two server-side ducklake_commit ones
+  # this fix's own guard depends on - checked SOLELY by `mutants.py resolve`
+  # (static: does the `old` text match, does the `reddens` file exist), never
+  # actually applied-and-reddened here. A matrix over the mutant NAME closes
+  # that for the mutants this PR touches; the remaining EXTENSION_MUTANTS
+  # entries (no_partition_alter_refusal, no_partition_write_refusal_body,
+  # no_partition_write_refusal_on_append, no_partition_write_refusal_on_
+  # compaction) are UNCHANGED by this fix and are NOT added here - wiring
+  # every roster entry into a live-fire matrix is a broader CI change, out of
+  # scope for this fix, and is recorded as a named follow-up in this PR's
+  # description rather than attempted piecemeal here.
   crypta-mutant-red-control:
-    name: A crypta guard removed by mutants.py actually reddens its fixture
+    name: A crypta guard removed by mutants.py actually reddens its fixture (${{ matrix.mutant }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mutant:
+          - no_resolved_encryption_check
+          - no_partition_write_refusal_on_server_side_append
+          - no_partition_write_refusal_on_server_side_compaction
     env:
       VCPKG_TARGET_TRIPLET: x64-linux
       GEN: Ninja
@@ -259,13 +280,12 @@ jobs:
           test -f src/crypta-provider/CMakeLists.txt
 
       # ONE mutant, patched IN THE TREE before the only build this job does.
-      # `no_resolved_encryption_check` removes FinalizeLoad's refusal of an
-      # ATTACH where crypta was configured but the lake resolved to
-      # unencrypted - `mutants.py resolve --extension` already proved its
-      # `old` text matches exactly once and `crypta_config_refusals.test`
-      # exists; this proves the removal actually turns that fixture red.
-      - name: Patch out a crypta guard (mutants.py, no_resolved_encryption_check)
-        run: python3 test/cpp/crypta/mutants.py patch no_resolved_encryption_check .
+      # Which one comes from the matrix above; `mutants.py resolve --extension`
+      # (MutantRoster.yml) already proved its `old` text matches exactly once
+      # and every file its `reddens` names exists - this proves the removal
+      # actually turns that fixture red, on the exact statement it names.
+      - name: Patch out a crypta guard (mutants.py, ${{ matrix.mutant }})
+        run: python3 test/cpp/crypta/mutants.py patch "${{ matrix.mutant }}" .
 
       - name: Build extension and test binaries (guard removed)
         env:
@@ -277,26 +297,40 @@ jobs:
         run: scripts/ci/assert_kms_provider_reachable.sh build/release/duckdb
 
       # MUST fail. `run_sql_crypta_tests.sh` exits non-zero on any fixture
-      # failure, so `!` inverts that into the pass condition here, and the
-      # captured output is grepped for the mutant's own `redden_at` fragment -
-      # not just "something failed" - so a fixture that died on its own
-      # ATTACH or a build-order fluke cannot be counted as evidence for this
-      # guard.
-      - name: crypta_config_refusals.test MUST redden (no_resolved_encryption_check)
+      # failure, so `!` inverts that into the pass condition here. The marker
+      # fragment(s) each mutant's `reddens`/`redden_at` name are read from
+      # `mutants.py cases` rather than hard-coded, so this step works for
+      # every entry in the matrix without a per-mutant grep line - and the
+      # captured output is grepped for every one of them, not just "something
+      # failed", so a fixture that died on its own ATTACH or a build-order
+      # fluke cannot be counted as evidence for this guard.
+      - name: The named fixture MUST redden on the named statement (${{ matrix.mutant }})
         run: |
           set +e
           output="$(test/sql/crypta/run_sql_crypta_tests.sh 2>&1)"
           status=$?
           echo "${output}"
           if [ "${status}" -eq 0 ]; then
-            echo "::error::the crypta fixture group PASSED with the guard removed - the mutant did not redden anything"
+            echo "::error::the crypta fixture group PASSED with ${{ matrix.mutant }} removed - the mutant did not redden anything"
             exit 1
           fi
-          if ! grep -qF "crypta_automatic.db' AS automatic" <<< "${output}"; then
-            echo "::error::the fixture group failed, but not on the statement this mutant is supposed to redden - this red is not attributable to it"
+          missing=0
+          while IFS=$'\t' read -r test_file marker; do
+            if [ -z "${marker}" ]; then
+              echo "::error::${{ matrix.mutant }} names a reddens case (${test_file}) with no redden_at marker - this job cannot attribute a red to it"
+              missing=1
+              continue
+            fi
+            if ! grep -qF -- "${marker}" <<< "${output}"; then
+              echo "::error::the fixture group failed, but not on the statement ${{ matrix.mutant }} names (${marker}) - this red is not attributable to it"
+              missing=1
+            else
+              echo "confirmed: ${test_file} reddened on the statement ${{ matrix.mutant }} names"
+            fi
+          done < <(python3 test/cpp/crypta/mutants.py cases "${{ matrix.mutant }}")
+          if [ "${missing}" -ne 0 ]; then
             exit 1
           fi
-          echo "confirmed: crypta_config_refusals.test reddened on the statement no_resolved_encryption_check names"
 
       # Restores the tree to the state the resolver's own positive control
       # (MutantRoster.yml) already requires: `old` present exactly once,
@@ -307,5 +341,7 @@ jobs:
       - name: Unpatch and verify the tree is clean
         if: always()
         run: |
-          python3 test/cpp/crypta/mutants.py unpatch no_resolved_encryption_check .
-          git diff --exit-code -- src/storage/ducklake_catalog.cpp
+          python3 test/cpp/crypta/mutants.py unpatch "${{ matrix.mutant }}" .
+          for f in $(python3 test/cpp/crypta/mutants.py files); do
+            git diff --exit-code -- "${f}"
+          done
