@@ -1,0 +1,300 @@
+# name: test/sql/crypta/crypta_server_side_commit_failclosed_unknown_envelope.test
+# description: IsEnvelopedLake() fails CLOSED on an unknown (absent) envelope key on the zero-attach commit path (ducklake#96, PR #95 Update 4)
+# group: [crypta]
+#
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# WHAT THIS FILE PROVES
+# ----------------------
+# `DuckLakeServerSideCommit::IsEnvelopedLake()`'s metadata-query fallback
+# only ever resolves an explicit answer (true or false) when a row exists.
+# crypta_server_side_commit_backfill_pre_existing_lake.test proves the
+# ordinary-ATTACH backfill closes that gap for a lake that DOES get
+# re-ATTACHed. This file proves the residual PR #95 Update 4 accepts on
+# purpose for a lake that is NEVER re-ATTACHed at all - only ever written via
+# the zero-attach multi-engine `ducklake_commit(...)` path, exactly as
+# described in the PR body and ducklake#96:
+#
+#   Case 1 - THE LEAK, CLOSED (red-then-green). A crypta-enveloped lake,
+#   planted back into the "row never existed" state, hit DIRECTLY by
+#   zero-attach `ducklake_commit` with NO intervening re-ATTACH of any kind.
+#   Before this fix: `IsEnvelopedLake()` defaulted to false on a missing row,
+#   so the commit succeeded and the cleartext partition value landed - the
+#   exact leak this file's Case 1 exists to catch. After this fix: the
+#   default flips to true (fail-closed), so the same commit refuses.
+#
+#   Case 2 - POSITIVE CONTROL, DISCLOSED REGRESSION THEN RECOVERY. A
+#   genuinely PLAIN (never-crypta) pre-existing lake, planted the same way,
+#   hit the same way with NO re-ATTACH first: fail-closed refuses it too -
+#   this is the accepted trade-off, not a bug, and this file asserts it
+#   happens rather than hiding it. One ordinary ATTACH later (which
+#   backfills 'encryption_envelope'='false' - see the UNENCRYPTED-evidence
+#   path in ducklake_initializer.cpp), the same zero-attach commit shape
+#   against the same lake succeeds again with the cleartext partition
+#   landing normally - the one-time operational recovery the PR body
+#   documents.
+#
+# RED-THEN-GREEN, VERIFIED BY HAND: reverting only the `is_enveloped_lake`
+# default (back to `false`) in ducklake_server_side_commit.hpp and
+# re-running this file reproduces exactly the leak Case 1 exists to catch -
+# its `ducklake_commit` succeeds instead of refusing, and the cleartext
+# partition value lands. Restoring the fail-closed default makes it refuse
+# again, and does not affect Case 2's post-ATTACH recovery step, which
+# depends only on the ducklake_metadata_manager.cpp / ducklake_initializer.cpp
+# backfill change. See the PR body for the exact commands run.
+
+require ducklake
+
+require parquet
+
+require httpfs
+
+require-env DUCKLAKE_FAKE_CRYPTA_SOCKET
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_commit(commit_author VARCHAR, commit_message VARCHAR, commit_extra_info VARCHAR, transaction_snapshot_id BIGINT, data_path VARCHAR, path_separator VARCHAR, transaction_next_catalog_id UBIGINT, transaction_next_file_id UBIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_data_file(data_file_id BIGINT, table_id BIGINT, file_order BIGINT, path VARCHAR, path_is_relative BOOLEAN, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, row_id_start BIGINT, partition_id BIGINT, encryption_key VARCHAR, mapping_id UBIGINT, partial_max BIGINT, begin_snapshot BIGINT, compaction_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_data_file_column_stats(data_file_id BIGINT, table_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, has_num_values BOOLEAN, num_values BIGINT, has_null_count BOOLEAN, null_count BIGINT, has_min BOOLEAN, min_value VARCHAR, has_max BOOLEAN, max_value VARCHAR, has_contains_nan BOOLEAN, contains_nan BOOLEAN, any_valid BOOLEAN, extra_stats VARCHAR)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_data_file_partition(local_file_id BIGINT, partition_column_idx BIGINT, partition_value VARCHAR)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_delete_file(table_id BIGINT, data_file_path VARCHAR, data_file_id BIGINT, file_name VARCHAR, format VARCHAR, delete_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, encryption_key VARCHAR, begin_snapshot BIGINT, max_snapshot BIGINT, source VARCHAR, overwrites_existing_delete BOOLEAN, overwrite_delete_file_id BIGINT, overwrite_delete_file_path VARCHAR, attached_local_file_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_inlined_data(table_id BIGINT, has_preserved_row_ids BOOLEAN)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_inlined_row(table_id BIGINT, row_order BIGINT, preserved_row_id BIGINT, value_literals VARCHAR)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_inlined_column_stats(table_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, has_num_values BOOLEAN, num_values BIGINT, has_null_count BOOLEAN, null_count BIGINT, has_min BOOLEAN, min_value VARCHAR, has_max BOOLEAN, max_value VARCHAR, has_contains_nan BOOLEAN, contains_nan BOOLEAN, any_valid BOOLEAN, extra_stats VARCHAR)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_inlined_delete(table_id BIGINT, inlined_table_name VARCHAR, deleted_row_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_inlined_file_delete(table_id BIGINT, file_id BIGINT, deleted_row_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_dropped_file(path VARCHAR, data_file_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_tables_deleted_from(table_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_flushed_inlined(inlined_table_name VARCHAR, schema_version BIGINT, flush_snapshot_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_compaction(compaction_id BIGINT, table_id BIGINT, compaction_type VARCHAR, row_id_start BIGINT, output_local_file_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_compaction_source(compaction_id BIGINT, source_order BIGINT, source_data_file_id BIGINT, source_path VARCHAR, source_row_count BIGINT, source_begin_snapshot BIGINT, source_max_partial_file_snapshot BIGINT, source_inlined_delete_count BIGINT, last_delete_file_id BIGINT, last_delete_path VARCHAR, last_delete_row_count BIGINT, last_delete_end_snapshot BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_name_map(map_id UBIGINT, table_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_name_map_entry(map_id UBIGINT, entry_id BIGINT, parent_entry_id BIGINT, source_name VARCHAR, target_field_id BIGINT, hive_partition BOOLEAN)
+
+# --------------------------------------------------------------------------
+# Case 1 - THE LEAK, CLOSED. A crypta-enveloped lake, planted into the
+# "encryption_envelope row never existed, and this lake is NEVER re-ATTACHed
+# since" state, hit directly with a zero-attach ducklake_commit.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/failclosed_envelope.db' AS fc_env (DATA_PATH '__TEST_DIR__/failclosed_envelope_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'fc_env_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'failclosed-envelope')
+
+statement ok
+CREATE TABLE fc_env.person(part_key INTEGER, person_source_value VARCHAR)
+
+statement ok
+INSERT INTO fc_env.person VALUES (1, 'PT-000070-SENTINEL')
+
+statement ok
+DETACH fc_env
+
+# THE PLANT: delete the row, and never re-ATTACH with DuckDB again - only
+# open the physical metadata store as a PLAIN attach (no DuckLake catalog),
+# exactly as the zero-attach multi-engine path does.
+statement ok
+ATTACH '__TEST_DIR__/failclosed_envelope.db' AS fc_env_plant
+
+statement ok
+DELETE FROM fc_env_plant.ducklake_metadata WHERE key = 'encryption_envelope'
+
+query I
+SELECT count(*) FROM fc_env_plant.ducklake_metadata WHERE key = 'encryption_envelope'
+----
+0
+
+statement ok
+CREATE TEMPORARY TABLE fc_env_table_id AS SELECT table_id FROM fc_env_plant.ducklake_table WHERE table_name = 'person'
+
+statement ok
+INSERT INTO ducklake_staged_commit VALUES ('external-writer', 'staged append, failclosed unknown envelope', NULL, NULL, NULL, NULL, NULL, NULL)
+
+statement ok
+INSERT INTO ducklake_staged_data_file VALUES (9201, (SELECT table_id FROM fc_env_table_id), 0, '/fake/staged_failclosed_envelope.parquet', false, 'parquet', 1, 100, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+
+statement ok
+INSERT INTO ducklake_staged_data_file_partition VALUES (9201, 0, '1')
+
+# THE CASE. No re-ATTACH ever happened after the plant - IsEnvelopedLake()'s
+# metadata-query fallback finds no row at all. Fail-closed default treats
+# that as enveloped and refuses, exactly like an explicitly-enveloped lake.
+statement error
+SELECT * FROM ducklake_commit('fc_env_plant', -1)
+----
+ducklake_file_partition_value
+
+# Nothing was written by the refused attempt.
+query I
+SELECT count(*) FROM fc_env_plant.ducklake_file_partition_value
+----
+0
+
+statement ok
+DETACH fc_env_plant
+
+statement ok
+DROP TABLE fc_env_table_id
+
+# --------------------------------------------------------------------------
+# Case 2 - POSITIVE CONTROL: DISCLOSED REGRESSION, THEN ONE-TIME RECOVERY.
+# A genuinely plain (never-crypta) pre-existing lake, planted the same way
+# and hit the same way with no re-ATTACH first, is ALSO refused - the
+# accepted, disclosed trade-off, asserted here rather than hidden. One
+# ordinary ATTACH later resolves it permanently, and the same commit shape
+# resumes succeeding.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/failclosed_plain.db' AS fc_plain (DATA_PATH '__TEST_DIR__/failclosed_plain_files', METADATA_CATALOG 'fc_plain_meta')
+
+statement ok
+CREATE TABLE fc_plain.person(part_key INTEGER, person_source_value VARCHAR)
+
+statement ok
+INSERT INTO fc_plain.person VALUES (1, 'PT-000071-SENTINEL')
+
+statement ok
+DETACH fc_plain
+
+# THE PLANT: same "row never existed" state - a plain lake gets
+# 'encryption_envelope'='false' at creation, so delete it to simulate a lake
+# that predates that write entirely.
+statement ok
+ATTACH '__TEST_DIR__/failclosed_plain.db' AS fc_plain_plant
+
+statement ok
+DELETE FROM fc_plain_plant.ducklake_metadata WHERE key = 'encryption_envelope'
+
+query I
+SELECT count(*) FROM fc_plain_plant.ducklake_metadata WHERE key = 'encryption_envelope'
+----
+0
+
+statement ok
+CREATE TEMPORARY TABLE fc_plain_table_id AS SELECT table_id FROM fc_plain_plant.ducklake_table WHERE table_name = 'person'
+
+statement ok
+TRUNCATE ducklake_staged_commit
+
+statement ok
+TRUNCATE ducklake_staged_data_file
+
+statement ok
+TRUNCATE ducklake_staged_data_file_partition
+
+statement ok
+INSERT INTO ducklake_staged_commit VALUES ('external-writer', 'staged append, failclosed plain lake residual', NULL, NULL, NULL, NULL, NULL, NULL)
+
+statement ok
+INSERT INTO ducklake_staged_data_file VALUES (9202, (SELECT table_id FROM fc_plain_table_id), 0, '/fake/staged_failclosed_plain.parquet', false, 'parquet', 1, 100, NULL, NULL, 0, NULL, NULL, NULL, NULL, NULL)
+
+statement ok
+INSERT INTO ducklake_staged_data_file_partition VALUES (9202, 0, '1')
+
+# THE DISCLOSED RESIDUAL: no re-ATTACH happened after the plant, so this
+# genuinely plain lake's zero-attach commit is refused too - not because it
+# is enveloped, but because IsEnvelopedLake() cannot yet tell the two states
+# apart for a lake with no key at all. This is accepted and asserted, not
+# hidden.
+statement error
+SELECT * FROM ducklake_commit('fc_plain_plant', -1)
+----
+ducklake_file_partition_value
+
+query I
+SELECT count(*) FROM fc_plain_plant.ducklake_file_partition_value
+----
+0
+
+statement ok
+DETACH fc_plain_plant
+
+# THE ONE-TIME RECOVERY: a single ordinary ATTACH (no CRYPTA_SOCKET involved
+# at all - this lake never had crypta configured) backfills
+# 'encryption_envelope'='false' via the UNENCRYPTED-evidence path in
+# LoadExistingDuckLake, permanently resolving the ambiguity.
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/failclosed_plain.db' AS fc_plain_reattached (DATA_PATH '__TEST_DIR__/failclosed_plain_files', METADATA_CATALOG 'fc_plain_reattached_meta')
+
+query I
+SELECT value FROM fc_plain_reattached_meta.ducklake_metadata WHERE key = 'encryption_envelope'
+----
+false
+
+statement ok
+DETACH fc_plain_reattached
+
+# RESUMED: the same zero-attach commit shape against the now-backfilled lake
+# succeeds again, cleartext partition landing normally - confirming the
+# regression is a one-time operational step, not a permanent break.
+statement ok
+ATTACH '__TEST_DIR__/failclosed_plain.db' AS fc_plain_resumed
+
+statement ok
+CREATE TEMPORARY TABLE fc_plain_resumed_table_id AS SELECT table_id FROM fc_plain_resumed.ducklake_table WHERE table_name = 'person'
+
+statement ok
+TRUNCATE ducklake_staged_commit
+
+statement ok
+TRUNCATE ducklake_staged_data_file
+
+statement ok
+TRUNCATE ducklake_staged_data_file_partition
+
+statement ok
+INSERT INTO ducklake_staged_commit VALUES ('external-writer', 'staged append, failclosed plain lake recovered', NULL, NULL, NULL, NULL, NULL, NULL)
+
+statement ok
+INSERT INTO ducklake_staged_data_file VALUES (9203, (SELECT table_id FROM fc_plain_resumed_table_id), 0, '/fake/staged_failclosed_plain_recovered.parquet', false, 'parquet', 1, 100, NULL, NULL, 0, NULL, NULL, NULL, NULL, NULL)
+
+statement ok
+INSERT INTO ducklake_staged_data_file_partition VALUES (9203, 0, '1')
+
+statement ok
+SELECT * FROM ducklake_commit('fc_plain_resumed', -1)
+
+query I
+SELECT count(*) FROM fc_plain_resumed.ducklake_file_partition_value
+----
+1
+
+statement ok
+DETACH fc_plain_resumed
+
+statement ok
+DROP TABLE fc_plain_table_id
+
+statement ok
+DROP TABLE fc_plain_resumed_table_id

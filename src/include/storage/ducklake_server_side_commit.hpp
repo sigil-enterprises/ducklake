@@ -145,7 +145,12 @@ private:
 	optional_ptr<DuckLakeCatalog> enveloped_catalog;
 	//! Cache for IsEnvelopedLake - resolved at most once per commit.
 	bool is_enveloped_lake_resolved = false;
-	bool is_enveloped_lake = false;
+	//! Fail-closed default: a lake with no 'encryption_envelope' row (created
+	//! before this guard existed, never re-ATTACHed since) is UNKNOWN, not
+	//! known-safe, and is treated as enveloped so the zero-attach commit path
+	//! refuses cleartext partition values rather than silently permitting them.
+	//! See IsEnvelopedLake() below and ducklake#96.
+	bool is_enveloped_lake = true;
 	// <<< FORK-LOCAL (sigil-enterprises) <<<
 };
 

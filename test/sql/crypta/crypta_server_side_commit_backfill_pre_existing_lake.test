@@ -18,11 +18,16 @@
 #
 # THE FIX: `DuckLakeInitializer::LoadExistingDuckLake` now backfills the
 # 'encryption_envelope' row on ordinary ATTACH, when (a) no such row was
-# found while loading the lake's metadata tags, and (b) THIS attach supplies
-# `CRYPTA_SOCKET`/`ENCRYPTION_SOCKET` (the only reliable per-session envelope
-# signal - the socket is a per-ATTACH parameter, never itself persisted, and
-# must be resupplied on every ATTACH of an already-enveloped lake to unwrap
-# its keys at all).
+# found while loading the lake's metadata tags, and (b) THIS attach gives
+# POSITIVE evidence either way: `CRYPTA_SOCKET`/`ENCRYPTION_SOCKET` resolved
+# this attach (definitely enveloped -> 'true'), OR the persisted 'encrypted'
+# tag reads UNENCRYPTED (envelope requires ENCRYPTED, so definitely not
+# enveloped -> 'false', even with no socket supplied). An ENCRYPTED lake
+# attached without its socket is neither - ambiguous - and is deliberately
+# left unbackfilled; see crypta_server_side_commit_failclosed_unknown_envelope.test
+# for `DuckLakeServerSideCommit::IsEnvelopedLake()`'s fail-closed default that
+# covers that and every other still-unresolved case (ducklake#96, PR #95
+# Update 4).
 #
 # THE PLANT. There is no public SQL statement that produces a
 # "pre-existing enveloped lake with no encryption_envelope row" - the row is
@@ -229,14 +234,19 @@ statement ok
 DROP TABLE backfill_table_id
 
 # --------------------------------------------------------------------------
-# Case 2 - POSITIVE CONTROL. A genuinely non-enveloped (plain, no crypta at
-# all) lake, put through the IDENTICAL plant-then-reattach dance, is
-# completely unaffected: no backfill happens (this attach never supplies a
-# socket, so EncryptionProvider() is null and the guard condition never
-# fires), and the same zero-attach ducklake_commit shape succeeds normally
-# with the cleartext partition landing exactly as it always did. Proves the
-# backfill is envelope-specific, not a general "always write this row on
-# ATTACH" change that could regress a plain lake.
+# Case 2 - GENUINELY PLAIN LAKE, BACKFILLS 'false' EVEN WITHOUT A SOCKET.
+# Superseded narrative (PR #95 Update 4, ducklake#96 fail-closed flip): the
+# ordinary re-ATTACH below supplies no CRYPTA_SOCKET, so
+# catalog.EncryptionProvider() is null - but catalog.Encryption() reads the
+# persisted 'encrypted' tag as UNENCRYPTED, which is POSITIVE evidence this
+# lake cannot possibly be enveloped (envelope requires ENCRYPTED, necessary
+# but not sufficient). LoadExistingDuckLake now backfills 'false' on that
+# evidence alone, without needing a socket. See
+# crypta_server_side_commit_failclosed_unknown_envelope.test for the
+# fail-closed default this backfill exists to lift: before this re-ATTACH,
+# a zero-attach commit against this exact planted state refuses (the
+# disclosed, accepted residual); after it, the key is explicit 'false' and
+# commits resume succeeding, which this file asserts below.
 # --------------------------------------------------------------------------
 
 statement ok
@@ -267,13 +277,12 @@ DETACH plain_plant_meta
 statement ok
 ATTACH 'ducklake:__TEST_DIR__/preexisting_plain.db' AS plain_reattached (DATA_PATH '__TEST_DIR__/preexisting_plain_files', METADATA_CATALOG 'plain_reattached_meta')
 
-# No backfill: the row is still absent. A backfill firing here - writing
-# 'encryption_envelope' for a lake with no envelope configured on this
-# attach - would be the fail-closed regression this control exists to catch.
+# The backfill fires - 'false', on the UNENCRYPTED evidence alone, even
+# though this attach supplied no CRYPTA_SOCKET.
 query I
-SELECT count(*) FROM plain_reattached_meta.ducklake_metadata WHERE key = 'encryption_envelope'
+SELECT value FROM plain_reattached_meta.ducklake_metadata WHERE key = 'encryption_envelope'
 ----
-0
+false
 
 statement ok
 CREATE TEMPORARY TABLE plain_table_id AS SELECT table_id FROM plain_reattached_meta.ducklake_table WHERE table_name = 'person'

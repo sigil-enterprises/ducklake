@@ -217,12 +217,21 @@ bool DuckLakeServerSideCommit::IsEnvelopedLake() {
 	// Authoritative fallback: no matching attachment exists (or none at all) -
 	// ask the metadata catalog itself. 'encryption_envelope' (not 'encrypted' -
 	// that only tracks plain per-file ENCRYPTED, which a non-crypta lake can
-	// have without ever being enveloped) is written at ATTACH-time lake
-	// creation once encryption_socket is resolved - see
-	// DuckLakeMetadataManager::InitializeDuckLake. Absent on a lake created by
-	// a build predating this fix; there is no way to recover that signal for
-	// such a lake from the metadata catalog alone, which is a narrower version
-	// of the pre-existing residual gap this guard already documents.
+	// have without ever being enveloped) is written unconditionally (true or
+	// false) by every lake initialization going forward - see
+	// DuckLakeMetadataManager::InitializeDuckLake and the pre-existing-lake
+	// backfill in LoadExistingDuckLake. The row can only be absent for a lake
+	// created before this whole guard existed AND never re-ATTACHed (normal
+	// DuckDB ATTACH, which backfills the key) since. For that unknown case we
+	// fail CLOSED: is_enveloped_lake defaults to true (see the field
+	// declaration), so an absent row refuses cleartext partition values on the
+	// zero-attach commit path exactly like an explicitly-enveloped lake does,
+	// rather than silently permitting them (ducklake#96). This is a deliberate,
+	// disclosed trade-off: a genuinely plain lake that is ONLY EVER written via
+	// the zero-attach multi-engine path, and has never once been DuckDB-ATTACHed
+	// since this guard shipped, will have its zero-attach commits refused until
+	// one normal ATTACH backfills the key - a one-time operational step, not a
+	// permanent break. See PR #95 / ducklake#96 for the full analysis.
 	auto query =
 	    StringUtil::Format("SELECT value FROM %s.ducklake_metadata WHERE key = 'encryption_envelope'", schema_id);
 	auto result = RunQuery(query, "read envelope flag");

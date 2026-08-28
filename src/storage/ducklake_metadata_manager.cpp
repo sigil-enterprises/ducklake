@@ -355,10 +355,11 @@ DELETE FROM {METADATA_CATALOG}.ducklake_schema_versions WHERE table_id IS NULL;
 
 // >>> FORK-LOCAL (sigil-enterprises): see header comment. PRIVATE-FORK ONLY.
 // Never cherry-pick this method upstream.
-void DuckLakeMetadataManager::BackfillEncryptionEnvelopeFlag() {
-	auto result = transaction.Query(R"(
-INSERT INTO {METADATA_CATALOG}.ducklake_metadata (key, value) VALUES ('encryption_envelope', 'true');
-	)");
+void DuckLakeMetadataManager::BackfillEncryptionEnvelopeFlag(bool is_enveloped) {
+	auto backfill_query = StringUtil::Format(
+	    "INSERT INTO {METADATA_CATALOG}.ducklake_metadata (key, value) VALUES ('encryption_envelope', '%s');",
+	    is_enveloped ? "true" : "false");
+	auto result = transaction.Query(backfill_query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw("Failed to backfill 'encryption_envelope' metadata key: ");
 	}

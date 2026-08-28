@@ -233,18 +233,33 @@ void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction)
 	// >>> FORK-LOCAL (sigil-enterprises): backfill-on-migration, see above.
 	// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
 	//
-	// catalog.EncryptionProvider() is the only reliable per-attach envelope
-	// signal here (encryption_socket is a per-session ATTACH parameter, never
-	// itself persisted - it must be resupplied on every ATTACH of an already
-	// enveloped lake to unwrap its keys at all). A plain, never-enveloped lake
-	// never sets it on any attach, so this never fires for it - no fail-closed
-	// regression for non-crypta lakes. A lake attached without resupplying
-	// encryption_socket (so the envelope cannot be used this session anyway)
-	// is left for a future attach that does resupply it; this is the same
-	// residual gap already documented for BackfillEncryptionEnvelopeFlag / the
-	// zero-attach server-side-commit path, just narrower now (ducklake#96).
-	if (!has_envelope_key && catalog.EncryptionProvider() != nullptr) {
-		metadata_manager.BackfillEncryptionEnvelopeFlag();
+	// Backfills only when THIS attach gives POSITIVE evidence either way -
+	// never a guess:
+	//   - catalog.EncryptionProvider() != nullptr: encryption_socket was
+	//     supplied and resolved this attach, so the lake is definitely
+	//     enveloped -> backfill 'true'.
+	//   - catalog.Encryption() == UNENCRYPTED: the persisted 'encrypted' tag
+	//     itself says this lake has no per-file keys at all, and envelope
+	//     requires ENCRYPTED (necessary, not sufficient) - so it is
+	//     definitely NOT enveloped, regardless of whether this attach
+	//     supplied encryption_socket -> backfill 'false'. This is exactly
+	//     the case that resolves a genuinely plain, never-crypta lake on its
+	//     first normal ATTACH since this guard shipped.
+	//   - Otherwise (ENCRYPTED but encryption_socket not supplied this
+	//     attach): we cannot tell a genuinely enveloped lake attached without
+	//     its socket apart from a plain-ENCRYPTED non-crypta lake - do NOT
+	//     backfill, and leave DuckLakeServerSideCommit::IsEnvelopedLake's
+	//     fail-closed default (absent key => enveloped) in force until a
+	//     future attach does resupply encryption_socket. Guessing 'false'
+	//     here would permanently and silently un-refuse a genuinely enveloped
+	//     lake - a strictly worse regression than the one this backfill
+	//     exists to close (ducklake#96, PR #95).
+	if (!has_envelope_key) {
+		if (catalog.EncryptionProvider() != nullptr) {
+			metadata_manager.BackfillEncryptionEnvelopeFlag(true);
+		} else if (catalog.Encryption() == DuckLakeEncryption::UNENCRYPTED) {
+			metadata_manager.BackfillEncryptionEnvelopeFlag(false);
+		}
 	}
 	// <<< FORK-LOCAL (sigil-enterprises) <<<
 }

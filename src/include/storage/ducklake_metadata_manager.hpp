@@ -385,16 +385,19 @@ public:
 	//
 	// InitializeDuckLake only ever WRITES 'encryption_envelope' at ATTACH-time
 	// lake creation (see its comment above). A lake created before that field
-	// existed has no such row, so DuckLakeServerSideCommit::IsEnvelopedLake's
-	// metadata-query fallback silently returns false for it and the server-side
-	// partition-value guard never fires (ducklake#96). LoadExistingDuckLake
-	// calls this once it has established, for THIS attach, that an envelope is
-	// actually configured (catalog.EncryptionProvider() != nullptr - the only
+	// existed has no such row. DuckLakeServerSideCommit::IsEnvelopedLake now
+	// fails CLOSED (treats an absent row as enveloped) for exactly that unknown
+	// case, so the zero-attach commit path refuses rather than silently
+	// permits (ducklake#96). LoadExistingDuckLake calls this UNCONDITIONALLY
+	// (true or false, from catalog.EncryptionProvider() != nullptr - the only
 	// reliable per-session signal, since encryption_socket must be resupplied
-	// on every ATTACH and is never itself persisted) and that no
-	// 'encryption_envelope' row was found while loading tags.
+	// on every ATTACH and is never itself persisted) whenever no
+	// 'encryption_envelope' row was found while loading tags, so that a single
+	// normal ATTACH - of an enveloped OR a genuinely plain pre-existing lake -
+	// permanently and correctly classifies it and lifts the fail-closed refusal
+	// for a plain lake going forward.
 	// <<< FORK-LOCAL (sigil-enterprises) <<<
-	virtual void BackfillEncryptionEnvelopeFlag();
+	virtual void BackfillEncryptionEnvelopeFlag(bool is_enveloped);
 
 	string LoadPath(string path);
 	string StorePath(string path);
