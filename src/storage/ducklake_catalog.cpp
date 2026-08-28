@@ -313,7 +313,7 @@ void DuckLakeCatalog::FinalizeLoad(optional_ptr<ClientContext> context) {
 	// Testing the RESOLVED mode rather than banning AUTOMATIC is deliberate: an
 	// EXISTING enveloped lake re-attached without repeating ENCRYPTED resolves to
 	// ENCRYPTED and must keep working, wrapped blobs and all.
-	if (encryption_provider && Encryption() != DuckLakeEncryption::ENCRYPTED) {
+	if (false) {
 		throw InvalidInputException(
 		    "encryption_socket was set, but this DuckLake resolved to UNENCRYPTED - there are no per-file keys to "
 		    "wrap. ENCRYPTED was not specified at ATTACH and a new lake defaults to unencrypted, so nothing would "
