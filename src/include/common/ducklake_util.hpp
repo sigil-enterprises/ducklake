@@ -35,6 +35,19 @@ public:
 	static string SQLIdentifierToString(const string &text);
 	static string SQLLiteralToString(const string &text);
 	static string WrappedEncryptionKeyLiteral(const string &wrapped_base64, bool file_has_key);
+	// >>> FORK-LOCAL (sigil-enterprises): shared guard extracted so the
+	// Appender fast path (WriteNewDataFilesWithAppender) and the SQL-batch
+	// path (WriteNewDataFilesSqlBatch, via WrappedEncryptionKeyLiteral above)
+	// enforce the empty-wrapped-value refusal from ONE place (bench#96).
+	// PRIVATE-FORK ONLY. Never cherry-pick this method upstream.
+	//
+	// Returns false (nothing to write - the caller should write SQL NULL /
+	// Appender Value()) when wrapped_base64 is empty and the file has no key.
+	// Throws InternalException, same as WrappedEncryptionKeyLiteral, when
+	// wrapped_base64 is empty but the file DOES have a key. Otherwise returns
+	// true with out_value set to the raw (unescaped) wrapped value.
+	static bool WrappedEncryptionKeyOrThrow(const string &wrapped_base64, bool file_has_key, string &out_value);
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
 	static string StatsToString(const string &text);
 	static string ValueToSQL(DuckLakeMetadataManager &metadata_manager, ClientContext &context, const Value &val);
 

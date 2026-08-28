@@ -378,6 +378,23 @@ public:
 	virtual void MigrateV04();
 	virtual void ExecuteMigration(string migrate_query, bool allow_failures, const string &from_version,
 	                              const string &to_version);
+public:
+	// >>> FORK-LOCAL (sigil-enterprises): backfill the 'encryption_envelope' key
+	// for lakes created before it existed. PRIVATE-FORK ONLY. Never cherry-pick
+	// this method upstream.
+	//
+	// InitializeDuckLake only ever WRITES 'encryption_envelope' at ATTACH-time
+	// lake creation (see its comment above). A lake created before that field
+	// existed has no such row, so DuckLakeServerSideCommit::IsEnvelopedLake's
+	// metadata-query fallback silently returns false for it and the server-side
+	// partition-value guard never fires (ducklake#96). LoadExistingDuckLake
+	// calls this once it has established, for THIS attach, that an envelope is
+	// actually configured (catalog.EncryptionProvider() != nullptr - the only
+	// reliable per-session signal, since encryption_socket must be resupplied
+	// on every ATTACH and is never itself persisted) and that no
+	// 'encryption_envelope' row was found while loading tags.
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
+	virtual void BackfillEncryptionEnvelopeFlag();
 
 	string LoadPath(string path);
 	string StorePath(string path);

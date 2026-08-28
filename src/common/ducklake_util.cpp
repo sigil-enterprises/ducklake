@@ -459,7 +459,9 @@ string DuckLakeUtil::ChunkRowToSQL(DuckLakeMetadataManager &metadata_manager, Cl
 	return result;
 }
 
-string DuckLakeUtil::WrappedEncryptionKeyLiteral(const string &wrapped_base64, bool file_has_key) {
+// >>> FORK-LOCAL (sigil-enterprises): PRIVATE-FORK ONLY. Never cherry-pick
+// this function upstream. See header comment (bench#96).
+bool DuckLakeUtil::WrappedEncryptionKeyOrThrow(const string &wrapped_base64, bool file_has_key, string &out_value) {
 	if (wrapped_base64.empty()) {
 		if (file_has_key) {
 			throw InternalException("refusing to write an empty wrapped encryption key for a file that "
@@ -469,8 +471,18 @@ string DuckLakeUtil::WrappedEncryptionKeyLiteral(const string &wrapped_base64, b
 			                        "leave the file unreadable forever, with the commit reporting "
 			                        "success");
 		}
+		return false;
+	}
+	out_value = wrapped_base64;
+	return true;
+}
+// <<< FORK-LOCAL (sigil-enterprises) <<<
+
+string DuckLakeUtil::WrappedEncryptionKeyLiteral(const string &wrapped_base64, bool file_has_key) {
+	string value;
+	if (!WrappedEncryptionKeyOrThrow(wrapped_base64, file_has_key, value)) {
 		return "NULL";
 	}
-	return SQLLiteralToString(wrapped_base64);
+	return SQLLiteralToString(value);
 }
 } // namespace duckdb

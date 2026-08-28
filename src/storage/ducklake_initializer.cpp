@@ -149,7 +149,18 @@ void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction)
 	// load the data path from the existing duck lake
 	auto &metadata_manager = transaction.GetMetadataManager();
 	auto metadata = metadata_manager.LoadDuckLake();
+	// >>> FORK-LOCAL (sigil-enterprises): backfill-on-migration for lakes
+	// created before 'encryption_envelope' existed. PRIVATE-FORK ONLY. Never
+	// cherry-pick this block upstream. See BackfillEncryptionEnvelopeFlag's
+	// header comment (ducklake#96) for the full rationale.
+	bool has_envelope_key = false;
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
 	for (auto &tag : metadata.tags) {
+		// >>> FORK-LOCAL (sigil-enterprises): PRIVATE-FORK ONLY.
+		if (tag.key == "encryption_envelope") {
+			has_envelope_key = true;
+		}
+		// <<< FORK-LOCAL (sigil-enterprises) <<<
 		if (tag.key == "version") {
 			string version = tag.value;
 			if (version != "1.0" && !options.automatic_migration) {
@@ -219,6 +230,23 @@ void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction)
 	for (auto &entry : metadata.table_settings) {
 		options.table_options[entry.table_id][entry.tag.key] = entry.tag.value;
 	}
+	// >>> FORK-LOCAL (sigil-enterprises): backfill-on-migration, see above.
+	// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+	//
+	// catalog.EncryptionProvider() is the only reliable per-attach envelope
+	// signal here (encryption_socket is a per-session ATTACH parameter, never
+	// itself persisted - it must be resupplied on every ATTACH of an already
+	// enveloped lake to unwrap its keys at all). A plain, never-enveloped lake
+	// never sets it on any attach, so this never fires for it - no fail-closed
+	// regression for non-crypta lakes. A lake attached without resupplying
+	// encryption_socket (so the envelope cannot be used this session anyway)
+	// is left for a future attach that does resupply it; this is the same
+	// residual gap already documented for BackfillEncryptionEnvelopeFlag / the
+	// zero-attach server-side-commit path, just narrower now (ducklake#96).
+	if (!has_envelope_key && catalog.EncryptionProvider() != nullptr) {
+		metadata_manager.BackfillEncryptionEnvelopeFlag();
+	}
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
 }
 
 } // namespace duckdb

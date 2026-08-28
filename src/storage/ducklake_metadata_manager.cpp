@@ -353,6 +353,18 @@ DELETE FROM {METADATA_CATALOG}.ducklake_schema_versions WHERE table_id IS NULL;
 	}
 }
 
+// >>> FORK-LOCAL (sigil-enterprises): see header comment. PRIVATE-FORK ONLY.
+// Never cherry-pick this method upstream.
+void DuckLakeMetadataManager::BackfillEncryptionEnvelopeFlag() {
+	auto result = transaction.Query(R"(
+INSERT INTO {METADATA_CATALOG}.ducklake_metadata (key, value) VALUES ('encryption_envelope', 'true');
+	)");
+	if (result->HasError()) {
+		result->GetErrorObject().Throw("Failed to backfill 'encryption_envelope' metadata key: ");
+	}
+}
+// <<< FORK-LOCAL (sigil-enterprises) <<<
+
 void DuckLakeMetadataManager::MigrateV04() {
 	auto result = transaction.Query(R"(
 UPDATE {METADATA_CATALOG}.ducklake_metadata SET value = '1.0' WHERE key = 'version';
@@ -3551,12 +3563,22 @@ string DuckLakeMetadataManager::WriteNewDataFilesWithAppender(DuckLakeSnapshot &
 		} else {
 			data_file_appender.Append(Value());
 		}
-		if (!file.encryption_key.empty()) {
-			data_file_appender.Append<string_t>(
-			    string_t(file.encryption_key)); // encryption_key (already base64 / wrapped)
-		} else {
-			data_file_appender.Append(Value());
+		// >>> FORK-LOCAL (sigil-enterprises): route through the same guarded
+		// helper WriteNewDataFilesSqlBatch uses (DuckLakeUtil::
+		// WrappedEncryptionKeyLiteral's shared logic), instead of an
+		// independent, unguarded copy of the wrap-or-plaintext decision
+		// (bench#96). PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+		{
+			string wrapped_value;
+			if (DuckLakeUtil::WrappedEncryptionKeyOrThrow(file.encryption_key, !file.encryption_key.empty(),
+			                                              wrapped_value)) {
+				data_file_appender.Append<string_t>(
+				    string_t(wrapped_value)); // encryption_key (already base64 / wrapped)
+			} else {
+				data_file_appender.Append(Value());
+			}
 		}
+		// <<< FORK-LOCAL (sigil-enterprises) <<<
 		if (file.mapping_id.IsValid()) {
 			data_file_appender.Append<int64_t>(static_cast<int64_t>(file.mapping_id.index)); // mapping_id
 		} else {
