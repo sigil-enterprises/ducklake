@@ -6,6 +6,8 @@
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/database.hpp"
+#include "duckdb/main/database_manager.hpp"
+#include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/materialized_query_result.hpp"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/catalog/catalog_entry/duck_table_entry.hpp"
@@ -13,6 +15,7 @@
 #include "duckdb/storage/data_table.hpp"
 #include "duckdb/storage/table/scan_state.hpp"
 #include "duckdb/transaction/duck_transaction.hpp"
+#include "storage/ducklake_catalog.hpp"
 
 namespace duckdb {
 
@@ -128,6 +131,118 @@ void DuckLakeServerSideCommit::SetRetryConfigOverride(const DuckLakeRetryConfig 
 	retry_config = retry_config_p;
 }
 
+// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids partition VALUES in the catalog. >>>
+// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+//
+// ducklake_commit takes a metadata SCHEMA name, not a DuckLake catalog name -
+// it is designed to run without ever ATTACHing a DuckLake in this session at
+// all (that is the point: a multi-engine writer stages rows over a plain SQL
+// connection to the metadata store and calls this to finalize). So there is
+// no DuckLakeCatalog guaranteed to exist here the way there is for every
+// ducklake_* table function that takes a catalog name
+// (DuckLakeBaseMetadataFunction::GetCatalog). What we CAN do: if a DuckLake
+// happens to be attached in the calling context whose metadata schema matches
+// this commit's, its EncryptionProvider is authoritative for whether this
+// lake is enveloped, and we use it. A commit with no matching attachment
+// (the fully catalog-less case) has no envelope information available to
+// check here at all - closing that residual gap needs either a persisted
+// per-lake encryption flag or a required parameter on ducklake_commit itself,
+// which is out of scope for this fix; recorded, not silently assumed safe.
+optional_ptr<DuckLakeCatalog> DuckLakeServerSideCommit::ResolveEnvelopedCatalog() {
+	if (enveloped_catalog_resolved) {
+		return enveloped_catalog;
+	}
+	enveloped_catalog_resolved = true;
+	auto &db_manager = DatabaseManager::Get(context);
+	for (auto &attached : db_manager.GetDatabases(context)) {
+		auto &catalog = attached->GetCatalog();
+		if (catalog.GetCatalogType() != "ducklake") {
+			continue;
+		}
+		auto &duck_catalog = catalog.Cast<DuckLakeCatalog>();
+		// >>> FORK-LOCAL (sigil-enterprises): match on the metadata DATABASE, not schema. >>>
+		// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+		//
+		// ducklake_commit's first argument is the name a caller ATTACHes the
+		// metadata catalog under - METADATA_CATALOG '<name>' - which
+		// DuckLakeStorage::SetOption stores as options.metadata_database, read
+		// back via DuckLakeCatalog::MetadataDatabaseName(). MetadataSchemaName()
+		// is a different, independent option (METADATA_SCHEMA, default "main")
+		// that this test never sets. Comparing against MetadataSchemaName()
+		// here meant the match NEVER succeeded for the exact case this guard
+		// exists for - ducklake_commit('ssappend_meta', ...) against an ATTACH
+		// using METADATA_CATALOG 'ssappend_meta' - so the guard silently never
+		// fired and execution fell through to DuckLake's own internal
+		// partition/data-file consistency checks instead of ever refusing.
+		// Also accept MetadataSchemaName() for a lake ATTACHed without
+		// METADATA_CATALOG (metadata hidden in the current database's own
+		// schema), where metadata_schema_name legitimately names that schema.
+		if ((duck_catalog.MetadataDatabaseName() == metadata_schema_name ||
+		    duck_catalog.MetadataSchemaName() == metadata_schema_name) &&
+		    duck_catalog.EncryptionProvider()) {
+			// <<< FORK-LOCAL (sigil-enterprises) <<<
+			enveloped_catalog = duck_catalog;
+			break;
+		}
+	}
+	return enveloped_catalog;
+}
+
+// The real multi-engine ducklake_commit write path (Spark/Trino staging
+// directly into ducklake_staged_*) runs with zero DuckLake ever attached in
+// the calling session at all, so ResolveEnvelopedCatalog() above - which can
+// only ever find an answer via a session ATTACH - silently never fires for
+// it and the guard above never triggers. IsEnvelopedLake() closes that gap:
+// it keeps ResolveEnvelopedCatalog() as a fast path (no extra query) for the
+// case a matching DuckLakeCatalog happens to be attached, and falls back to
+// an authoritative direct read of the metadata catalog's own persisted
+// `ducklake_metadata` row (key = 'encrypted', written by
+// DuckLakeMetadataManager on ATTACH ... ENCRYPTED) via the same RunQuery
+// mechanism this class already uses for every other metadata read - which
+// requires nothing attached beyond the metadata schema name already passed
+// to ducklake_commit itself.
+bool DuckLakeServerSideCommit::IsEnvelopedLake() {
+	if (is_enveloped_lake_resolved) {
+		return is_enveloped_lake;
+	}
+	is_enveloped_lake_resolved = true;
+
+	// Fast path: an attached DuckLakeCatalog for this metadata schema already
+	// carries the answer (and its EncryptionProvider()) without a query.
+	if (ResolveEnvelopedCatalog()) {
+		is_enveloped_lake = true;
+		return is_enveloped_lake;
+	}
+
+	// Authoritative fallback: no matching attachment exists (or none at all) -
+	// ask the metadata catalog itself. 'encryption_envelope' (not 'encrypted' -
+	// that only tracks plain per-file ENCRYPTED, which a non-crypta lake can
+	// have without ever being enveloped) is written unconditionally (true or
+	// false) by every lake initialization going forward - see
+	// DuckLakeMetadataManager::InitializeDuckLake and the pre-existing-lake
+	// backfill in LoadExistingDuckLake. The row can only be absent for a lake
+	// created before this whole guard existed AND never re-ATTACHed (normal
+	// DuckDB ATTACH, which backfills the key) since. For that unknown case we
+	// fail CLOSED: is_enveloped_lake defaults to true (see the field
+	// declaration), so an absent row refuses cleartext partition values on the
+	// zero-attach commit path exactly like an explicitly-enveloped lake does,
+	// rather than silently permitting them (ducklake#96). This is a deliberate,
+	// disclosed trade-off: a genuinely plain lake that is ONLY EVER written via
+	// the zero-attach multi-engine path, and has never once been DuckDB-ATTACHed
+	// since this guard shipped, will have its zero-attach commits refused until
+	// one normal ATTACH backfills the key - a one-time operational step, not a
+	// permanent break. See PR #95 / ducklake#96 for the full analysis.
+	auto query =
+	    StringUtil::Format("SELECT value FROM %s.ducklake_metadata WHERE key = 'encryption_envelope'", schema_id);
+	auto result = RunQuery(query, "read envelope flag");
+	auto chunk = result->Fetch();
+	if (chunk && chunk->size() > 0 && !chunk->GetValue(0, 0).IsNull()) {
+		is_enveloped_lake = chunk->GetValue(0, 0).ToString() == "true";
+	}
+	return is_enveloped_lake;
+}
+// <<< FORK-LOCAL (sigil-enterprises) <<<
+
 DuckLakeServerSideCommitResult DuckLakeServerSideCommit::Run() {
 	ReadCommitHeader();
 	ReadColumnTypes();
@@ -173,11 +288,28 @@ void DuckLakeServerSideCommit::ReadCommitHeader() {
 	}
 
 	string data_path;
-	string separator;
+	// >>> FORK-LOCAL (sigil-enterprises): default an unset path separator to "/". >>>
+	// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+	//
+	// A real ATTACH's DuckLakeCatalog::Separator() is never empty - it falls
+	// back to the filesystem's own separator - but a server-side committer
+	// staging directly into ducklake_staged_commit can leave path_separator
+	// NULL (many external writers have no reason to populate a field they
+	// never look at). An empty separator used to reach
+	// DuckLakeMetadataManager::StorePath(path, separator), which only guards
+	// against separator == "/" and otherwise calls
+	// StringUtil::Replace(path, separator, "/") - an empty search string,
+	// which DuckDB's StringUtil::Replace refuses with an unrelated internal
+	// error ("Invalid argument to StringUtil::Replace - empty FROM") instead
+	// of ever reaching a DuckLake-level error message. Bug found because it
+	// masked crypta_server_side_commit_partition_refusal.test's expected
+	// refusal message with this internal error instead.
+	string separator = "/";
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
 	if (!chunk->GetValue(4, 0).IsNull()) {
 		data_path = chunk->GetValue(4, 0).ToString();
 	}
-	if (!chunk->GetValue(5, 0).IsNull()) {
+	if (!chunk->GetValue(5, 0).IsNull() && !chunk->GetValue(5, 0).ToString().empty()) {
 		separator = chunk->GetValue(5, 0).ToString();
 	}
 	state = make_uniq<DuckLakeTransactionState>(*context.db, /*require_commit_message=*/false, new_name_maps,
@@ -307,6 +439,27 @@ void DuckLakeServerSideCommit::ReadStagedDataFiles() {
 		}
 		files_per_table[TableIndex(AsIdx(row, 1))].push_back(std::move(f));
 	}
+
+	// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids partition VALUES in the catalog. >>>
+	// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+	//
+	// This is the multi-engine chokepoint DuckLakeTransaction::AppendFiles/
+	// AddCompaction cannot see: a server-side commit built from files staged
+	// directly into ducklake_staged_data_file(_partition) by a writer that
+	// never ran through DuckLake's own C++ write path at all (the intended use
+	// of ducklake_commit - Spark/Trino stage files and call this table
+	// function to finalize). Applying the same guard here, right before the
+	// files enter local_changes, closes that gap without duplicating its
+	// judgement - see DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake.
+	{
+		bool enveloped = IsEnvelopedLake();
+		for (auto &entry : files_per_table) {
+			for (auto &file : entry.second) {
+				DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(enveloped, entry.first, file);
+			}
+		}
+	}
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
 
 	for (auto &entry : files_per_table) {
 		state->local_changes.AppendFiles(entry.first, std::move(entry.second));
@@ -519,6 +672,14 @@ void DuckLakeServerSideCommit::ReadStagedCompactions() {
 		if (src_it != sources_by_compaction.end()) {
 			entry.source_files = std::move(src_it->second);
 		}
+		// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids partition VALUES in the catalog. >>>
+		// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+		// Twin of the ReadStagedDataFiles guard above: a compacted file staged
+		// directly by a non-DuckLake writer never runs through
+		// DuckLakeTransaction::AddCompaction either.
+		DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(IsEnvelopedLake(), shell.table_id,
+		                                                          entry.written_file);
+		// <<< FORK-LOCAL (sigil-enterprises) <<<
 		state->local_changes.AddCompaction(shell.table_id, std::move(entry));
 	}
 }
@@ -807,20 +968,34 @@ unique_ptr<MaterializedQueryResult> DuckLakeServerSideCommit::ScanStagedTable(Du
 	}
 
 	auto &duck_transaction = DuckTransaction::Get(context, temp_catalog);
-	TableScanState scan_state;
-	storage.InitializeScan(context, duck_transaction, scan_state, column_ids);
-
 	auto collection = make_uniq<ColumnDataCollection>(context, types);
-	DataChunk chunk;
-	chunk.Initialize(context, types);
-	while (true) {
-		chunk.Reset();
-		storage.Scan(duck_transaction, chunk, scan_state);
-		if (chunk.size() == 0) {
-			break;
+	// >>> FORK-LOCAL (sigil-enterprises): skip InitializeScan on a never-appended staged table. >>>
+	// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+	//
+	// A staging temp table that has never had a row appended to it has zero
+	// row groups at all (not one empty one) - RowGroupCollection::InitializeScan
+	// unconditionally D_ASSERTs its root segment is non-null, so calling it
+	// here on an untouched table (e.g. ducklake_staged_data_file_column_stats
+	// when a staged file carries no column stats) crashes a debug build
+	// outright instead of returning zero rows the way a normal SQL SELECT
+	// over the same empty table would. Guard it the same way a real query
+	// plan does: skip the scan and hand back an empty result.
+	if (storage.GetTotalRows() > 0) {
+		TableScanState scan_state;
+		storage.InitializeScan(context, duck_transaction, scan_state, column_ids);
+
+		DataChunk chunk;
+		chunk.Initialize(context, types);
+		while (true) {
+			chunk.Reset();
+			storage.Scan(duck_transaction, chunk, scan_state);
+			if (chunk.size() == 0) {
+				break;
+			}
+			collection->Append(chunk);
 		}
-		collection->Append(chunk);
 	}
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
 	StatementProperties properties;
 	properties.return_type = StatementReturnType::QUERY_RESULT;
 	return make_uniq<MaterializedQueryResult>(StatementType::SELECT_STATEMENT, properties, std::move(names),

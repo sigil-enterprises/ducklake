@@ -137,7 +137,8 @@ void DuckLakeInitializer::InitializeNewDuckLake(DuckLakeTransaction &transaction
 		InitializeDataPath();
 	}
 	auto &metadata_manager = transaction.GetMetadataManager();
-	metadata_manager.InitializeDuckLake(has_explicit_schema, catalog.Encryption());
+	metadata_manager.InitializeDuckLake(has_explicit_schema, catalog.Encryption(),
+	                                    catalog.EncryptionProvider() != nullptr);
 	if (catalog.Encryption() == DuckLakeEncryption::AUTOMATIC) {
 		// default to unencrypted
 		catalog.SetEncryption(DuckLakeEncryption::UNENCRYPTED);
@@ -148,7 +149,18 @@ void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction)
 	// load the data path from the existing duck lake
 	auto &metadata_manager = transaction.GetMetadataManager();
 	auto metadata = metadata_manager.LoadDuckLake();
+	// >>> FORK-LOCAL (sigil-enterprises): backfill-on-migration for lakes
+	// created before 'encryption_envelope' existed. PRIVATE-FORK ONLY. Never
+	// cherry-pick this block upstream. See BackfillEncryptionEnvelopeFlag's
+	// header comment (ducklake#96) for the full rationale.
+	bool has_envelope_key = false;
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
 	for (auto &tag : metadata.tags) {
+		// >>> FORK-LOCAL (sigil-enterprises): PRIVATE-FORK ONLY.
+		if (tag.key == "encryption_envelope") {
+			has_envelope_key = true;
+		}
+		// <<< FORK-LOCAL (sigil-enterprises) <<<
 		if (tag.key == "version") {
 			string version = tag.value;
 			if (version != "1.0" && !options.automatic_migration) {
@@ -218,6 +230,38 @@ void DuckLakeInitializer::LoadExistingDuckLake(DuckLakeTransaction &transaction)
 	for (auto &entry : metadata.table_settings) {
 		options.table_options[entry.table_id][entry.tag.key] = entry.tag.value;
 	}
+	// >>> FORK-LOCAL (sigil-enterprises): backfill-on-migration, see above.
+	// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+	//
+	// Backfills only when THIS attach gives POSITIVE evidence either way -
+	// never a guess:
+	//   - catalog.EncryptionProvider() != nullptr: encryption_socket was
+	//     supplied and resolved this attach, so the lake is definitely
+	//     enveloped -> backfill 'true'.
+	//   - catalog.Encryption() == UNENCRYPTED: the persisted 'encrypted' tag
+	//     itself says this lake has no per-file keys at all, and envelope
+	//     requires ENCRYPTED (necessary, not sufficient) - so it is
+	//     definitely NOT enveloped, regardless of whether this attach
+	//     supplied encryption_socket -> backfill 'false'. This is exactly
+	//     the case that resolves a genuinely plain, never-crypta lake on its
+	//     first normal ATTACH since this guard shipped.
+	//   - Otherwise (ENCRYPTED but encryption_socket not supplied this
+	//     attach): we cannot tell a genuinely enveloped lake attached without
+	//     its socket apart from a plain-ENCRYPTED non-crypta lake - do NOT
+	//     backfill, and leave DuckLakeServerSideCommit::IsEnvelopedLake's
+	//     fail-closed default (absent key => enveloped) in force until a
+	//     future attach does resupply encryption_socket. Guessing 'false'
+	//     here would permanently and silently un-refuse a genuinely enveloped
+	//     lake - a strictly worse regression than the one this backfill
+	//     exists to close (ducklake#96, PR #95).
+	if (!has_envelope_key) {
+		if (catalog.EncryptionProvider() != nullptr) {
+			metadata_manager.BackfillEncryptionEnvelopeFlag(true);
+		} else if (catalog.Encryption() == DuckLakeEncryption::UNENCRYPTED) {
+			metadata_manager.BackfillEncryptionEnvelopeFlag(false);
+		}
+	}
+	// <<< FORK-LOCAL (sigil-enterprises) <<<
 }
 
 } // namespace duckdb

@@ -1,0 +1,107 @@
+# name: test/sql/crypta/crypta_appender_wrapped_key_guard_parity.test
+# description: the Appender data-file write path routes through the same wrapped-key guard as the SQL-batch path (bench#96)
+# group: [crypta]
+
+#
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# WHAT THIS FILE PROVES, AND WHAT IT HONESTLY DOES NOT
+# ------------------------------------------------------
+# bench#96: `DuckLakeUtil::WrappedEncryptionKeyLiteral` - the function that
+# escapes a wrapped key blob into the metadata INSERT and refuses an empty
+# wrapped value for a file that has one - was only reached via
+# `WriteNewDataFilesSqlBatch`. `TryAppendDataFiles`'s Appender fast path
+# (`SupportsAppender()` true by default for every DuckDB-backed metadata
+# catalog - the default this test binary and every default deployment use)
+# bypassed it entirely: `WriteNewDataFilesWithAppender` carried its own,
+# independent, unguarded copy of the wrap-or-plaintext decision.
+#
+# The fix routes both paths through one shared helper,
+# `DuckLakeUtil::WrappedEncryptionKeyOrThrow` (ducklake_util.cpp) - "one
+# enforcement point, not two independently-maintained copies" is now
+# literally true: `grep -n WrappedEncryptionKeyOrThrow src/storage/
+# ducklake_metadata_manager.cpp src/common/ducklake_util.cpp` shows exactly
+# one call site per write path, both passing the identical
+# `(file.encryption_key, !file.encryption_key.empty())` shape.
+#
+# HONEST GAP, stated rather than left to be discovered: the guard's refusal
+# branch (`file_has_key=true` with an empty wrapped value) is UNREACHABLE
+# from either write path today, and was already unreachable on the SQL-batch
+# path before this fix - `file_has_key` is computed as
+# `!file.encryption_key.empty()` at both call sites, which is tautological
+# against the very value being tested (an empty string can never present as
+# "has a key" through this specific expression). That tautology is a
+# separate, pre-existing condition on the SQL-batch path too, not introduced
+# or fixed here, and out of scope for bench#96 (which is about the TWO
+# implementations diverging, not about this expression's own soundness).
+# `ducklake_rewrap_keys.cpp`'s call site (`WrappedEncryptionKeyLiteral(...,
+# true)`, a literal, decoupled `true`) is the one place `file_has_key` is NOT
+# tautological, and it is unaffected by this fix (UPDATE statement path, not
+# a data-file write).
+#
+# So this file cannot show the empty+has_key refusal actually firing through
+# either write path - nothing can, today, without either KMS-response
+# injection test infrastructure (not present in this tree) or expanding scope
+# to fix the tautology itself (a separate concern). What it proves instead:
+#
+#   1. a REGRESSION control - the Appender path's real, live, wrapped-key
+#      write (the actual production behavior for every non-empty key, which
+#      is every key this refactor's guard can currently receive) is
+#      byte-for-byte unaffected by routing through the shared helper;
+#   2. that the Appender path is the one exercised here - `SupportsAppender()`
+#      defaults to true and none of the three overrides
+#      (SQLite/Postgres/Quack) are built into this test binary, so this
+#      lake's data-file writes go through `WriteNewDataFilesWithAppender`,
+#      never `WriteNewDataFilesSqlBatch`.
+#
+
+require ducklake
+
+require parquet
+
+require httpfs
+
+require-env DUCKLAKE_FAKE_CRYPTA_SOCKET
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/crypta_appender_parity.db' AS lake (DATA_PATH '__TEST_DIR__/crypta_appender_parity_files', ENCRYPTED, METADATA_CATALOG 'lake_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'sql-fixture-appender-parity')
+
+# This INSERT's data-file write goes through WriteNewDataFilesWithAppender -
+# the Appender fast path - because SupportsAppender() is the base-class
+# default and no override is built into this test binary.
+statement ok
+CREATE TABLE lake.alpha AS SELECT i AS id FROM range(50) t(i)
+
+# The instrument: a real wrapped key, minted and wrapped by the real
+# provider over the real socket, written through the (now-shared) guarded
+# code path. 'RExL' is the base64 of the fake crypta's wrap-marker header
+# (see fake_crypta.py); a plaintext DEK can never be this long.
+query III
+SELECT count(*), count(*) FILTER (WHERE starts_with(encryption_key, 'RExL')), count(*) FILTER (WHERE length(encryption_key) > 44) FROM lake_meta.ducklake_data_file
+----
+1	1	1
+
+# The wrapped key round-trips through a real read (unwrap), proving the
+# value the shared helper wrote is not just present but correct.
+query II
+SELECT count(*), sum(id) FROM lake.alpha
+----
+50	1225
+
+# A second batch, forcing a second Appender-path commit, to rule out a
+# guard that only behaves on the first row of the first commit.
+statement ok
+INSERT INTO lake.alpha SELECT i AS id FROM range(50, 60) t(i)
+
+query III
+SELECT count(*), count(*) FILTER (WHERE starts_with(encryption_key, 'RExL')), count(*) FILTER (WHERE length(encryption_key) > 44) FROM lake_meta.ducklake_data_file
+----
+2	2	2
+
+query II
+SELECT count(*), sum(id) FROM lake.alpha
+----
+60	1770
+
+statement ok
+DETACH lake

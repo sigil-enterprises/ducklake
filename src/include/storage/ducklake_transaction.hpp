@@ -232,6 +232,34 @@ public:
 	//! file before it can enter the transaction's committed set. No-op on every
 	//! other lake.
 	void RedactStatsOnEnvelopedLake(DuckLakeDataFile &file) const;
+
+	//! On an envelope-encrypted lake, refuse a data file that carries partition
+	//! values before it can enter the transaction's committed set. No-op on
+	//! every other lake. Unlike RedactStatsOnEnvelopedLake this throws rather
+	//! than silently drops - there is no plan a partitioned scan can fall back
+	//! to once its partition_value rows are gone.
+	void RefusePartitionValuesOnEnvelopedLake(TableIndex table_id, const DuckLakeDataFile &file) const;
+
+	//! Same guard, callable with an explicit DuckLakeCatalog instead of the
+	//! transaction's own - for a producer that never holds a DuckLakeTransaction
+	//! at all. See DuckLakeServerSideCommit (ducklake_server_side_commit.cpp):
+	//! the ducklake_commit table function stages files as raw rows and commits
+	//! them straight against the metadata catalog, so there is no
+	//! DuckLakeTransaction to call the instance overload on. The instance
+	//! overload above delegates to this one.
+	static void RefusePartitionValuesOnEnvelopedLake(DuckLakeCatalog &catalog, TableIndex table_id,
+	                                                 const DuckLakeDataFile &file);
+
+	//! Same guard again, taking the already-resolved encryption verdict
+	//! directly instead of a DuckLakeCatalog to read it from. For
+	//! DuckLakeServerSideCommit: the encryption verdict there does not always
+	//! come from an attached DuckLakeCatalog (ducklake_commit's whole point is
+	//! running with no DuckLake attached at all) - it can come from a direct
+	//! `SELECT value FROM {schema}.ducklake_metadata WHERE key = 'encrypted'`
+	//! against the metadata schema instead. The DuckLakeCatalog overload above
+	//! delegates to this one.
+	static void RefusePartitionValuesOnEnvelopedLake(bool is_enveloped, TableIndex table_id,
+	                                                 const DuckLakeDataFile &file);
 	// <<< FORK-LOCAL (sigil-enterprises) <<<
 
 	MappingIndex AddNameMap(unique_ptr<DuckLakeNameMap> name_map);

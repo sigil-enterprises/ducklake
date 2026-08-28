@@ -1,0 +1,328 @@
+# name: test/sql/crypta/crypta_server_side_commit_backfill_pre_existing_lake.test
+# description: a lake enveloped BEFORE 'encryption_envelope' existed gets it backfilled on next ATTACH (ducklake#96)
+# group: [crypta]
+#
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# WHAT THIS FILE PROVES
+# ----------------------
+# ducklake#96: `DuckLakeServerSideCommit::IsEnvelopedLake()`'s zero-attach
+# metadata-query fallback (added by PR #95's Update 2/3) reads the
+# 'encryption_envelope' row from `ducklake_metadata`. That row is only ever
+# WRITTEN by `InitializeDuckLake` at ATTACH-time lake CREATION
+# (ducklake_metadata_manager.cpp). Any lake that was created and enveloped
+# BEFORE this PR landed has no such row, so `IsEnvelopedLake()` silently
+# returned false for it and the server-side partition-value guard never
+# fired - the exact leak PR #95 exists to close, just for pre-existing
+# lakes.
+#
+# THE FIX: `DuckLakeInitializer::LoadExistingDuckLake` now backfills the
+# 'encryption_envelope' row on ordinary ATTACH, when (a) no such row was
+# found while loading the lake's metadata tags, and (b) THIS attach gives
+# POSITIVE evidence either way: `CRYPTA_SOCKET`/`ENCRYPTION_SOCKET` resolved
+# this attach (definitely enveloped -> 'true'), OR the persisted 'encrypted'
+# tag reads UNENCRYPTED (envelope requires ENCRYPTED, so definitely not
+# enveloped -> 'false', even with no socket supplied). An ENCRYPTED lake
+# attached without its socket is neither - ambiguous - and is deliberately
+# left unbackfilled; see crypta_server_side_commit_failclosed_unknown_envelope.test
+# for `DuckLakeServerSideCommit::IsEnvelopedLake()`'s fail-closed default that
+# covers that and every other still-unresolved case (ducklake#96, PR #95
+# Update 4).
+#
+# THE PLANT. There is no public SQL statement that produces a
+# "pre-existing enveloped lake with no encryption_envelope row" - the row is
+# always written today, by design, at creation. So this file builds a real
+# crypta-enveloped lake through the ordinary ATTACH + CREATE TABLE + INSERT
+# path (a real wrapped key, a real partition), then DELETEs just that one
+# metadata row - simulating exactly and only "this lake was created before
+# the row existed", the same idiom crypta_partition_refusals.test and
+# adversary_flush_null_key.test use to reach an otherwise-unreachable
+# pre-existing state.
+#
+# RED-THEN-GREEN, VERIFIED BY HAND (not just structurally): reverting only
+# the `LoadExistingDuckLake` backfill call (keeping BackfillEncryptionEnvelopeFlag
+# itself, so it compiles) and re-running this file reproduces exactly the
+# leak this file exists to close - Case 1's `ducklake_commit` succeeds
+# instead of refusing, and the cleartext partition value lands. Restoring the
+# call makes it refuse again. See the PR body for the exact commands run.
+
+require ducklake
+
+require parquet
+
+require httpfs
+
+require-env DUCKLAKE_FAKE_CRYPTA_SOCKET
+
+# --------------------------------------------------------------------------
+# Case 1 - THE LEAK, CLOSED. A crypta-enveloped lake, planted back into the
+# pre-#95-Update-3 state (no 'encryption_envelope' row), gets that row
+# backfilled on ordinary re-ATTACH, and a zero-attach ducklake_commit against
+# it refuses a staged partitioned file exactly as it does for a lake created
+# after this fix.
+# --------------------------------------------------------------------------
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_commit(commit_author VARCHAR, commit_message VARCHAR, commit_extra_info VARCHAR, transaction_snapshot_id BIGINT, data_path VARCHAR, path_separator VARCHAR, transaction_next_catalog_id UBIGINT, transaction_next_file_id UBIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_data_file(data_file_id BIGINT, table_id BIGINT, file_order BIGINT, path VARCHAR, path_is_relative BOOLEAN, file_format VARCHAR, record_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, row_id_start BIGINT, partition_id BIGINT, encryption_key VARCHAR, mapping_id UBIGINT, partial_max BIGINT, begin_snapshot BIGINT, compaction_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_data_file_column_stats(data_file_id BIGINT, table_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, has_num_values BOOLEAN, num_values BIGINT, has_null_count BOOLEAN, null_count BIGINT, has_min BOOLEAN, min_value VARCHAR, has_max BOOLEAN, max_value VARCHAR, has_contains_nan BOOLEAN, contains_nan BOOLEAN, any_valid BOOLEAN, extra_stats VARCHAR)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_data_file_partition(local_file_id BIGINT, partition_column_idx BIGINT, partition_value VARCHAR)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_delete_file(table_id BIGINT, data_file_path VARCHAR, data_file_id BIGINT, file_name VARCHAR, format VARCHAR, delete_count BIGINT, file_size_bytes BIGINT, footer_size BIGINT, encryption_key VARCHAR, begin_snapshot BIGINT, max_snapshot BIGINT, source VARCHAR, overwrites_existing_delete BOOLEAN, overwrite_delete_file_id BIGINT, overwrite_delete_file_path VARCHAR, attached_local_file_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_inlined_data(table_id BIGINT, has_preserved_row_ids BOOLEAN)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_inlined_row(table_id BIGINT, row_order BIGINT, preserved_row_id BIGINT, value_literals VARCHAR)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_inlined_column_stats(table_id BIGINT, column_id BIGINT, column_size_bytes BIGINT, has_num_values BOOLEAN, num_values BIGINT, has_null_count BOOLEAN, null_count BIGINT, has_min BOOLEAN, min_value VARCHAR, has_max BOOLEAN, max_value VARCHAR, has_contains_nan BOOLEAN, contains_nan BOOLEAN, any_valid BOOLEAN, extra_stats VARCHAR)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_inlined_delete(table_id BIGINT, inlined_table_name VARCHAR, deleted_row_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_inlined_file_delete(table_id BIGINT, file_id BIGINT, deleted_row_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_dropped_file(path VARCHAR, data_file_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_tables_deleted_from(table_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_flushed_inlined(inlined_table_name VARCHAR, schema_version BIGINT, flush_snapshot_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_compaction(compaction_id BIGINT, table_id BIGINT, compaction_type VARCHAR, row_id_start BIGINT, output_local_file_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_compaction_source(compaction_id BIGINT, source_order BIGINT, source_data_file_id BIGINT, source_path VARCHAR, source_row_count BIGINT, source_begin_snapshot BIGINT, source_max_partial_file_snapshot BIGINT, source_inlined_delete_count BIGINT, last_delete_file_id BIGINT, last_delete_path VARCHAR, last_delete_row_count BIGINT, last_delete_end_snapshot BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_name_map(map_id UBIGINT, table_id BIGINT)
+
+statement ok
+CREATE TEMPORARY TABLE IF NOT EXISTS ducklake_staged_name_map_entry(map_id UBIGINT, entry_id BIGINT, parent_entry_id BIGINT, source_name VARCHAR, target_field_id BIGINT, hive_partition BOOLEAN)
+
+# A real crypta-enveloped lake, built the ordinary way - real wrapped key,
+# real socket, real partition column.
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/preexisting_envelope.db' AS pre (DATA_PATH '__TEST_DIR__/preexisting_envelope_files', ENCRYPTED, DATA_INLINING_ROW_LIMIT 0, METADATA_CATALOG 'pre_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'pre-existing-envelope')
+
+statement ok
+CREATE TABLE pre.person(part_key INTEGER, person_source_value VARCHAR)
+
+statement ok
+INSERT INTO pre.person VALUES (1, 'PT-000060-SENTINEL')
+
+# Created with this fix in place: the row is there.
+query I
+SELECT value FROM pre_meta.ducklake_metadata WHERE key = 'encryption_envelope'
+----
+true
+
+statement ok
+DETACH pre
+
+# THE PLANT: delete the one row a pre-#95-Update-3 lake would never have had.
+# Nothing else about this lake changes - its data file, its wrapped key, its
+# partition value, and the plain 'encrypted' flag are all untouched.
+statement ok
+ATTACH '__TEST_DIR__/preexisting_envelope.db' AS pre_plant_meta
+
+statement ok
+DELETE FROM pre_plant_meta.ducklake_metadata WHERE key = 'encryption_envelope'
+
+# The plant took: the row is gone, and everything else is exactly as it was.
+query II
+SELECT (SELECT count(*) FROM pre_plant_meta.ducklake_metadata WHERE key = 'encryption_envelope'), (SELECT value FROM pre_plant_meta.ducklake_metadata WHERE key = 'encrypted')
+----
+0	true
+
+statement ok
+DETACH pre_plant_meta
+
+# Ordinary re-ATTACH, CRYPTA_SOCKET resupplied exactly as any client of this
+# lake has to. THE FIX fires here: LoadExistingDuckLake finds no
+# 'encryption_envelope' tag while loading, catalog.EncryptionProvider() is
+# non-null for this attach, so it backfills the row before returning.
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/preexisting_envelope.db' AS reattached (DATA_PATH '__TEST_DIR__/preexisting_envelope_files', METADATA_CATALOG 'reattached_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'pre-existing-envelope')
+
+# The backfill happened: the row is back, and correctly 'true'.
+query I
+SELECT value FROM reattached_meta.ducklake_metadata WHERE key = 'encryption_envelope'
+----
+true
+
+# The lake still reads correctly - the backfill touched only ducklake_metadata.
+query II
+SELECT count(*), count(*) FILTER (WHERE person_source_value = 'PT-000060-SENTINEL') FROM reattached.person
+----
+1	1
+
+statement ok
+DETACH reattached
+
+# Now reproduce the exact multi-engine, zero-attach shape
+# crypta_server_side_commit_partition_refusal.test's Case 4 does: DETACH the
+# DuckLake entirely, re-open only the physical metadata store as a PLAIN
+# DuckDB attach (no DuckLake catalog anywhere in the session), then stage a
+# partitioned file through ducklake_commit directly. Backfill already
+# happened above and this session never attaches CRYPTA_SOCKET at all, so if
+# the fallback did not see the backfilled row, this commit would succeed and
+# leak the partition value in the clear - the pre-fix failure this file
+# exists to catch.
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/preexisting_envelope.db' AS seed_id (DATA_PATH '__TEST_DIR__/preexisting_envelope_files', METADATA_CATALOG 'seed_id_meta', CRYPTA_SOCKET '${DUCKLAKE_FAKE_CRYPTA_SOCKET}', CRYPTA_LAKE_ID 'pre-existing-envelope')
+
+statement ok
+CREATE TEMPORARY TABLE backfill_table_id AS SELECT table_id FROM seed_id_meta.ducklake_table WHERE table_name = 'person'
+
+statement ok
+DETACH seed_id
+
+statement ok
+ATTACH '__TEST_DIR__/preexisting_envelope.db' AS backfill_meta
+
+query I
+SELECT count(*) FROM duckdb_databases() WHERE database_name = 'seed_id'
+----
+0
+
+query I
+SELECT value FROM backfill_meta.ducklake_metadata WHERE key = 'encryption_envelope'
+----
+true
+
+statement ok
+INSERT INTO ducklake_staged_commit VALUES ('external-writer', 'staged append, pre-existing lake backfill', NULL, NULL, NULL, NULL, NULL, NULL)
+
+statement ok
+INSERT INTO ducklake_staged_data_file VALUES (9101, (SELECT table_id FROM backfill_table_id), 0, '/fake/staged_backfill.parquet', false, 'parquet', 1, 100, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+
+statement ok
+INSERT INTO ducklake_staged_data_file_partition VALUES (9101, 0, '1')
+
+# THE CASE. A zero-attach server-side commit against a pre-existing
+# (now-backfilled) enveloped lake must refuse a staged partition value, the
+# same as a lake that was always on this fix.
+statement error
+SELECT * FROM ducklake_commit('backfill_meta', -1)
+----
+ducklake_file_partition_value
+
+# Nothing was written by the refused attempt.
+query I
+SELECT count(*) FROM backfill_meta.ducklake_file_partition_value
+----
+0
+
+statement ok
+DETACH backfill_meta
+
+statement ok
+DROP TABLE backfill_table_id
+
+# --------------------------------------------------------------------------
+# Case 2 - GENUINELY PLAIN LAKE, BACKFILLS 'false' EVEN WITHOUT A SOCKET.
+# Superseded narrative (PR #95 Update 4, ducklake#96 fail-closed flip): the
+# ordinary re-ATTACH below supplies no CRYPTA_SOCKET, so
+# catalog.EncryptionProvider() is null - but catalog.Encryption() reads the
+# persisted 'encrypted' tag as UNENCRYPTED, which is POSITIVE evidence this
+# lake cannot possibly be enveloped (envelope requires ENCRYPTED, necessary
+# but not sufficient). LoadExistingDuckLake now backfills 'false' on that
+# evidence alone, without needing a socket. See
+# crypta_server_side_commit_failclosed_unknown_envelope.test for the
+# fail-closed default this backfill exists to lift: before this re-ATTACH,
+# a zero-attach commit against this exact planted state refuses (the
+# disclosed, accepted residual); after it, the key is explicit 'false' and
+# commits resume succeeding, which this file asserts below.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/preexisting_plain.db' AS plain (DATA_PATH '__TEST_DIR__/preexisting_plain_files', METADATA_CATALOG 'plain_meta')
+
+statement ok
+CREATE TABLE plain.person(part_key INTEGER, person_source_value VARCHAR)
+
+statement ok
+INSERT INTO plain.person VALUES (1, 'PT-000061-SENTINEL')
+
+# A plain lake gets 'encryption_envelope'='false' at creation - not absent,
+# just false. Delete it too, so this control plants the SAME "row missing"
+# state the enveloped case does, rather than a different one.
+statement ok
+DETACH plain
+
+statement ok
+ATTACH '__TEST_DIR__/preexisting_plain.db' AS plain_plant_meta
+
+statement ok
+DELETE FROM plain_plant_meta.ducklake_metadata WHERE key = 'encryption_envelope'
+
+statement ok
+DETACH plain_plant_meta
+
+# Ordinary re-ATTACH, no socket supplied - this is the control's whole point.
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/preexisting_plain.db' AS plain_reattached (DATA_PATH '__TEST_DIR__/preexisting_plain_files', METADATA_CATALOG 'plain_reattached_meta')
+
+# The backfill fires - 'false', on the UNENCRYPTED evidence alone, even
+# though this attach supplied no CRYPTA_SOCKET.
+query I
+SELECT value FROM plain_reattached_meta.ducklake_metadata WHERE key = 'encryption_envelope'
+----
+false
+
+statement ok
+CREATE TEMPORARY TABLE plain_table_id AS SELECT table_id FROM plain_reattached_meta.ducklake_table WHERE table_name = 'person'
+
+statement ok
+DETACH plain_reattached
+
+statement ok
+ATTACH '__TEST_DIR__/preexisting_plain.db' AS plain_backfill_meta
+
+statement ok
+TRUNCATE ducklake_staged_commit
+
+statement ok
+TRUNCATE ducklake_staged_data_file
+
+statement ok
+TRUNCATE ducklake_staged_data_file_partition
+
+statement ok
+INSERT INTO ducklake_staged_commit VALUES ('external-writer', 'staged append control, plain lake', NULL, NULL, NULL, NULL, NULL, NULL)
+
+statement ok
+INSERT INTO ducklake_staged_data_file VALUES (9102, (SELECT table_id FROM plain_table_id), 0, '/fake/staged_plain_control.parquet', false, 'parquet', 1, 100, NULL, NULL, 0, NULL, NULL, NULL, NULL, NULL)
+
+statement ok
+INSERT INTO ducklake_staged_data_file_partition VALUES (9102, 0, '1')
+
+statement ok
+SELECT * FROM ducklake_commit('plain_backfill_meta', -1)
+
+# Unaffected: the cleartext partition value lands exactly as it always did
+# on a plain lake.
+query I
+SELECT count(*) FROM plain_backfill_meta.ducklake_file_partition_value
+----
+1
+
+statement ok
+DETACH plain_backfill_meta
+
+statement ok
+DROP TABLE plain_table_id
