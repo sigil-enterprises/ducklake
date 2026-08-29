@@ -33,6 +33,7 @@
 #include "duckdb/common/types/blob.hpp"
 #include "duckdb/common/types/string_type.hpp"
 #include "duckdb/common/helper.hpp"
+#include "duckdb/common/numeric_utils.hpp"
 
 #include <cerrno>
 #include <cstdio>
@@ -214,7 +215,7 @@ public:
 		return "test-kms-noop";
 	}
 
-	const string &LakeId() const override {
+	const string &GetLakeId() const override {
 		return lake_id;
 	}
 
@@ -362,7 +363,7 @@ public:
 		return roots.empty() ? string("test-kms") : roots[0];
 	}
 
-	const string &LakeId() const override {
+	const string &GetLakeId() const override {
 		return lake_id;
 	}
 
@@ -492,13 +493,18 @@ void DuckLakeRegisterKmsProvider() {
 	// they pass against the real one - never a runtime knob for anything
 	// else.
 	bool noop = std::getenv("DUCKLAKE_TEST_KMS_NOOP") != nullptr;
-	DuckLakeEncryptionProvider::RegisterFactory(
-	    [noop](string socket, string lake_id, int64_t ttl) -> unique_ptr<DuckLakeEncryptionProvider> {
-		    if (noop) {
-			    return make_uniq<NoOpKmsProvider>(std::move(socket), std::move(lake_id), ttl);
-		    }
-		    return make_uniq<TestKmsProvider>(std::move(socket), std::move(lake_id), ttl);
-	    });
+	// The attaching DatabaseInstance is unused here: this provider does no
+	// cryptography of its own, so it needs none of the database's crypto
+	// primitives - whatever is behind the socket does the wrapping.
+	auto factory = [noop](DatabaseInstance &, const string &encryption_socket, const string &encryption_lake_id,
+	                      idx_t cache_ttl_seconds) -> unique_ptr<DuckLakeEncryptionProvider> {
+		auto ttl = NumericCast<int64_t>(cache_ttl_seconds);
+		if (noop) {
+			return make_uniq<NoOpKmsProvider>(encryption_socket, encryption_lake_id, ttl);
+		}
+		return make_uniq<TestKmsProvider>(encryption_socket, encryption_lake_id, ttl);
+	};
+	DuckLakeEncryptionProvider::RegisterFactory(std::move(factory));
 }
 
 } // namespace duckdb

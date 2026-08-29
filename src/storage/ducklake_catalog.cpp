@@ -8,6 +8,7 @@
 #include "duckdb/catalog/catalog_entry/macro_catalog_entry.hpp"
 #include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
+#include "duckdb/common/numeric_utils.hpp"
 #include "duckdb/common/operator/cast_operators.hpp"
 #include "duckdb/common/types/uuid.hpp"
 #include "duckdb/function/macro_function.hpp"
@@ -215,6 +216,20 @@ DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options
 			                            "Either set encryption_socket "
 			                            "or drop encryption_lake_id");
 		}
+		if (options.encryption_socket.empty()) {
+			throw InvalidInputException("encryption_socket was set to an empty string - supply the address of the key "
+			                            "service, or omit the option to run without an encryption envelope");
+		}
+		if (options.encryption_lake_id.empty()) {
+			throw InvalidInputException("encryption_socket requires a non-empty encryption_lake_id - without it keys "
+			                            "are interchangeable between lakes");
+		}
+		if (options.encryption_cache_ttl_seconds < 0 ||
+		    options.encryption_cache_ttl_seconds > DuckLakeEncryptionProvider::MAX_CACHE_TTL_SECONDS) {
+			throw InvalidInputException("encryption_cache_ttl_seconds must be between 0 and %lld, not %lld",
+			                            DuckLakeEncryptionProvider::MAX_CACHE_TTL_SECONDS,
+			                            options.encryption_cache_ttl_seconds);
+		}
 		if (options.encryption == DuckLakeEncryption::UNENCRYPTED) {
 			throw InvalidInputException("an encryption envelope option was set on an UNENCRYPTED DuckLake - "
 			                            "there are no per-file "
@@ -251,7 +266,8 @@ DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options
 			                            "ENCRYPTION_LAKE_ID to run "
 			                            "without a KMS envelope (plaintext per-file keys).");
 		}
-		encryption_provider = factory(options.encryption_socket, options.encryption_lake_id, ttl_seconds);
+		encryption_provider = factory(db_p.GetDatabase(), options.encryption_socket, options.encryption_lake_id,
+		                              NumericCast<idx_t>(ttl_seconds));
 	}
 	// figure out the metadata server type
 	auto entry = options.metadata_parameters.find("type");
