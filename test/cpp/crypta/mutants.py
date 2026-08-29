@@ -1103,6 +1103,15 @@ EXTENSION_MUTANTS = [
         # no DuckLake attached anywhere in the session; either statement failing
         # to refuse reddens the file, and this marker names the first of them.
         "redden_at": "ducklake_commit('ssappend_meta', -1)",
+        # MEASURED, and deliberately NOT asserted on. Applying this mutant also
+        # reds crypta_server_side_commit_backfill_pre_existing_lake.test:219 and
+        # crypta_server_side_commit_failclosed_unknown_envelope.test:152, both of
+        # which reach this same call site. Those two do not fail on a missing
+        # refusal - they die on a DuckDB internal assertion once the unrefused
+        # partition value is in flight - and an internal-assertion crash is too
+        # brittle a thing for a positive control to depend on. The attributable
+        # red is the one named above. The compaction twin below reds exactly one
+        # fixture and nothing else, which is why only this entry needs the note.
     },
     {
         "name": "no_partition_write_refusal_on_server_side_compaction",
