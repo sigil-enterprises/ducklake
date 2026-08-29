@@ -16,6 +16,20 @@ DuckLakeEncryptionProvider::Factory *global_factory = nullptr;
 
 } // namespace
 
+// This project builds at C++11 (duckdb's CMakeLists pins CMAKE_CXX_STANDARD 11), where a static
+// constexpr member still needs an out-of-line definition the moment it is ODR-used. Passing one
+// through a variadic - StringUtil::Format, and so every exception message - is exactly that: a
+// vararg takes no lvalue-to-rvalue conversion, so the linker asks for an address.
+//
+// Measured, not reasoned about. Without these two lines the loadable extension links fine while
+// `duckdb`, `test/unittest` and `tools/plan_serializer` - every target that links
+// libducklake_extension.a statically - fail with `undefined reference to
+// DuckLakeEncryptionProvider::MAX_CACHE_TTL_SECONDS`. That is the same asymmetry that hid the
+// dropped provider registration: a shared library and a static archive do not agree about what a
+// symbol costs.
+constexpr int64_t DuckLakeEncryptionProvider::DEFAULT_CACHE_TTL_SECONDS;
+constexpr int64_t DuckLakeEncryptionProvider::MAX_CACHE_TTL_SECONDS;
+
 bool DuckLakeEncryptionProvider::LooksWrapped(const string &stored_value) {
 	// A wrapped value starts with the fixed header "DLK1", whose first three bytes base64 as the
 	// literal prefix "RExL". The length floor is part of the test: without it a plaintext key that
