@@ -1077,6 +1077,50 @@ EXTENSION_MUTANTS = [
         "reddens": ["test/sql/crypta/adversary_flush_null_key.test"],
         "redden_at": "CALL ducklake_flush_inlined_data('flusher')",
     },
+    {
+        "name": "no_partition_write_refusal_on_server_side_append",
+        "file": "src/storage/ducklake_server_side_commit.cpp",
+        "why": "the #100 gap in the SERVER-SIDE commit path. "
+        "DuckLakeServerSideCommit::ReadStagedDataFiles calls "
+        "state->local_changes.AppendFiles DIRECTLY, bypassing "
+        "DuckLakeTransaction::AppendFiles - the only place #95 wired "
+        "RefusePartitionValuesOnEnvelopedLake in. ducklake_commit is the "
+        "MULTI-ENGINE write path: a writer that never runs any DuckLake C++ "
+        "at all (Spark, Trino) stages rows into ducklake_staged_data_file* "
+        "over a plain SQL connection and calls ducklake_commit to finalize. "
+        "Without this call the cleartext partition value goes into "
+        "ducklake_file_partition_value on an ENVELOPED lake with zero "
+        "refusal - the whole point of the envelope leaked through the door "
+        "the client-side guard does not cover",
+        # is_enveloped is forced false rather than the call being deleted, so
+        # `enveloped` stays used and no -Wunused-variable appears alongside the
+        # red. A mutant that also breaks the build proves nothing about the guard.
+        "old": "\t\t\t\tDuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(enveloped, entry.first, file);",
+        "new": "\t\t\t\tDuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(enveloped && false, entry.first, file);",
+        "reddens": ["test/sql/crypta/crypta_server_side_commit_partition_refusal.test"],
+        # The staged-append case. The same fixture also covers the zero-attach
+        # append (sszero_meta), which runs through this identical call site with
+        # no DuckLake attached anywhere in the session; either statement failing
+        # to refuse reddens the file, and this marker names the first of them.
+        "redden_at": "ducklake_commit('ssappend_meta', -1)",
+    },
+    {
+        "name": "no_partition_write_refusal_on_server_side_compaction",
+        "file": "src/storage/ducklake_server_side_commit.cpp",
+        "why": "the COMPACTION twin of the mutant above, and it is a separate "
+        "mutant for the reason #100 existed at all: one guard wired at one "
+        "call site is not the same as the path being covered. "
+        "ReadStagedCompactions calls state->local_changes.AddCompaction "
+        "directly, bypassing DuckLakeTransaction::AddCompaction, so a "
+        "COMPACTED file staged by a non-DuckLake writer reaches the catalog "
+        "on a path the append guard never touches. Removing only this one "
+        "leaves the append case refusing exactly as before, which is what "
+        "makes the red attributable to this site",
+        "old": "\t\tDuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(IsEnvelopedLake(), shell.table_id,",
+        "new": "\t\tDuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(IsEnvelopedLake() && false, shell.table_id,",
+        "reddens": ["test/sql/crypta/crypta_server_side_commit_partition_refusal.test"],
+        "redden_at": "ducklake_commit('sscompact_meta', -1)",
+    },
 ]
 
 # A standalone mutant must name a file the standalone project actually compiles.

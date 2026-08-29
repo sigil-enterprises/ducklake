@@ -14,11 +14,32 @@
 # against DuckLakeEncryptionProvider, and a crypta that moves under us produces
 # a build failure at best and a silently wrong link at worst.
 #
-# crypta@fcd507da is the default-branch head as of 2026-08-24. Its
-# ducklake-provider/src and ducklake-provider/include are BYTE-IDENTICAL to
-# crypta@e0353e67, the pin opvance/ducklake-migration-bench builds green
-# against; the commits between the two touch only ducklake-provider/scripts/.
-#   git diff --stat e0353e67 fcd507da -- ducklake-provider
-#     ducklake-provider/scripts/... only, 6 files, no .cpp/.hpp/CMakeLists
+# crypta@5404ce1d is the head of crypta's `adopt-reworked-encryption-interface`
+# (sigil-enterprises/crypta#75), NOT a default-branch commit, and that is a
+# deliberate exception to the paragraph above rather than an oversight.
+#
+# WHY. This branch changes the DuckLakeEncryptionProvider factory signature
+# (`DatabaseInstance &` first, `idx_t` TTL) and renames `LakeId()` to
+# `GetLakeId()`. crypta's default branch implements the OLD signature, so the
+# previous pin does not compile against this branch at all - measured, not
+# predicted, on run 33266818856:
+#
+#   src/include/crypta/ducklake_crypta.hpp:85: error: 'LakeId() const' marked
+#     'override', but does not override
+#   src/crypta-provider/crypta_provider_init.cpp:55: error: cannot convert
+#     '<lambda(std::string, std::string, int64_t)>' to
+#     'DuckLakeEncryptionProvider::Factory'
+#   helper.hpp:66: error: invalid new-expression of abstract class type
+#     'DuckLakeCryptaProvider'
+#
+# The pair is genuinely circular for the length of the two pull requests: this
+# branch cannot build against crypta main, and crypta#75 cannot build against
+# ducklake main. Both sides therefore carry a temporary BRANCH pin at the other
+# - crypta's ducklake-provider/ducklake.pin points here for the same reason -
+# and both say so in the file rather than hiding it in a commit message.
+#
+# RE-PIN THIS to the squash-merge sha the moment crypta#75 lands on crypta's
+# default branch. A release built off a branch pin is a release whose provider
+# source can be rewritten out from under it.
 CRYPTA_REPO=sigil-enterprises/crypta
-CRYPTA_REF=fcd507daff2dd97dcf595cf9ffb868754062d78e
+CRYPTA_REF=5404ce1d4473a2ab45bf8e9c188843c7012a0602
