@@ -63,6 +63,10 @@ void DuckLakeEncryptionProvider::RegisterFactory(Factory factory) {
 	global_factory = new Factory(std::move(factory));
 }
 
+bool DuckLakeEncryptionProvider::HasFactory() {
+	return global_factory != nullptr;
+}
+
 const DuckLakeEncryptionProvider::Factory &DuckLakeEncryptionProvider::GetFactory() {
 	static Factory empty;
 	if (!global_factory) {

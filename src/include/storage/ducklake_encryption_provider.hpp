@@ -95,6 +95,10 @@ public:
 	//! Throws when a factory is already registered: a second one would make the provider a lake gets
 	//! depend on extension load order.
 	static void RegisterFactory(Factory factory);
+	//! Whether a factory is already registered. Registration is per-PROCESS while extension loading
+	//! is per-DatabaseInstance, so the loader must be able to ask before it registers - otherwise a
+	//! host that opens a second database in one process trips the refusal above.
+	static bool HasFactory();
 	static const Factory &GetFactory();
 };
 
