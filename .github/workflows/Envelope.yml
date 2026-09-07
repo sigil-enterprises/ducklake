@@ -60,7 +60,7 @@ jobs:
 
   envelope-e2e:
     name: KMS envelope end to end (test provider + fake key service)
-    runs-on: ${{ vars.CI_RUNS_ON && fromJSON('["self-hosted","fleet-amd64"]') || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNS_ON && fromJSON('["self-hosted","X64"]') || 'ubuntu-latest' }}
     env:
       VCPKG_TARGET_TRIPLET: x64-linux
       GEN: Ninja
@@ -230,7 +230,7 @@ jobs:
   # description rather than attempted piecemeal here.
   crypta-mutant-red-control:
     name: A crypta guard removed by mutants.py actually reddens its fixture (${{ matrix.mutant }})
-    runs-on: ${{ vars.CI_RUNS_ON && fromJSON('["self-hosted","fleet-amd64"]') || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNS_ON && fromJSON('["self-hosted","X64"]') || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
