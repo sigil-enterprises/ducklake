@@ -44,7 +44,7 @@ defaults:
 jobs:
   roster:
     name: Every mutant resolves against the tree
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
 

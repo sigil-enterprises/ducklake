@@ -15,7 +15,7 @@ concurrency:
 jobs:
   get-duckdb-version:
     name: Get DuckDB version
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-latest' }}
     outputs:
       duckdb_version: ${{ steps.version.outputs.version }}
     steps:

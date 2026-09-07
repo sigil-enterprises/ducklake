@@ -14,7 +14,7 @@ defaults:
 jobs:
   ducklake-deletion-vector-tests:
     name: DuckLake Tests (Deletion Vectors)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNS_ON && fromJSON('["self-hosted","fleet-amd64"]') || 'ubuntu-latest' }}
     strategy:
       matrix:
         arch: ['linux_amd64']

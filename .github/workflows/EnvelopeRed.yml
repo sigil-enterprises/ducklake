@@ -23,7 +23,7 @@ on:
 jobs:
   guards:
     name: Envelope guards
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
 
