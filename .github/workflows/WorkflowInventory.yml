@@ -49,7 +49,7 @@ defaults:
 jobs:
   inventory:
     name: Every advertised workflow has a file
-    runs-on: ${{ vars.CI_RUNS_ON && fromJSON('{"group":"fleet","labels":["self-hosted"]}') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       # Full history and all refs: the question is about every branch, not this
       # one, and a shallow single-branch clone could not answer it.
