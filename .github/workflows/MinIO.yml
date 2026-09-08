@@ -17,7 +17,7 @@ env:
 jobs:
   rest:
     name: Tests using MinIo (AWS)
-    runs-on: ${{ vars.CI_RUNS_ON && fromJSON('["self-hosted","X64"]') || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNS_ON && fromJSON('["self-hosted","gama"]') || 'ubuntu-latest' }}
     env:
       VCPKG_TARGET_TRIPLET: 'x64-linux-release'
       GEN: ninja

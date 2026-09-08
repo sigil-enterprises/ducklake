@@ -19,7 +19,7 @@ permissions:
 jobs:
   build-extension:
     name: Build ducklake for linux_amd64
-    runs-on: ${{ vars.CI_RUNS_ON && fromJSON('["self-hosted","X64"]') || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNS_ON && fromJSON('["self-hosted","gama"]') || 'ubuntu-latest' }}
     outputs:
       # Both this and the upload name derive from the SAME step output, so the
       # artifact the provers fetch cannot name a version nobody built.
@@ -64,7 +64,7 @@ jobs:
   prove-pip-wheel:
     name: LOAD into the PyPI duckdb wheel
     needs: build-extension
-    runs-on: ${{ vars.CI_RUNS_ON && fromJSON('["self-hosted","X64"]') || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNS_ON && fromJSON('["self-hosted","gama"]') || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -90,7 +90,7 @@ jobs:
   prove-released-cli:
     name: LOAD into the released duckdb CLI zip
     needs: build-extension
-    runs-on: ${{ vars.CI_RUNS_ON && fromJSON('["self-hosted","X64"]') || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNS_ON && fromJSON('["self-hosted","gama"]') || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4

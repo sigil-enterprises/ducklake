@@ -14,7 +14,7 @@ defaults:
 jobs:
   ducklake-config-tests:
     name: DuckDB Tests with DuckLake + (Postgres/SQLite)
-    runs-on: ${{ vars.CI_RUNS_ON && fromJSON('["self-hosted","X64"]') || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNS_ON && fromJSON('["self-hosted","gama"]') || 'ubuntu-latest' }}
     strategy:
       matrix:
         arch: ['linux_amd64']
