@@ -70,6 +70,9 @@ jobs:
       - name: Setup Ccache
         uses: hendrikmuhs/ccache-action@main
         continue-on-error: true
+        with:
+          key: ${{ github.job }}
+          save: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Build extension
         env:

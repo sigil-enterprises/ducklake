@@ -36,6 +36,10 @@ jobs:
       duckdb_version: ${{ needs.get-duckdb-version.outputs.duckdb_version }}
       ci_tools_version: v1.5-variegata
       extension_name: ducklake
+      # The reusable workflow saves a TIMESTAMPED ccache entry per matrix leg
+      # (`save_cache` defaults true), so every branch and PR run writes ~9 new
+      # cache entries that nothing ever restores. Save only on main.
+      save_cache: ${{ github.ref == 'refs/heads/main' }}
 
   # duckdb-next-deploy is DELETED, not disabled (ducklake#37).
   #
