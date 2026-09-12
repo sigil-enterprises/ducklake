@@ -115,13 +115,6 @@ jobs:
             exit 1
           fi
 
-      # TEMPORARY, REMOVED IN THE NEXT COMMIT. Asserts the OPPOSITE of what the
-      # gate must say about the PE control, so the refusal is observable as a
-      # RED run rather than only as a PASS line inside the self-test harness.
-      # A positive control nobody has watched fail is the defect being fixed.
-      - name: TEMPORARY - the PE control asserted as provider-PRESENT must RED
-        run: bash .github/scripts/assert_provider_linked.sh --expect present /tmp/control/pe
-
       - name: PROVE the provider gate fires on a REAL provider-less artifact
         run: |
           . .github/provider-less-control
