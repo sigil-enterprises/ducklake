@@ -2,8 +2,6 @@
 """
 A minimal KMS that speaks CryptaWireManifest@v3 over a Unix socket.
 
-PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
-
 WHY THIS EXISTS BESIDE test/sql/crypta/fake_crypta.py, RATHER THAN REPLACING IT
 -------------------------------------------------------------------------------
 `test/sql/crypta/fake_crypta.py` now sets `WIRE_SCHEMA = "CryptaWireManifest@v3"`

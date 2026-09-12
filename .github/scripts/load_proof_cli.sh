@@ -12,8 +12,7 @@ ROWS=1000
 EXPECTED="$ROWS,$(( ROWS * (ROWS - 1) / 2 ))"
 
 # httpfs must be loaded alongside ducklake or an encrypted write dies on
-# "DuckDB currently has a read-only crypto module loaded"
-# (opvance/teras-ext-pgwire#84).
+# "DuckDB currently has a read-only crypto module loaded".
 PRELUDE="INSTALL httpfs; LOAD httpfs; LOAD '$EXT';"
 
 run() { "$CLI" -unsigned -noheader -csv -c "$1"; }

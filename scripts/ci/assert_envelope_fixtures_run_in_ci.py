@@ -3,8 +3,6 @@
 REFUSE a tree in which the KMS envelope fixtures exist but nothing in CI runs
 them.
 
-PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
-
 WRITTEN TO RED main (87068373). See issue #52.
 
 THE DEFECT

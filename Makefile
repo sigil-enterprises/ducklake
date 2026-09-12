@@ -17,7 +17,7 @@ endif
 # Include the Makefile from extension-ci-tools
 include extension-ci-tools/makefiles/duckdb_extension.Makefile
 
-#### Local check gate (ducklake#27, ducklake-bench#102)
+#### Local check gate
 # The included duckdb_extension.Makefile's format-check invokes plain
 # `clang-format`, which CI gets from `pip install clang_format==11.0.1`. That
 # same PyPI release's macOS wheel is `universal2` (covers arm64 fine), but its

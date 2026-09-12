@@ -2,10 +2,10 @@
 #
 # Assert the crypta KMS provider is actually LINKED INTO a built artifact.
 #
-# Vendored into this repo deliberately (ducklake#46). It previously existed only
-# in opvance/ducklake-migration-bench, so this repo's release path could not call
-# it, and a release could ship a provider-less extension and stay green. A gate
-# naming a script that is not in the tree is itself a vacuous gate.
+# Vendored into this repo deliberately. It previously existed only in a separate
+# benchmarking repository, so this repo's release path could not call it, and a
+# release could ship a provider-less extension and stay green. A gate naming a
+# script that is not in the tree is itself a vacuous gate.
 #
 # Three traps this script is written to avoid:
 #

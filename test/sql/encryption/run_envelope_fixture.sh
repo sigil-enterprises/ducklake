@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 #
-# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
-#
 # Run ANY envelope fixture with a reachable fake key service behind it.
 #
 #   test/sql/encryption/run_envelope_fixture.sh test/sql/encryption/some.test [...]

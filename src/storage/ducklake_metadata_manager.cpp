@@ -191,18 +191,14 @@ void DuckLakeMetadataManager::InitializeDuckLake(bool has_explicit_schema, DuckL
 	auto &base_data_path = ducklake_catalog.DataPath();
 	string data_path = StorePath(base_data_path);
 	string encryption_str = encryption == DuckLakeEncryption::ENCRYPTED ? "true" : "false";
-	// >>> FORK-LOCAL (sigil-enterprises): persist envelope status independent of encrypted flag. >>>
-	// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+	// Persist envelope status independent of encrypted flag.
 	//
-	// 'encrypted' above only tracks DuckLakeEncryption::ENCRYPTED (plain
-	// per-file keys, no KMS). encryption_socket (the envelope) is a strictly
-	// narrower, separate condition - ENCRYPTED is necessary but not sufficient
-	// for it. Persisting it separately lets a session with zero DuckLake
-	// attached (DuckLakeServerSideCommit::IsEnvelopedLake) tell them apart;
-	// querying 'encrypted' alone would wrongly refuse plain-ENCRYPTED, non-crypta
-	// lakes too (caught by test/sql/encryption/partitioning_encryption.test).
+	// 'encrypted' above only tracks DuckLakeEncryption::ENCRYPTED (plain per-file keys, no KMS). encryption_socket (the
+	// envelope) is a strictly narrower, separate condition - ENCRYPTED is necessary but not sufficient for it.
+	// Persisting it separately lets a session with zero DuckLake attached (DuckLakeServerSideCommit::IsEnvelopedLake)
+	// tell them apart; querying 'encrypted' alone would wrongly refuse plain-ENCRYPTED, non-crypta lakes too (caught by
+	// test/sql/encryption/partitioning_encryption.test).
 	string envelope_str = is_enveloped ? "true" : "false";
-	// <<< FORK-LOCAL (sigil-enterprises) <<<
 	initialize_query += StringUtil::Format(R"(
 CREATE TABLE {METADATA_CATALOG}.ducklake_metadata(key VARCHAR NOT NULL, value VARCHAR NOT NULL, scope VARCHAR, scope_id BIGINT);
 CREATE TABLE {METADATA_CATALOG}.ducklake_snapshot(snapshot_id BIGINT PRIMARY KEY, snapshot_time TIMESTAMPTZ, schema_version BIGINT, next_catalog_id BIGINT, next_file_id BIGINT);
@@ -353,8 +349,7 @@ DELETE FROM {METADATA_CATALOG}.ducklake_schema_versions WHERE table_id IS NULL;
 	}
 }
 
-// >>> FORK-LOCAL (sigil-enterprises): see header comment. PRIVATE-FORK ONLY.
-// Never cherry-pick this method upstream.
+// See header comment.
 void DuckLakeMetadataManager::BackfillEncryptionEnvelopeFlag(bool is_enveloped) {
 	auto backfill_query = StringUtil::Format(
 	    "INSERT INTO {METADATA_CATALOG}.ducklake_metadata (key, value) VALUES ('encryption_envelope', '%s');",
@@ -364,7 +359,6 @@ void DuckLakeMetadataManager::BackfillEncryptionEnvelopeFlag(bool is_enveloped) 
 		result->GetErrorObject().Throw("Failed to backfill 'encryption_envelope' metadata key: ");
 	}
 }
-// <<< FORK-LOCAL (sigil-enterprises) <<<
 
 void DuckLakeMetadataManager::MigrateV04() {
 	auto result = transaction.Query(R"(
@@ -3354,14 +3348,10 @@ string DuckLakeMetadataManager::FromRelativePath(TableIndex table_id, const Duck
 }
 
 string DuckLakeMetadataManager::StorePath(string path, const string &separator) {
-	// >>> FORK-LOCAL (sigil-enterprises): guard against an empty separator. >>>
-	// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
-	// StringUtil::Replace throws an internal error on an empty search string;
-	// an empty separator means "no separator to translate", the same as "/",
-	// not "translate every character". Mirrors the guard already present in
-	// DuckLakeTransactionState::GetRelativePath for the same reason.
+	// Guard against an empty separator. StringUtil::Replace throws an internal error on an empty search string; an
+	// empty separator means "no separator to translate", the same as "/", not "translate every character". Mirrors the
+	// guard already present in DuckLakeTransactionState::GetRelativePath for the same reason.
 	if (separator.empty() || separator == "/") {
-		// <<< FORK-LOCAL (sigil-enterprises) <<<
 		return path;
 	}
 	return StringUtil::Replace(path, separator, "/");
@@ -3564,11 +3554,9 @@ string DuckLakeMetadataManager::WriteNewDataFilesWithAppender(DuckLakeSnapshot &
 		} else {
 			data_file_appender.Append(Value());
 		}
-		// >>> FORK-LOCAL (sigil-enterprises): route through the same guarded
-		// helper WriteNewDataFilesSqlBatch uses (DuckLakeUtil::
-		// WrappedEncryptionKeyLiteral's shared logic), instead of an
-		// independent, unguarded copy of the wrap-or-plaintext decision
-		// (bench#96). PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+		// Route through the same guarded helper WriteNewDataFilesSqlBatch uses (DuckLakeUtil::
+		// WrappedEncryptionKeyLiteral's shared logic), instead of an independent, unguarded copy of the wrap-or-
+		// plaintext decision.
 		{
 			string wrapped_value;
 			if (DuckLakeUtil::WrappedEncryptionKeyOrThrow(file.encryption_key, !file.encryption_key.empty(),
@@ -3579,7 +3567,6 @@ string DuckLakeMetadataManager::WriteNewDataFilesWithAppender(DuckLakeSnapshot &
 				data_file_appender.Append(Value());
 			}
 		}
-		// <<< FORK-LOCAL (sigil-enterprises) <<<
 		if (file.mapping_id.IsValid()) {
 			data_file_appender.Append<int64_t>(static_cast<int64_t>(file.mapping_id.index)); // mapping_id
 		} else {
@@ -3876,25 +3863,18 @@ string DuckLakeMetadataManager::WriteNewDataFilesSqlBatch(const vector<DuckLakeF
 	    StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_data_file VALUES %s;", data_file_insert_query);
 
 	// insert the column stats
-	// >>> FORK-LOCAL (sigil-enterprises): skip the column-stats INSERT entirely when there are no stats. >>>
-	// PRIVATE-FORK ONLY. Never cherry-pick this block upstream.
+	// Skip the column-stats INSERT entirely when there are no stats.
 	//
-	// column_stats_insert_query, unlike partition_insert_query and
-	// variant_stats_insert_query right below, was appended unconditionally -
-	// "INSERT INTO ... ducklake_file_column_stats VALUES ;" with an empty
-	// VALUES list is a SQL syntax error, not an empty no-op. A normal
-	// DuckLake write always computes per-file column stats itself, so this
-	// never fires through DuckLake's own write path, but ducklake_commit's
-	// whole purpose is finalizing files staged by an external writer
-	// (Spark, Trino, ...) that is not obligated to populate
-	// ducklake_staged_data_file_column_stats at all - a legitimate,
-	// unencrypted server-side commit with zero staged column stats hit this
-	// exact syntax error.
+	// Column_stats_insert_query, unlike partition_insert_query and variant_stats_insert_query right below, was appended
+	// unconditionally - "INSERT INTO ... ducklake_file_column_stats VALUES ;" with an empty VALUES list is a SQL syntax
+	// error, not an empty no-op. A normal DuckLake write always computes per-file column stats itself, so this never
+	// fires through DuckLake's own write path, but ducklake_commit's whole purpose is finalizing files staged by an
+	// external writer (Spark, Trino, ...) that is not obligated to populate ducklake_staged_data_file_column_stats at
+	// all - a legitimate, unencrypted server-side commit with zero staged column stats hit this exact syntax error.
 	if (!column_stats_insert_query.empty()) {
 		batch_query += StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_file_column_stats VALUES %s;",
 		                                  column_stats_insert_query);
 	}
-	// <<< FORK-LOCAL (sigil-enterprises) <<<
 	if (!partition_insert_query.empty()) {
 		// insert the partition values
 		batch_query += StringUtil::Format("INSERT INTO {METADATA_CATALOG}.ducklake_file_partition_value VALUES %s;",

@@ -58,7 +58,7 @@ void DuckLakeCatalog::RefuseMissingEncryptionKey(const string &file_path) const 
 		return;
 	}
 	// Upstream's message, character for character, because it is what the
-	// existing tests and the operator runbooks match on.
+	// existing tests and the operator documentation match on.
 	throw InvalidInputException("Database is encrypted, but file %s does not have an encryption key", file_path);
 }
 

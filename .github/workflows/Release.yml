@@ -192,9 +192,9 @@ jobs:
           # rule on one real binary, every run.
           echo "asset=ducklake.linux_amd64.${tag}.duckdb-${{ steps.pin.outputs.version }}.duckdb_extension" >> "$GITHUB_OUTPUT"
 
-      # The provider is private and lives out of tree. sigil-pt is installed on
-      # every repo in the org and its secrets are visible to public repos, which
-      # CT_* are not - this repo is public.
+      # The provider is private and lives out of tree. The token-minting app is
+      # installed org-wide and its credentials are available to public
+      # repositories - which this one is - unlike the release-signing secrets.
       - name: Mint a token that can read the private crypta repo
         id: tok
         uses: actions/create-github-app-token@v2

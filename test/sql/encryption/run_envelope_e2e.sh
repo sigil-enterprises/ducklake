@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 #
-# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
-#
 # Run the KMS envelope end-to-end fixture with a reachable fake key service
 # behind it.
 #
