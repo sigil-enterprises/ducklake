@@ -69,8 +69,6 @@ jobs:
       # .github/provider-less-control for why the obvious objcopy plant is
       # circular and does not even produce a provider-less binary.
       - name: Fetch the pinned provider-less control artifacts
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           . .github/provider-less-control
@@ -84,14 +82,18 @@ jobs:
           sha256sum -c /tmp/control/sum.elf \
             || { echo "::error::the ELF provider-less control does not match its pinned sha256. A negative control that silently changed identity is a negative control nobody is testing."; exit 1; }
 
-          # SECONDARY control - PE32+, for object-format breadth only.
-          gh release download "$PE_CONTROL_TAG" --repo "$GITHUB_REPOSITORY" \
-            --pattern "$PE_CONTROL_ASSET" --dir /tmp/control --clobber \
-            || { echo "::error::cannot fetch the PE provider-less control asset $PE_CONTROL_ASSET from $PE_CONTROL_TAG."; exit 1; }
-          mv "/tmp/control/${PE_CONTROL_ASSET}" /tmp/control/pe
+          # SECONDARY control - PE32+, for object-format breadth only. Pinned by
+          # URL and sha256 exactly as the ELF control is, and deliberately NOT
+          # an asset of this repository's own releases: those are mutable, the
+          # ones this control used to name were deleted, and the fetch then
+          # failed with "no assets to download" while the job still claimed to
+          # be testing two object formats. See .github/provider-less-control.
+          curl -fsSL -o /tmp/control/pe.gz "$PE_CONTROL_URL" \
+            || { echo "::error::cannot fetch the PE provider-less control from $PE_CONTROL_URL. The PE half of the negative control is unavailable, so the gate cannot be shown to fire on a non-ELF object. Refusing rather than skipping - a skip exits ZERO and reads as a pass."; exit 1; }
+          gunzip -f /tmp/control/pe.gz
           echo "${PE_CONTROL_SHA256}  /tmp/control/pe" > /tmp/control/sum.pe
           sha256sum -c /tmp/control/sum.pe \
-            || { echo "::error::the PE provider-less control asset does not match its pinned sha256."; exit 1; }
+            || { echo "::error::the PE provider-less control does not match its pinned sha256. A negative control that silently changed identity is a negative control nobody is testing."; exit 1; }
 
       # The PE control is a Windows DLL, and reading it needs a `nm` carrying
       # the pe-x86-64 BFD target. The hosted ubuntu-22.04 image happens to ship
@@ -305,8 +307,6 @@ jobs:
       # tool, opposite verdicts on artifacts that share a format - which is the
       # only shape in which either verdict carries information.
       - name: Fetch the pinned provider-less control artifacts
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           . .github/provider-less-control
@@ -320,14 +320,18 @@ jobs:
           sha256sum -c /tmp/control/sum.elf \
             || { echo "::error::the ELF provider-less control does not match its pinned sha256. A negative control that silently changed identity is a negative control nobody is testing."; exit 1; }
 
-          # SECONDARY control - PE32+, for object-format breadth only.
-          gh release download "$PE_CONTROL_TAG" --repo "$GITHUB_REPOSITORY" \
-            --pattern "$PE_CONTROL_ASSET" --dir /tmp/control --clobber \
-            || { echo "::error::cannot fetch the PE provider-less control asset $PE_CONTROL_ASSET from $PE_CONTROL_TAG."; exit 1; }
-          mv "/tmp/control/${PE_CONTROL_ASSET}" /tmp/control/pe
+          # SECONDARY control - PE32+, for object-format breadth only. Pinned by
+          # URL and sha256 exactly as the ELF control is, and deliberately NOT
+          # an asset of this repository's own releases: those are mutable, the
+          # ones this control used to name were deleted, and the fetch then
+          # failed with "no assets to download" while the job still claimed to
+          # be testing two object formats. See .github/provider-less-control.
+          curl -fsSL -o /tmp/control/pe.gz "$PE_CONTROL_URL" \
+            || { echo "::error::cannot fetch the PE provider-less control from $PE_CONTROL_URL. The PE half of the negative control is unavailable, so the gate cannot be shown to fire on a non-ELF object. Refusing rather than skipping - a skip exits ZERO and reads as a pass."; exit 1; }
+          gunzip -f /tmp/control/pe.gz
           echo "${PE_CONTROL_SHA256}  /tmp/control/pe" > /tmp/control/sum.pe
           sha256sum -c /tmp/control/sum.pe \
-            || { echo "::error::the PE provider-less control asset does not match its pinned sha256."; exit 1; }
+            || { echo "::error::the PE provider-less control does not match its pinned sha256. A negative control that silently changed identity is a negative control nobody is testing."; exit 1; }
 
       # The PE control is a Windows DLL, and reading it needs a `nm` carrying
       # the pe-x86-64 BFD target. The hosted ubuntu-22.04 image happens to ship
