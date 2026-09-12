@@ -14,9 +14,10 @@
 # against DuckLakeEncryptionProvider, and a crypta that moves under us produces
 # a build failure at best and a silently wrong link at worst.
 #
-# crypta@5404ce1d is the head of crypta's `adopt-reworked-encryption-interface`
-# (sigil-enterprises/crypta#75), NOT a default-branch commit, and that is a
-# deliberate exception to the paragraph above rather than an oversight.
+# crypta@7db33995 is crypta's DEFAULT-BRANCH head: the squash-merge of
+# sigil-enterprises/crypta#75, which is the commit that carries the provider
+# compiled against the reworked interface. This file's own main-only rule is
+# satisfied again; the branch pin below was temporary and is now discharged.
 #
 # WHY. This branch changes the DuckLakeEncryptionProvider factory signature
 # (`DatabaseInstance &` first, `idx_t` TTL) and renames `LakeId()` to
@@ -38,8 +39,15 @@
 # - crypta's ducklake-provider/ducklake.pin points here for the same reason -
 # and both say so in the file rather than hiding it in a commit message.
 #
-# RE-PIN THIS to the squash-merge sha the moment crypta#75 lands on crypta's
-# default branch. A release built off a branch pin is a release whose provider
-# source can be rewritten out from under it.
+# THAT WAS THE STATE UNTIL crypta#75 MERGED. Read the paragraph above as
+# history, not as a live description: this side's branch pin is discharged
+# below. crypta's ducklake-provider/ducklake.pin still points at a ducklake
+# BRANCH sha at the moment this commit is written, and its own re-pin lands in a
+# crypta follow-up PR once ducklake#101 is on main.
+#
+# The re-pin this file demanded ("RE-PIN THIS to the squash-merge sha the moment
+# crypta#75 lands") HAS BEEN DONE, in this commit. A release built off a branch
+# pin is a release whose provider source can be rewritten out from under it;
+# this pin is a default-branch commit again.
 CRYPTA_REPO=sigil-enterprises/crypta
-CRYPTA_REF=5404ce1d4473a2ab45bf8e9c188843c7012a0602
+CRYPTA_REF=7db339958633122063c54db8ae71b6875c2b04db
