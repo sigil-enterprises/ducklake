@@ -71,8 +71,7 @@ private:
 	//! Load current global table stats from the metadata catalog.
 	void ReadExistingTableStats();
 
-	// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids partition VALUES in the catalog. >>>
-	// PRIVATE-FORK ONLY. Never cherry-pick this declaration upstream.
+	// The envelope forbids partition VALUES in the catalog.
 	//! Find the attached DuckLakeCatalog (if any, in the calling context) whose
 	//! metadata schema matches this commit's, so partition values staged
 	//! directly by a non-DuckLake writer (Spark/Trino via ducklake_commit) can
@@ -89,7 +88,6 @@ private:
 	//! row directly via RunQuery, which works with nothing attached. Resolved
 	//! and cached at most once per commit.
 	bool IsEnvelopedLake();
-	// <<< FORK-LOCAL (sigil-enterprises) <<<
 
 	//! Query the metadata catalog for the latest snapshot.
 	DuckLakeSnapshot ReadLatestSnapshot();
@@ -138,8 +136,7 @@ private:
 	//! Compaction-output files indexed by compaction_id.
 	map<idx_t, DuckLakeDataFile> compaction_output_files;
 
-	// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids partition VALUES in the catalog. >>>
-	// PRIVATE-FORK ONLY. Never cherry-pick this declaration upstream.
+	// The envelope forbids partition VALUES in the catalog.
 	//! Cache for ResolveEnvelopedCatalog - resolved at most once per commit.
 	bool enveloped_catalog_resolved = false;
 	optional_ptr<DuckLakeCatalog> enveloped_catalog;
@@ -151,7 +148,6 @@ private:
 	//! refuses cleartext partition values rather than silently permitting them.
 	//! See IsEnvelopedLake() below and ducklake#96.
 	bool is_enveloped_lake = true;
-	// <<< FORK-LOCAL (sigil-enterprises) <<<
 };
 
 } // namespace duckdb

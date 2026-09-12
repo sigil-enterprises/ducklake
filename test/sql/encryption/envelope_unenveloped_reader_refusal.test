@@ -3,8 +3,6 @@
 # group: [encryption]
 
 #
-# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
-#
 # WHY THIS EXISTS BESIDE envelope_e2e_wrapped_catalog.test
 # --------------------------------------------------------
 # That file's fourth assertion - the one that says what the envelope is FOR -

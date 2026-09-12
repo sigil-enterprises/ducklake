@@ -1,4 +1,3 @@
-# PRIVATE fork infrastructure. Not an upstream file - never cherry-pick.
 #
 # No `container_name:` on purpose: Compose's global namespace collides across
 # projects, and this repo is one of several checkouts on the same machine.

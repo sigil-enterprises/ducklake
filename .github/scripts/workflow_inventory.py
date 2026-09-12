@@ -2,8 +2,6 @@
 """
 Every workflow the Actions API advertises as `active` must have a file on this ref.
 
-PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
-
 WHY
 ---
 The Actions tab is what a human reads to decide what is covered. GitHub keeps a

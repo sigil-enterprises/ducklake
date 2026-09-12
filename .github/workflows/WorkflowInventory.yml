@@ -1,5 +1,3 @@
-# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
-#
 # The Actions tab must not advertise a check this repository does not have.
 #
 # GitHub keeps a workflow record alive after its file leaves every branch. The

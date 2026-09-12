@@ -3,8 +3,6 @@
 # group: [encryption]
 
 #
-# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
-#
 # ISSUE #51. READ THIS BEFORE TRUSTING WHAT THIS FILE'S COLOUR MEANS.
 #
 # #51 says `PrepareEncryptionKeysForCommit` is not idempotent: it neither

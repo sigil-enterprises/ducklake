@@ -138,7 +138,7 @@ kind: Software
 posture_declared: exploratory
 
 feature_completeness:
-  statement: "The sigil ducklake fork is production-ready as the teras lake's encryption provider - every data-file key in the catalog is an identity-bound crypta-wrapped blob rooted in an HSM, the provider FAILS CLOSED on every read and write path rather than silently emitting or accepting plaintext, no cleartext patient data reaches the catalog by inlining or column statistics, the reader-side residual (DEK cache, temp spill, snapshots) is bounded and documented, a rewrap sweep makes KEK retirement survivable, and the extension loads on every DuckDB patch pinned anywhere in the fleet. GA as v1.0.0."
+  statement: "The sigil ducklake fork is production-ready as the teras lake's encryption provider - every data-file key in the catalog is an identity-bound crypta-wrapped blob rooted in an HSM, the provider FAILS CLOSED on every read and write path rather than silently emitting or accepting plaintext, no cleartext row data reaches the catalog by inlining or column statistics, the reader-side residual (DEK cache, temp spill, snapshots) is bounded and documented, a rewrap sweep makes KEK retirement survivable, and the extension loads on every DuckDB patch pinned anywhere in the fleet. GA as v1.0.0."
   target: v1.0.0
 
 updated: 2026-08-15
@@ -286,7 +286,7 @@ milestones:
 
   - id: M3
     title: "Bound the reader-side residual"
-    ship_criterion: "Every residual channel the envelope does not cover is either bounded or documented as unbounded with its reason: the DEK cache has a TTL and zeroizes, DuckDB temp spill is encrypted on a build that supports it, a rewrap sweep exists so a KEK retirement does not strand live rows, and the catalog carries no cleartext patient data by inlining or column statistics."
+    ship_criterion: "Every residual channel the envelope does not cover is either bounded or documented as unbounded with its reason: the DEK cache has a TTL and zeroizes, DuckDB temp spill is encrypted on a build that supports it, a rewrap sweep exists so a KEK retirement does not strand live rows, and the catalog carries no cleartext row data by inlining or column statistics."
     target_date: 2026-09-02     # PROPOSED - needs ratification
     version: v0.3.0             # PROPOSED
     rc_soaked: false
@@ -335,8 +335,8 @@ milestones:
         evidence: ["ducklake:#12", "crypta:#1", "ducklake@f0963d05"]
         confidence: low
       - id: E3.4
-        title: "No cleartext patient data in the catalog"
-        capability: "Data inlining and cleartext column statistics are prevented on an encrypted lake, so the catalog carries no plaintext patient rows. Delivered: the inlining refusal landed in PR #25, and the column-statistics redaction landed in ducklake#11, proven by bench#126 (both merged 2026-08-13). Tracker bench#66 is still OPEN (bookkeeping lag, not open scope)."
+        title: "No cleartext row data in the catalog"
+        capability: "Data inlining and cleartext column statistics are prevented on an encrypted lake, so the catalog carries no plaintext row values. Delivered: the inlining refusal landed in PR #25, and the column-statistics redaction landed in ducklake#11, proven by bench#126 (both merged 2026-08-13). Tracker bench#66 is still OPEN (bookkeeping lag, not open scope)."
         tracker_ref: "ducklake:#13"
         class: planned
         status: closed          # inlining (PR #25) + column-statistics redaction (ducklake#11, bench#126) both merged

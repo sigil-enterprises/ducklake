@@ -1,6 +1,6 @@
-# Devcontainer for the PRIVATE sigil-enterprises fork of duckdb/ducklake.
+# Devcontainer for this fork of duckdb/ducklake.
 #
-# NOT an upstream file. It exists only so builds and tests run in a container
+# A development convenience. It exists only so builds and tests run in a container
 # instead of on an operator's machine, and it must never be cherry-picked into
 # the public upstream-only fork.
 #
@@ -100,7 +100,7 @@ ENV CXX=/usr/bin/g++-14
 # under QEMU and turn a 30-70 minute build into an all-day one, for a binary
 # nobody ships. The shipped extension comes from CI, which is x86_64 and remains
 # the only artifact source. This container is for developing and testing the
-# code, not for producing what goes to Nexus. Anything that could plausibly be
+# code, not for producing what gets published. Anything that could plausibly be
 # architecture-sensitive has to be confirmed on a CI run, not here.
 ENV VCPKG_FORCE_SYSTEM_BINARIES=1
 

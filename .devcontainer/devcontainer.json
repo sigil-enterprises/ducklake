@@ -1,6 +1,5 @@
-// PRIVATE fork infrastructure. Not an upstream file - never cherry-pick.
 {
-  "name": "ducklake (sigil fork)",
+  "name": "ducklake",
   "dockerComposeFile": [
     "../docker-compose.yaml"
   ],

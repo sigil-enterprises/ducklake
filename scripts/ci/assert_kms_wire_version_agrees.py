@@ -3,8 +3,6 @@
 REFUSE a tree in which the fake key services and the KMS client do not speak the
 SAME wire version.
 
-PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
-
 THE DEFECT THIS EXISTS FOR
 --------------------------
 `test/sql/crypta/fake_crypta.py` declared `CryptaWireManifest@v2` while every

@@ -65,9 +65,7 @@ public:
 	unique_ptr<BaseStatistics> ToStats() const;
 	void MergeStats(const DuckLakeColumnStats &new_stats);
 
-	// >>> FORK-LOCAL (sigil-enterprises): the envelope forbids column VALUES in the catalog. >>>
-	// PRIVATE-FORK ONLY. Never cherry-pick this declaration upstream.
-	//
+	// The envelope forbids column VALUES in the catalog.
 	//! Drop every VALUE-BEARING statistic, keeping the counts. min/max and the
 	//! extra stats are actual column values - on a narrow-range or
 	//! low-cardinality column min/max IS the data - and the metadata catalog
@@ -82,7 +80,6 @@ public:
 	//! predates the envelope. Leaving it set makes the merge run and clear the
 	//! bound.
 	void RedactValues();
-	// <<< FORK-LOCAL (sigil-enterprises) <<<
 
 private:
 	unique_ptr<BaseStatistics> CreateNumericStats() const;

@@ -56,9 +56,9 @@ def check_magic(files, want):
 def connect(ext):
   con = duckdb.connect(config={"allow_unsigned_extensions": "true"})
   # httpfs must be loaded alongside ducklake or an encrypted write dies on
-  # "DuckDB currently has a read-only crypto module loaded"
-  # (opvance/teras-ext-pgwire#84). Its own failures must never be mistaken for
-  # the keyless-read refusal below, so it is loaded here and checked here.
+  # "DuckDB currently has a read-only crypto module loaded". Its own failures
+  # must never be mistaken for the keyless-read refusal below, so it is loaded
+  # here and checked here.
   con.execute("INSTALL httpfs; LOAD httpfs;")
   con.execute(f"LOAD '{ext}'")
   loaded = dict(con.execute(

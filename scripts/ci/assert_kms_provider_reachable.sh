@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 #
-# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
-#
 # Assert AT RUNTIME that this build carries a concrete KMS envelope provider.
 #
 # WHY NOT A SYMBOL GREP. A pattern naming a symbol with internal linkage can

@@ -3,8 +3,6 @@
 REFUSE a `statement error` expectation that cannot tell the refusal it means to
 prove from another refusal on the same path.
 
-PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
-
 WRITTEN TO RED main (87068373). See issue #50.
 
 THE DEFECT CLASS

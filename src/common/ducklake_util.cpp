@@ -459,8 +459,7 @@ string DuckLakeUtil::ChunkRowToSQL(DuckLakeMetadataManager &metadata_manager, Cl
 	return result;
 }
 
-// >>> FORK-LOCAL (sigil-enterprises): PRIVATE-FORK ONLY. Never cherry-pick
-// this function upstream. See header comment (bench#96).
+// See the header comment.
 bool DuckLakeUtil::WrappedEncryptionKeyOrThrow(const string &wrapped_base64, bool file_has_key, string &out_value) {
 	if (wrapped_base64.empty()) {
 		if (file_has_key) {
@@ -476,7 +475,6 @@ bool DuckLakeUtil::WrappedEncryptionKeyOrThrow(const string &wrapped_base64, boo
 	out_value = wrapped_base64;
 	return true;
 }
-// <<< FORK-LOCAL (sigil-enterprises) <<<
 
 string DuckLakeUtil::WrappedEncryptionKeyLiteral(const string &wrapped_base64, bool file_has_key) {
 	string value;

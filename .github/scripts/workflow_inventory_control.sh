@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 #
-# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
-#
 # The positive control for workflow_inventory.py.
 #
 # That script asserts an ABSENCE - that no advertised workflow is a ghost. An

@@ -3,8 +3,6 @@
 //
 // test/kms_provider/test_kms_provider.cpp
 //
-// PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
-//
 // WHY THIS EXISTS
 // ---------------
 // The envelope's only concrete provider is out of tree and PRIVATE, so this
