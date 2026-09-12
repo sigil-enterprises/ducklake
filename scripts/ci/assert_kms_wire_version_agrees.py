@@ -3,11 +3,9 @@
 REFUSE a tree in which the fake key services and the KMS client do not speak the
 SAME wire version.
 
-PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
-
 THE DEFECT THIS EXISTS FOR
 --------------------------
-`test/sql/crypta/fake_crypta.py` declared `CryptaWireManifest@v2` while every
+A fake key service declared `CryptaWireManifest@v2` while every
 client in the tree spoke `@v3`. A client that is handed a reply carrying the
 wrong schema refuses it - `crypta refused the request: unsupported schema` - so
 NO fixture driven by that fake could ATTACH. It went unnoticed for the same
@@ -40,7 +38,6 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 #: away makes this guard vacuous, so its absence is a refusal, not a skip.
 SOURCES = [
     ("test/sql/encryption/fake_kms.py", r'^WIRE_SCHEMA = "([^"]+)"'),
-    ("test/sql/crypta/fake_crypta.py", r'^WIRE_SCHEMA = "([^"]+)"'),
     ("test/kms_provider/test_kms_provider.cpp", r'^constexpr const char \*WIRE_SCHEMA = "([^"]+)";'),
 ]
 

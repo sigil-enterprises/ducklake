@@ -51,7 +51,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// LoadInternal again, and RegisterFactory now REFUSES a second registration
 	// rather than overwriting.
 	//
-	// Measured: without this guard, 10 of the 11 test/sql/crypta fixtures fail
+	// Measured: without this guard, the enveloped SQL fixtures fail
 	// at `require ducklake` with "a DuckLake encryption provider factory is
 	// already registered", and the same throw would reach any embedding host
 	// that attaches two databases.
