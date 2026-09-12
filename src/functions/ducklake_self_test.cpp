@@ -6,8 +6,6 @@
 // Boot-time self-test: every reader must LOAD ducklake + perform one
 // encrypted read before serving. This function is the call surface.
 //
-// ducklake:M5 — Fleet-convergence gate
-//
 //===----------------------------------------------------------------------===//
 //
 // WHAT IT VERIFIES
