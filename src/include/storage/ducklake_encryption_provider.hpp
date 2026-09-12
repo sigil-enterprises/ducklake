@@ -1,15 +1,8 @@
 //===----------------------------------------------------------------------===//
-//                         DuckLake
+//                         DuckDB
 //
 // storage/ducklake_encryption_provider.hpp
 //
-// KMS-agnostic envelope encryption provider interface.
-//
-// DuckLake encrypts Parquet files with per-file DEKs. When a KMS envelope is
-// configured, the DEK stored in the catalog is a wrapped blob rather than a
-// plaintext key. This abstract interface is what the catalog calls to
-// wrap/unwrap/rewrap those blobs; a concrete provider (crypta, a cloud KMS,
-// a local HSM) implements it and is wired at ATTACH.
 //
 //===----------------------------------------------------------------------===//
 
@@ -21,127 +14,92 @@
 #include <functional>
 
 namespace duckdb {
+class DatabaseInstance;
 
-//! What a per-file encryption key is bound to.
-//!
-//! Mirrors the KMS identity concept exactly: the four-tuple (lake_id,
-//! table_id, file_kind, stored_path) is what the plaintext DEK is
-//! cryptographically tied to, so a blob from one file cannot be used as a
-//! key for another.
-//!
-//! The path is the path AS STORED in ducklake_data_file /
-//! ducklake_delete_file - before FromRelativePath resolves it against the
-//! table's data path. Resolving first would bind every key in a table to a
-//! mutable table property, so changing the data path would orphan the lot.
+//! What a per-file encryption key is cryptographically bound to, so a wrapped blob minted for one
+//! file cannot be used as the key for another.
 struct DuckLakeFileIdentity {
 	string lake_id;
 	int64_t table_id = 0;
-	//! Data files and delete files have independent id spaces and separate
-	//! catalog tables, so the kind is part of the binding.
+	//! Data files and delete files have independent id spaces and separate catalog tables, so the
+	//! kind of file is part of the binding.
 	bool is_delete_file = false;
+	//! The path as stored in ducklake_data_file / ducklake_delete_file, before it is resolved
+	//! against the table's data path - which is a mutable table property.
 	string stored_path;
 };
 
-//! One item of a rewrap batch reply.
-//!
-//! The pair is the whole point, and neither half is worth much alone.
-//! `wrapped` without `rewrapped` cannot tell a moved row from an untouched
-//! one, so a sweep would rewrite every row on every pass and could never
-//! report convergence; `rewrapped` without `wrapped` says something happened
-//! and hands back nothing to write.
+//! One entry of a rewrap batch reply.
 struct DuckLakeRewrapResult {
-	//! Base64 blob the row should now carry. When `rewrapped` is false this
-	//! is the blob that was SENT - the row was already under the active key
-	//! - so a converged sweep writes nothing.
+	//! The value the row should carry from now on. When `rewrapped` is false this is the value that
+	//! was sent, so a converged sweep writes nothing.
 	string wrapped;
-	//! Whether the provider actually moved this row onto the active key.
+	//! Whether the provider moved this entry onto its active key.
 	bool rewrapped = false;
 };
 
-//! KMS-agnostic envelope encryption provider.
+//! Envelope encryption provider: wraps the per-file DEKs DuckLake stores in `encryption_key` so the
+//! metadata catalog never holds a usable key. One instance per attached lake.
 //!
-//! One instance per attached lake. Owned by DuckLakeCatalog; created at
-//! ATTACH when the encryption envelope options are set.
+//! Every operation takes a batch: a scan materialises its whole file-and-key list before reading any
+//! file, so one round trip serves a scan.
 //!
-//! All three operations (wrap / unwrap / rewrap) operate on BATCHES because
-//! a DuckLake scan materialises its whole file-and-key list before reading
-//! any file, so one round trip serves a scan. A concrete provider may
-//! implement them with any wire protocol it chooses.
-//!
-//! ## Why this needs no schema change
-//!
-//! `encryption_key` is an opaque VARCHAR holding base64. A wrapped blob is
-//! also base64. So the column, every query that selects it, and every
-//! DuckLake version that reads it are untouched - the bytes simply stop
-//! being a plaintext key.
+//! `encryption_key` stays an opaque VARCHAR, so no catalog schema change is required.
 class DuckLakeEncryptionProvider {
 public:
-	//! How long an unwrapped DEK may sit in the cache, when ATTACH does not
-	//! say. Five minutes — a cache entry's entire value is not re-asking the
-	//! KMS for the same file inside one scan, and a scan is seconds to a
-	//! couple of minutes.
+	//! Lifetime of a cached unwrapped DEK when ATTACH does not specify one.
 	static constexpr int64_t DEFAULT_CACHE_TTL_SECONDS = 300;
-	//! The ceiling an operator may configure — one hour. A configurable TTL
-	//! with no ceiling would let an operator restore the unbounded
-	//! process-lifetime residual via configuration.
+	//! Ceiling for a configured cache TTL, so it cannot be raised to an effectively unbounded one.
 	static constexpr int64_t MAX_CACHE_TTL_SECONDS = 3600;
 
 	virtual ~DuckLakeEncryptionProvider() = default;
 
-	//! Wrap one commit's worth of keys in a single call. `deks` are raw key
-	//! bytes; the returned strings are base64 blobs ready for the catalog
-	//! column.
+	//! Wrap one commit's worth of keys. `deks` are raw key bytes; the returned strings are the
+	//! values the `encryption_key` column will carry.
 	virtual vector<string> WrapKeys(const vector<DuckLakeFileIdentity> &identities, const vector<string> &deks) = 0;
 
-	//! Unwrap a single key read from the catalog. Returns raw DEK bytes.
-	//!
-	//! MUST refuse a value that is not an envelope blob: on an enveloped
-	//! lake, a plaintext row is either a pre-envelope leftover or a downgrade
-	//! attempt, and reading it would defeat the envelope.
-	virtual string UnwrapKey(const DuckLakeFileIdentity &identity, const string &base64_value) = 0;
+	//! Unwrap a single stored value into raw DEK bytes. Must refuse a value that is not an envelope
+	//! blob: on an enveloped lake a plaintext key is a pre-envelope leftover or a downgrade attempt.
+	virtual string UnwrapKey(const DuckLakeFileIdentity &identity, const string &stored_value) = 0;
 
-	//! Move one batch of stored blobs onto the KMS's ACTIVE key — the
-	//! consumer half of a key rotation's sweep step (mint → serve both →
-	//! SWEEP → retire). Returns blobs ready to go back into the catalog
-	//! column, each flagged with whether the provider actually moved it.
+	//! Move a batch of stored values onto the provider's active key - the sweep step of a key
+	//! rotation, which never exposes the plaintext DEK to the caller.
 	virtual vector<DuckLakeRewrapResult> RewrapKeys(const vector<DuckLakeFileIdentity> &identities,
 	                                                const vector<string> &blobs) = 0;
 
-	//! Assert the KMS is reachable and report what it is rooted in. Called
-	//! at ATTACH so a misconfiguration surfaces then, not mid-scan.
+	//! Assert the key service is reachable and report what it is rooted in. Called at ATTACH so a
+	//! misconfiguration surfaces there rather than mid-scan.
 	virtual string SelfTest() = 0;
 
-	//! The operator-configured lake id that scopes every key.
-	virtual const string &LakeId() const = 0;
+	//! The configured lake id that scopes every key in this lake.
+	virtual const string &GetLakeId() const = 0;
 
-	//! True when `value` carries the wrapped-key BLOB HEADER, so a wrapped
-	//! row can be told apart from a pre-envelope plaintext key without a
-	//! service call.
-	//!
-	//! The default implementation checks for the "DLK1" magic prefix after
-	//! base64 decode — the crypta blob header. A provider that uses a
-	//! different wire format MUST override this; the catalog depends on it to
-	//! detect wrapped blobs when no provider is configured.
-	//!
-	//! Used to fail closed in both directions: a wrapped lake read by an
-	//! unconfigured reader is refused, and a plaintext row served to a
-	//! configured reader is refused.
-	static bool LooksWrapped(const string &base64_value);
+	//! True when `stored_value` carries the wrapped-value header, which is fixed at this interface
+	//! level rather than chosen per provider. Lets a reader that has no provider tell a wrapped row
+	//! from a plaintext one without a service call, and refuse it instead of handing ciphertext to
+	//! the Parquet reader as a key.
+	static bool LooksWrapped(const string &stored_value);
 
-	//! True when every character of `value` is in the base64 alphabet.
-	//! Alphabet only — length and padding are the KMS's to judge.
+	//! True when `value` is non-empty and every character is in the base64 alphabet. Alphabet only:
+	//! length and padding are the provider's to judge.
 	static bool IsBase64(const string &value);
 
-	//! A factory that creates a concrete encryption provider from its ATTACH
-	//! parameters. Registered at extension init time by the bench build that
-	//! supplies the concrete KMS implementation; when no factory is registered
-	//! (the upstream build), the catalog refuses ENCRYPTION_SOCKET at ATTACH.
-	using Factory = std::function<unique_ptr<DuckLakeEncryptionProvider>(string socket, string lake_id, int64_t ttl)>;
+	//! Creates the provider for one attached lake. A build that integrates a key service registers a
+	//! factory; with none registered the catalog refuses ENCRYPTION_SOCKET at ATTACH.
+	//!
+	//! `db` is the attaching database: a provider takes its crypto primitives from it rather than
+	//! choosing its own, so it follows whatever policy that database is configured with.
+	using Factory = std::function<unique_ptr<DuckLakeEncryptionProvider>(
+	    DatabaseInstance &db, const string &encryption_socket, const string &encryption_lake_id,
+	    idx_t cache_ttl_seconds)>;
+	//! Throws when a factory is already registered: a second one would make the provider a lake gets
+	//! depend on extension load order.
 	static void RegisterFactory(Factory factory);
+	//! Whether a factory is already registered. Registration is per-PROCESS while extension loading
+	//! is per-DatabaseInstance, so the loader must be able to ask before it registers - otherwise a
+	//! host that opens a second database in one process trips the refusal above.
+	static bool HasFactory();
 	static const Factory &GetFactory();
-
-private:
-	static Factory factory_;
 };
 
 } // namespace duckdb

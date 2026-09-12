@@ -1,0 +1,106 @@
+# name: test/sql/crypta/crypta_attach_refusals.test
+# description: A malformed envelope configuration is REFUSED in the catalog constructor, before any key-service call
+# group: [crypta]
+
+#
+# PRIVATE-FORK ONLY. Never cherry-pick to the public upstream fork.
+#
+# The home run_sql_crypta_tests.sh already names for the refusals that fire in
+# DuckLakeCatalog's CONSTRUCTOR - before the factory is called and before
+# anything touches a socket. Everything here therefore carries NO require-env
+# and runs under a plain `unittest "test/sql/crypta/*"`; a case that needs a
+# live key service belongs in crypta_config_refusals.test instead.
+#
+# Each of these used to attach cleanly. An empty CRYPTA_SOCKET - the shape an
+# unexpanded `${VAR}` takes in a templated ATTACH - reached the provider as an
+# empty address, and a CRYPTA_LAKE_ID left empty bound every key in the lake to
+# nothing, so a blob minted for one lake was a valid key for another.
+
+require ducklake
+
+require parquet
+
+# --------------------------------------------------------------------------
+# CONTROL, FIRST: a lake with NO envelope options attaches.
+#
+# Every assertion below is a refusal, and a constructor that refused every
+# ATTACH would satisfy all of them. This is the case that must keep working,
+# asserted before the refusals rather than after, so a reader cannot mistake a
+# blanket refusal for a passing file.
+# --------------------------------------------------------------------------
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/refusals_plain.db' AS plain (DATA_PATH '__TEST_DIR__/refusals_plain_files', METADATA_CATALOG 'plain_meta')
+
+statement ok
+DETACH plain
+
+# --------------------------------------------------------------------------
+# An empty CRYPTA_SOCKET is refused, rather than read as "no envelope wanted"
+# --------------------------------------------------------------------------
+
+statement error
+ATTACH 'ducklake:__TEST_DIR__/refusals_empty_socket.db' AS empty_socket (DATA_PATH '__TEST_DIR__/refusals_empty_socket_files', ENCRYPTED, METADATA_CATALOG 'empty_socket_meta', CRYPTA_SOCKET '', CRYPTA_LAKE_ID 'fixture')
+----
+encryption_socket was set to an empty string
+
+# The upstream spelling of the same option refuses identically - the two names
+# are aliases into one field, not two configurations.
+
+statement error
+ATTACH 'ducklake:__TEST_DIR__/refusals_empty_socket_alias.db' AS empty_socket_alias (DATA_PATH '__TEST_DIR__/refusals_empty_socket_alias_files', ENCRYPTED, METADATA_CATALOG 'empty_socket_alias_meta', ENCRYPTION_SOCKET '', ENCRYPTION_LAKE_ID 'fixture')
+----
+encryption_socket was set to an empty string
+
+# --------------------------------------------------------------------------
+# A lake id with no socket is refused: a half-configured envelope writes the
+# per-file keys to the catalog in plaintext.
+# --------------------------------------------------------------------------
+
+statement error
+ATTACH 'ducklake:__TEST_DIR__/refusals_lake_no_socket.db' AS lake_no_socket (DATA_PATH '__TEST_DIR__/refusals_lake_no_socket_files', ENCRYPTED, METADATA_CATALOG 'lake_no_socket_meta', CRYPTA_LAKE_ID 'fixture')
+----
+encryption_socket must be set when encryption_lake_id is set
+
+# --------------------------------------------------------------------------
+# A socket with no lake id is refused: the lake id is what scopes a key, so
+# without it a blob minted for one lake is a valid key for another.
+# --------------------------------------------------------------------------
+
+statement error
+ATTACH 'ducklake:__TEST_DIR__/refusals_socket_no_lake.db' AS socket_no_lake (DATA_PATH '__TEST_DIR__/refusals_socket_no_lake_files', ENCRYPTED, METADATA_CATALOG 'socket_no_lake_meta', CRYPTA_SOCKET '/nonexistent/dlk.sock')
+----
+requires a non-empty encryption_lake_id
+
+statement error
+ATTACH 'ducklake:__TEST_DIR__/refusals_empty_lake.db' AS empty_lake (DATA_PATH '__TEST_DIR__/refusals_empty_lake_files', ENCRYPTED, METADATA_CATALOG 'empty_lake_meta', CRYPTA_SOCKET '/nonexistent/dlk.sock', CRYPTA_LAKE_ID '')
+----
+requires a non-empty encryption_lake_id
+
+# --------------------------------------------------------------------------
+# A cache TTL outside [0, MAX_CACHE_TTL_SECONDS] is refused.
+#
+# The ceiling exists so a configured TTL cannot be raised to an effectively
+# unbounded one, restoring the process-lifetime residual the cache was bounded
+# to remove.
+# --------------------------------------------------------------------------
+
+statement error
+ATTACH 'ducklake:__TEST_DIR__/refusals_ttl_high.db' AS ttl_high (DATA_PATH '__TEST_DIR__/refusals_ttl_high_files', ENCRYPTED, METADATA_CATALOG 'ttl_high_meta', CRYPTA_SOCKET '/nonexistent/dlk.sock', CRYPTA_LAKE_ID 'fixture', CRYPTA_CACHE_TTL_SECONDS 3601)
+----
+encryption_cache_ttl_seconds must be between 0 and 3600
+
+statement error
+ATTACH 'ducklake:__TEST_DIR__/refusals_ttl_negative.db' AS ttl_negative (DATA_PATH '__TEST_DIR__/refusals_ttl_negative_files', ENCRYPTED, METADATA_CATALOG 'ttl_negative_meta', CRYPTA_SOCKET '/nonexistent/dlk.sock', CRYPTA_LAKE_ID 'fixture', CRYPTA_CACHE_TTL_SECONDS -1)
+----
+encryption_cache_ttl_seconds must be between 0 and 3600
+
+# --------------------------------------------------------------------------
+# A cache TTL with no socket is refused: on a lake with no envelope there are
+# no unwrapped keys for it to bound, so accepting it would silently ignore it.
+# --------------------------------------------------------------------------
+
+statement error
+ATTACH 'ducklake:__TEST_DIR__/refusals_ttl_no_socket.db' AS ttl_no_socket (DATA_PATH '__TEST_DIR__/refusals_ttl_no_socket_files', ENCRYPTED, METADATA_CATALOG 'ttl_no_socket_meta', CRYPTA_CACHE_TTL_SECONDS 60)
+----
+encryption_cache_ttl_seconds was set without encryption_socket

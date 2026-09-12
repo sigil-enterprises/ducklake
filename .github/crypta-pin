@@ -14,11 +14,40 @@
 # against DuckLakeEncryptionProvider, and a crypta that moves under us produces
 # a build failure at best and a silently wrong link at worst.
 #
-# crypta@fcd507da is the default-branch head as of 2026-08-24. Its
-# ducklake-provider/src and ducklake-provider/include are BYTE-IDENTICAL to
-# crypta@e0353e67, the pin opvance/ducklake-migration-bench builds green
-# against; the commits between the two touch only ducklake-provider/scripts/.
-#   git diff --stat e0353e67 fcd507da -- ducklake-provider
-#     ducklake-provider/scripts/... only, 6 files, no .cpp/.hpp/CMakeLists
+# crypta@7db33995 is crypta's DEFAULT-BRANCH head: the squash-merge of
+# sigil-enterprises/crypta#75, which is the commit that carries the provider
+# compiled against the reworked interface. This file's own main-only rule is
+# satisfied again; the branch pin below was temporary and is now discharged.
+#
+# WHY. This branch changes the DuckLakeEncryptionProvider factory signature
+# (`DatabaseInstance &` first, `idx_t` TTL) and renames `LakeId()` to
+# `GetLakeId()`. crypta's default branch implements the OLD signature, so the
+# previous pin does not compile against this branch at all - measured, not
+# predicted, on run 33266818856:
+#
+#   src/include/crypta/ducklake_crypta.hpp:85: error: 'LakeId() const' marked
+#     'override', but does not override
+#   src/crypta-provider/crypta_provider_init.cpp:55: error: cannot convert
+#     '<lambda(std::string, std::string, int64_t)>' to
+#     'DuckLakeEncryptionProvider::Factory'
+#   helper.hpp:66: error: invalid new-expression of abstract class type
+#     'DuckLakeCryptaProvider'
+#
+# The pair is genuinely circular for the length of the two pull requests: this
+# branch cannot build against crypta main, and crypta#75 cannot build against
+# ducklake main. Both sides therefore carry a temporary BRANCH pin at the other
+# - crypta's ducklake-provider/ducklake.pin points here for the same reason -
+# and both say so in the file rather than hiding it in a commit message.
+#
+# THAT WAS THE STATE UNTIL crypta#75 MERGED. Read the paragraph above as
+# history, not as a live description: this side's branch pin is discharged
+# below. crypta's ducklake-provider/ducklake.pin still points at a ducklake
+# BRANCH sha at the moment this commit is written, and its own re-pin lands in a
+# crypta follow-up PR once ducklake#101 is on main.
+#
+# The re-pin this file demanded ("RE-PIN THIS to the squash-merge sha the moment
+# crypta#75 lands") HAS BEEN DONE, in this commit. A release built off a branch
+# pin is a release whose provider source can be rewritten out from under it;
+# this pin is a default-branch commit again.
 CRYPTA_REPO=sigil-enterprises/crypta
-CRYPTA_REF=fcd507daff2dd97dcf595cf9ffb868754062d78e
+CRYPTA_REF=7db339958633122063c54db8ae71b6875c2b04db

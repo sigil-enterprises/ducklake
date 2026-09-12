@@ -11,6 +11,7 @@
 #include "duckdb/main/config.hpp"
 #include "duckdb/storage/storage_extension.hpp"
 #include "storage/ducklake_log_type.hpp"
+#include "storage/ducklake_encryption_provider.hpp"
 
 namespace duckdb {
 
@@ -42,7 +43,28 @@ static void LoadInternal(ExtensionLoader &loader) {
 #ifdef DUCKLAKE_KMS_PROVIDER
 	// Before anything can ATTACH, so the factory is in place by the time
 	// DuckLakeCatalog's constructor asks for it.
-	DuckLakeRegisterKmsProvider();
+	//
+	// GUARDED, because the two things have DIFFERENT LIFETIMES. This function
+	// runs once per DatabaseInstance; the factory is registered once per
+	// PROCESS. Anything that opens a second database in one process - the
+	// sqllogictest runner does exactly that, one instance per .test file - runs
+	// LoadInternal again, and RegisterFactory now REFUSES a second registration
+	// rather than overwriting.
+	//
+	// Measured: without this guard, 10 of the 11 test/sql/crypta fixtures fail
+	// at `require ducklake` with "a DuckLake encryption provider factory is
+	// already registered", and the same throw would reach any embedding host
+	// that attaches two databases.
+	//
+	// This does NOT weaken the refusal it guards. The refusal exists so two
+	// DIFFERENT providers cannot silently race for the slot, and that is still
+	// caught: a second provider's own DuckLakeRegisterKmsProvider is a different
+	// translation unit, so it still calls RegisterFactory and still throws.
+	// Skipped here is only the case where the SAME build re-registers the SAME
+	// provider, which is not a load-order ambiguity at all.
+	if (!DuckLakeEncryptionProvider::HasFactory()) {
+		DuckLakeRegisterKmsProvider();
+	}
 #endif
 
 	auto &instance = loader.GetDatabaseInstance();
