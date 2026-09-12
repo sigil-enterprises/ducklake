@@ -88,7 +88,7 @@ jobs:
         uses: hendrikmuhs/ccache-action@main
         with:
           key: ${{ github.job }}
-          save: ${{ github.ref == 'refs/heads/main' || github.repository != 'duckdb/ducklake' }}
+          save: ${{ github.ref == 'refs/heads/main' }}
 
       # 84bab45d, NOT the a42af01b the other jobs use. This job builds with
       # BUILD_EXTENSION_TEST_DEPS=full, which pulls httpfs and so curl, openssl,
@@ -265,7 +265,7 @@ jobs:
         uses: hendrikmuhs/ccache-action@main
         with:
           key: ${{ github.job }}
-          save: ${{ github.ref == 'refs/heads/main' || github.repository != 'duckdb/ducklake' }}
+          save: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11.1
