@@ -175,7 +175,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	auto rewrap_keys = DuckLakeRewrapKeysFunction();
 	loader.RegisterFunction(rewrap_keys);
 
-	// register ducklake_self_test — boot-time health check (M5)
+	// register ducklake_self_test — boot-time health check
 	auto self_test = DuckLakeSelfTestFunction();
 	loader.RegisterFunction(self_test);
 }
