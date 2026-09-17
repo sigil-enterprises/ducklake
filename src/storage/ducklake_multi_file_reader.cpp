@@ -501,18 +501,22 @@ ReaderInitializeType DuckLakeMultiFileReader::CreateMapping(
 		// order in which the columns appear in the FinalizeChunk output_chunk. The per-file local virtual-column
 		// index cannot be used: the snapshot_id virtual column is emitted as a constant expression and does not
 		// advance the local column counter, so it does not line up with the output_chunk layout.
-		deletion_scan_rowid_col = optional_idx();
-		deletion_scan_snapshot_col = optional_idx();
+		// Resolve into locals and publish once each: the members are read concurrently by other threads of
+		// the same scan, so assigning them progressively would expose intermediate values.
+		idx_t rowid_col = DConstants::INVALID_INDEX;
+		idx_t snapshot_col = DConstants::INVALID_INDEX;
 		bool has_rowid = false;
 		for (idx_t out_idx = 0; out_idx < global_column_ids.size(); out_idx++) {
 			auto primary_index = global_column_ids[out_idx].GetPrimaryIndex();
 			if (primary_index == COLUMN_IDENTIFIER_ROW_ID) {
 				has_rowid = true;
-				deletion_scan_rowid_col = out_idx;
+				rowid_col = out_idx;
 			} else if (primary_index == COLUMN_IDENTIFIER_SNAPSHOT_ID) {
-				deletion_scan_snapshot_col = out_idx;
+				snapshot_col = out_idx;
 			}
 		}
+		deletion_scan_rowid_col = rowid_col;
+		deletion_scan_snapshot_col = snapshot_col;
 		// We need internal row_id if it's not in the user's query
 		needs_internal_rowid = !has_rowid;
 	}
@@ -628,8 +632,11 @@ void DuckLakeMultiFileReader::GatherDeletionScanSnapshots(BaseFileReader &reader
                                                           const MultiFileReaderData &reader_data, DataChunk &chunk,
                                                           optional_idx rowid_col_override) const {
 	auto &delete_filter = static_cast<DuckLakeDeleteFilter &>(*reader.deletion_filter);
-	optional_idx snapshot_col_idx = deletion_scan_snapshot_col;
-	optional_idx rowid_col_idx = rowid_col_override.IsValid() ? rowid_col_override : deletion_scan_rowid_col;
+	// optional_idx throws when constructed from INVALID_INDEX, so the sentinel is unwrapped explicitly.
+	auto to_optional = [](idx_t col) { return col == DConstants::INVALID_INDEX ? optional_idx() : optional_idx(col); };
+	optional_idx snapshot_col_idx = to_optional(deletion_scan_snapshot_col.load());
+	optional_idx rowid_col_idx =
+	    rowid_col_override.IsValid() ? rowid_col_override : to_optional(deletion_scan_rowid_col.load());
 
 	if (delete_filter.delete_data->scan_snapshot_map.empty() || !snapshot_col_idx.IsValid() ||
 	    !rowid_col_idx.IsValid()) {

@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "duckdb/common/atomic.hpp"
 #include "duckdb/common/multi_file/multi_file_reader.hpp"
 #include "storage/ducklake_scan.hpp"
 #include "storage/ducklake_inlined_data.hpp"
@@ -89,15 +90,20 @@ private:
 	unique_ptr<MultiFileColumnDefinition> snapshot_id_column;
 	//! Inlined transaction-local data
 	shared_ptr<DuckLakeInlinedData> transaction_local_data;
+	//! The three fields below are written by CreateMapping, which runs once per opened file on whichever
+	//! scan thread opens it, and read by FinalizeChunk/GatherDeletionScanSnapshots on every other scan
+	//! thread of the same scan - one reader instance is shared by the whole scan. They are atomic because
+	//! of that overlap, and each is published with a single store so no reader can observe a partially
+	//! resolved mapping; the settled values are scan-wide constants, so repeated stores are all equal.
 	//! For deletion scans: output_chunk column index of snapshot_id in global_column_ids order, if projected
 	//! (set in CreateMapping).
-	optional_idx deletion_scan_snapshot_col;
+	atomic<idx_t> deletion_scan_snapshot_col {DConstants::INVALID_INDEX};
 	//! For deletion scans: output_chunk column index of rowid in global_column_ids order, if projected.
 	//! Same semantics as deletion_scan_snapshot_col.
-	optional_idx deletion_scan_rowid_col;
+	atomic<idx_t> deletion_scan_rowid_col {DConstants::INVALID_INDEX};
 	//! Whether row_id was internally projected (not in user's query)
 	//! This is necessary for DCF queries over inlined deletions
-	bool internally_projected_rowid = false;
+	atomic<bool> internally_projected_rowid {false};
 };
 
 } // namespace duckdb
