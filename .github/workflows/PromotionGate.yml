@@ -1,0 +1,91 @@
+name: Promotion gate
+
+# Promotion from a release-candidate to a FINAL release had no in-repo gate at
+# all: a human ran `gh release create` and nothing checked that the thing being
+# promoted was built, tested, or even existed as an artifact. Measured on
+# v0.2.0-rc.5, all of the following were true at once and nothing reported any
+# of them:
+#
+#   - the tag points at a commit carrying ZERO check-runs - never built;
+#   - the release object's own commit is a DIFFERENT sha from the tag's, so
+#     what CI did run proves nothing about what would be promoted;
+#   - the release carries zero assets - there is nothing there to promote;
+#   - main is 20 commits ahead, including a landed security fix that promoting
+#     this tag would silently drop.
+#
+# Each of those is now a machine-checked precondition in
+# .github/scripts/refuse_unproven_promotion.sh, and each is REFUSED rather than
+# warned about. The two declarative inputs - .github/promoted-assets and
+# .github/required-commits - are the only place the expectations are written.
+
+on:
+  release:
+    types: [published, released, edited]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: A release tag to run the promotion gate against, read-only.
+        required: true
+        type: string
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.release.tag_name || inputs.tag || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Seconds, and it runs on EVERY trigger including pull_request. Every check in
+  # this gate asserts an ABSENCE - no missing assets, no sha mismatch, no
+  # dropped commit - and an absence-shaped check is indistinguishable from one
+  # that is silently broken: both report zero. These plant a fixture violating
+  # exactly one condition each and require the refusal to name THAT condition.
+  gate-selftest:
+    name: Positive controls for the promotion gate
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: PROVE every promotion check fires on its own bad fixture
+        run: bash .github/scripts/refuse_unproven_promotion.sh --selftest
+
+  # The gate itself. Only on a FINAL release - a prerelease is a candidate and
+  # is not being promoted - and on workflow_dispatch, which reads only.
+  promotion:
+    name: Refuse an unproven promotion
+    needs: [gate-selftest]
+    if: >-
+      (github.event_name == 'release' && github.event.release.prerelease == false) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    steps:
+      # fetch-depth: 0, and it is load-bearing, not hygiene. The required-commit
+      # check is `git merge-base --is-ancestor`, and on a shallow clone that
+      # exits non-zero for "I cannot see that commit" exactly as it does for
+      # "the release dropped it". The script refuses rather than guessing, so a
+      # shallow checkout here would red every promotion for a clone defect.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The tag is fetched explicitly: a release published from a tag pushed
+      # after this workflow's checkout ref was resolved is not otherwise in the
+      # local object store, and "I cannot see it" must not read as a verdict.
+      - name: Fetch the tag under promotion
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          test -n "$TAG"
+          git fetch --no-tags origin "+refs/tags/${TAG}:refs/tags/${TAG}" \
+            || { echo "::error::cannot fetch refs/tags/${TAG}. The ancestry half of the gate cannot be answered, and an unanswerable ancestry question is not a pass."; exit 1; }
+
+      - name: REFUSE a promotion that was never proven
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          bash .github/scripts/refuse_unproven_promotion.sh "$GITHUB_REPOSITORY" "$TAG"

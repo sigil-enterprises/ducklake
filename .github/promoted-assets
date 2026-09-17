@@ -1,0 +1,7 @@
+# Asset names a FINAL release must carry, one per line, `%TAG%` substituted
+# with the tag being promoted.
+#
+# A NAMED set, not a count: v0.2.0-rc.5 carries zero assets, and a gate that
+# asked only "are there some" would also be satisfied by a release carrying
+# nothing but a stray README.
+ducklake.linux_amd64.%TAG%.duckdb-%DUCKDB_VERSION%.duckdb_extension
