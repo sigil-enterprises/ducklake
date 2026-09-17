@@ -69,7 +69,16 @@ jobs:
       # every other check in this repository still green - so the call site is
       # asserted here, with its own delete-the-limb control.
       - name: PROVE the gate is called UPSTREAM of the release upload
-        run: bash .github/scripts/selftest_promotion_call_site.sh --selftest
+        # Parses the workflow and asserts on the STEP OBJECT, not on a
+        # `- name:` line. An earlier textual cut of this check passed at rc 0
+        # with `continue-on-error: true` on the step, with the step's `run:`
+        # replaced by `true`, with `if: false`, and with the name line
+        # commented out - four one-line edits, each leaving the gate wired in
+        # name only. Its controls plant all of those.
+        run: python3 -B .github/scripts/assert_promotion_call_site.py --selftest
+
+      - name: PROVE the release-wiring audit fires on an unwired release
+        run: bash .github/scripts/audit_release_wiring.sh --selftest
 
   # The gate itself. Only on a FINAL release - a prerelease is a candidate and
   # is not being promoted - and on workflow_dispatch, which reads only.
@@ -125,3 +134,31 @@ jobs:
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
           bash .github/scripts/refuse_unproven_promotion.sh "$GITHUB_REPOSITORY" "$TAG"
+
+  # The hole the pre-upload gate CANNOT close, named and detected rather than
+  # left implicit. On a `release` event GitHub sources the workflow FILE from
+  # the release's own commit: run 32771943481 (v0.2.0-rc.5) has head_sha
+  # 2af24b9f, the candidate's tree, not main's. A release cut from a commit
+  # predating the gate therefore carries neither the pre-upload step nor this
+  # workflow - the job does not refuse, it never starts, and `ref:
+  # default_branch` cannot help something that never ran.
+  #
+  # This job runs on the DEFAULT BRANCH, where the file IS sourced from main,
+  # and detects it afterwards. It is an AUDIT, not a block: by the time it
+  # fires the release exists and the asset is attached. That residual hole is
+  # stated on the PR, not papered over.
+  release-wiring:
+    name: Every final release was cut from a gate-carrying tree
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    steps:
+      # Tags are needed as OBJECTS here - the audit reads
+      # `refs/tags/<tag>:.github/workflows/Release.yml` out of each one.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - name: REFUSE a final release that was cut from a tree without the gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/audit_release_wiring.sh "$GITHUB_REPOSITORY"

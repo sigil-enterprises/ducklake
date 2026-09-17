@@ -400,6 +400,17 @@ jobs:
           fetch-depth: 0
           path: _promotion-policy
 
+      # NO `prerelease` CONDITION, and that is a decision, not an omission.
+      # PromotionGate.yml scopes its announcer to final releases because only a
+      # final release is a PROMOTION. This is a different question: it governs
+      # whether an ASSET gets attached, and an unbuilt candidate is exactly as
+      # unpublishable as an unbuilt final. Every condition is satisfiable by a
+      # tag cut from a green default-branch commit, so a well-formed rc still
+      # publishes. Consequence, measured and accepted: v0.2.0-rc.3, rc.4 and
+      # rc.5 all fail this gate today, so re-running publish on any of them
+      # would attach nothing. The step also carries no `if:` and no
+      # `continue-on-error:` - assert_promotion_call_site.py refuses if either
+      # appears, because both make it advisory.
       - name: REFUSE to attach an asset to a release that was never proven
         env:
           GH_TOKEN: ${{ github.token }}
