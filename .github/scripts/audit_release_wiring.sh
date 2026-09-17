@@ -36,7 +36,12 @@ annotate() { printf '::error::%s\n' "$*"; }
 # sides go through this, or neither.
 iso_epoch() {
   python3 -B -c 'import datetime,sys
-try: print(int(datetime.datetime.fromisoformat(sys.argv[1].replace("Z","+00:00")).timestamp()))
+try:
+    d = datetime.datetime.fromisoformat(sys.argv[1].replace("Z","+00:00"))
+    # A NAIVE timestamp parses fine and then .timestamp() reads it as LOCAL
+    # time - a silently wrong answer where a refusal is wanted. Print nothing
+    # and let the caller fail closed.
+    if d.utcoffset() is not None: print(int(d.timestamp()))
 except Exception: pass' "$1" 2>/dev/null
 }
 
@@ -221,6 +226,14 @@ selftest() {
   _case 0 "an exempt release published before a gate dated in -05:00 is skipped" "" \
     "RELEASES_OVERRIDE=v0.1.0"$'\t'"false"$'\t'"2026-09-17T18:00:00Z" "WIRED_OVERRIDE=v0.1.0"$'\t'"1" \
     "GATE_INTRO_OVERRIDE=2026-09-17T14:10:17-05:00"
+  # ... and a date neither side can convert is a REFUSAL, never a pass. Without
+  # a fixture here the whole fail-closed block could be deleted at 16 PASS.
+  _case 1 "an exempt release whose published_at cannot be converted" "cannot convert the dates" \
+    "RELEASES_OVERRIDE=v0.1.0"$'\t'"false"$'\t'"not-a-date" "WIRED_OVERRIDE=v0.1.0"$'\t'"1" \
+    "GATE_INTRO_OVERRIDE=2026-09-01T00:00:00Z"
+  _case 1 "an exempt release whose published_at carries no zone" "cannot convert the dates" \
+    "RELEASES_OVERRIDE=v0.1.0"$'\t'"false"$'\t'"2026-09-17T18:30:00" "WIRED_OVERRIDE=v0.1.0"$'\t'"1" \
+    "GATE_INTRO_OVERRIDE=2026-09-17T19:10:17+01:00"
   # ... and the exemption is NAME-scoped, not a blanket.
   _case 1 "the exemption does not cover a different tag" "cut from a tree that does not call" \
     "RELEASES_OVERRIDE=v0.1.0"$'\t'"false"$'\t'"2026-08-01T00:00:00Z"$'\n'"v9.9.9"$'\t'"false"$'\t'"2026-09-01T00:00:00Z" \

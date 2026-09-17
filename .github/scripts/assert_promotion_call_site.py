@@ -17,11 +17,21 @@ not a control. This one parses the workflow and asserts on the STEP OBJECT:
   (iii) both are in that SAME job;
   (iv)  the gate step carries no `if:` and no `continue-on-error:`, its `run`
         body enables `set -e`, and the gate is the LAST statement of that body,
-        unguarded by `||`, `;`, `&`, or a pipe. Enumerating swallowing TOKENS
-        is an open set - `\ntrue` on the next line and a trailing `&` are both
-        `continue-on-error` written differently and contain none of them - so
-        the token list survives only for ATTRIBUTION, naming which shape was
-        found; the two structural assertions are what close the class;
+        unguarded by `||`, `;`, `&`, or a pipe. Those two structural
+        assertions close every TOKEN-shaped swallower - `|| true`, `|| :`,
+        `; exit 0`, a bare `true` on the next line, a trailing `&` - without
+        enumerating them, and the token list below survives only for
+        ATTRIBUTION, naming which shape was found.
+
+        THE CLASS IS NOT CLOSED. Three one-line edits defeat every assertion
+        here and were measured doing it, checker rc 0 and step rc 0 against a
+        refusing stub: `trap 'exit 0' EXIT`; redefining `bash` as a shell
+        function; putting a stub `bash` first on `PATH`. Each leaves the gate
+        as the last logical statement with `set -e` on and no `||`, `;`, `&`
+        or pipe. All three are rejected by name below - which is a token list,
+        with a token list's limits - so the residual is DISCLOSED, not
+        eliminated. No YAML-level check can eliminate it: what a `run` body
+        does is a shell question, not a structural one;
   (v)   the `publish` job checks out the DEFAULT BRANCH into
         `_promotion-policy` before the gate runs. Delete that step and the
         gate's `cd` fails - silently, absent `set -e` - and it reads its policy
@@ -45,7 +55,10 @@ POLICY_PATH = "_promotion-policy"
 SWALLOWERS = [
     (re.compile(r"\|\|\s*true\b"), "`|| true` makes the refusal exit zero"),
     (re.compile(r"\|\|\s*:(\s|$)"), "`|| :` makes the refusal exit zero"),
-    (re.compile(r"(^|\n)\s*set\s+\+e"), "`set +e` stops a non-zero from failing the step"),
+    # Kept for ATTRIBUTION and as a smell. With the gate as the last statement
+    # its status is the step's regardless, so `set -euo pipefail` + `set +e` +
+    # gate-last measures rc 1 in a real shell: this one is no longer a defeat.
+    (re.compile(r"(^|\n)\s*set\s+\+e"), "`set +e` turns `set -e` back off"),
     (re.compile(r";\s*exit\s+0\b"), "`; exit 0` discards the gate's exit status"),
 ]
 
@@ -57,6 +70,17 @@ PIPE_RE = re.compile(r"(?<!\|)\|(?!\|)")
 
 # `set -e` in any spelling that actually turns it on: `set -e`, `set -eu`,
 # `set -euo pipefail`. `set -uo pipefail` does NOT match, which is the point.
+# Measured shapes that defeat BOTH structural assertions. A token list, and
+# named as one: this shrinks the residual, it does not remove it.
+NEUTERINGS = [
+    (re.compile(r"(^|\n)\s*trap\s+.*\bEXIT\b"),
+     "installs an `EXIT` trap, which sets the step's final exit status"),
+    (re.compile(r"(^|\n)\s*(function\s+)?bash\s*\(\s*\)"),
+     "redefines `bash` as a shell function, so the gate is never executed"),
+    (re.compile(r"(^|\n)\s*(export\s+)?PATH="),
+     "rewrites `PATH`, so `bash` can resolve to a stub instead of the shell"),
+]
+
 SET_E_RE = re.compile(r"(^|\n)\s*set\s+-[a-zA-Z]*e")
 
 
@@ -210,12 +234,12 @@ def check(path):
         )
         return 1
 
-    # Enumerating swallowing TOKENS is an open set - `\ntrue` on the next line
-    # and a trailing `&` are both `continue-on-error` spelled differently, and
-    # neither contains `||`. Adding two more patterns just relocates the
-    # defect. These two assertions close the class instead: with `set -e` on,
-    # the gate's non-zero ends the step wherever it appears; and with the gate
-    # as the LAST statement, the step's own exit status IS the gate's.
+    # These two assertions close every TOKEN-shaped swallower without naming
+    # one: with `set -e` on and the gate as the LAST statement, the step's exit
+    # status IS the gate's. They do NOT close the class - `trap 'exit 0' EXIT`,
+    # a `bash` shell function, and a stub `bash` on `PATH` all satisfy them and
+    # all measured rc 0 - and the three named checks that follow are a token
+    # list with a token list's limits. Disclosed, not eliminated.
     if not SET_E_RE.search(run):
         annotate(
             "REFUSING: the gate step's `run` body does not enable `set -e`. "
@@ -257,6 +281,19 @@ def check(path):
             "character."
         )
         return 1
+
+    # Named because they were measured defeating everything above, not because
+    # naming them closes anything. A `run` body is a shell program; a YAML
+    # parser cannot decide what one does.
+    for rx, why in NEUTERINGS:
+        if rx.search(run):
+            annotate(
+                f"REFUSING: the gate step's `run` body {why}, which makes the "
+                "step exit zero however the gate itself exits. Nothing in this "
+                "step needs any of these, and a gate whose exit status the step "
+                "discards is not a gate."
+            )
+            return 1
 
     # (v) the default-branch policy checkout, upstream of the gate. Without it
     # the gate's `cd _promotion-policy` fails silently and it judges the
@@ -443,6 +480,23 @@ def selftest(real):
         st = doc["jobs"][JOB]["steps"][i]
         st["run"] = st["run"].rstrip("\n") + " &\n"
     case(1, "the gate invocation is backgrounded with `&`", "backgrounded with `&`", backgrounded)
+
+    # The three shapes that defeat BOTH structural assertions. They are here to
+    # make the residual VISIBLE, not to claim it closed: each is caught by name.
+    def prepend(text):
+        def f(doc):
+            i = gate_index(doc)
+            st = doc["jobs"][JOB]["steps"][i]
+            st["run"] = st["run"].replace("set -euo pipefail\n",
+                                          "set -euo pipefail\n" + text + "\n", 1)
+        return f
+
+    case(1, "an EXIT trap in the gate step", "installs an `EXIT` trap",
+         prepend("trap 'exit 0' EXIT"))
+    case(1, "`bash` redefined as a shell function", "redefines `bash` as a shell function",
+         prepend("bash() { command true; }"))
+    case(1, "PATH rewritten so `bash` can resolve to a stub", "rewrites `PATH`",
+         prepend("export PATH=/tmp/shx:$PATH"))
 
     def no_set_e(doc):
         i = gate_index(doc)
