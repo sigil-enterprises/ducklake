@@ -424,7 +424,13 @@ jobs:
           SELF_RUN_ID: ${{ github.run_id }}
         run: |
           set -uo pipefail
-          cd _promotion-policy
+          # Guarded, and the guard is load-bearing. There is no `set -e` here,
+          # so a bare `cd` into a missing directory fails SILENTLY and the gate
+          # then runs from the JOB'S OWN checkout - which on a `release` event
+          # is the tag under judgement. That is the policy-from-the-artifact
+          # defect, reintroduced by deleting one checkout step.
+          cd _promotion-policy \
+            || { echo "::error::the default-branch policy checkout is missing, so the gate would read .github/required-commits and .github/promoted-assets out of the tree it is judging. Refusing rather than attaching an asset judged against the candidate's own policy."; exit 1; }
           # `--is-ancestor` exits non-zero for "no" and for "I cannot see that
           # commit" alike, and the tag is not necessarily reachable from the
           # default branch - on v0.2.0-rc.5 it is not. Fetch it explicitly, and

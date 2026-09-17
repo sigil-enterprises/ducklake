@@ -20,8 +20,9 @@
 # A REFUSAL is exit non-zero WITH an `::error::` annotation.
 #
 # Overrides, for --selftest only:
-#   RELEASES_OVERRIDE  newline-separated `tag<TAB>true|false` (prerelease flag)
-#   WIRED_OVERRIDE     newline-separated `tag<TAB>0|1` (0 = tree carries the gate)
+#   RELEASES_OVERRIDE   newline-separated `tag<TAB>true|false<TAB>published_at`
+#   WIRED_OVERRIDE      newline-separated `tag<TAB>0|1` (0 = tree carries the gate)
+#   GATE_INTRO_OVERRIDE the commit date the gate step entered the workflow
 set -uo pipefail
 
 GATE_CALL='refuse_unproven_promotion.sh'
@@ -51,7 +52,7 @@ main() {
     rel_raw="${RELEASES_OVERRIDE}"
   else
     if ! rel_raw="$(gh api --paginate "repos/${repo}/releases?per_page=100" \
-          --jq '.[] | "\(.tag_name)\t\(.prerelease)"' 2>"$errf")"; then
+          --jq '.[] | "\(.tag_name)\t\(.prerelease)\t\(.published_at // "")"' 2>"$errf")"; then
       annotate "cannot list the releases of ${repo}: $(tr '\n' ' ' < "$errf"). Refusing: a read that did not answer returns EMPTY, which is indistinguishable from a repository with no unwired release in it."
       rm -f "$errf"; return 1
     fi
@@ -62,10 +63,11 @@ main() {
     return 1
   fi
 
-  local tag pre e checked=0 unwired=0 st
+  local tag pre pub e checked=0 unwired=0 st intro
   while IFS= read -r line; do
     [ -n "$line" ] || continue
-    tag="${line%%$'\t'*}"; pre="${line##*$'\t'}"
+    tag="${line%%$'\t'*}"; pub="${line##*$'\t'}"
+    pre="${line#*$'\t'}"; pre="${pre%%$'\t'*}"
     # A prerelease is a CANDIDATE, not a promotion. The pre-upload gate still
     # runs on one - deliberately, see Release.yml - but an rc cut before the
     # gate existed is not the hole this audit is about.
@@ -77,7 +79,28 @@ main() {
       [ "${e%%[[:space:]]*}" = "$tag" ] && is_exempt=1 && break
     done
     if [ "$is_exempt" -eq 1 ]; then
-      printf 'skip    %s (exempt)\n' "$tag"; continue
+      # An exemption asserts "this release predates the gate". Check the claim
+      # rather than take it: one appended line to a tracked file otherwise
+      # clears any red. A release published AFTER the gate step entered
+      # Release.yml did not predate anything.
+      if [ "${GATE_INTRO_OVERRIDE+set}" = set ]; then
+        intro="${GATE_INTRO_OVERRIDE}"
+      else
+        intro="$(git log --reverse --format=%cI -S"$GATE_CALL" -- "$WORKFLOW" 2>/dev/null | head -1)"
+      fi
+      if [ -z "$intro" ]; then
+        annotate "cannot determine when ${GATE_CALL} entered ${WORKFLOW}, so the claim that ${tag} predates the gate is UNCHECKABLE. Refusing rather than honouring an exemption on an unverified date. Check out with fetch-depth: 0."
+        return 1
+      fi
+      if [ -z "$pub" ]; then
+        annotate "the release list gave no published_at for the exempt tag ${tag}, so whether it predates the gate is UNKNOWN. Refusing rather than honouring an exemption on a missing date."
+        return 1
+      fi
+      if [ "$pub" \> "$intro" ]; then
+        annotate "REFUSING: ${tag} is listed in .github/gate-exempt-releases but was published at ${pub}, AFTER ${GATE_CALL} entered ${WORKFLOW} at ${intro}. The exemption file is for releases that predate the gate; it is not a way to excuse one that could have been gated."
+        return 1
+      fi
+      printf 'skip    %s (exempt, published %s before the gate at %s)\n' "$tag" "$pub" "$intro"; continue
     fi
 
     checked=$((checked + 1))
@@ -119,6 +142,7 @@ main() {
 }
 
 selftest() {
+  local here; here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   local fails=0 tmp; tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' RETURN
   _case() {
     local want="$1" label="$2" reason="$3"; shift 3
@@ -148,27 +172,82 @@ selftest() {
 
   # Green must be reachable: a final release cut from a wired tree passes.
   _case 0 "a final release cut from a gate-carrying tree" "" \
-    "RELEASES_OVERRIDE=v9.9.9"$'\t'"false" "WIRED_OVERRIDE=v9.9.9"$'\t'"0"
+    "RELEASES_OVERRIDE=v9.9.9"$'\t'"false"$'\t'"2026-09-01T00:00:00Z" "WIRED_OVERRIDE=v9.9.9"$'\t'"0"
   # The hole itself.
   _case 1 "a final release cut from a tree without the gate" "cut from a tree that does not call" \
-    "RELEASES_OVERRIDE=v9.9.9"$'\t'"false" "WIRED_OVERRIDE=v9.9.9"$'\t'"1"
+    "RELEASES_OVERRIDE=v9.9.9"$'\t'"false"$'\t'"2026-09-01T00:00:00Z" "WIRED_OVERRIDE=v9.9.9"$'\t'"1"
   # A prerelease is out of scope and must not red.
   _case 0 "an unwired PRERELEASE is out of scope" "" \
-    "RELEASES_OVERRIDE=v9.9.9-rc.1"$'\t'"true" "WIRED_OVERRIDE=v9.9.9-rc.1"$'\t'"1"
-  # The exemption path, on the real file's own entry.
-  _case 0 "an exempt release is skipped" "" \
-    "RELEASES_OVERRIDE=v0.1.0"$'\t'"false" "WIRED_OVERRIDE=v0.1.0"$'\t'"1"
+    "RELEASES_OVERRIDE=v9.9.9-rc.1"$'\t'"true"$'\t'"2026-09-01T00:00:00Z" "WIRED_OVERRIDE=v9.9.9-rc.1"$'\t'"1"
+  # The exemption path, on the real file's own entry, with a date that predates
+  # the gate.
+  _case 0 "an exempt release published before the gate is skipped" "" \
+    "RELEASES_OVERRIDE=v0.1.0"$'\t'"false"$'\t'"2026-08-01T00:00:00Z" "WIRED_OVERRIDE=v0.1.0"$'\t'"1" \
+    "GATE_INTRO_OVERRIDE=2026-09-01T00:00:00Z"
+  # R3: the exemption file is one appended line away from clearing any red, so
+  # the "predates the gate" claim is CHECKED, not taken.
+  _case 1 "an exempt release published AFTER the gate is still refused" "AFTER refuse_unproven_promotion.sh entered" \
+    "RELEASES_OVERRIDE=v0.1.0"$'\t'"false"$'\t'"2026-09-30T00:00:00Z" "WIRED_OVERRIDE=v0.1.0"$'\t'"1" \
+    "GATE_INTRO_OVERRIDE=2026-09-01T00:00:00Z"
+  _case 1 "an exempt release with no published_at" "no published_at for the exempt tag" \
+    "RELEASES_OVERRIDE=v0.1.0"$'\t'"false"$'\t' "WIRED_OVERRIDE=v0.1.0"$'\t'"1" \
+    "GATE_INTRO_OVERRIDE=2026-09-01T00:00:00Z"
+  _case 1 "the gate's introduction date cannot be determined" "UNCHECKABLE" \
+    "RELEASES_OVERRIDE=v0.1.0"$'\t'"false"$'\t'"2026-08-01T00:00:00Z" "WIRED_OVERRIDE=v0.1.0"$'\t'"1" \
+    "GATE_INTRO_OVERRIDE="
   # ... and the exemption is NAME-scoped, not a blanket.
   _case 1 "the exemption does not cover a different tag" "cut from a tree that does not call" \
-    "RELEASES_OVERRIDE=v0.1.0"$'\t'"false"$'\n'"v9.9.9"$'\t'"false" \
-    "WIRED_OVERRIDE=v0.1.0"$'\t'"1"$'\n'"v9.9.9"$'\t'"1"
+    "RELEASES_OVERRIDE=v0.1.0"$'\t'"false"$'\t'"2026-08-01T00:00:00Z"$'\n'"v9.9.9"$'\t'"false"$'\t'"2026-09-01T00:00:00Z" \
+    "WIRED_OVERRIDE=v0.1.0"$'\t'"1"$'\n'"v9.9.9"$'\t'"1" \
+    "GATE_INTRO_OVERRIDE=2026-09-01T00:00:00Z"
   # Fail-closed reads.
   _case 1 "the release list did not answer" "did not answer returns EMPTY" \
     "RELEASES_OVERRIDE=__ERR__"
   _case 1 "the release list answered EMPTY" "answered EMPTY" \
     "RELEASES_OVERRIDE="
   _case 1 "no wiring answer for a release" "no wiring answer was produced" \
-    "RELEASES_OVERRIDE=v9.9.9"$'\t'"false" "WIRED_OVERRIDE=v0.0.0"$'\t'"0"
+    "RELEASES_OVERRIDE=v9.9.9"$'\t'"false"$'\t'"2026-09-01T00:00:00Z" "WIRED_OVERRIDE=v0.0.0"$'\t'"0"
+
+  # ------------------------------------------------------------------
+  # R1: every case above sets WIRED_OVERRIDE, so the line that actually
+  # decides the verdict - `git show TAG:Release.yml | grep GATE_CALL` - is
+  # never executed. Inverting it, or deleting it and forcing st=0, survives
+  # all of them. These cases run it for real: a scratch repo, two tags, the
+  # override UNSET, and both directions required.
+  _realgit_case() {
+    local want="$1" label="$2" reason="$3" tag="$4"
+    local d="$tmp/rg"; rm -rf "$d"; mkdir -p "$d/.github/workflows" "$d/.github/scripts"
+    ( cd "$d" || exit 1
+      git init -q . && git config user.email a@b && git config user.name a
+      cp "$here/../gate-exempt-releases" .github/gate-exempt-releases 2>/dev/null \
+        || echo "# none" > .github/gate-exempt-releases
+      printf 'jobs:\n  publish:\n    steps:\n      - run: echo nothing here\n' \
+        > .github/workflows/Release.yml
+      git add -A && git commit -qm unwired && git tag v-unwired
+      printf 'jobs:\n  publish:\n    steps:\n      - run: bash .github/scripts/%s x y\n' \
+        "$GATE_CALL" > .github/workflows/Release.yml
+      git add -A && git commit -qm wired && git tag v-wired ) >/dev/null 2>&1
+    ( cd "$d" || exit 1
+      unset WIRED_OVERRIDE
+      export RELEASES_OVERRIDE="${tag}"$'\t'"false"$'\t'"2026-09-01T00:00:00Z"
+      main fake/repo ) > "$tmp/o" 2>&1
+    local st=$?
+    if [ "$st" -ne "$want" ]; then
+      printf 'FAIL  %s: expected exit %s, got %s\n' "$label" "$want" "$st"
+      sed 's/^/      | /' "$tmp/o"; fails=$((fails + 1)); return
+    fi
+    if [ "$want" -ne 0 ]; then
+      grep -q -- "^::error::.*$reason" "$tmp/o" || {
+        printf 'FAIL  %s: refused, but not for the condition under test (%s)\n' "$label" "$reason"
+        sed 's/^/      | /' "$tmp/o"; fails=$((fails + 1)); return; }
+    fi
+    printf 'PASS  %s (exit %s)\n' "$label" "$st"
+  }
+  _realgit_case 0 "REAL git: a tag whose tree calls the gate is WIRED" "" v-wired
+  _realgit_case 1 "REAL git: a tag whose tree does not call the gate is UNWIRED" \
+    "cut from a tree that does not call" v-unwired
+  _realgit_case 1 "REAL git: a tag absent from the checkout is UNKNOWN, not wired" \
+    "cannot resolve refs/tags/v-absent" v-absent
 
   echo
   if [ "$fails" -ne 0 ]; then

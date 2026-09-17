@@ -15,9 +15,17 @@ not a control. This one parses the workflow and asserts on the STEP OBJECT:
   (i)   the `publish` job contains a step whose `run` invokes the gate script;
   (ii)  its index is lower than that of the step running `gh release upload`;
   (iii) both are in that SAME job;
-  (iv)  the gate step carries no `if:` and no `continue-on-error:` - either one
-        makes it advisory, and an advisory gate upstream of an irreversible
-        step is the same thing as no gate.
+  (iv)  the gate step carries no `if:` and no `continue-on-error:`, and its
+        `run` body does not swallow the refusal with `|| true`, `|| :`,
+        `set +e`, `; exit 0`, or a trailing pipeline - every one of those is
+        the same advisory class one token away from `continue-on-error`, and
+        this step runs under `set -uo pipefail` with no `-e`, so a swallowed
+        non-zero simply lets the next step upload;
+  (v)   the `publish` job checks out the DEFAULT BRANCH into
+        `_promotion-policy` before the gate runs. Delete that step and the
+        gate's `cd` fails - silently, absent `set -e` - and it reads its policy
+        out of the job's own checkout, which on a `release` event is the tag
+        under judgement. One deleted step reinstates policy-from-the-artifact.
 
 A REFUSAL is exit non-zero WITH an `::error::` annotation. Exit non-zero
 without one is a crash and says nothing about the workflow.
@@ -28,6 +36,17 @@ import sys
 GATE_RE = re.compile(r"refuse_unproven_promotion\.sh")
 UPLOAD_RE = re.compile(r"gh\s+release\s+upload")
 JOB = "publish"
+POLICY_PATH = "_promotion-policy"
+
+# Each entry is (regex, what it does to the refusal). The point of naming them
+# individually is that a refusal says WHICH shape was found, so a fixture cannot
+# pass on a neighbouring one.
+SWALLOWERS = [
+    (re.compile(r"\|\|\s*true\b"), "`|| true` makes the refusal exit zero"),
+    (re.compile(r"\|\|\s*:(\s|$)"), "`|| :` makes the refusal exit zero"),
+    (re.compile(r"(^|\n)\s*set\s+\+e"), "`set +e` stops a non-zero from failing the step"),
+    (re.compile(r";\s*exit\s+0\b"), "`; exit 0` discards the gate's exit status"),
+]
 
 
 def annotate(msg):
@@ -130,7 +149,8 @@ def check(path):
             return 1
 
     run = gate["run"]
-    if not re.search(r"(^|\n)\s*bash\s+[^\n]*refuse_unproven_promotion\.sh", run):
+    m = re.search(r"(^|\n)\s*bash\s+([^\n]*refuse_unproven_promotion\.sh[^\n]*(\n[^\n]*)?)", run)
+    if not m:
         annotate(
             "REFUSING: the gate step mentions refuse_unproven_promotion.sh but "
             "does not invoke it with bash. A step that names the script in a "
@@ -139,7 +159,71 @@ def check(path):
         )
         return 1
 
-    print(f"{path}: `{JOB}` runs the promotion gate at step {gate_i}, uploads at step {upload_i} - gate is upstream, unconditional, and fails the job.")
+    # This step runs under `set -uo pipefail` with no `-e`, so a swallowed
+    # non-zero does not fail the job and the very next step uploads the asset.
+    # `continue-on-error: true` is rejected above; these are the same thing
+    # written inside the script body, and one of them - `|| true` appended to
+    # the invocation - passed this checker at rc 0.
+    invocation = m.group(2)
+    for rx, why in SWALLOWERS:
+        hit = rx.search(invocation) or (rx.search(run) if "set" in rx.pattern else None)
+        if hit:
+            annotate(
+                f"REFUSING: the gate step swallows the gate's exit status - {why}. "
+                "The step runs without `set -e`, so a refusal that does not "
+                "propagate lets the next step attach the asset. That is "
+                "`continue-on-error: true` spelled differently."
+            )
+            return 1
+    if re.search(r"refuse_unproven_promotion\.sh[^\n]*\|[^|]", invocation) or \
+       re.search(r"\\\n[^\n]*\|[^|]", invocation):
+        annotate(
+            "REFUSING: the gate's invocation ends in a pipeline, so the step's "
+            "exit status is the LAST command's, not the gate's. A gate whose "
+            "verdict is read from `sed` or `tee` has no verdict."
+        )
+        return 1
+
+    # (v) the default-branch policy checkout, upstream of the gate. Without it
+    # the gate's `cd _promotion-policy` fails silently and it judges the
+    # candidate against the candidate's own policy files.
+    policy_i = None
+    for i, st in enumerate(steps[:gate_i]):
+        if not isinstance(st, dict):
+            continue
+        if "checkout" not in str(st.get("uses", "")):
+            continue
+        with_ = st.get("with") or {}
+        if str(with_.get("path", "")).strip("./") != POLICY_PATH:
+            continue
+        ref = str(with_.get("ref", ""))
+        if "default_branch" not in ref:
+            annotate(
+                f"REFUSING: the `{POLICY_PATH}` checkout pins `ref: {ref!r}`, "
+                "not the repository's default branch. On a `release` event "
+                "`github.ref` is the tag, so the gate would read its policy out "
+                "of the tree it is judging - and a candidate that dropped a "
+                "required commit also dropped the line naming it."
+            )
+            return 1
+        policy_i = i
+        break
+    if policy_i is None:
+        annotate(
+            f"REFUSING: the `{JOB}` job does not check the default branch out "
+            f"into `{POLICY_PATH}` before the gate runs. The gate's `cd "
+            f"{POLICY_PATH}` would then fail - silently, because the step has "
+            "no `set -e` - and the gate would judge the release against policy "
+            "files taken from the release's own tree."
+        )
+        return 1
+
+    print(
+        f"{path}: `{JOB}` checks the default branch out into {POLICY_PATH} at "
+        f"step {policy_i}, runs the promotion gate at step {gate_i}, uploads at "
+        f"step {upload_i} - gate is upstream, unconditional, propagates its "
+        "exit status, and is judged from the default branch."
+    )
     return 0
 
 
@@ -247,6 +331,54 @@ def selftest(real):
     def no_job(doc):
         del doc["jobs"][JOB]
     case(1, "the publish job is renamed away", "has no `publish` job", no_job)
+
+    # E1 - the advisory shapes written INSIDE the run body. `continue-on-error`
+    # is rejected above; these do the same thing and one of them (`|| true`
+    # appended to the invocation) passed an earlier cut of this checker at rc 0.
+    # The step runs under `set -uo pipefail` with no `-e`, so each of these lets
+    # the very next step upload the asset.
+    def swallow(token):
+        def f(doc):
+            i = gate_index(doc)
+            st = doc["jobs"][JOB]["steps"][i]
+            st["run"] = st["run"].rstrip("\n") + token + "\n"
+        return f
+
+    case(1, "|| true appended to the gate invocation", "`|| true`", swallow(" || true"))
+    case(1, "|| : appended to the gate invocation", "`|| :`", swallow(" || :"))
+    case(1, "; exit 0 appended to the gate invocation", "`; exit 0`", swallow(" ; exit 0"))
+    case(1, "the gate invocation ends in a pipeline", "ends in a pipeline", swallow(" | tee /tmp/gate.log"))
+
+    def setplus(doc):
+        i = gate_index(doc)
+        st = doc["jobs"][JOB]["steps"][i]
+        st["run"] = "set +e\n" + st["run"]
+    case(1, "set +e in the gate step", "`set +e`", setplus)
+
+    # E7 - delete the default-branch policy checkout. The gate step's `cd
+    # _promotion-policy` then fails silently and the gate reads its policy out
+    # of the job's own checkout, which on a `release` event is the tag. One
+    # deleted step reinstates policy-from-the-artifact.
+    def policy_index(doc):
+        for i, st in enumerate(doc["jobs"][JOB]["steps"]):
+            w = st.get("with") or {}
+            if "checkout" in str(st.get("uses", "")) and str(w.get("path", "")).strip("./") == "_promotion-policy":
+                return i
+        return None
+
+    def drop_policy(doc):
+        del doc["jobs"][JOB]["steps"][policy_index(doc)]
+    case(1, "the default-branch policy checkout is deleted", "does not check the default branch out", drop_policy)
+
+    def policy_after(doc):
+        i = policy_index(doc)
+        st = doc["jobs"][JOB]["steps"].pop(i)
+        doc["jobs"][JOB]["steps"].append(st)
+    case(1, "the policy checkout moved after the gate", "does not check the default branch out", policy_after)
+
+    def policy_ref_tag(doc):
+        doc["jobs"][JOB]["steps"][policy_index(doc)]["with"]["ref"] = "${{ github.ref }}"
+    case(1, "the policy checkout pins github.ref instead of the default branch", "not the repository's default branch", policy_ref_tag)
 
     bad = os.path.join(tmp, "bad.yml")
     with open(bad, "w") as fh:
