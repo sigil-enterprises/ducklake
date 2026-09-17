@@ -6,8 +6,6 @@
 // Boot-time self-test: every reader must LOAD ducklake + perform one
 // encrypted read before serving. This function is the call surface.
 //
-// Boot-time self-test registration.
-//
 //===----------------------------------------------------------------------===//
 //
 // WHAT IT VERIFIES
