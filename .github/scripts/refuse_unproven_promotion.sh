@@ -31,10 +31,26 @@
 #   refuse_unproven_promotion.sh REPO TAG
 #   refuse_unproven_promotion.sh --selftest
 #
+# Two REAL inputs, both for the pre-upload call site in Release.yml, where the
+# release does not yet carry the asset and this workflow's own jobs are still
+# running on the sha under judgement. Both are optional; unset, the gate behaves
+# exactly as it does when judging an already-published release.
+#   PENDING_ASSETS  newline-separated asset names this run is ABOUT TO attach.
+#                   Unioned into the release's asset list for C4. Without it a
+#                   pre-upload call refuses every release for an asset the call
+#                   exists to attach, and green is unreachable.
+#   SELF_RUN_ID     the Actions run id of the caller. Its OWN jobs are excluded
+#                   from C1/C2 by check-run ID - not by name, because a same-
+#                   named check-run from an EARLIER, FAILED run would then be
+#                   excluded too. The exclusion is fail-closed: if the job list
+#                   cannot be read, the gate refuses rather than judging on an
+#                   unfiltered or a silently-empty exclusion set.
+#
 # Overrides, all for --selftest, which must present a bad release without
 # creating one. Each substitutes for exactly one read; `__ERR__` makes that read
 # report failure, which is how the fail-closed paths are shown to fire.
-#   CHECKRUNS_OVERRIDE    newline-separated `conclusion<TAB>name`
+#   CHECKRUNS_OVERRIDE    newline-separated `id<TAB>conclusion<TAB>name`
+#   SELF_JOBS_OVERRIDE    newline-separated job ids of SELF_RUN_ID
 #   RELEASE_SHA_OVERRIDE  the sha the release CI actually ran on
 #   TAG_SHA_OVERRIDE      the sha the tag points at
 #   ASSET_LIST_OVERRIDE   newline-separated asset names
@@ -87,7 +103,7 @@ main() {
   errf="$(mktemp)"
   if ! cr_raw="$(_read CHECKRUNS gh api --paginate \
         "repos/${repo}/commits/${tag_sha}/check-runs" \
-        --jq '.check_runs[] | "\(.conclusion // "PENDING")\t\(.name)"' 2>"$errf")"; then
+        --jq '.check_runs[] | "\(.id)\t\(.conclusion // "PENDING")\t\(.name)"' 2>"$errf")"; then
     annotate "cannot read the check-runs for ${tag_sha}: $(tr '\n' ' ' < "$errf"). Refusing: a read that did not answer returns EMPTY, which is indistinguishable from a sha with nothing wrong with it."
     rm -f "$errf"; return 1
   fi
@@ -98,6 +114,40 @@ main() {
   # with the API about an empty list, which is the one case that matters here.
   local runs=() _l
   while IFS= read -r _l; do [ -n "$_l" ] && runs+=("$_l"); done <<< "$cr_raw"
+
+  # The caller's OWN jobs, dropped - and ONLY when it names itself. Called
+  # pre-upload from Release.yml, this gate reads a sha whose check-runs include
+  # the very job asking the question; those are PENDING by construction, so
+  # without this C2 refuses every release forever and the gate's green is
+  # unreachable. Excluding by check-run ID, never by name: an earlier run's
+  # FAILED job of the same name must still count, and a name-based exclusion
+  # would silently forgive it.
+  if [ -n "${SELF_RUN_ID:-}" ]; then
+    local self_raw
+    errf="$(mktemp)"
+    if ! self_raw="$(_read SELF_JOBS gh api --paginate \
+          "repos/${repo}/actions/runs/${SELF_RUN_ID}/jobs" \
+          --jq '.jobs[].id' 2>"$errf")"; then
+      annotate "cannot read the jobs of run ${SELF_RUN_ID}: $(tr '\n' ' ' < "$errf"). Refusing: without them this gate cannot tell its own in-flight jobs from a real red, and guessing either way is a verdict about the wrong thing."
+      rm -f "$errf"; return 1
+    fi
+    rm -f "$errf"
+    if [ -z "$self_raw" ]; then
+      annotate "the job list for run ${SELF_RUN_ID} answered EMPTY. A run always has at least the job asking this question, so an empty answer is a read that did not answer. Refusing rather than excluding nothing and refusing for the wrong reason."
+      return 1
+    fi
+    local kept=() _id _keep
+    for _l in ${runs[@]+"${runs[@]}"}; do
+      _id="${_l%%$'\t'*}"; _keep=1
+      while IFS= read -r _sid; do
+        [ -n "$_sid" ] && [ "$_sid" = "$_id" ] && { _keep=0; break; }
+      done <<< "$self_raw"
+      [ "$_keep" -eq 1 ] && kept+=("$_l")
+    done
+    echo "  excluding $(( ${#runs[@]} - ${#kept[@]} )) check-run(s) belonging to this run (${SELF_RUN_ID})"
+    runs=(${kept[@]+"${kept[@]}"})
+  fi
+
   echo "  ${tag_sha} carries ${#runs[@]} check-run(s)"
   if [ "${#runs[@]}" -eq 0 ]; then
     annotate "REFUSING: ${tag_sha} carries NO check-runs. The commit under promotion was never built or tested. Absence of red is not presence of green: there are no failures here BECAUSE there is no evidence here. (Every v0.2.0 candidate measured so far - rc.3, rc.4 and rc.5 - is in this state.)"
@@ -110,7 +160,7 @@ main() {
   # conclusion is a run still going: not a success, so not promotable.
   local bad=0 r concl name
   for r in ${runs[@]+"${runs[@]}"}; do
-    concl="${r%%$'\t'*}"; name="${r#*$'\t'}"
+    concl="${r#*$'\t'}"; concl="${concl%%$'\t'*}"; name="${r##*$'\t'}"
     if [ "$concl" != "success" ]; then
       echo "    NOT-SUCCESS  ${concl}  ${name}"
       bad=$((bad + 1))
@@ -205,6 +255,18 @@ main() {
   local actual=()
   while IFS= read -r _l; do [ -n "$_l" ] && actual+=("$_l"); done <<< "$as_raw"
   echo "  release carries ${#actual[@]} asset(s)"
+  # Assets the CALLER is about to attach, counted as present. This is what lets
+  # the gate run BEFORE the irreversible upload, which is the only position from
+  # which it blocks anything: after the upload the bad bytes are already on the
+  # release and a red job does not take them off. It is not a loosening - the
+  # name still has to be the one .github/promoted-assets states, and Release.yml
+  # passes the name it is about to upload, derived from the same build step that
+  # produces the file. A pending name that is not the expected name still fails.
+  if [ -n "${PENDING_ASSETS:-}" ]; then
+    while IFS= read -r _l; do
+      [ -n "$_l" ] && { actual+=("$_l"); echo "    PENDING  ${_l} (this run is about to attach it)"; }
+    done <<< "${PENDING_ASSETS}"
+  fi
   local missing=0 want a found
   for want in ${expected[@]+"${expected[@]}"}; do
     found=0
@@ -299,7 +361,8 @@ selftest() {
   local tmp; tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' RETURN
 
   local GOOD_SHA="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-  local GOOD_RUNS="success"$'\t'"build"$'\n'"success"$'\t'"test"
+  # `id<TAB>conclusion<TAB>name`. The id is what SELF_RUN_ID excludes on.
+  local GOOD_RUNS="11"$'\t'"success"$'\t'"build"$'\n'"12"$'\t'"success"$'\t'"test"
   # Derived from the same file main() substitutes from. A hand-written literal
   # here drifts the moment the pin moves, and the drift shows up as C0 failing
   # for a reason that has nothing to do with what C0 tests.
@@ -364,9 +427,9 @@ selftest() {
   # C2 - built, and red. Two shapes, because a null conclusion is a run still
   # going and reads as "not failed" to anything looking only for `failure`.
   _case 1 "C2 a check-run concluded failure" "did not conclude success" \
-    "CHECKRUNS_OVERRIDE=success"$'\t'"build"$'\n'"failure"$'\t'"test"
+    "CHECKRUNS_OVERRIDE=11"$'\t'"success"$'\t'"build"$'\n'"12"$'\t'"failure"$'\t'"test"
   _case 1 "C2 a check-run is still pending" "did not conclude success" \
-    "CHECKRUNS_OVERRIDE=success"$'\t'"build"$'\n'"PENDING"$'\t'"test"
+    "CHECKRUNS_OVERRIDE=11"$'\t'"success"$'\t'"build"$'\n'"12"$'\t'"PENDING"$'\t'"test"
   # C3 - the tag and the evidence on different commits (v0.2.0-rc.5, exactly).
   _case 1 "C3 tag sha and release sha disagree" "DIFFERENT commits" \
     "RELEASE_SHA_OVERRIDE=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -422,7 +485,7 @@ selftest() {
       local T; case "$tagsha_var" in A) T="$A" ;; B) T="$B" ;; C) T="$C" ;; esac
       TAG_SHA_OVERRIDE="$T" \
       RELEASE_SHA_OVERRIDE="$T" \
-      CHECKRUNS_OVERRIDE="success"$'\t'"build" \
+      CHECKRUNS_OVERRIDE="11"$'\t'"success"$'\t'"build" \
       ASSET_LIST_OVERRIDE="ducklake.linux_amd64.vX.duckdb-vTEST.duckdb_extension" \
         main fake/repo vX
     ) > "$tmp/o" 2>&1
@@ -502,6 +565,47 @@ selftest() {
     "RELEASE_SHA_OVERRIDE=main" "RESOLVED_SHA_OVERRIDE=__ERR__"
   _case 1 "F5 resolving the branch name answered EMPTY" "answered EMPTY" \
     "RELEASE_SHA_OVERRIDE=main" "RESOLVED_SHA_OVERRIDE="
+
+  # ---------------------------------------- the PRE-UPLOAD call site (C7) --
+  #
+  # Release.yml calls this gate BEFORE `gh release upload`, which is the only
+  # position from which it blocks rather than announces. Two things are true
+  # there and nowhere else, and each needs its own control: the release does not
+  # yet carry the asset, and this workflow's own jobs are still PENDING on the
+  # sha under judgement. Both mechanisms could silently become no-ops - one by
+  # accepting any pending name, the other by excluding any check-run - so each
+  # is pinned in BOTH directions.
+
+  # The release carries nothing, and the caller is about to attach exactly the
+  # expected asset. Green - and it must be green, or the call site can never
+  # pass and the blocking path is a gate nobody can get through.
+  _case 0 "C7 pending asset supplies the one the release lacks" "" \
+    "ASSET_LIST_OVERRIDE=" "PENDING_ASSETS=$GOOD_ASSETS"
+  # ... and the other direction: a pending asset under the WRONG name is not a
+  # licence. Without this, PENDING_ASSETS would be a hole that admits anything.
+  _case 1 "C7 pending asset is not the NAMED one" "missing 1 of the 1 asset" \
+    "ASSET_LIST_OVERRIDE=" "PENDING_ASSETS=ducklake.wrong-name.duckdb_extension"
+
+  # SELF_RUN_ID drops the caller's own in-flight jobs by ID. Here run 99's job
+  # 12 is the pending one; excluding it leaves job 11, which is green.
+  _case 0 "C7 this run's own pending job is excluded by id" "" \
+    "CHECKRUNS_OVERRIDE=11"$'\t'"success"$'\t'"build"$'\n'"12"$'\t'"PENDING"$'\t'"promote" \
+    "SELF_RUN_ID=99" "SELF_JOBS_OVERRIDE=12"
+  # The dangerous direction: a FAILED check-run belonging to someone else must
+  # NOT be excluded. If the exclusion ever matched on name, or matched too
+  # broadly, this case goes green and the gate forgives a real red.
+  _case 1 "C7 a failed check-run outside this run is NOT excluded" "did not conclude success" \
+    "CHECKRUNS_OVERRIDE=11"$'\t'"failure"$'\t'"build"$'\n'"12"$'\t'"PENDING"$'\t'"promote" \
+    "SELF_RUN_ID=99" "SELF_JOBS_OVERRIDE=12"
+  # Excluding everything must not read as "green": zero check-runs is C1's
+  # never-built case, and it must still refuse there.
+  _case 1 "C7 excluding every check-run leaves NO evidence" "carries NO check-runs" \
+    "SELF_RUN_ID=99" "SELF_JOBS_OVERRIDE=11"$'\n'"12"
+  # Fail-closed on the exclusion read itself.
+  _case 1 "C7 the job list for this run did not answer" "cannot tell its own in-flight jobs" \
+    "SELF_RUN_ID=99" "SELF_JOBS_OVERRIDE=__ERR__"
+  _case 1 "C7 the job list for this run answered EMPTY" "answered EMPTY" \
+    "SELF_RUN_ID=99" "SELF_JOBS_OVERRIDE="
 
   echo
   if [ "$fails" -ne 0 ]; then

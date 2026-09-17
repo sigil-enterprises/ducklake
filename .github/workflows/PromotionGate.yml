@@ -13,6 +13,13 @@ name: Promotion gate
 #   - main is 20 commits ahead, including a landed security fix that promoting
 #     this tag would silently drop.
 #
+# This workflow is the ANNOUNCER: it runs on `release: published`, after the
+# release is already public, and with a read-only token it cannot unpublish
+# one. The ENFORCEMENT is in Release.yml's `publish` job, which calls the same
+# script BEFORE `gh release upload` - a release that fails the gate carries no
+# asset. Both are kept: this one states a verdict on every final release,
+# including releases nothing ever tries to attach an asset to.
+#
 # The gate is judged from the DEFAULT BRANCH's copy of the script and of both
 # policy files, never from the tag's - see the checkout step below.
 #
@@ -54,6 +61,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: PROVE every promotion check fires on its own bad fixture
         run: bash .github/scripts/refuse_unproven_promotion.sh --selftest
+
+      # The script's own controls prove every check FIRES. They say nothing
+      # about whether anything CALLS it before the irreversible step, and that
+      # is the difference between blocking a bad promotion and announcing one.
+      # Deleting one step from Release.yml would make that swap silently, with
+      # every other check in this repository still green - so the call site is
+      # asserted here, with its own delete-the-limb control.
+      - name: PROVE the gate is called UPSTREAM of the release upload
+        run: bash .github/scripts/selftest_promotion_call_site.sh --selftest
 
   # The gate itself. Only on a FINAL release - a prerelease is a candidate and
   # is not being promoted - and on workflow_dispatch, which reads only.
