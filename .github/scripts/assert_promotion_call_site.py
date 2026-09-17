@@ -23,9 +23,9 @@ not a control. This one parses the workflow and asserts on the STEP OBJECT:
         enumerating them, and the token list below survives only for
         ATTRIBUTION, naming which shape was found.
 
-        THE CLASS IS NOT CLOSED. Three one-line edits defeat every assertion
-        here and were measured doing it, checker rc 0 and step rc 0 against a
-        refusing stub: `trap 'exit 0' EXIT`; redefining `bash` as a shell
+        THE CLASS IS NOT CLOSED. Three one-line edits were measured
+        satisfying every assertion here while defeating the gate, checker rc 0
+        and step rc 0 against a refusing stub: `trap 'exit 0' EXIT`; redefining `bash` as a shell
         function; putting a stub `bash` first on `PATH`. Each leaves the gate
         as the last logical statement with `set -e` on and no `||`, `;`, `&`
         or pipe. All three are rejected by name below - which is a token list,
@@ -73,9 +73,9 @@ PIPE_RE = re.compile(r"(?<!\|)\|(?!\|)")
 # Measured shapes that defeat BOTH structural assertions. A token list, and
 # named as one: this shrinks the residual, it does not remove it.
 NEUTERINGS = [
-    (re.compile(r"(^|\n)\s*trap\s+.*\bEXIT\b"),
+    (re.compile(r"(^|\n)\s*trap\s+.*\b(EXIT|0)\b"),
      "installs an `EXIT` trap, which sets the step's final exit status"),
-    (re.compile(r"(^|\n)\s*(function\s+)?bash\s*\(\s*\)"),
+    (re.compile(r"(^|\n)\s*(function\s+bash\b|bash\s*\(\s*\))"),
      "redefines `bash` as a shell function, so the gate is never executed"),
     (re.compile(r"(^|\n)\s*(export\s+)?PATH="),
      "rewrites `PATH`, so `bash` can resolve to a stub instead of the shell"),
@@ -497,6 +497,13 @@ def selftest(real):
          prepend("bash() { command true; }"))
     case(1, "PATH rewritten so `bash` can resolve to a stub", "rewrites `PATH`",
          prepend("export PATH=/tmp/shx:$PATH"))
+    # Signal 0 IS EXIT, and the `function` keyword form takes no parens. Both
+    # are the SAME shape as the two above, so a list kept for attribution has
+    # to name them or it does not name what it claims to.
+    case(1, "an EXIT trap written as signal 0", "installs an `EXIT` trap",
+         prepend("trap 'exit 0' 0"))
+    case(1, "`bash` redefined with the `function` keyword", "redefines `bash` as a shell function",
+         prepend("function bash { command true; }"))
 
     def no_set_e(doc):
         i = gate_index(doc)
