@@ -13,6 +13,9 @@ name: Promotion gate
 #   - main is 20 commits ahead, including a landed security fix that promoting
 #     this tag would silently drop.
 #
+# The gate is judged from the DEFAULT BRANCH's copy of the script and of both
+# policy files, never from the tag's - see the checkout step below.
+#
 # Each of those is now a machine-checked precondition in
 # .github/scripts/refuse_unproven_promotion.sh, and each is REFUSED rather than
 # warned about. The two declarative inputs - .github/promoted-assets and
@@ -62,18 +65,35 @@ jobs:
       github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
     steps:
-      # fetch-depth: 0, and it is load-bearing, not hygiene. The required-commit
-      # check is `git merge-base --is-ancestor`, and on a shallow clone that
-      # exits non-zero for "I cannot see that commit" exactly as it does for
-      # "the release dropped it". The script refuses rather than guessing, so a
-      # shallow checkout here would red every promotion for a clone defect.
+      # `ref:` is the DEFAULT BRANCH, and that is the whole point, not a detail.
+      # On a `release` event `github.ref` is refs/tags/<tag>, so a bare checkout
+      # would hand the gate the tree it is JUDGING - it would read this script
+      # and both policy files out of the candidate. Two ways that is wrong, and
+      # the second survives a merge:
+      #   (a) on a tag cut before this gate existed the script is simply absent,
+      #       the step exits 127, and a bare non-zero with no ::error:: is a
+      #       CRASH, which by this workflow's own rule says nothing about the
+      #       release;
+      #   (b) .github/required-commits read from the tag's tree cannot name a
+      #       commit that landed AFTER the tag was cut - which is every commit
+      #       the list exists to require. Measured: with the entry removed to
+      #       stand in for an older tag's copy, the same candidate went from one
+      #       "does not contain" refusal to ZERO.
+      # The policy a promotion is judged against must come from the branch that
+      # owns it, never from the artifact under judgement.
+      #
+      # fetch-depth: 0 is load-bearing too: the required-commit check is
+      # `git merge-base --is-ancestor`, which on a shallow clone exits non-zero
+      # for "I cannot see that commit" exactly as for "the release dropped it".
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
 
-      # The tag is fetched explicitly: a release published from a tag pushed
-      # after this workflow's checkout ref was resolved is not otherwise in the
-      # local object store, and "I cannot see it" must not read as a verdict.
+      # The checkout above is the default branch, so the tag's own objects are
+      # fetched explicitly - a candidate cut from a commit that never landed on
+      # the default branch is exactly the shape this gate is looking for, and
+      # "I cannot see it" must not read as a verdict either way.
       - name: Fetch the tag under promotion
         env:
           TAG: ${{ github.event.release.tag_name || inputs.tag }}

@@ -100,7 +100,7 @@ main() {
   while IFS= read -r _l; do [ -n "$_l" ] && runs+=("$_l"); done <<< "$cr_raw"
   echo "  ${tag_sha} carries ${#runs[@]} check-run(s)"
   if [ "${#runs[@]}" -eq 0 ]; then
-    annotate "REFUSING: ${tag_sha} carries NO check-runs. The commit under promotion was never built or tested. This is exactly v0.2.0-rc.5, whose tag sha has zero check-runs while the release object's CI sits on another sha entirely."
+    annotate "REFUSING: ${tag_sha} carries NO check-runs. The commit under promotion was never built or tested. Absence of red is not presence of green: there are no failures here BECAUSE there is no evidence here. (Every v0.2.0 candidate measured so far - rc.3, rc.4 and rc.5 - is in this state.)"
     fails=1
   fi
 
@@ -127,17 +127,39 @@ main() {
   # v0.2.0-rc.5 is precisely the case where they do not: the tag is on aac361e8
   # and every check-run is on 2af24b9f. Either alone reads as fine; only the
   # comparison shows that the evidence is about a different commit.
-  local rel_sha
+  local rel_ref
   errf="$(mktemp)"
-  if ! rel_sha="$(_read RELEASE_SHA gh api "repos/${repo}/releases/tags/${tag}" \
+  if ! rel_ref="$(_read RELEASE_SHA gh api "repos/${repo}/releases/tags/${tag}" \
                     --jq '.target_commitish' 2>"$errf")"; then
     annotate "cannot read the release object for ${repo}@${tag}: $(tr '\n' ' ' < "$errf"). Refusing: without it there is nothing to compare the tag's sha against."
     rm -f "$errf"; return 1
   fi
   rm -f "$errf"
-  if [ -z "$rel_sha" ]; then
+  if [ -z "$rel_ref" ]; then
     annotate "the release object for ${repo}@${tag} named NO commit. Refusing rather than treating an unanswered field as agreement."
     return 1
+  fi
+  # `.target_commitish` is a COMMITTISH, not a sha: `gh release create --target
+  # main` stores the literal string `main`. Comparing that to a sha would refuse
+  # every normally-created release - fail-closed, but with green unreachable,
+  # which carries no more information than a check that passes on everything.
+  # Resolve it to a sha first, and refuse if it cannot be resolved.
+  local rel_sha=""
+  if [[ "$rel_ref" =~ ^[0-9a-f]{40}$ ]]; then
+    rel_sha="$rel_ref"
+  else
+    errf="$(mktemp)"
+    if ! rel_sha="$(_read RESOLVED_SHA gh api "repos/${repo}/commits/${rel_ref}" \
+                      --jq '.sha' 2>"$errf")"; then
+      annotate "the release names '${rel_ref}', which is not a sha, and it could not be resolved to one: $(tr '\n' ' ' < "$errf"). Refusing: an unresolved committish cannot be compared to the tag's sha, and an unanswered comparison is not agreement."
+      rm -f "$errf"; return 1
+    fi
+    rm -f "$errf"
+    if [ -z "$rel_sha" ]; then
+      annotate "resolving the release's committish '${rel_ref}' answered EMPTY. Refusing rather than reading an unanswered resolution as agreement."
+      return 1
+    fi
+    echo "  release names '${rel_ref}', which resolves to ${rel_sha}"
   fi
   echo "  release CI ran on ${rel_sha}"
   if [ "$rel_sha" != "$tag_sha" ]; then
@@ -151,7 +173,11 @@ main() {
   # A named set from .github/promoted-assets, not a count: a release carrying
   # one stray file is not a release carrying the binary a consumer installs.
   local duckdb_version="" line
-  if [ -r .github/duckdb-version ]; then duckdb_version="$(cat .github/duckdb-version)"; fi
+  if [ ! -r .github/duckdb-version ]; then
+    annotate "cannot read .github/duckdb-version, so the asset names this release must carry cannot be built. Refusing: an empty substitution yields a name no release would ever carry, and C4 would then refuse for the WRONG reason."
+    return 1
+  fi
+  duckdb_version="$(cat .github/duckdb-version)"
   if [ ! -r .github/promoted-assets ]; then
     annotate "cannot read .github/promoted-assets, so there is no statement of what this release must carry. Refusing rather than promoting against an empty expectation - an empty expected set is satisfied by a release with no assets at all."
     return 1
@@ -187,7 +213,7 @@ main() {
     else echo "    MISSING  ${want}"; missing=$((missing + 1)); fi
   done
   if [ "$missing" -ne 0 ]; then
-    annotate "REFUSING: ${repo}@${tag} is missing ${missing} of the ${#expected[@]} asset(s) .github/promoted-assets requires. v0.2.0-rc.5 carries zero assets: there is nothing there to promote."
+    annotate "REFUSING: ${repo}@${tag} is missing ${missing} of the ${#expected[@]} asset(s) .github/promoted-assets requires. A release that does not carry the binary a consumer installs is a release there is nothing to promote."
     fails=1
   fi
 
@@ -204,6 +230,14 @@ main() {
     case "$line" in ''|'#'*) continue ;; esac
     required+=("$line")
   done < .github/required-commits
+  # Symmetric with the asset guard above, and for the same reason: an empty or
+  # fully-commented list yields dropped=0 and passes C5 silently, so a gate
+  # reading the file from a tree that predates an entry would report containment
+  # it never checked.
+  if [ "${#required[@]}" -eq 0 ]; then
+    annotate "REFUSING: .github/required-commits names no commits. An empty required set passes C5 on every candidate including one that dropped a landed fix, which is the whole condition this check exists to state."
+    return 1
+  fi
 
   local anc_raw="" dropped=0
   if [ "${ANCESTRY_OVERRIDE+set}" = set ]; then
@@ -242,7 +276,7 @@ main() {
     fi
   done
   if [ "$dropped" -ne 0 ]; then
-    annotate "REFUSING: ${tag_sha} does not contain ${dropped} commit(s) .github/required-commits names. Promoting it would ship a release without a fix that has already landed - which is what promoting v0.2.0-rc.5 would do to the enveloped-lake partitioning fix."
+    annotate "REFUSING: ${tag_sha} does not contain ${dropped} commit(s) .github/required-commits names. Promoting it would ship a release without a fix that has already landed."
     fails=1
   fi
 
@@ -347,6 +381,95 @@ selftest() {
   _case 1 "C5 promoted sha drops a required commit" "does not contain 1 commit" \
     "ANCESTRY_OVERRIDE=6e3a2e12a2d24a41d8a629ec91f93447a42df4cc"$'\t'"1"
 
+  # ------------------------------------------------ the REAL git path (C5) --
+  #
+  # Every case above sets ANCESTRY_OVERRIDE, so every one of them takes the
+  # override branch and the real `git cat-file` / `merge-base --is-ancestor`
+  # code is NEVER EXECUTED. Those cases are a positive control for the override
+  # plumbing, not for the gate: with the arguments to `--is-ancestor` inverted -
+  # the one mutation that silently turns "dropped" into "contained" - the whole
+  # suite above still printed all cases passed. Delete-the-limb could not see it
+  # either, because the limb fires either way.
+  #
+  # So these cases run with ANCESTRY_OVERRIDE UNSET, against real objects in a
+  # scratch repository built here: a known ancestor and a known non-ancestor, in
+  # BOTH directions, so an inverted comparison fails one of them whichever way
+  # it is inverted. The scratch repo also owns its own .github/, which is how
+  # the file-reading refusals below are exercised on real files.
+  _realgit_case() {
+    local want="$1" label="$2" reason="$3" reqfile="$4" tagsha_var="$5" dropdv="${6:-}"
+    local d; d="$(mktemp -d)"
+    (
+      cd "$d" || exit 99
+      git init -q .; git config user.email t@e; git config user.name t
+      git commit -q --allow-empty -m A; local A; A="$(git rev-parse HEAD)"
+      git commit -q --allow-empty -m B; local B; B="$(git rev-parse HEAD)"
+      # C is a real commit that is NOT an ancestor of B - a sibling off A.
+      git checkout -q -b side "$A"
+      git commit -q --allow-empty -m C; local C; C="$(git rev-parse HEAD)"
+      git checkout -q "$B"
+      mkdir -p .github
+      [ "$dropdv" = "nodv" ] || echo "vTEST" > .github/duckdb-version
+      echo 'ducklake.linux_amd64.%TAG%.duckdb-%DUCKDB_VERSION%.duckdb_extension' > .github/promoted-assets
+      # The fixture names which real commit the required list holds.
+      case "$reqfile" in
+        ancestor)     echo "$A  a real ancestor of the promoted sha" ;;
+        nonancestor)  echo "$C  a real commit that is NOT an ancestor" ;;
+        descendant)   echo "$B  a real DESCENDANT of the promoted sha" ;;
+        unresolvable) echo "0123456789012345678901234567890123456789  a commit no clone has" ;;
+        empty)        echo "# every line a comment, so the set is empty" ;;
+      esac > .github/required-commits
+      local T; case "$tagsha_var" in A) T="$A" ;; B) T="$B" ;; C) T="$C" ;; esac
+      TAG_SHA_OVERRIDE="$T" \
+      RELEASE_SHA_OVERRIDE="$T" \
+      CHECKRUNS_OVERRIDE="success"$'\t'"build" \
+      ASSET_LIST_OVERRIDE="ducklake.linux_amd64.vX.duckdb-vTEST.duckdb_extension" \
+        main fake/repo vX
+    ) > "$tmp/o" 2>&1
+    st=$?
+    rm -rf "$d"
+    sed 's/^::error::/    [expected annotation] /' "$tmp/o" > "$tmp/o2"; mv "$tmp/o2" "$tmp/o"
+    if grep -qE "unbound variable|command not found|: line [0-9]+:" "$tmp/o"; then
+      printf 'FAIL  %s: the script errored, so this verdict is a crash\n' "$label"
+      sed 's/^/      | /' "$tmp/o"; fails=$((fails + 1)); return
+    fi
+    if [ "$st" -ne "$want" ]; then
+      printf 'FAIL  %s: expected exit %s, got %s\n' "$label" "$want" "$st"
+      sed 's/^/      | /' "$tmp/o"; fails=$((fails + 1)); return
+    fi
+    if [ "$want" -ne 0 ] && ! grep -q -- "\[expected annotation\].*$reason" "$tmp/o"; then
+      printf 'FAIL  %s: refused, but NOT for the condition under test - no annotation naming %s\n' "$label" "$reason"
+      sed 's/^/      | /' "$tmp/o"; fails=$((fails + 1)); return
+    fi
+    printf 'PASS  %s (exit %s%s)\n' "$label" "$st" \
+      "$([ "$want" -ne 0 ] && echo ", ::error:: names '$reason'")"
+  }
+
+  # REAL git, required commit IS an ancestor of the promoted sha -> green. This
+  # is also the only C0-shaped case in which a real read path actually runs.
+  _realgit_case 0 "C5-real required commit IS an ancestor (real git)" "" ancestor B
+  # REAL git, required commit is NOT an ancestor -> refuse. Inverting the
+  # arguments to --is-ancestor flips exactly this pair, and one of the two
+  # fails whichever way the inversion goes.
+  _realgit_case 1 "C5-real required commit is NOT an ancestor (real git)" \
+    "does not contain 1 commit" nonancestor B
+  # The promoted sha is the ANCESTOR and the required commit its DESCENDANT.
+  # This is the direction an inverted comparison gets wrong in the dangerous
+  # way - it would report CONTAINS for a fix the candidate does not carry - and
+  # together with the case above it pins the comparison in both directions.
+  _realgit_case 1 "C5-real required commit is a DESCENDANT of the promoted sha" \
+    "does not contain 1 commit" descendant A
+  # `--is-ancestor` exits non-zero for "cannot see that commit" exactly as for
+  # "no", so a commit the clone lacks must refuse as UNKNOWN, not as dropped.
+  _realgit_case 1 "C5-real required commit not in the checkout (real git)" \
+    "cannot resolve the required commit" unresolvable B
+  # F3: an empty or fully-commented list yields dropped=0 and would pass.
+  _realgit_case 1 "C5-real required-commits names no commits" \
+    "names no commits" empty B
+  # F6: a missing duckdb-version must refuse for ITS reason, not via C4.
+  _realgit_case 1 "a missing .github/duckdb-version refuses explicitly" \
+    "cannot read .github/duckdb-version" ancestor B nodv
+
   # C6 - FAIL CLOSED. Each read, made to report failure the way a 403 or a
   # rate-limited read does. Every one of these returns EMPTY in the shape that
   # would otherwise read as "nothing wrong here", so each must refuse and must
@@ -365,6 +488,20 @@ selftest() {
     "ASSET_LIST_OVERRIDE=__ERR__"
   _case 1 "C6 ancestry could not be determined" "was not answered" \
     "ANCESTRY_OVERRIDE=__ERR__"
+
+  # F5 - `.target_commitish` is routinely a BRANCH NAME. It must be resolved to
+  # a sha and then compared, not compared as a string: comparing `main` to a sha
+  # refuses every normally-created release, which is fail-closed with green
+  # unreachable. Both directions, so the resolution is shown to decide the
+  # verdict rather than merely to run.
+  _case 0 "F5 release names a branch that resolves to the tag's sha" "" \
+    "RELEASE_SHA_OVERRIDE=main" "RESOLVED_SHA_OVERRIDE=$GOOD_SHA"
+  _case 1 "F5 release names a branch resolving to a DIFFERENT sha" "DIFFERENT commits" \
+    "RELEASE_SHA_OVERRIDE=main" "RESOLVED_SHA_OVERRIDE=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  _case 1 "F5 the branch name could not be resolved at all" "not a sha, and it could not be resolved" \
+    "RELEASE_SHA_OVERRIDE=main" "RESOLVED_SHA_OVERRIDE=__ERR__"
+  _case 1 "F5 resolving the branch name answered EMPTY" "answered EMPTY" \
+    "RELEASE_SHA_OVERRIDE=main" "RESOLVED_SHA_OVERRIDE="
 
   echo
   if [ "$fails" -ne 0 ]; then
