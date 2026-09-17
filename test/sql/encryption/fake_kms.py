@@ -2,20 +2,13 @@
 """
 A minimal KMS that speaks CryptaWireManifest@v3 over a Unix socket.
 
-WHY THIS EXISTS BESIDE test/sql/crypta/fake_crypta.py, RATHER THAN REPLACING IT
--------------------------------------------------------------------------------
-`test/sql/crypta/fake_crypta.py` now sets `WIRE_SCHEMA = "CryptaWireManifest@v3"`
-- the same version the client in the bench overlay
-(`src/crypta-provider/crypta_client.cpp:27`) speaks - so the WIRE is no longer
-what separates them. Its own module docstring still says `@v2`; that line is
-stale, not a second wire. What still separates them is the FIXTURES: every
-.test file beside that fake ATTACHes with `CRYPTA_SOCKET` / `CRYPTA_LAKE_ID`,
-options the catalog no longer accepts - they are `ENCRYPTION_SOCKET` /
-`ENCRYPTION_LAKE_ID` now - and reads its socket from
-`DUCKLAKE_FAKE_CRYPTA_SOCKET`, not `DUCKLAKE_FAKE_KMS_SOCKET`. So the fixtures
-around that fake cannot even ATTACH. That is measured, not assumed - see
-the ledger on the PR. The stale fake is left EXACTLY as it is because it is
-evidence for issue #52; this file is the one that actually talks to the client.
+WHAT IT IS FOR
+--------------
+It is the fake the encryption fixtures in this directory drive. It reads its
+socket from `DUCKLAKE_FAKE_KMS_SOCKET` and speaks the same wire version the
+client speaks, so the fixtures around it can ATTACH. A second, older fake that
+spoke a stale wire version and used incompatible ATTACH option names used to
+sit beside it; it has been removed from this repository.
 
 WHAT THIS IS NOT: it is not a KMS. It performs no cryptography. The "wrapped"
 blob is a reversible encoding of the DEK alongside the identity it was issued

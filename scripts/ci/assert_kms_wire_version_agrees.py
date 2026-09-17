@@ -5,8 +5,8 @@ SAME wire version.
 
 THE DEFECT THIS EXISTS FOR
 --------------------------
-`test/sql/crypta/fake_crypta.py` declared `CryptaWireManifest@v2` while every
-client in the tree spoke `@v3`. A client that is handed a reply carrying the
+A fake key service in this tree declared one wire version while every
+client in the tree spoke a newer one. A client that is handed a reply carrying the
 wrong schema refuses it - `crypta refused the request: unsupported schema` - so
 NO fixture driven by that fake could ATTACH. It went unnoticed for the same
 reason as issue #52: those fixtures carry `require-env`, a require-env skip
@@ -38,7 +38,6 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 #: away makes this guard vacuous, so its absence is a refusal, not a skip.
 SOURCES = [
     ("test/sql/encryption/fake_kms.py", r'^WIRE_SCHEMA = "([^"]+)"'),
-    ("test/sql/crypta/fake_crypta.py", r'^WIRE_SCHEMA = "([^"]+)"'),
     ("test/kms_provider/test_kms_provider.cpp", r'^constexpr const char \*WIRE_SCHEMA = "([^"]+)";'),
 ]
 
@@ -96,6 +95,16 @@ def main():
             continue
         print("%s: %s" % (relative, version))
         found.append((relative, version))
+
+    # An "agreement" read off fewer than two sources is not an agreement: one
+    # source trivially agrees with itself, and zero sources agree vacuously.
+    # Removing a source must break this guard loudly, not quietly weaken it.
+    if len(found) < 2:
+        print(
+            "::error::only %d source(s) declared a readable wire version - agreement across "
+            "fewer than two sources is vacuous" % len(found)
+        )
+        findings += 1
 
     conflict = disagreements(found)
     if conflict:
