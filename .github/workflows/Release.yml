@@ -423,12 +423,13 @@ jobs:
           # naming itself the gate refuses every release forever.
           SELF_RUN_ID: ${{ github.run_id }}
         run: |
-          set -uo pipefail
-          # Guarded, and the guard is load-bearing. There is no `set -e` here,
-          # so a bare `cd` into a missing directory fails SILENTLY and the gate
-          # then runs from the JOB'S OWN checkout - which on a `release` event
-          # is the tag under judgement. That is the policy-from-the-artifact
-          # defect, reintroduced by deleting one checkout step.
+          set -euo pipefail
+          # `-e` is load-bearing and asserted by assert_promotion_call_site.py.
+          # Without it the gate's refusal is only the LAST command's status, so
+          # a trailing `true`, a `&`, or any `||` form makes it advisory - and a
+          # bare `cd` into a missing directory fails SILENTLY, which would run
+          # the gate from the JOB'S OWN checkout: on a `release` event, the tag
+          # under judgement. The guard below stays anyway; it names the fault.
           cd _promotion-policy \
             || { echo "::error::the default-branch policy checkout is missing, so the gate would read .github/required-commits and .github/promoted-assets out of the tree it is judging. Refusing rather than attaching an asset judged against the candidate's own policy."; exit 1; }
           # `--is-ancestor` exits non-zero for "no" and for "I cannot see that

@@ -15,12 +15,13 @@ not a control. This one parses the workflow and asserts on the STEP OBJECT:
   (i)   the `publish` job contains a step whose `run` invokes the gate script;
   (ii)  its index is lower than that of the step running `gh release upload`;
   (iii) both are in that SAME job;
-  (iv)  the gate step carries no `if:` and no `continue-on-error:`, and its
-        `run` body does not swallow the refusal with `|| true`, `|| :`,
-        `set +e`, `; exit 0`, or a trailing pipeline - every one of those is
-        the same advisory class one token away from `continue-on-error`, and
-        this step runs under `set -uo pipefail` with no `-e`, so a swallowed
-        non-zero simply lets the next step upload;
+  (iv)  the gate step carries no `if:` and no `continue-on-error:`, its `run`
+        body enables `set -e`, and the gate is the LAST statement of that body,
+        unguarded by `||`, `;`, `&`, or a pipe. Enumerating swallowing TOKENS
+        is an open set - `\ntrue` on the next line and a trailing `&` are both
+        `continue-on-error` written differently and contain none of them - so
+        the token list survives only for ATTRIBUTION, naming which shape was
+        found; the two structural assertions are what close the class;
   (v)   the `publish` job checks out the DEFAULT BRANCH into
         `_promotion-policy` before the gate runs. Delete that step and the
         gate's `cd` fails - silently, absent `set -e` - and it reads its policy
@@ -47,6 +48,35 @@ SWALLOWERS = [
     (re.compile(r"(^|\n)\s*set\s+\+e"), "`set +e` stops a non-zero from failing the step"),
     (re.compile(r";\s*exit\s+0\b"), "`; exit 0` discards the gate's exit status"),
 ]
+
+# A single `|` that is NOT part of `||`. The first cut of this was `\|[^|]`,
+# which matches the SECOND character of `||` and so reported `|| exit 0` as
+# "ends in a pipeline" - a true refusal with a false reason, which is how a
+# fixture passes on a neighbouring condition.
+PIPE_RE = re.compile(r"(?<!\|)\|(?!\|)")
+
+# `set -e` in any spelling that actually turns it on: `set -e`, `set -eu`,
+# `set -euo pipefail`. `set -uo pipefail` does NOT match, which is the point.
+SET_E_RE = re.compile(r"(^|\n)\s*set\s+-[a-zA-Z]*e")
+
+
+def logical_statements(run):
+    """The `run` body as logical statements: comments and blanks dropped, and
+    backslash continuations folded into the statement they continue."""
+    out, buf = [], ""
+    for raw in run.split("\n"):
+        line = raw.strip()
+        if not buf and (not line or line.startswith("#")):
+            continue
+        if line.endswith("\\"):
+            buf += line[:-1].rstrip() + " "
+            continue
+        buf += line
+        out.append(buf)
+        buf = ""
+    if buf.strip():
+        out.append(buf.strip())
+    return out
 
 
 def annotate(msg):
@@ -159,11 +189,8 @@ def check(path):
         )
         return 1
 
-    # This step runs under `set -uo pipefail` with no `-e`, so a swallowed
-    # non-zero does not fail the job and the very next step uploads the asset.
-    # `continue-on-error: true` is rejected above; these are the same thing
-    # written inside the script body, and one of them - `|| true` appended to
-    # the invocation - passed this checker at rc 0.
+    # Named shapes first, purely so a refusal says WHICH one it found; the
+    # structural assertions below would catch every one of them anyway.
     invocation = m.group(2)
     for rx, why in SWALLOWERS:
         hit = rx.search(invocation) or (rx.search(run) if "set" in rx.pattern else None)
@@ -175,12 +202,59 @@ def check(path):
                 "`continue-on-error: true` spelled differently."
             )
             return 1
-    if re.search(r"refuse_unproven_promotion\.sh[^\n]*\|[^|]", invocation) or \
-       re.search(r"\\\n[^\n]*\|[^|]", invocation):
+    if PIPE_RE.search(invocation):
         annotate(
             "REFUSING: the gate's invocation ends in a pipeline, so the step's "
             "exit status is the LAST command's, not the gate's. A gate whose "
             "verdict is read from `sed` or `tee` has no verdict."
+        )
+        return 1
+
+    # Enumerating swallowing TOKENS is an open set - `\ntrue` on the next line
+    # and a trailing `&` are both `continue-on-error` spelled differently, and
+    # neither contains `||`. Adding two more patterns just relocates the
+    # defect. These two assertions close the class instead: with `set -e` on,
+    # the gate's non-zero ends the step wherever it appears; and with the gate
+    # as the LAST statement, the step's own exit status IS the gate's.
+    if not SET_E_RE.search(run):
+        annotate(
+            "REFUSING: the gate step's `run` body does not enable `set -e`. "
+            "Without it the step's exit status is only the LAST command's, so "
+            "a trailing `true`, a backgrounding `&`, or any `||` form leaves "
+            "the refusal unread and the next step attaches the asset."
+        )
+        return 1
+    stmts = logical_statements(run)
+    last = stmts[-1] if stmts else ""
+    if not GATE_RE.search(last):
+        annotate(
+            "REFUSING: the gate is not the LAST statement of its step's `run` "
+            f"body - that is {last!r}. Anything after the gate decides the "
+            "step's exit status instead of the gate, which is the advisory "
+            "shape again."
+        )
+        return 1
+    if re.search(r"refuse_unproven_promotion\.sh[\s\S]*;\s*\S", last):
+        annotate(
+            "REFUSING: a `;`-separated command follows the gate on its own "
+            "line, so the step's exit status is that command's and not the "
+            "gate's. `; exit 0` is the obvious one; any of them does it."
+        )
+        return 1
+    if re.search(r"refuse_unproven_promotion\.sh[\s\S]*\|\|", last):
+        annotate(
+            "REFUSING: the gate's exit status is guarded by `||`, so its "
+            "non-zero is consumed by the right-hand side and `set -e` never "
+            "sees it. Whatever the right-hand side is, the step exits zero and "
+            "the next step attaches the asset."
+        )
+        return 1
+    if re.search(r"(?<!&)&\s*$", last):
+        annotate(
+            "REFUSING: the gate's invocation is backgrounded with `&`, so the "
+            "step exits zero immediately and the gate's verdict never reaches "
+            "the job. That is `continue-on-error: true` spelled with one "
+            "character."
         )
         return 1
 
@@ -348,6 +422,33 @@ def selftest(real):
     case(1, "|| : appended to the gate invocation", "`|| :`", swallow(" || :"))
     case(1, "; exit 0 appended to the gate invocation", "`; exit 0`", swallow(" ; exit 0"))
     case(1, "the gate invocation ends in a pipeline", "ends in a pipeline", swallow(" | tee /tmp/gate.log"))
+
+    # Neither of these contains `||`, `set +e` or `; exit 0`, so the SWALLOWERS
+    # list cannot see them. They are caught by the two structural assertions,
+    # which is the point: the token list is an open set and these two are what
+    # is one edit past it.
+    def trailing_true(doc):
+        i = gate_index(doc)
+        st = doc["jobs"][JOB]["steps"][i]
+        st["run"] = st["run"].rstrip("\n") + "\ntrue\n"
+    case(1, "a bare `true` on the line after the gate", "not the LAST statement", trailing_true)
+
+    # `|| echo skipped` is in none of the token patterns and is not a pipeline
+    # either; the `||` limb closes the whole form rather than naming members.
+    case(1, "|| echo skipped appended to the gate invocation", "guarded by `||`",
+         swallow(" || echo skipped"))
+
+    def backgrounded(doc):
+        i = gate_index(doc)
+        st = doc["jobs"][JOB]["steps"][i]
+        st["run"] = st["run"].rstrip("\n") + " &\n"
+    case(1, "the gate invocation is backgrounded with `&`", "backgrounded with `&`", backgrounded)
+
+    def no_set_e(doc):
+        i = gate_index(doc)
+        st = doc["jobs"][JOB]["steps"][i]
+        st["run"] = st["run"].replace("set -euo pipefail", "set -uo pipefail", 1)
+    case(1, "the gate step drops `set -e`", "does not enable `set -e`", no_set_e)
 
     def setplus(doc):
         i = gate_index(doc)

@@ -30,6 +30,16 @@ WORKFLOW='.github/workflows/Release.yml'
 
 annotate() { printf '::error::%s\n' "$*"; }
 
+# ISO-8601 -> epoch seconds. `git log --format=%cI` emits the committer's LOCAL
+# offset and the releases API emits `Z`; comparing those two spellings as TEXT
+# is wrong by exactly that offset, and wrong in the fail-OPEN direction. Both
+# sides go through this, or neither.
+iso_epoch() {
+  python3 -B -c 'import datetime,sys
+try: print(int(datetime.datetime.fromisoformat(sys.argv[1].replace("Z","+00:00")).timestamp()))
+except Exception: pass' "$1" 2>/dev/null
+}
+
 main() {
   local repo="$1"
   local fails=0
@@ -63,7 +73,7 @@ main() {
     return 1
   fi
 
-  local tag pre pub e checked=0 unwired=0 st intro
+  local tag pre pub e checked=0 unwired=0 st intro pub_e intro_e
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     tag="${line%%$'\t'*}"; pub="${line##*$'\t'}"
@@ -96,7 +106,13 @@ main() {
         annotate "the release list gave no published_at for the exempt tag ${tag}, so whether it predates the gate is UNKNOWN. Refusing rather than honouring an exemption on a missing date."
         return 1
       fi
-      if [ "$pub" \> "$intro" ]; then
+      pub_e="$(iso_epoch "$pub")"
+      intro_e="$(iso_epoch "$intro")"
+      if [ -z "$pub_e" ] || [ -z "$intro_e" ]; then
+        annotate "cannot convert the dates for ${tag} to epochs (published '${pub}', gate '${intro}'), so whether it predates the gate is UNKNOWN. Refusing rather than comparing two timestamps whose zones may differ."
+        return 1
+      fi
+      if [ "$pub_e" -gt "$intro_e" ]; then
         annotate "REFUSING: ${tag} is listed in .github/gate-exempt-releases but was published at ${pub}, AFTER ${GATE_CALL} entered ${WORKFLOW} at ${intro}. The exemption file is for releases that predate the gate; it is not a way to excuse one that could have been gated."
         return 1
       fi
@@ -195,6 +211,16 @@ selftest() {
   _case 1 "the gate's introduction date cannot be determined" "UNCHECKABLE" \
     "RELEASES_OVERRIDE=v0.1.0"$'\t'"false"$'\t'"2026-08-01T00:00:00Z" "WIRED_OVERRIDE=v0.1.0"$'\t'"1" \
     "GATE_INTRO_OVERRIDE="
+  # The two dates arrive in DIFFERENT spellings - `%cI` carries the committer's
+  # local offset, the API carries `Z` - so a text compare is wrong by exactly
+  # that offset. Both straddle cases below are decided by the zone, not the
+  # digits, and a lexicographic compare gets each one backwards.
+  _case 1 "an exempt release published after a gate dated in +01:00 is refused" "AFTER refuse_unproven_promotion.sh entered" \
+    "RELEASES_OVERRIDE=v0.1.0"$'\t'"false"$'\t'"2026-09-17T18:30:00Z" "WIRED_OVERRIDE=v0.1.0"$'\t'"1" \
+    "GATE_INTRO_OVERRIDE=2026-09-17T19:10:17+01:00"
+  _case 0 "an exempt release published before a gate dated in -05:00 is skipped" "" \
+    "RELEASES_OVERRIDE=v0.1.0"$'\t'"false"$'\t'"2026-09-17T18:00:00Z" "WIRED_OVERRIDE=v0.1.0"$'\t'"1" \
+    "GATE_INTRO_OVERRIDE=2026-09-17T14:10:17-05:00"
   # ... and the exemption is NAME-scoped, not a blanket.
   _case 1 "the exemption does not cover a different tag" "cut from a tree that does not call" \
     "RELEASES_OVERRIDE=v0.1.0"$'\t'"false"$'\t'"2026-08-01T00:00:00Z"$'\n'"v9.9.9"$'\t'"false"$'\t'"2026-09-01T00:00:00Z" \
