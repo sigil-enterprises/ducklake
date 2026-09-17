@@ -6,5 +6,7 @@
 #
 # This file is an ESCAPE HATCH and every entry is printed loudly on every run.
 # Adding a line here for a NEW release defeats the audit, which is the one thing
-# the audit exists to prevent - it is not a way to make a red go away.
+# the audit exists to prevent - it is not a way to make a red go away, and the
+# audit CHECKS the claim: an entry whose release was published after the gate
+# step entered Release.yml is refused anyway, exemption or not.
 v0.1.0  published 2026-08, long before any promotion gate existed in this repo
