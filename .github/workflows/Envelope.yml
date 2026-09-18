@@ -199,7 +199,7 @@ jobs:
         if: always()
         run: test/sql/encryption/run_envelope_fixture.sh test/sql/encryption/envelope_wrap_idempotence.test
 
-      - name: The crypta fixture group, with a key service behind it
+      - name: The vendor fixture group, with a key service behind it
         if: always()
         run: test/sql/crypta/run_sql_crypta_tests.sh
 
@@ -229,7 +229,7 @@ jobs:
   # scope for this fix, and is recorded as a named follow-up in this PR's
   # description rather than attempted piecemeal here.
   crypta-mutant-red-control:
-    name: A crypta guard removed by mutants.py actually reddens its fixture (${{ matrix.mutant }})
+    name: A removed guard actually reddens its fixture (${{ matrix.mutant }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -284,7 +284,7 @@ jobs:
       # (MutantRoster.yml) already proved its `old` text matches exactly once
       # and every file its `reddens` names exists - this proves the removal
       # actually turns that fixture red, on the exact statement it names.
-      - name: Patch out a crypta guard (mutants.py, ${{ matrix.mutant }})
+      - name: Patch out a guard (${{ matrix.mutant }})
         run: python3 test/cpp/crypta/mutants.py patch "${{ matrix.mutant }}" .
 
       - name: Build extension and test binaries (guard removed)
