@@ -381,6 +381,67 @@ jobs:
             "/tmp/in/${{ needs.build.outputs.asset }}" \
             || { echo "::error::the candidate asset does not load into the released duckdb ${version} CLI. Refusing to ATTACH it. Compilation is not loadability, and an unloadable asset on a release is worse than no asset."; exit 1; }
 
+      # PROMOTION GATE, and it is HERE - upstream of the upload - for the same
+      # reason every other gate in this job is. Run after the release exists and
+      # it can only ANNOUNCE a bad promotion; the release is already public and
+      # this token cannot unpublish it. Run here and a release that fails it
+      # carries no asset, which is the only enforcement available: rulesets are
+      # not a control class we have, so it has to be structural.
+      #
+      # Checked out SEPARATELY, and pinned to the DEFAULT BRANCH. The job's own
+      # checkout is the tag on a `release` event, so a gate reading its policy -
+      # .github/required-commits, .github/promoted-assets - from there would
+      # take them from the tree it is judging, and a candidate that dropped a
+      # required commit would also have dropped the line naming it.
+      - name: Check out the gate's policy from the default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          path: _promotion-policy
+
+      # NO `prerelease` CONDITION, and that is a decision, not an omission.
+      # PromotionGate.yml scopes its announcer to final releases because only a
+      # final release is a PROMOTION. This is a different question: it governs
+      # whether an ASSET gets attached, and an unbuilt candidate is exactly as
+      # unpublishable as an unbuilt final. Every condition is satisfiable by a
+      # tag cut from a green default-branch commit, so a well-formed rc still
+      # publishes. Consequence, measured and accepted: v0.2.0-rc.3, rc.4 and
+      # rc.5 all fail this gate today, so re-running publish on any of them
+      # would attach nothing. The step also carries no `if:` and no
+      # `continue-on-error:` - assert_promotion_call_site.py refuses if either
+      # appears, because both make it advisory.
+      - name: REFUSE to attach an asset to a release that was never proven
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          # The asset this job is ABOUT to attach, from the same build step that
+          # produced the file - so what the gate is told is coming is what the
+          # next step actually uploads.
+          PENDING_ASSETS: ${{ needs.build.outputs.asset }}
+          # This run's own jobs are PENDING on the sha under judgement; without
+          # naming itself the gate refuses every release forever.
+          SELF_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # `-e` is load-bearing and asserted by assert_promotion_call_site.py.
+          # Without it the gate's refusal is only the LAST command's status, so
+          # a trailing `true`, a `&`, or any `||` form makes it advisory - and a
+          # bare `cd` into a missing directory fails SILENTLY, which would run
+          # the gate from the JOB'S OWN checkout: on a `release` event, the tag
+          # under judgement. The guard below stays anyway; it names the fault.
+          cd _promotion-policy \
+            || { echo "::error::the default-branch policy checkout is missing, so the gate would read .github/required-commits and .github/promoted-assets out of the tree it is judging. Refusing rather than attaching an asset judged against the candidate's own policy."; exit 1; }
+          # `--is-ancestor` exits non-zero for "no" and for "I cannot see that
+          # commit" alike, and the tag is not necessarily reachable from the
+          # default branch - on v0.2.0-rc.5 it is not. Fetch it explicitly, and
+          # refuse if the fetch fails rather than letting the gate report a
+          # clone defect as a dropped commit.
+          git fetch --no-tags origin "+refs/tags/${TAG}:refs/tags/${TAG}" \
+            || { echo "::error::cannot fetch refs/tags/${TAG} into the policy checkout, so no ancestry question about it can be answered. Refusing rather than attaching an asset the gate never judged."; exit 1; }
+          bash .github/scripts/refuse_unproven_promotion.sh \
+            "$GITHUB_REPOSITORY" "$TAG"
+
       - name: Attach the asset to the release
         env:
           GH_TOKEN: ${{ github.token }}
