@@ -1,0 +1,164 @@
+name: Promotion gate
+
+# Promotion from a release-candidate to a FINAL release had no in-repo gate at
+# all: a human ran `gh release create` and nothing checked that the thing being
+# promoted was built, tested, or even existed as an artifact. Measured on
+# v0.2.0-rc.5, all of the following were true at once and nothing reported any
+# of them:
+#
+#   - the tag points at a commit carrying ZERO check-runs - never built;
+#   - the release object's own commit is a DIFFERENT sha from the tag's, so
+#     what CI did run proves nothing about what would be promoted;
+#   - the release carries zero assets - there is nothing there to promote;
+#   - main is 20 commits ahead, including a landed security fix that promoting
+#     this tag would silently drop.
+#
+# This workflow is the ANNOUNCER: it runs on `release: published`, after the
+# release is already public, and with a read-only token it cannot unpublish
+# one. The ENFORCEMENT is in Release.yml's `publish` job, which calls the same
+# script BEFORE `gh release upload` - a release that fails the gate carries no
+# asset. Both are kept: this one states a verdict on every final release,
+# including releases nothing ever tries to attach an asset to.
+#
+# The gate is judged from the DEFAULT BRANCH's copy of the script and of both
+# policy files, never from the tag's - see the checkout step below.
+#
+# Each of those is now a machine-checked precondition in
+# .github/scripts/refuse_unproven_promotion.sh, and each is REFUSED rather than
+# warned about. The two declarative inputs - .github/promoted-assets and
+# .github/required-commits - are the only place the expectations are written.
+
+on:
+  release:
+    types: [published, released, edited]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: A release tag to run the promotion gate against, read-only.
+        required: true
+        type: string
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.release.tag_name || inputs.tag || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Seconds, and it runs on EVERY trigger including pull_request. Every check in
+  # this gate asserts an ABSENCE - no missing assets, no sha mismatch, no
+  # dropped commit - and an absence-shaped check is indistinguishable from one
+  # that is silently broken: both report zero. These plant a fixture violating
+  # exactly one condition each and require the refusal to name THAT condition.
+  gate-selftest:
+    name: Positive controls for the promotion gate
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: PROVE every promotion check fires on its own bad fixture
+        run: bash .github/scripts/refuse_unproven_promotion.sh --selftest
+
+      # The script's own controls prove every check FIRES. They say nothing
+      # about whether anything CALLS it before the irreversible step, and that
+      # is the difference between blocking a bad promotion and announcing one.
+      # Deleting one step from Release.yml would make that swap silently, with
+      # every other check in this repository still green - so the call site is
+      # asserted here, with its own delete-the-limb control.
+      - name: PROVE the gate is called UPSTREAM of the release upload
+        # Parses the workflow and asserts on the STEP OBJECT, not on a
+        # `- name:` line. An earlier textual cut of this check passed at rc 0
+        # with `continue-on-error: true` on the step, with the step's `run:`
+        # replaced by `true`, with `if: false`, and with the name line
+        # commented out - four one-line edits, each leaving the gate wired in
+        # name only. Its controls plant all of those.
+        run: python3 -B .github/scripts/assert_promotion_call_site.py --selftest
+
+      - name: PROVE the release-wiring audit fires on an unwired release
+        run: bash .github/scripts/audit_release_wiring.sh --selftest
+
+  # The gate itself. Only on a FINAL release - a prerelease is a candidate and
+  # is not being promoted - and on workflow_dispatch, which reads only.
+  promotion:
+    name: Refuse an unproven promotion
+    needs: [gate-selftest]
+    if: >-
+      (github.event_name == 'release' && github.event.release.prerelease == false) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    steps:
+      # `ref:` is the DEFAULT BRANCH, and that is the whole point, not a detail.
+      # On a `release` event `github.ref` is refs/tags/<tag>, so a bare checkout
+      # would hand the gate the tree it is JUDGING - it would read this script
+      # and both policy files out of the candidate. Two ways that is wrong, and
+      # the second survives a merge:
+      #   (a) on a tag cut before this gate existed the script is simply absent,
+      #       the step exits 127, and a bare non-zero with no ::error:: is a
+      #       CRASH, which by this workflow's own rule says nothing about the
+      #       release;
+      #   (b) .github/required-commits read from the tag's tree cannot name a
+      #       commit that landed AFTER the tag was cut - which is every commit
+      #       the list exists to require. Measured: with the entry removed to
+      #       stand in for an older tag's copy, the same candidate went from one
+      #       "does not contain" refusal to ZERO.
+      # The policy a promotion is judged against must come from the branch that
+      # owns it, never from the artifact under judgement.
+      #
+      # fetch-depth: 0 is load-bearing too: the required-commit check is
+      # `git merge-base --is-ancestor`, which on a shallow clone exits non-zero
+      # for "I cannot see that commit" exactly as for "the release dropped it".
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      # The checkout above is the default branch, so the tag's own objects are
+      # fetched explicitly - a candidate cut from a commit that never landed on
+      # the default branch is exactly the shape this gate is looking for, and
+      # "I cannot see it" must not read as a verdict either way.
+      - name: Fetch the tag under promotion
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          test -n "$TAG"
+          git fetch --no-tags origin "+refs/tags/${TAG}:refs/tags/${TAG}" \
+            || { echo "::error::cannot fetch refs/tags/${TAG}. The ancestry half of the gate cannot be answered, and an unanswerable ancestry question is not a pass."; exit 1; }
+
+      - name: REFUSE a promotion that was never proven
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          bash .github/scripts/refuse_unproven_promotion.sh "$GITHUB_REPOSITORY" "$TAG"
+
+  # The hole the pre-upload gate CANNOT close, named and detected rather than
+  # left implicit. On a `release` event GitHub sources the workflow FILE from
+  # the release's own commit: run 32771943481 (v0.2.0-rc.5) has head_sha
+  # 2af24b9f, the candidate's tree, not main's. A release cut from a commit
+  # predating the gate therefore carries neither the pre-upload step nor this
+  # workflow - the job does not refuse, it never starts, and `ref:
+  # default_branch` cannot help something that never ran.
+  #
+  # This job runs on the DEFAULT BRANCH, where the file IS sourced from main,
+  # and detects it afterwards. It is an AUDIT, not a block: by the time it
+  # fires the release exists and the asset is attached. That residual hole is
+  # stated on the PR, not papered over.
+  release-wiring:
+    name: Every final release was cut from a gate-carrying tree
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    steps:
+      # Tags are needed as OBJECTS here - the audit reads
+      # `refs/tags/<tag>:.github/workflows/Release.yml` out of each one.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - name: REFUSE a final release that was cut from a tree without the gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/audit_release_wiring.sh "$GITHUB_REPOSITORY"

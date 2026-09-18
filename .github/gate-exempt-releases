@@ -1,0 +1,12 @@
+# Releases published BEFORE the promotion gate existed, one `tag  reason` per
+# line. The audit in .github/scripts/audit_release_wiring.sh refuses any FINAL
+# release whose tag was cut from a tree that does not carry the pre-upload gate
+# step; a tag cut before the step was written cannot carry it, and reporting
+# that as a defect forever would make the audit noise rather than a signal.
+#
+# This file is an ESCAPE HATCH and every entry is printed loudly on every run.
+# Adding a line here for a NEW release defeats the audit, which is the one thing
+# the audit exists to prevent - it is not a way to make a red go away, and the
+# audit CHECKS the claim: an entry whose release was published after the gate
+# step entered Release.yml is refused anyway, exemption or not.
+v0.1.0  published 2026-08, long before any promotion gate existed in this repo

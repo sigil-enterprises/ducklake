@@ -1,0 +1,11 @@
+# Commits that any FINAL release must CONTAIN, one `sha  reason` per line.
+#
+# The promotion gate refuses a tag that does not have every one of these as an
+# ancestor. It exists because v0.2.0-rc.5 predates the fix below by 20 commits:
+# promoting it would have shipped a release without a fix that had already
+# landed on main, and nothing in the release path would have said so.
+#
+# A sha is added here when a fix must not be lost by promoting an older
+# candidate. Nothing is ever removed - a commit that is an ancestor of every
+# later candidate costs one `git merge-base --is-ancestor` call to confirm.
+6e3a2e12a2d24a41d8a629ec91f93447a42df4cc  refuse partitioning on an enveloped lake (#100, #95)
