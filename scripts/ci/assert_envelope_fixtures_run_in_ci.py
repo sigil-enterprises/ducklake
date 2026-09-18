@@ -210,7 +210,7 @@ def self_test():
     found = invokers("test/sql/encryption/run_envelope_e2e.sh", planted)
     if found != ["Planted.yml"]:
         return "the matcher did not find a runner in a workflow that plainly invokes it (found %r)" % found
-    if invokers("test/sql/crypta/run_sql_crypta_tests.sh", planted) != []:
+    if invokers("test/sql/encryption/run_not_invoked.sh", planted) != []:
         return "the matcher reported an invocation that is not there"
 
     repaired = 'output="$("${UNITTEST}" --test-dir "${ROOT}" "${FIXTURE}" 2>&1)"\ngrep -q "assertions"\n'
