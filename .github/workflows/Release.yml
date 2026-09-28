@@ -153,6 +153,12 @@ jobs:
       - name: PROVE the publish gate refuses a release that published nothing
         run: bash .github/scripts/refuse_unpublished_release.sh --selftest
 
+      - name: PROVE the Nexus tag gate refuses non-tags, moved tags and branches
+        run: bash .github/scripts/validate_release_tag.sh --selftest
+
+      - name: PROVE the Nexus publish refuses overwrites and completes partial runs
+        run: bash .github/scripts/nexus_publish.sh --selftest
+
   build:
     name: Build provider-linked ducklake for linux_amd64
     # The overlay needs a token minted from PT_APP_ID/PT_PRIVATE_KEY, and a
@@ -518,7 +524,8 @@ jobs:
   # private, so a provider-linked binary on a GitHub release is readable by
   # anyone. Site installs take released artifacts from Nexus instead
   # (ducklake-migration-bench#297): sigil-enterprises-raw requires
-  # authentication to read, and nexus_publish.sh writes each path once.
+  # authentication to read, and nexus_publish.sh refuses to overwrite a path
+  # it finds populated; the repo (ALLOW) does not enforce this.
   #
   # Same candidate gates as `publish` - provider linked, a real provider-less
   # control refused, loads into the released duckdb the pin names - BEFORE the
