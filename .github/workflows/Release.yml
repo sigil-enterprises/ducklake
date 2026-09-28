@@ -40,6 +40,15 @@ on:
         description: An existing release tag to build and attach the asset to.
         required: true
         type: string
+      destination:
+        description: >-
+          Where the asset goes. `github` attaches it to the release (the
+          original path). `nexus` uploads it ONLY to the private Nexus raw repo
+          sigil-enterprises-raw, which is where site installs take it from.
+        required: false
+        default: github
+        type: choice
+        options: [github, nexus]
   pull_request:
   push:
     branches: [main]
@@ -52,7 +61,9 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.release.tag_name || inputs.tag || github.ref }}
-  cancel-in-progress: true
+  # Never cancel a dispatch mid-publish: a cancelled Nexus upload can leave the
+  # asset without its .sha256. PR and push runs still cancel superseded runs.
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   # Seconds, not the 40 minutes the build takes, and it runs on every trigger.
@@ -142,6 +153,12 @@ jobs:
       - name: PROVE the publish gate refuses a release that published nothing
         run: bash .github/scripts/refuse_unpublished_release.sh --selftest
 
+      - name: PROVE the Nexus tag gate refuses non-tags, moved tags and branches
+        run: bash .github/scripts/validate_release_tag.sh --selftest
+
+      - name: PROVE the Nexus publish refuses overwrites and completes partial runs
+        run: bash .github/scripts/nexus_publish.sh --selftest
+
   build:
     name: Build provider-linked ducklake for linux_amd64
     # The overlay needs a token minted from PT_APP_ID/PT_PRIVATE_KEY, and a
@@ -157,6 +174,8 @@ jobs:
     outputs:
       asset: ${{ steps.name.outputs.asset }}
       duckdb_version: ${{ steps.pin.outputs.version }}
+      # The commit actually checked out and built; publish-nexus ties the tag to it.
+      sha: ${{ steps.name.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -174,7 +193,10 @@ jobs:
           set -euo pipefail
           tag="${{ github.event.release.tag_name || inputs.tag }}"
           if [ -z "$tag" ]; then tag="$(git rev-parse --short HEAD)"; fi
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=${tag}"
+            echo "sha=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
           # #33 asks for `ducklake-<version>-<platform>.duckdb_extension`, and
           # that EXACT spelling produces an UNLOADABLE asset. duckdb derives the
           # entrypoint it dlsyms from the FILE NAME - everything up to the first
@@ -277,7 +299,9 @@ jobs:
   publish:
     name: Publish and verify the linux_amd64 asset
     needs: [gate-selftests, build]
-    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'release' ||
+      (github.event_name == 'workflow_dispatch' && inputs.destination != 'nexus')
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -495,3 +519,95 @@ jobs:
           bash .github/scripts/load_proof_cli.sh /tmp/cli/duckdb \
             "/tmp/published/${{ needs.build.outputs.asset }}" \
             || { echo "::error::the PUBLISHED asset does not load into the released duckdb ${version} CLI. Compilation is not loadability; this is the artifact consumers install."; exit 1; }
+
+  # NEXUS, NOT A PUBLIC RELEASE. This repository is public and the provider is
+  # private, so a provider-linked binary on a GitHub release is readable by
+  # anyone. Site installs take released artifacts from Nexus instead
+  # (ducklake-migration-bench#297): sigil-enterprises-raw requires
+  # authentication to read, and nexus_publish.sh refuses to overwrite a path
+  # it finds populated; the repo (ALLOW) does not enforce this.
+  #
+  # Same candidate gates as `publish` - provider linked, a real provider-less
+  # control refused, loads into the released duckdb the pin names - BEFORE the
+  # upload, and again on the bytes read back off Nexus. The promotion gate is
+  # NOT run here: it judges a GitHub release object (its sha, its assets), and
+  # a Nexus-only publish of a tag creates none. What stands in for it is the
+  # tag check: only a real release tag whose peeled commit IS the built commit
+  # can name a Nexus path.
+  publish-nexus:
+    name: Publish and verify the linux_amd64 asset on Nexus
+    needs: [gate-selftests, build]
+    if: github.event_name == 'workflow_dispatch' && inputs.destination == 'nexus'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    env:
+      RAW_BASE: https://nexus.opvance.com/repository/sigil-enterprises-raw/ducklake
+      TAG: ${{ inputs.tag }}
+      BUILT_SHA: ${{ needs.build.outputs.sha }}
+      ASSET: ${{ needs.build.outputs.asset }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: REFUSE anything but a release tag naming the built commit
+        run: bash .github/scripts/validate_release_tag.sh "$TAG" "$BUILT_SHA"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.asset }}
+          path: /tmp/in
+
+      - name: Obtain the released duckdb CLI the pin names
+        run: |
+          set -euxo pipefail
+          version="$(cat .github/duckdb-version)"
+          curl -fsSL -o /tmp/cli.zip \
+            "https://github.com/duckdb/duckdb/releases/download/${version}/duckdb_cli-linux-amd64.zip" \
+            || { echo "::error::cannot obtain the duckdb ${version} CLI, so no loadability verdict is possible. Refusing rather than skipping - a skip exits ZERO and reads as a pass."; exit 1; }
+          unzip -o /tmp/cli.zip -d /tmp/cli
+          /tmp/cli/duckdb --version
+
+      - name: Fetch the pinned provider-less controls
+        uses: ./.github/actions/fetch-provider-less-controls
+
+      - name: PROVE the naming scheme is the loadable one
+        run: bash .github/scripts/selftest_asset_name.sh /tmp/cli/duckdb /tmp/control/elf
+
+      - name: ASSERT the provider is linked into the CANDIDATE, and that the gate refuses a real provider-less one
+        run: |
+          bash .github/scripts/selftest_provider_gate.sh \
+            --real-providerless /tmp/control/elf \
+            --real-providerless /tmp/control/pe \
+            "/tmp/in/${ASSET}"
+
+      - name: PROVE the CANDIDATE loads into the released duckdb CLI
+        run: bash .github/scripts/load_proof_cli.sh /tmp/cli/duckdb "/tmp/in/${ASSET}"
+
+      # The third argument keeps the READ-BACK copy for the gates below.
+      - name: Upload to Nexus raw, write-once, and read it back
+        env:
+          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+        run: bash .github/scripts/nexus_publish.sh "/tmp/in/${ASSET}" "${RAW_BASE}/${TAG}/${ASSET}" /tmp/published
+
+      - name: ASSERT the provider is linked into the PUBLISHED asset
+        run: |
+          bash .github/scripts/selftest_provider_gate.sh \
+            --real-providerless /tmp/control/elf \
+            --real-providerless /tmp/control/pe \
+            "/tmp/published/${ASSET}"
+
+      - name: PROVE the PUBLISHED asset loads into the released duckdb CLI
+        run: bash .github/scripts/load_proof_cli.sh /tmp/cli/duckdb "/tmp/published/${ASSET}"
+
+      # Only now, after the read-back and both post-publish gates.
+      - name: Record what was published
+        run: |
+          sha="$(sha256sum "/tmp/published/${ASSET}" | cut -d' ' -f1)"
+          {
+            echo "### Published to Nexus"
+            echo ""
+            echo "- url: \`${RAW_BASE}/${TAG}/${ASSET}\`"
+            echo "- sha256: \`${sha}\`"
+            echo "- tag: \`${TAG}\` -> \`${BUILT_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
