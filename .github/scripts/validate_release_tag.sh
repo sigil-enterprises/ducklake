@@ -21,6 +21,7 @@ if [ "${1-}" = --selftest ]; then
   g commit -q --allow-empty -m b; b="$(g rev-parse HEAD)"
   g tag -a -m annotated v1.0.0 "$a"
   g tag v1.0.1 "$a"
+  g tag -a -m pre v1.0.2-rc.1 "$a"
   g branch v9.9.9 "$a"
   g branch -M main
   git clone -q --bare "$st/w" "$st/r.git"
@@ -41,6 +42,7 @@ if [ "${1-}" = --selftest ]; then
   expect refuse "reported no commit sha"    v1.0.0  ""
   expect accept ""                          v1.0.0  "$a"
   expect accept ""                          v1.0.1  "$a"
+  expect accept ""                          v1.0.2-rc.1 "$a"
   [ "$fails" = 0 ] || { echo "::error::validate_release_tag.sh selftest: ${fails} case(s) failed"; exit 1; }
   echo "validate_release_tag.sh selftest: all cases hold"; exit 0
 fi

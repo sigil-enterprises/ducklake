@@ -25,18 +25,31 @@ if [ "${1-}" = --selftest ]; then
   cat > "$st/stub.py" <<'STUB'
 import http.server, sys
 store = {"/diff/a.bin": b"OTHER bytes\n", "/half/a.bin": open(sys.argv[2], "rb").read()}
+# 409 fixtures: the first GET (the probe) answers 404, the PUT answers 409,
+# later GETs return these bytes - a concurrent writer that won the race.
+race = {"/c409same/a.bin": open(sys.argv[2], "rb").read(), "/c409diff/a.bin": b"OTHER bytes\n"}
+seen = set()
 puts = {}
+auth = [b""]
 class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def send(self, code, body=b""):
         self.send_response(code); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
     def do_GET(self):
+        if self.path == "/__auth": return self.send(200, auth[0])
         if self.path.startswith("/__puts/"): return self.send(200, str(puts.get(self.path[7:], 0)).encode())
+        # Record only the script's own requests, never the selftest's probes above.
+        auth[0] = (self.headers.get("Authorization") or "").encode()
+        if self.path in race:
+            if self.path not in seen: seen.add(self.path); return self.send(404)
+            return self.send(200, race[self.path])
         if self.path.startswith("/err5/"): return self.send(503, b"down")
         b = store.get(self.path)
         self.send(200, b) if b is not None else self.send(404)
     def do_PUT(self):
         body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        auth[0] = (self.headers.get("Authorization") or "").encode()
+        if self.path in race: return self.send(409, b"exists")
         if self.path.startswith("/redir/"):
             self.send_response(302); self.send_header("Location", "/login"); self.send_header("Content-Length", "0"); self.end_headers(); return
         puts[self.path] = puts.get(self.path, 0) + 1; store[self.path] = body; self.send(201)
@@ -59,6 +72,10 @@ STUB
   expect_refuse diff  "already holds DIFFERENT bytes"
   expect_refuse redir "answered HTTP 302; not a success"
   expect_refuse err5  "answered HTTP 503; neither present nor absent"
+  # PUT refused 409 by a repo that already holds the path (a concurrent writer).
+  expect_refuse c409diff "was refused (HTTP 409) and the path holds DIFFERENT bytes"
+  if out="$(run c409same)" && grep -q "written concurrently with these exact bytes (HTTP 409)" <<<"$out"
+  then echo "ok   409 on PUT with identical stored bytes accepted"; else fail "c409same: $out"; fi
   # A run that died between the two PUTs: the asset exists, the checksum does
   # not. A re-run must complete the checksum, not skip it.
   out="$(run half)" || fail "half rc!=0: $out"
@@ -71,6 +88,10 @@ STUB
   p1="$(curl -sS "$base/__puts/ok/a.bin")"; p2="$(curl -sS "$base/__puts/ok/a.bin.sha256")"
   if [ "$p1" = 1 ] && [ "$p2" = 1 ] && grep -q "not re-uploading" <<<"$out"; then echo "ok   second identical publish is a no-op"
   else fail "ok: puts asset=$p1 sha=$p2 after two publishes: $out"; fi
+  # The credentials curl sent must be EXACTLY the env values, \ and " included.
+  sent="$(curl -sS "$base/__auth" | python3 -c 'import sys,base64; a=sys.stdin.read(); sys.stdout.buffer.write(base64.b64decode(a[6:]) if a.startswith("Basic ") else b"<no basic auth>")')"
+  if [ "$sent" = "${NEXUS_USERNAME}:${NEXUS_PASSWORD}" ]; then echo "ok   credentials arrive byte-exact"
+  else fail "credentials sent as '$sent', want '${NEXUS_USERNAME}:${NEXUS_PASSWORD}'"; fi
   [ "$fails" = 0 ] || { echo "::error::nexus_publish.sh selftest: ${fails} case(s) failed"; exit 1; }
   echo "nexus_publish.sh selftest: all cases hold"; exit 0
 fi
