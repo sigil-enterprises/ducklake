@@ -61,7 +61,9 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.release.tag_name || inputs.tag || github.ref }}
-  cancel-in-progress: true
+  # Never cancel a dispatch mid-publish: a cancelled Nexus upload can leave the
+  # asset without its .sha256. PR and push runs still cancel superseded runs.
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   # Seconds, not the 40 minutes the build takes, and it runs on every trigger.
@@ -166,6 +168,8 @@ jobs:
     outputs:
       asset: ${{ steps.name.outputs.asset }}
       duckdb_version: ${{ steps.pin.outputs.version }}
+      # The commit actually checked out and built; publish-nexus ties the tag to it.
+      sha: ${{ steps.name.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -183,7 +187,10 @@ jobs:
           set -euo pipefail
           tag="${{ github.event.release.tag_name || inputs.tag }}"
           if [ -z "$tag" ]; then tag="$(git rev-parse --short HEAD)"; fi
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=${tag}"
+            echo "sha=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
           # #33 asks for `ducklake-<version>-<platform>.duckdb_extension`, and
           # that EXACT spelling produces an UNLOADABLE asset. duckdb derives the
           # entrypoint it dlsyms from the FILE NAME - everything up to the first
@@ -511,13 +518,15 @@ jobs:
   # private, so a provider-linked binary on a GitHub release is readable by
   # anyone. Site installs take released artifacts from Nexus instead
   # (ducklake-migration-bench#297): sigil-enterprises-raw requires
-  # authentication to read, and a path there is written ONCE.
+  # authentication to read, and nexus_publish.sh writes each path once.
   #
   # Same candidate gates as `publish` - provider linked, a real provider-less
   # control refused, loads into the released duckdb the pin names - BEFORE the
-  # upload, and the load proof again on the bytes read back off Nexus. The
-  # promotion gate is NOT run here: it judges a GitHub release object (its
-  # sha, its assets), and a Nexus-only publish of a tag creates none.
+  # upload, and again on the bytes read back off Nexus. The promotion gate is
+  # NOT run here: it judges a GitHub release object (its sha, its assets), and
+  # a Nexus-only publish of a tag creates none. What stands in for it is the
+  # tag check: only a real release tag whose peeled commit IS the built commit
+  # can name a Nexus path.
   publish-nexus:
     name: Publish and verify the linux_amd64 asset on Nexus
     needs: [gate-selftests, build]
@@ -528,9 +537,14 @@ jobs:
     env:
       RAW_BASE: https://nexus.opvance.com/repository/sigil-enterprises-raw/ducklake
       TAG: ${{ inputs.tag }}
+      BUILT_SHA: ${{ needs.build.outputs.sha }}
       ASSET: ${{ needs.build.outputs.asset }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: REFUSE anything but a release tag naming the built commit
+        run: bash .github/scripts/validate_release_tag.sh "$TAG" "$BUILT_SHA"
+
       - uses: actions/download-artifact@v4
         with:
           name: ${{ needs.build.outputs.asset }}
@@ -542,35 +556,12 @@ jobs:
           version="$(cat .github/duckdb-version)"
           curl -fsSL -o /tmp/cli.zip \
             "https://github.com/duckdb/duckdb/releases/download/${version}/duckdb_cli-linux-amd64.zip" \
-            || { echo "::error::cannot obtain the duckdb ${version} CLI, so no loadability verdict is possible."; exit 1; }
+            || { echo "::error::cannot obtain the duckdb ${version} CLI, so no loadability verdict is possible. Refusing rather than skipping - a skip exits ZERO and reads as a pass."; exit 1; }
           unzip -o /tmp/cli.zip -d /tmp/cli
           /tmp/cli/duckdb --version
 
-      - name: Fetch the pinned provider-less control artifacts
-        run: |
-          set -euo pipefail
-          . .github/provider-less-control
-          mkdir -p /tmp/control
-          curl -fsSL -o /tmp/control/elf.gz "$ELF_CONTROL_URL" \
-            || { echo "::error::cannot fetch the ELF provider-less control from $ELF_CONTROL_URL."; exit 1; }
-          gunzip -f /tmp/control/elf.gz
-          echo "${ELF_CONTROL_SHA256}  /tmp/control/elf" | sha256sum -c -
-          curl -fsSL -o /tmp/control/pe.gz "$PE_CONTROL_URL" \
-            || { echo "::error::cannot fetch the PE provider-less control from $PE_CONTROL_URL."; exit 1; }
-          gunzip -f /tmp/control/pe.gz
-          echo "${PE_CONTROL_SHA256}  /tmp/control/pe" | sha256sum -c -
-
-      - name: PRECONDITION - a nm that can read PE, proven on the control
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq binutils-mingw-w64-x86-64
-          lines="$(nm -a /tmp/control/pe 2>/dev/null | grep -c . || true)"
-          echo "nm read $lines symbol lines from the PE control"
-          if [ "$lines" -lt 1000 ]; then
-            echo "::error::TOOLCHAIN GAP, not a bad artifact: nm read only ${lines} symbol lines from the PE-format control."
-            exit 1
-          fi
+      - name: Fetch the pinned provider-less controls
+        uses: ./.github/actions/fetch-provider-less-controls
 
       - name: PROVE the naming scheme is the loadable one
         run: bash .github/scripts/selftest_asset_name.sh /tmp/cli/duckdb /tmp/control/elf
@@ -585,58 +576,12 @@ jobs:
       - name: PROVE the CANDIDATE loads into the released duckdb CLI
         run: bash .github/scripts/load_proof_cli.sh /tmp/cli/duckdb "/tmp/in/${ASSET}"
 
-      # WRITE ONCE. A path that already holds the SAME bytes is a re-run and
-      # succeeds; a path holding DIFFERENT bytes is refused - a consumer pinned
-      # to a digest must never find the file under that URL changed.
-      - name: Upload to Nexus raw, immutably, with its sha256
+      # The third argument keeps the READ-BACK copy for the gates below.
+      - name: Upload to Nexus raw, write-once, and read it back
         env:
           NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
           NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
-        run: |
-          set -euo pipefail
-          test -n "${NEXUS_USERNAME}" && test -n "${NEXUS_PASSWORD}" \
-            || { echo "::error::NEXUS_USERNAME/NEXUS_PASSWORD are not available to this job."; exit 1; }
-          url="${RAW_BASE}/${TAG}/${ASSET}"
-          sha="$(sha256sum "/tmp/in/${ASSET}" | cut -d' ' -f1)"
-          printf '%s  %s\n' "$sha" "$ASSET" > "/tmp/in/${ASSET}.sha256"
-          auth=(--config -)
-          creds() { printf 'user = "%s:%s"\n' "$NEXUS_USERNAME" "$NEXUS_PASSWORD"; }
-          code="$(creds | curl -sS -o /tmp/existing -w '%{http_code}' "${auth[@]}" "$url")"
-          case "$code" in
-            200)
-              have="$(sha256sum /tmp/existing | cut -d' ' -f1)"
-              if [ "$have" != "$sha" ]; then
-                echo "::error::${url} already holds DIFFERENT bytes (${have}, candidate ${sha}). Refusing to overwrite a published path."
-                exit 1
-              fi
-              echo "${url} already holds these exact bytes; not re-uploading." ;;
-            404)
-              creds | curl --fail-with-body -sS "${auth[@]}" --upload-file "/tmp/in/${ASSET}" "$url"
-              creds | curl --fail-with-body -sS "${auth[@]}" --upload-file "/tmp/in/${ASSET}.sha256" "${url}.sha256" ;;
-            *)
-              echo "::error::probing ${url} answered HTTP ${code}; neither present nor absent, refusing to guess."
-              exit 1 ;;
-          esac
-          {
-            echo "### Published to Nexus"
-            echo ""
-            echo "- url: \`${url}\`"
-            echo "- sha256: \`${sha}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Download the PUBLISHED asset back off Nexus and verify it
-        env:
-          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
-          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
-        run: |
-          set -euo pipefail
-          url="${RAW_BASE}/${TAG}/${ASSET}"
-          mkdir -p /tmp/published
-          creds() { printf 'user = "%s:%s"\n' "$NEXUS_USERNAME" "$NEXUS_PASSWORD"; }
-          creds | curl -fsS --config - -o "/tmp/published/${ASSET}" "$url"
-          creds | curl -fsS --config - -o "/tmp/published/${ASSET}.sha256" "${url}.sha256"
-          (cd /tmp/published && sha256sum -c "${ASSET}.sha256")
-          cmp "/tmp/in/${ASSET}" "/tmp/published/${ASSET}"
+        run: bash .github/scripts/nexus_publish.sh "/tmp/in/${ASSET}" "${RAW_BASE}/${TAG}/${ASSET}" /tmp/published
 
       - name: ASSERT the provider is linked into the PUBLISHED asset
         run: |
@@ -647,3 +592,15 @@ jobs:
 
       - name: PROVE the PUBLISHED asset loads into the released duckdb CLI
         run: bash .github/scripts/load_proof_cli.sh /tmp/cli/duckdb "/tmp/published/${ASSET}"
+
+      # Only now, after the read-back and both post-publish gates.
+      - name: Record what was published
+        run: |
+          sha="$(sha256sum "/tmp/published/${ASSET}" | cut -d' ' -f1)"
+          {
+            echo "### Published to Nexus"
+            echo ""
+            echo "- url: \`${RAW_BASE}/${TAG}/${ASSET}\`"
+            echo "- sha256: \`${sha}\`"
+            echo "- tag: \`${TAG}\` -> \`${BUILT_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

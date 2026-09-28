@@ -1,0 +1,37 @@
+name: Fetch the pinned provider-less controls
+description: >-
+  Fetch the ELF and PE provider-less DuckLake controls named in
+  .github/provider-less-control into /tmp/control, check their pinned sha256,
+  and prove the installed nm can read PE. Refuses (never skips) on any failure.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        . .github/provider-less-control
+        mkdir -p /tmp/control
+        curl -fsSL -o /tmp/control/elf.gz "$ELF_CONTROL_URL" \
+          || { echo "::error::cannot fetch the ELF provider-less control from $ELF_CONTROL_URL. The negative control for the #46 gate is unavailable, so the gate cannot be shown to fire. Refusing rather than skipping - a skip exits ZERO and reads as a pass."; exit 1; }
+        gunzip -f /tmp/control/elf.gz
+        echo "${ELF_CONTROL_SHA256}  /tmp/control/elf" > /tmp/control/sum.elf
+        sha256sum -c /tmp/control/sum.elf \
+          || { echo "::error::the ELF provider-less control does not match its pinned sha256. A negative control that silently changed identity is a negative control nobody is testing."; exit 1; }
+        curl -fsSL -o /tmp/control/pe.gz "$PE_CONTROL_URL" \
+          || { echo "::error::cannot fetch the PE provider-less control from $PE_CONTROL_URL. The PE half of the negative control is unavailable, so the gate cannot be shown to fire on a non-ELF object. Refusing rather than skipping - a skip exits ZERO and reads as a pass."; exit 1; }
+        gunzip -f /tmp/control/pe.gz
+        echo "${PE_CONTROL_SHA256}  /tmp/control/pe" > /tmp/control/sum.pe
+        sha256sum -c /tmp/control/sum.pe \
+          || { echo "::error::the PE provider-less control does not match its pinned sha256. A negative control that silently changed identity is a negative control nobody is testing."; exit 1; }
+    - shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq binutils-mingw-w64-x86-64 \
+          || { echo "::error::TOOLCHAIN GAP, not a bad artifact: cannot install binutils-mingw-w64-x86-64, so nm cannot read the PE-format negative control."; exit 1; }
+        lines="$(nm -a /tmp/control/pe 2>/dev/null | grep -c . || true)"
+        echo "nm read $lines symbol lines from the PE control"
+        if [ "$lines" -lt 1000 ]; then
+          echo "::error::TOOLCHAIN GAP, not a bad artifact: nm read only ${lines} symbol lines from the PE-format control. This nm lacks the pe-x86-64 BFD target; any refusal the provider gate reports on this file would be about the reader, not about the file."
+          exit 1
+        fi
