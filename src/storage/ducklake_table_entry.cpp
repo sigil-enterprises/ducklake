@@ -1447,7 +1447,7 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transact
 unique_ptr<CatalogEntry> DuckLakeTableEntry::Alter(DuckLakeTransaction &transaction, SetColumnCommentInfo &info) {
 	auto create_info = GetInfo();
 	auto &table_info = create_info->Cast<CreateTableInfo>();
-	auto &col = table_info.columns.GetColumnMutable(info.GetColumnName());
+	auto &col = table_info.columns.GetColumnMutable(info.column_name);
 	col.SetComment(info.comment_value);
 	auto &field_id = GetFieldId(col.Physical());
 
