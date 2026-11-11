@@ -1679,6 +1679,14 @@ static optional_idx FoldBucketValue(ClientContext &context, const Value &constan
 static bool CollectBucketEqualityValues(ClientContext &context, const TableFilter &filter, const LogicalType &col_type,
                                         idx_t bucket_count, vector<string> &out) {
 	switch (filter.filter_type) {
+	case TableFilterType::EXPRESSION_FILTER: {
+		// the scan hands us EXPRESSION_FILTERs - reduce them to the legacy shapes handled below
+		auto legacy_filter = ConvertExpressionFilterToLegacy(*filter.Cast<ExpressionFilter>().expr);
+		if (!legacy_filter) {
+			return false;
+		}
+		return CollectBucketEqualityValues(context, *legacy_filter, col_type, bucket_count, out);
+	}
 	case TableFilterType::LEGACY_CONSTANT_COMPARISON: {
 		auto &cf = filter.Cast<LegacyConstantFilter>();
 		if (cf.comparison_type != ExpressionType::COMPARE_EQUAL) {
