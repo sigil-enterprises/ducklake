@@ -1,5 +1,5 @@
 # name: test/sql/alter/struct_evolution_list_filter_71_multi.test
-# description: #71 - expression filters on renamed struct fields in lists over inlined data: leading columns, two filtered columns, duplicate projections, > and IS NULL
+# description: #71 - expression filters on renamed struct fields in lists over inlined data: leading columns, two filtered columns, a plain projection beside a filtered field, > and IS NULL
 # group: [alter]
 
 require ducklake
@@ -58,7 +58,7 @@ SELECT a FROM ducklake.test WHERE col1[1].v1 = 1000 AND col2[1].w1 = 7 ORDER BY 
 ----
 1
 
-# duplicate projection: plain col1 next to the filtered field of col1
+# plain col1 projected next to the filtered field col1[1].v1 (does not share a column id between two expressions)
 query II
 SELECT col1, col1[1].v1 FROM ducklake.test WHERE col1[1].v1 = 1000 ORDER BY a;
 ----
@@ -70,7 +70,7 @@ SELECT col1[2].v1 FROM ducklake.test WHERE col1[1].v1 = 5;
 ----
 1000
 
-# plain column projected twice, filter on another column
+# two plain list columns projected, filter on a field of the second
 query II
 SELECT col1, col2 FROM ducklake.test WHERE col2[1].w1 = 9;
 ----

@@ -188,7 +188,7 @@ bool DuckLakeInlinedDataReader::TryInitializeScan(ClientContext &context, Global
 bool DuckLakeInlinedDataReader::TryEvaluateExpression(ClientContext &context, idx_t virtual_col_idx,
                                                       Vector &input_vector, const LogicalType &input_type,
                                                       Vector &output_vector) {
-	if (expression_map.empty() || virtual_col_idx >= column_ids.size()) {
+	if (expression_map.empty()) {
 		return false;
 	}
 	auto expr_it = expression_executors.find(virtual_col_idx);
