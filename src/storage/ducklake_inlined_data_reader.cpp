@@ -178,8 +178,9 @@ bool DuckLakeInlinedDataReader::TryInitializeScan(ClientContext &context, Global
 		data->data->InitializeScan(state, scan_column_ids);
 	}
 	for (auto &entry : expression_map) {
-		auto column_id = column_indexes[entry.first].GetPrimaryIndex();
-		expression_executors[column_id] = make_uniq<ExpressionExecutor>(context, *entry.second.expression);
+		// executors are per projection (position in column_ids), not per column id: two projections may share
+		// a column id, and a plain projection of the same column must not receive the expression
+		expression_executors[entry.first.GetIndex()] = make_uniq<ExpressionExecutor>(context, *entry.second.expression);
 	}
 	return true;
 }
@@ -190,8 +191,7 @@ bool DuckLakeInlinedDataReader::TryEvaluateExpression(ClientContext &context, id
 	if (expression_map.empty() || virtual_col_idx >= column_ids.size()) {
 		return false;
 	}
-	auto local_id = column_ids[MultiFileLocalIndex(virtual_col_idx)];
-	auto expr_it = expression_executors.find(local_id);
+	auto expr_it = expression_executors.find(virtual_col_idx);
 	if (expr_it == expression_executors.end()) {
 		return false;
 	}
