@@ -13,13 +13,15 @@
 #include "storage/ducklake_log_type.hpp"
 #include "storage/ducklake_encryption_provider.hpp"
 
+#include <mutex>
+
 namespace duckdb {
 
 ScalarFunction DuckLakeMurmur3Function();
 
 #ifdef DUCKLAKE_KMS_PROVIDER
 //! Hand control to the concrete KMS provider this build was overlaid with, so
-//! it can register itself as the DuckLakeEncryptionProvider factory.
+//! it can register itself in the DuckLakeEncryptionProvider registry.
 //!
 //! WHY A CALL AND NOT A STATIC INITIALIZER. A provider's natural registration
 //! path is a file-scope object whose constructor runs before main(). That works
@@ -41,30 +43,29 @@ static void LoadInternal(ExtensionLoader &loader) {
 	loader.SetDescription("Adds support for DuckLake, SQL as a Lakehouse Format");
 
 #ifdef DUCKLAKE_KMS_PROVIDER
-	// Before anything can ATTACH, so the factory is in place by the time
+	// Before anything can ATTACH, so the provider is in place by the time
 	// DuckLakeCatalog's constructor asks for it.
 	//
-	// GUARDED, because the two things have DIFFERENT LIFETIMES. This function
-	// runs once per DatabaseInstance; the factory is registered once per
+	// ONCE PER PROCESS, because the two things have DIFFERENT LIFETIMES. This
+	// function runs once per DatabaseInstance; providers are registered once per
 	// PROCESS. Anything that opens a second database in one process - the
 	// sqllogictest runner does exactly that, one instance per .test file - runs
-	// LoadInternal again, and RegisterFactory now REFUSES a second registration
-	// rather than overwriting.
+	// LoadInternal again, and the registry REFUSES a second registration under a
+	// name already taken rather than overwriting.
 	//
-	// Measured: without this guard, 10 of the 11 encryption refusal fixtures fail
-	// at `require ducklake` with "a DuckLake encryption provider factory is
-	// already registered", and the same throw would reach any embedding host
-	// that attaches two databases.
+	// Measured on the single-slot registry, before #120: without a guard, 10 of
+	// the 11 encryption refusal fixtures fail at `require ducklake` with "a
+	// DuckLake encryption provider ... is already registered", and the same
+	// throw would reach any embedding host that attaches two databases.
 	//
-	// This does NOT weaken the refusal it guards. The refusal exists so two
-	// DIFFERENT providers cannot silently race for the slot, and that is still
-	// caught: a second provider's own DuckLakeRegisterKmsProvider is a different
-	// translation unit, so it still calls RegisterFactory and still throws.
-	// Skipped here is only the case where the SAME build re-registers the SAME
-	// provider, which is not a load-order ambiguity at all.
-	if (!DuckLakeEncryptionProvider::HasFactory()) {
-		DuckLakeRegisterKmsProvider();
-	}
+	// std::call_once rather than asking the registry whether it is empty (the
+	// guard used to be `!HasFactory()`): since issue #120 a provider may
+	// register SEVERAL names, and an embedding host may register its own
+	// alongside ours, so "something is registered" no longer means "we already
+	// ran". This does NOT weaken the refusal it guards: two providers that claim
+	// the SAME name still collide inside the registry and still throw.
+	static std::once_flag kms_provider_registered;
+	std::call_once(kms_provider_registered, DuckLakeRegisterKmsProvider);
 #endif
 
 	auto &instance = loader.GetDatabaseInstance();

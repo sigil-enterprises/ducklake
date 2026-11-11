@@ -475,6 +475,92 @@ private:
 	std::mutex wire_lock;
 };
 
+//! A SECOND provider, registered under its own name, for issue #120: one
+//! process ATTACHing two lakes rooted in different key services. It talks to NO
+//! socket - the "key service" is this class - so a lake that silently inherited
+//! the socket provider instead is distinguishable from one that got this.
+//!
+//! Its wrapped blobs carry the interface-level `DLK1` header (LooksWrapped must
+//! hold) followed by ALT_MARKER, so a fixture can tell, from the catalog column
+//! alone, which provider wrapped a key. It performs NO cryptography: the blob
+//! is the DEK in the clear behind a marker. Test-only, never in a release build.
+//!
+//! It requires the provider option `tag`, and reports it from SelfTest, which
+//! is what proves the opaque ENCRYPTION_PROVIDER_OPTIONS map reaches the
+//! provider it was meant for.
+class TestKmsAltProvider : public DuckLakeEncryptionProvider {
+public:
+	static constexpr const char *NAME = "test_kms_alt";
+
+	explicit TestKmsAltProvider(const Config &config) : lake_id(config.encryption_lake_id) {
+		auto entry = config.properties.find("tag");
+		if (entry == config.properties.end() || entry->second.empty()) {
+			throw InvalidInputException("test kms alt provider: ENCRYPTION_PROVIDER_OPTIONS must carry a non-empty "
+			                            "'tag'");
+		}
+		tag = entry->second;
+	}
+
+	vector<string> WrapKeys(const vector<DuckLakeFileIdentity> &identities, const vector<string> &deks) override {
+		if (identities.size() != deks.size()) {
+			throw IOException("test kms alt provider: %llu identities for %llu keys",
+			                  static_cast<uint64_t>(identities.size()), static_cast<uint64_t>(deks.size()));
+		}
+		vector<string> wrapped;
+		for (auto &dek : deks) {
+			wrapped.push_back(Blob::ToBase64(string_t(Header() + dek)));
+		}
+		return wrapped;
+	}
+
+	string UnwrapKey(const DuckLakeFileIdentity &identity, const string &stored_value) override {
+		(void)identity;
+		if (!LooksWrapped(stored_value)) {
+			throw IOException("test kms alt provider: refusing to unwrap a value that is not an envelope blob");
+		}
+		auto raw = Blob::FromBase64(string_t(stored_value));
+		auto header = Header();
+		if (raw.compare(0, header.size(), header) != 0) {
+			throw IOException("test kms alt provider: this key was not wrapped by the %s provider", NAME);
+		}
+		return raw.substr(header.size());
+	}
+
+	vector<DuckLakeRewrapResult> RewrapKeys(const vector<DuckLakeFileIdentity> &identities,
+	                                        const vector<string> &blobs) override {
+		(void)identities;
+		vector<DuckLakeRewrapResult> results;
+		for (auto &blob : blobs) {
+			DuckLakeRewrapResult result;
+			result.wrapped = blob;
+			result.rewrapped = false;
+			results.push_back(result);
+		}
+		return results;
+	}
+
+	string SelfTest() override {
+		return "test-kms-alt:" + tag;
+	}
+
+	const string &GetLakeId() const override {
+		return lake_id;
+	}
+
+private:
+	//! "DLK1" is the header LooksWrapped keys on; "ALTPROVIDER:" brings the
+	//! fixed prefix to 16 bytes, so the first 20 base64 characters of every
+	//! blob are the same: RExLMUFMVFBST1ZJREVS.
+	static string Header() {
+		return "DLK1ALTPROVIDER:";
+	}
+
+	string lake_id;
+	string tag;
+};
+
+constexpr const char *TestKmsAltProvider::NAME;
+
 } // namespace
 
 //! Declared by ducklake_extension.cpp under DUCKLAKE_KMS_PROVIDER and called
@@ -502,7 +588,16 @@ void DuckLakeRegisterKmsProvider() {
 		}
 		return make_uniq<TestKmsProvider>(encryption_socket, encryption_lake_id, ttl);
 	};
+	// Through the LEGACY single-factory API, on purpose: that is the path every
+	// existing provider takes, and a lake that names no ENCRYPTION_PROVIDER must
+	// keep resolving to it once a second provider is registered beside it.
 	DuckLakeEncryptionProvider::RegisterFactory(std::move(factory));
+
+	// Issue #120: a second, independently named provider in the same process.
+	DuckLakeEncryptionProvider::RegisterProvider(
+	    TestKmsAltProvider::NAME,
+	    [](DatabaseInstance &, const DuckLakeEncryptionProvider::Config &config)
+	        -> unique_ptr<DuckLakeEncryptionProvider> { return make_uniq<TestKmsAltProvider>(config); });
 }
 
 } // namespace duckdb

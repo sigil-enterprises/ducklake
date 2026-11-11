@@ -196,10 +196,19 @@ DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options
       instance_id(UUID::ToString(UUID::GenerateRandomUUID())) {
 	// KMS envelope encryption: validate the envelope options.
 	//
-	// encryption_cache_ttl_seconds is checked OUTSIDE the socket gate
-	// deliberately. It is not one of the two options that turn the envelope
-	// on, so supplying it alone is silently ignored unless we refuse.
-	if (options.encryption_cache_ttl_seconds_supplied && !options.encryption_socket_supplied) {
+	// The envelope is turned on by encryption_socket or, since issue #120, by
+	// naming a provider with encryption_provider.
+	auto envelope_requested = options.encryption_socket_supplied || options.encryption_provider_supplied;
+	// encryption_cache_ttl_seconds and encryption_provider_options are checked
+	// OUTSIDE the envelope gate deliberately. Neither turns the envelope on, so
+	// supplying one alone is silently ignored unless we refuse.
+	if (options.encryption_provider_options_supplied && !envelope_requested) {
+		throw InvalidInputException("encryption_provider_options was set without encryption_socket or "
+		                            "encryption_provider - there is no encryption provider to hand them to, so "
+		                            "they would be silently ignored. Either turn the envelope on or drop "
+		                            "encryption_provider_options");
+	}
+	if (options.encryption_cache_ttl_seconds_supplied && !envelope_requested) {
 		throw InvalidInputException("encryption_cache_ttl_seconds was set without encryption_socket - it "
 		                            "bounds how long the KMS "
 		                            "envelope's unwrapped per-file keys stay cached in this reader, and on "
@@ -208,21 +217,29 @@ DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options
 		                            "encryption_socket or drop "
 		                            "encryption_cache_ttl_seconds");
 	}
-	if (options.encryption_socket_supplied || options.encryption_lake_id_supplied) {
-		if (!options.encryption_socket_supplied) {
+	if (envelope_requested || options.encryption_lake_id_supplied) {
+		if (!envelope_requested) {
 			throw InvalidInputException("encryption_socket must be set when encryption_lake_id is set - a "
 			                            "half-configured envelope "
 			                            "silently writes the per-file keys to the catalog in plaintext. "
 			                            "Either set encryption_socket "
 			                            "or drop encryption_lake_id");
 		}
-		if (options.encryption_socket.empty()) {
+		if (options.encryption_socket_supplied && options.encryption_socket.empty()) {
 			throw InvalidInputException("encryption_socket was set to an empty string - supply the address of the key "
 			                            "service, or omit the option to run without an encryption envelope");
 		}
+		if (options.encryption_provider_supplied && options.encryption_provider.empty()) {
+			// The shape an unexpanded `${VAR}` takes in a templated ATTACH: it must
+			// not quietly fall back to the default provider.
+			throw InvalidInputException("encryption_provider was set to an empty string - name a registered "
+			                            "encryption provider, or omit the option to use the default one");
+		}
 		if (options.encryption_lake_id.empty()) {
-			throw InvalidInputException("encryption_socket requires a non-empty encryption_lake_id - without it keys "
-			                            "are interchangeable between lakes");
+			throw InvalidInputException("%s requires a non-empty encryption_lake_id - without it keys are "
+			                            "interchangeable between lakes",
+			                            options.encryption_socket_supplied ? "encryption_socket"
+			                                                               : "encryption_provider");
 		}
 		if (options.encryption_cache_ttl_seconds < 0 ||
 		    options.encryption_cache_ttl_seconds > DuckLakeEncryptionProvider::MAX_CACHE_TTL_SECONDS) {
@@ -256,8 +273,7 @@ DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options
 		auto ttl_seconds = options.encryption_cache_ttl_seconds_supplied
 		                       ? options.encryption_cache_ttl_seconds
 		                       : DuckLakeEncryptionProvider::DEFAULT_CACHE_TTL_SECONDS;
-		auto &factory = DuckLakeEncryptionProvider::GetFactory();
-		if (!factory) {
+		if (!DuckLakeEncryptionProvider::HasFactory()) {
 			throw InvalidInputException("ENCRYPTION_SOCKET was set but this build of DuckLake has no KMS "
 			                            "encryption provider. "
 			                            "The encryption envelope is supplied by the DuckLake bench build, "
@@ -266,8 +282,16 @@ DuckLakeCatalog::DuckLakeCatalog(AttachedDatabase &db_p, DuckLakeOptions options
 			                            "ENCRYPTION_LAKE_ID to run "
 			                            "without a KMS envelope (plaintext per-file keys).");
 		}
-		encryption_provider = factory(db_p.GetDatabase(), options.encryption_socket, options.encryption_lake_id,
-		                              NumericCast<idx_t>(ttl_seconds));
+		// Issue #120: the provider is chosen PER CATALOG. Each lake resolves its
+		// own by name, so two lakes in one process can be rooted in different key
+		// services; none named resolves to the default.
+		DuckLakeEncryptionProvider::Config provider_config;
+		provider_config.encryption_socket = options.encryption_socket;
+		provider_config.encryption_lake_id = options.encryption_lake_id;
+		provider_config.cache_ttl_seconds = NumericCast<idx_t>(ttl_seconds);
+		provider_config.properties = options.encryption_provider_options;
+		encryption_provider = DuckLakeEncryptionProvider::Create(db_p.GetDatabase(), options.encryption_provider,
+		                                                         std::move(provider_config));
 	}
 	// figure out the metadata server type
 	auto entry = options.metadata_parameters.find("type");
