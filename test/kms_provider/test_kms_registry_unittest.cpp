@@ -101,8 +101,7 @@ DuckLakeEncryptionProvider::Config LakeConfig(const string &lake_id) {
 
 // Runs in any process: whatever else ran first, opening a database loads
 // DuckLake, which registers the test build's 'default' and 'test_kms_alt'.
-TEST_CASE("DuckLake encryption provider registry - refusals and case-insensitive lookup",
-          "[ducklake_kms_registry]") {
+TEST_CASE("DuckLake encryption provider registry - refusals and case-insensitive lookup", "[ducklake_kms_registry]") {
 	DuckDB db(nullptr);
 	auto &instance = *db.instance;
 	REQUIRE(DuckLakeEncryptionProvider::HasProvider("default"));
@@ -168,8 +167,7 @@ TEST_CASE("DuckLake encryption provider registry - several providers, none named
 	REQUIRE_THAT(message, Catch::Contains("has 2 DuckLake encryption providers registered ('first_kms', "
 	                                      "'second_kms') and none is named 'default'"));
 	// Naming one still works: the refusal is about the unnamed ATTACH only.
-	REQUIRE(DuckLakeEncryptionProvider::Create(*db.instance, "second_kms", LakeConfig("lake"))->SelfTest() ==
-	        "second");
+	REQUIRE(DuckLakeEncryptionProvider::Create(*db.instance, "second_kms", LakeConfig("lake"))->SelfTest() == "second");
 }
 
 // FRESH PROCESS ONLY (hidden). A host that registered 'default' BEFORE DuckLake
@@ -191,8 +189,7 @@ TEST_CASE("DuckLake load tolerates a host-registered 'default'", "[.][ducklake_k
 // SECOND: the first load must not throw, and - the defect this pins - a second
 // load must not report a collision on 'default', a name DuckLake itself
 // registered on the first attempt, in place of whatever really happened.
-TEST_CASE("DuckLake load tolerates a host-registered second provider name",
-          "[.][ducklake_kms_registry_host_alt]") {
+TEST_CASE("DuckLake load tolerates a host-registered second provider name", "[.][ducklake_kms_registry_host_alt]") {
 	REQUIRE(!DuckLakeEncryptionProvider::HasFactory());
 	DuckLakeEncryptionProvider::RegisterProvider("test_kms_alt", StubFactory("host-alt"));
 
