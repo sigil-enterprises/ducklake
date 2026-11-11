@@ -52,11 +52,11 @@ static void MetadataFunctionExecute(ClientContext &context, TableFunctionInput &
 		}
 
 		for (idx_t c = 0; c < entry.size(); c++) {
-			output.SetValue(c, count, entry[c]);
+			output.data[c].Append(entry[c]);
 		}
 		count++;
 	}
-	output.SetCardinality(count);
+	output.SetChildCardinality(count);
 }
 
 DuckLakeBaseMetadataFunction::DuckLakeBaseMetadataFunction(Identifier name_p, table_function_bind_t bind)
