@@ -1,6 +1,6 @@
 name: nm that can read PE (no root)
 description: >
-  Puts a `nm` on PATH that reads pe-x86-64 objects, without sudo or apt. The
+  Puts a `nm` on PATH that reads pe-x86-64 objects, without root or a package manager. The
   stock Ubuntu `nm` (gama-arc image, binutils 2.42) says "file format not
   recognized" on a PE file. This extracts Ubuntu noble's
   binutils-mingw-w64-x86-64 .deb (sha256-pinned; depends only on libc6, zstd,
