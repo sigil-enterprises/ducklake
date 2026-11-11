@@ -11,7 +11,7 @@
 # pull_request) are removed and the build job is `if: false`, so nothing here
 # can reach a hosted runner. Distribution for this fork is Release.yml's
 # linux_amd64 asset (see the note on the deleted deploy job below). Re-enable
-# only by forking extension-ci-tools with a runner input.
+# only by forking extension-ci-tools with a runner input: sigil-enterprises/ducklake#135.
 name: Main Extension Distribution Pipeline
 on:
   workflow_dispatch:

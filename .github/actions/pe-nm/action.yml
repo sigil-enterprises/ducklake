@@ -1,0 +1,34 @@
+name: nm that can read PE (no root)
+description: >
+  Puts a `nm` on PATH that reads pe-x86-64 objects, without sudo or apt. The
+  stock Ubuntu `nm` (gama-arc image, binutils 2.42) says "file format not
+  recognized" on a PE file. This extracts Ubuntu noble's
+  binutils-mingw-w64-x86-64 .deb (sha256-pinned; depends only on libc6, zstd,
+  zlib, binutils-common, all in the image) with dpkg-deb -x into RUNNER_TEMP, and
+  installs a `nm` wrapper: a PE ("MZ") argument goes to the mingw nm, everything
+  else to /usr/bin/nm. The calling step still proves it on the control (forge#126).
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        d="$RUNNER_TEMP/pe-nm"
+        mkdir -p "$d/bin"
+        f=binutils-mingw-w64-x86-64_2.41.90.20240122-1ubuntu1+11.4_amd64.deb
+        sha=28bfabbf64a68813a56360bca056072af9ff71ef4090a4b8a8a085afcda3e4dd
+        curl -fsSL --retry 3 --retry-all-errors -o "$d/$f" \
+          "https://archive.ubuntu.com/ubuntu/pool/universe/b/binutils-mingw-w64/$f"
+        echo "${sha}  $d/$f" | sha256sum -c -
+        dpkg-deb -x "$d/$f" "$d/x"
+        cat > "$d/bin/nm" <<WRAP
+        #!/usr/bin/env bash
+        for a in "\$@"; do
+          if [ -f "\$a" ] && [ "\$(head -c2 -- "\$a")" = "MZ" ]; then
+            exec "$d/x/usr/bin/x86_64-w64-mingw32-nm" "\$@"
+          fi
+        done
+        exec /usr/bin/nm "\$@"
+        WRAP
+        chmod 0755 "$d/bin/nm"
+        echo "$d/bin" >> "$GITHUB_PATH"

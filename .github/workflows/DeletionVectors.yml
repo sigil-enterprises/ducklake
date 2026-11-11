@@ -14,6 +14,7 @@ defaults:
 jobs:
   ducklake-deletion-vector-tests:
     name: DuckLake Tests (Deletion Vectors)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ startsWith(vars.CI_RUNS_ON, '[') && fromJSON(vars.CI_RUNS_ON) || vars.CI_RUNS_ON || 'gama-arc' }}
     strategy:
       matrix:
@@ -29,11 +30,6 @@ jobs:
       VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
 
     steps:
-    - name: Install required ubuntu packages
-      run: |
-        sudo apt-get update -y -qq
-        sudo apt-get install -y -qq build-essential cmake ninja-build ccache python3
-
     - uses: actions/checkout@v3
       with:
         fetch-depth: 0
@@ -48,9 +44,12 @@ jobs:
     # what made #43, and it stays green until a consumer tries to load it.
     - uses: ./.github/actions/refuse-unreleased-duckdb-pin
 
+    - uses: ./.github/actions/user-space-build-tools
+
     - name: Setup Ccache
       uses: hendrikmuhs/ccache-action@main
       with:
+        install: 'no'  # ccache comes from user-space-build-tools; the action would need root (forge#126)
         key: ${{ github.job }}
         save: ${{ github.ref == 'refs/heads/main' }}
 

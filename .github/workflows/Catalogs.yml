@@ -14,6 +14,7 @@ defaults:
 jobs:
   ducklake-config-tests:
     name: DuckDB Tests with DuckLake + (Postgres/SQLite)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ startsWith(vars.CI_RUNS_ON, '[') && fromJSON(vars.CI_RUNS_ON) || vars.CI_RUNS_ON || 'gama-arc' }}
     strategy:
       matrix:
@@ -33,20 +34,32 @@ jobs:
       BUILD_EXTENSION_TEST_DEPS: full
 
     steps:
-    - name: Install required ubuntu packages
+    # ikalnytskyi/action-setup-postgres@v7 installs postgresql as root (tee into
+    # /etc/apt, apt-key, package install; read at v7), which the gama-arc runner cannot do.
+    # Same major (15) and credentials, as a container on the pool's dind daemon.
+    # No ssl: the action's ssl:true was a self-signed server cert and nothing in
+    # test/configs/postgres.json asks for it.
+    - name: Start PostgreSQL 15 (container, no root)
       run: |
-        sudo apt-get update -y -qq
-        sudo apt-get install -y -qq build-essential cmake ninja-build ccache python3
-
-    - name: Setup PostgreSQL for Linux/macOS/Windows
-      uses: ikalnytskyi/action-setup-postgres@v7
-      with:
-        postgres-version: '15'
-        username: 'postgres'
-        password: 'postgres'
-        database: 'postgres'
-        port: '5432'
-        ssl: true
+        set -euo pipefail
+        docker rm -f ducklake-pg >/dev/null 2>&1 || true
+        docker run -d --name ducklake-pg -p 127.0.0.1:5432:5432 \
+          -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres \
+          docker.io/library/postgres:15
+        ready=0
+        for i in $(seq 1 60); do
+          if docker exec ducklake-pg pg_isready -h 127.0.0.1 -U postgres -d postgres; then ready=1; break; fi
+          sleep 2
+        done
+        if [ "$ready" != 1 ]; then
+          echo "::error::PostgreSQL did not become ready within 120s"
+          docker logs ducklake-pg || true
+          exit 1
+        fi
+        # libpq service named `postgres`, as the action wrote it; the test step selects it.
+        printf '[postgres]\nhost=127.0.0.1\nport=5432\nuser=postgres\npassword=postgres\ndbname=postgres\n' \
+          > "$RUNNER_TEMP/pg_service.conf"
+        echo "PGSERVICEFILE=$RUNNER_TEMP/pg_service.conf" >> "$GITHUB_ENV"
 
     - uses: actions/checkout@v3
       with:
@@ -62,9 +75,12 @@ jobs:
     # what made #43, and it stays green until a consumer tries to load it.
     - uses: ./.github/actions/refuse-unreleased-duckdb-pin
 
+    - uses: ./.github/actions/user-space-build-tools
+
     - name: Setup Ccache
       uses: hendrikmuhs/ccache-action@main
       with:
+        install: 'no'  # ccache comes from user-space-build-tools; the action would need root (forge#126)
         key: ${{ github.job }}
         save: ${{ github.ref == 'refs/heads/main' }}
 
@@ -105,6 +121,6 @@ jobs:
         EXT_DIR="$HOME/.duckdb/extensions/$DUCKDB_VER/${{ matrix.arch }}"
         mkdir -p "$EXT_DIR"
         cp "$REPO_DIR/postgres_scanner.duckdb_extension" "$EXT_DIR/"
-        createdb ducklakedb
+        docker exec ducklake-pg createdb -U postgres ducklakedb
         build/release/test/unittest --test-config test/configs/postgres.json --test-dir ./ "test/sql/*"
 

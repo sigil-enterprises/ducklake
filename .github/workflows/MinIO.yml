@@ -17,6 +17,7 @@ env:
 jobs:
   rest:
     name: Tests using MinIo (AWS)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ startsWith(vars.CI_RUNS_ON, '[') && fromJSON(vars.CI_RUNS_ON) || vars.CI_RUNS_ON || 'gama-arc' }}
     env:
       VCPKG_TARGET_TRIPLET: 'x64-linux-release'
@@ -28,7 +29,7 @@ jobs:
       S3_TEST_SERVER_AVAILABLE: 1
 
     steps:
-      # No sudo/apt on gama-arc: the image has build-essential, python3, git,
+      # No root/package-manager on gama-arc: the image has build-essential, python3, git,
       # docker and the `docker compose` plugin (scripts/start-docker.sh uses it,
       # not the 1.29.2 docker-compose binary this job used to download).
       # cmake 3.x/ninja/ccache go into user space (forge#126).
@@ -60,8 +61,8 @@ jobs:
 
       - name: Setup Ccache
         uses: hendrikmuhs/ccache-action@main
-        continue-on-error: true
         with:
+          install: 'no'  # ccache comes from user-space-build-tools; the action would need root (forge#126)
           key: ${{ github.job }}
           save: ${{ github.ref == 'refs/heads/main' }}
 

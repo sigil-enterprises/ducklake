@@ -47,6 +47,7 @@ defaults:
 jobs:
   inventory:
     name: Every advertised workflow has a file
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ startsWith(vars.CI_RUNS_ON, '[') && fromJSON(vars.CI_RUNS_ON) || vars.CI_RUNS_ON || 'gama-arc' }}
     steps:
       # Full history and all refs: the question is about every branch, not this

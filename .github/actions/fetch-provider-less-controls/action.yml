@@ -23,12 +23,11 @@ runs:
         echo "${PE_CONTROL_SHA256}  /tmp/control/pe" > /tmp/control/sum.pe
         sha256sum -c /tmp/control/sum.pe \
           || { echo "::error::the PE provider-less control does not match its pinned sha256. A negative control that silently changed identity is a negative control nobody is testing."; exit 1; }
+    # No root on gama-arc (forge#126): unpack the mingw nm into RUNNER_TEMP.
+    - uses: ./.github/actions/pe-nm
     - shell: bash
       run: |
         set -euo pipefail
-        sudo apt-get update -qq
-        sudo apt-get install -y -qq binutils-mingw-w64-x86-64 \
-          || { echo "::error::TOOLCHAIN GAP, not a bad artifact: cannot install binutils-mingw-w64-x86-64, so nm cannot read the PE-format negative control."; exit 1; }
         lines="$(nm -a /tmp/control/pe 2>/dev/null | grep -c . || true)"
         echo "nm read $lines symbol lines from the PE control"
         if [ "$lines" -lt 1000 ]; then

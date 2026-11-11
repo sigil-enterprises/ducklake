@@ -43,6 +43,7 @@ defaults:
 jobs:
   guards:
     name: Envelope guards (no build)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ startsWith(vars.CI_RUNS_ON, '[') && fromJSON(vars.CI_RUNS_ON) || vars.CI_RUNS_ON || 'gama-arc' }}
     steps:
       - uses: actions/checkout@v4
@@ -60,6 +61,7 @@ jobs:
 
   envelope-e2e:
     name: KMS envelope end to end (test provider + fake key service)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ startsWith(vars.CI_RUNS_ON, '[') && fromJSON(vars.CI_RUNS_ON) || vars.CI_RUNS_ON || 'gama-arc' }}
     env:
       VCPKG_TARGET_TRIPLET: x64-linux
@@ -72,7 +74,7 @@ jobs:
           fetch-depth: 0
           submodules: 'true'
 
-      # No sudo/apt on gama-arc: the image has build-essential, python3, git;
+      # No root/package-manager on gama-arc: the image has build-essential, python3, git;
       # cmake/ninja/ccache go into user space (forge#126).
       - uses: ./.github/actions/user-space-build-tools
 
@@ -86,6 +88,7 @@ jobs:
       - name: Setup Ccache
         uses: hendrikmuhs/ccache-action@main
         with:
+          install: 'no'  # ccache comes from user-space-build-tools; the action would need root (forge#126)
           key: ${{ github.job }}
           save: ${{ github.ref == 'refs/heads/main' }}
 

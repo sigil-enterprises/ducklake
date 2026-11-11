@@ -5,8 +5,9 @@ name: Release (linux_amd64 asset)
 #
 #   1. it exists at all, under a name that says which platform it is (#33 -
 #      for linux_amd64 ONLY; the other eight platforms MainDistributionPipeline
-#      builds are built WITHOUT the provider overlay, so publishing them would
-#      ship exactly the provider-less binaries point 2 refuses. See #62.);
+#      built (it is GATED OFF since forge#126, see #135) were built WITHOUT the
+#      provider overlay, so publishing them would ship exactly the provider-less
+#      binaries point 2 refuses. See #62.);
 #   2. the crypta KMS provider is LINKED INTO it, with DEFINED, EXTERNAL
 #      linkage, asserted against the asset DOWNLOADED BACK FROM THE RELEASE -
 #      and, in the same run and with the same tool, a pinned REAL provider-less
@@ -72,6 +73,7 @@ jobs:
   # These plant the bad fixtures and require a refusal on each.
   gate-selftests:
     name: Positive controls for the release gates
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ startsWith(vars.CI_RUNS_ON, '[') && fromJSON(vars.CI_RUNS_ON) || vars.CI_RUNS_ON || 'gama-arc' }}
     steps:
       - uses: actions/checkout@v4
@@ -113,12 +115,13 @@ jobs:
       # diagnosis points at the artifact when the fault is the toolchain.
       # Install it explicitly and PROVE it works before the gate is asked to
       # form a verdict.
+      # No root on gama-arc: the mingw nm is unpacked into RUNNER_TEMP by a
+      # composite action, and the step below still PROVES it on the control.
+      - uses: ./.github/actions/pe-nm
+
       - name: PRECONDITION - a nm that can read PE, proven on the control
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq binutils-mingw-w64-x86-64 \
-            || { echo "::error::TOOLCHAIN GAP, not a bad artifact: cannot install binutils-mingw-w64-x86-64, so nm cannot read the PE-format negative control."; exit 1; }
           lines="$(nm -a /tmp/control/pe 2>/dev/null | grep -c . || true)"
           echo "nm read $lines symbol lines from the PE control"
           if [ "$lines" -lt 1000 ]; then
@@ -250,11 +253,16 @@ jobs:
           bash /tmp/crypta/ducklake-provider/scripts/overlay.sh "$PWD"
           test -f src/crypta-provider/crypta_provider_init.cpp
 
-      - name: Install build deps
+      # No root/package-manager on gama-arc. build-essential (gcc, g++, make, binutils) and
+      # libssl-dev are baked into the image (teras-cluster-gama
+      # images/gh-runner-sigil/Dockerfile:160-163); cmake + ninja go to user space.
+      - uses: ./.github/actions/user-space-build-tools
+
+      - name: Assert the image-provided build deps are present
         run: |
-          set -euxo pipefail
-          sudo apt-get update
-          sudo apt-get install -y ninja-build cmake build-essential libssl-dev binutils
+          set -euo pipefail
+          test -f /usr/include/openssl/ssl.h || { echo "::error::libssl-dev missing from the runner image"; exit 1; }
+          gcc --version | head -1; g++ --version | head -1; make --version | head -1; nm --version | head -1
 
       - name: Bootstrap vcpkg
         run: |
@@ -364,12 +372,13 @@ jobs:
       # diagnosis points at the artifact when the fault is the toolchain.
       # Install it explicitly and PROVE it works before the gate is asked to
       # form a verdict.
+      # No root on gama-arc: the mingw nm is unpacked into RUNNER_TEMP by a
+      # composite action, and the step below still PROVES it on the control.
+      - uses: ./.github/actions/pe-nm
+
       - name: PRECONDITION - a nm that can read PE, proven on the control
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq binutils-mingw-w64-x86-64 \
-            || { echo "::error::TOOLCHAIN GAP, not a bad artifact: cannot install binutils-mingw-w64-x86-64, so nm cannot read the PE-format negative control."; exit 1; }
           lines="$(nm -a /tmp/control/pe 2>/dev/null | grep -c . || true)"
           echo "nm read $lines symbol lines from the PE control"
           if [ "$lines" -lt 1000 ]; then
