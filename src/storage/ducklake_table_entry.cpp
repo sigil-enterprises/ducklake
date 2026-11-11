@@ -775,7 +775,7 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(ClientContext &context, 
 		    "Column name \"%s\" is reserved by DuckLake for internal use when data inlining is enabled. If "
 		    "you must use this column name, disable inlining by calling "
 		    "ducklake_set_option('data_inlining_row_limit', 0).",
-		    info.new_name);
+		    info.new_name.GetIdentifierName());
 	}
 	auto create_info = GetInfo();
 	auto &table_info = create_info->Cast<CreateTableInfo>();
@@ -822,7 +822,7 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(ClientContext &context, 
 		    "Column name \"%s\" is reserved by DuckLake for internal use when data inlining is enabled. If "
 		    "you must use this column name, disable inlining by calling "
 		    "ducklake_set_option('data_inlining_row_limit', 0).",
-		    info.new_column.Name());
+		    info.new_column.Name().GetIdentifierName());
 	}
 	auto create_info = GetInfo();
 	auto &table_info = create_info->Cast<CreateTableInfo>();
