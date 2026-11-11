@@ -378,6 +378,8 @@ unique_ptr<LogicalOperator> DuckLakeDataFlusher::GenerateFlushCommand() {
 	copy->per_thread_output = copy_options.per_thread_output;
 	copy->file_size_bytes = copy_options.file_size_bytes;
 	copy->rotate = copy_options.rotate;
+	copy->batch_size = copy_options.batch_size;
+	copy->batch_size_bytes = copy_options.batch_size_bytes;
 	copy->return_type = copy_options.return_type;
 
 	copy->partition_output = copy_options.partition_output;

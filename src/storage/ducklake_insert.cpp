@@ -612,7 +612,9 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckL
 		result.partition_output = false;
 		result.write_empty_file = false;
 		// file_size_bytes is currently only supported for unpartitioned writes
-		result.file_size_bytes = target_file_size;
+		// a file is never rotated below the minimum write size (port of upstream v2.0-cyanoptera ducklake_insert.cpp:609)
+		static constexpr idx_t MINIMUM_WRITE_FILE_SIZE = 4096;
+		result.file_size_bytes = MaxValue<idx_t>(target_file_size, MINIMUM_WRITE_FILE_SIZE);
 		result.rotate = true;
 	}
 	result.file_path = copy_input.data_path;
