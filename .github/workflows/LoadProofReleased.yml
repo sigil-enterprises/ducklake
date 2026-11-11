@@ -19,7 +19,8 @@ permissions:
 jobs:
   build-extension:
     name: Build ducklake for linux_amd64
-    runs-on: ubuntu-22.04
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ startsWith(vars.CI_RUNS_ON, '[') && fromJSON(vars.CI_RUNS_ON) || vars.CI_RUNS_ON || 'gama-arc' }}
     outputs:
       # Both this and the upload name derive from the SAME step output, so the
       # artifact the provers fetch cannot name a version nobody built.
@@ -32,11 +33,16 @@ jobs:
       - id: pin
         uses: ./.github/actions/refuse-unreleased-duckdb-pin
 
-      - name: Install build deps
+      # No root/package-manager on gama-arc. build-essential (gcc, g++, make, binutils) and
+      # libssl-dev are baked into the image (teras-cluster-gama
+      # images/gh-runner-sigil/Dockerfile:160-163); cmake + ninja go to user space.
+      - uses: ./.github/actions/user-space-build-tools
+
+      - name: Assert the image-provided build deps are present
         run: |
-          set -euxo pipefail
-          sudo apt-get update
-          sudo apt-get install -y ninja-build cmake build-essential libssl-dev
+          set -euo pipefail
+          test -f /usr/include/openssl/ssl.h || { echo "::error::libssl-dev missing from the runner image"; exit 1; }
+          gcc --version | head -1; g++ --version | head -1; make --version | head -1; nm --version | head -1
 
       - name: Bootstrap vcpkg
         run: |
@@ -64,7 +70,8 @@ jobs:
   prove-pip-wheel:
     name: LOAD into the PyPI duckdb wheel
     needs: build-extension
-    runs-on: ubuntu-22.04
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ startsWith(vars.CI_RUNS_ON, '[') && fromJSON(vars.CI_RUNS_ON) || vars.CI_RUNS_ON || 'gama-arc' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -90,7 +97,8 @@ jobs:
   prove-released-cli:
     name: LOAD into the released duckdb CLI zip
     needs: build-extension
-    runs-on: ubuntu-22.04
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ startsWith(vars.CI_RUNS_ON, '[') && fromJSON(vars.CI_RUNS_ON) || vars.CI_RUNS_ON || 'gama-arc' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4

@@ -17,7 +17,8 @@ env:
 jobs:
   rest:
     name: Tests using MinIo (AWS)
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ startsWith(vars.CI_RUNS_ON, '[') && fromJSON(vars.CI_RUNS_ON) || vars.CI_RUNS_ON || 'gama-arc' }}
     env:
       VCPKG_TARGET_TRIPLET: 'x64-linux-release'
       GEN: ninja
@@ -28,25 +29,16 @@ jobs:
       S3_TEST_SERVER_AVAILABLE: 1
 
     steps:
-      - name: Install required ubuntu packages
-        run: |
-          sudo apt-get update -y -qq
-          sudo apt-get install -y -qq software-properties-common
-          sudo add-apt-repository ppa:git-core/ppa
-          sudo apt-get update -y -qq
-          sudo apt-get install -y -qq build-essential cmake ninja-build ccache python3
-          sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-          sudo chmod +x /usr/local/bin/docker-compose
-
-      - name: Install CMake 3.x
-        run: |
-          sudo apt-get remove -y cmake cmake-data
-          sudo apt-get install --allow-downgrades -y -qq 'cmake=3.*' 'cmake-data=3.*'
-
+      # No root/package-manager on gama-arc: the image has build-essential, python3, git,
+      # docker and the `docker compose` plugin (scripts/start-docker.sh uses it,
+      # not the 1.29.2 docker-compose binary this job used to download).
+      # cmake 3.x/ninja/ccache go into user space (forge#126).
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: 'true'
+
+      - uses: ./.github/actions/user-space-build-tools
 
       - name: Checkout DuckDB to version
         run: |
@@ -69,8 +61,8 @@ jobs:
 
       - name: Setup Ccache
         uses: hendrikmuhs/ccache-action@main
-        continue-on-error: true
         with:
+          install: 'no'  # ccache comes from user-space-build-tools; the action would need root (forge#126)
           key: ${{ github.job }}
           save: ${{ github.ref == 'refs/heads/main' }}
 
