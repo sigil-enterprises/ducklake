@@ -139,7 +139,7 @@ jobs:
       # test_kms_provider.cpp): ATTACH still succeeds and the self-test still
       # passes, but WrapKeys/UnwrapKey never touch the socket and hand keys back
       # unwrapped - exactly the "envelope never engaged" bug these fixtures exist
-      # to catch. Each of the three below must FAIL against it, or the fixture
+      # to catch. Each fixture below must FAIL against it, or the fixture
       # is not proving anything.
       - name: RED control - these fixtures must fail against a no-op envelope (issue #67)
         env:
@@ -166,6 +166,13 @@ jobs:
             fail=1
           else
             echo "confirmed: envelope_wrap_idempotence.test fails against a no-op envelope"
+          fi
+
+          if test/sql/encryption/run_envelope_fixture.sh test/sql/encryption/envelope_two_providers.test; then
+            echo "::error::envelope_two_providers.test PASSED against a no-op envelope - its per-lake key-service assertions do not catch a bypassed envelope"
+            fail=1
+          else
+            echo "confirmed: envelope_two_providers.test fails against a no-op envelope"
           fi
 
           if [ "${fail}" -ne 0 ]; then
@@ -207,3 +214,30 @@ jobs:
       - name: Two lakes, two key services, one process (issue #120)
         if: always()
         run: test/sql/encryption/run_envelope_fixture.sh test/sql/encryption/envelope_two_providers.test
+
+      # Issue #120. The registry refusals a SQL fixture cannot reach - duplicate
+      # and empty-name registration, the legacy double RegisterFactory - and the
+      # load-order cases. The registry is process-global with no reset hook, so
+      # each hidden `[.]` case needs the registry EMPTY when it starts and runs
+      # in a FRESH unittest process of its own. A tag that matched nothing
+      # prints no "assertions", so that is refused like a skip.
+      - name: Provider registry unit tests (issue #120)
+        if: always()
+        run: |
+          fail=0
+          for tag in '[ducklake_kms_registry]' '[ducklake_kms_registry_no_default]' '[ducklake_kms_registry_host_default]' '[ducklake_kms_registry_host_alt]'; do
+            echo "== ${tag}"
+            status=0
+            output="$(build/release/test/unittest "${tag}" 2>&1)" || status=$?
+            echo "${output}"
+            if ! grep -q "assertions" <<< "${output}"; then
+              echo "::error::${tag} reported no assertions - nothing ran, which is not a pass"
+              fail=1
+              continue
+            fi
+            if [ "${status}" -ne 0 ]; then
+              echo "::error::${tag} FAILED"
+              fail=1
+            fi
+          done
+          exit "${fail}"

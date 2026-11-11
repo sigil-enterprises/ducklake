@@ -59,6 +59,42 @@ SELECT provider_kind, load_ok FROM ducklake_self_test('lake_b')
 ----
 test-kms-alt:beta	true
 
+# OPTIONS ARE PER CATALOG, not per provider. Lake C selects the SAME provider as
+# lake B with a different tag. Each lake must report its own: a provider that
+# kept its options anywhere shared - a static, the registry entry, the first
+# lake's instance - reports one tag for both. Lake B is asked again AFTER lake C
+# attached, so last-writer-wins is caught as well as first-writer-wins.
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/two_providers_c.db' AS lake_c (DATA_PATH '__TEST_DIR__/two_providers_c_files', ENCRYPTED, METADATA_CATALOG 'lake_c_meta', ENCRYPTION_PROVIDER 'test_kms_alt', ENCRYPTION_PROVIDER_OPTIONS MAP {'tag': 'gamma'}, ENCRYPTION_LAKE_ID 'lake-c')
+
+query TT
+SELECT provider_kind, load_ok FROM ducklake_self_test('lake_c')
+----
+test-kms-alt:gamma	true
+
+query TT
+SELECT provider_kind, load_ok FROM ducklake_self_test('lake_b')
+----
+test-kms-alt:beta	true
+
+# Provider names are case-insensitive: an upper-case ENCRYPTION_PROVIDER selects
+# the provider registered as `test_kms_alt`, with its own options.
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/two_providers_e.db' AS lake_e (DATA_PATH '__TEST_DIR__/two_providers_e_files', ENCRYPTED, METADATA_CATALOG 'lake_e_meta', ENCRYPTION_PROVIDER 'TEST_KMS_ALT', ENCRYPTION_PROVIDER_OPTIONS MAP {'tag': 'delta'}, ENCRYPTION_LAKE_ID 'lake-e')
+
+query TT
+SELECT provider_kind, load_ok FROM ducklake_self_test('lake_e')
+----
+test-kms-alt:delta	true
+
+# ENCRYPTION_PROVIDER alone turns the envelope on, so a provider-only lake that
+# resolves to UNENCRYPTED is refused - and the refusal names the option the
+# operator actually wrote, not only ENCRYPTION_SOCKET.
+statement error
+ATTACH 'ducklake:__TEST_DIR__/two_providers_f.db' AS lake_f (DATA_PATH '__TEST_DIR__/two_providers_f_files', ENCRYPTION_PROVIDER 'test_kms_alt', ENCRYPTION_PROVIDER_OPTIONS MAP {'tag': 'zeta'}, ENCRYPTION_LAKE_ID 'lake-f')
+----
+encryption_socket / encryption_provider was set, but this DuckLake resolved to UNENCRYPTED
+
 statement ok
 CREATE TABLE lake_a.t AS SELECT i AS id FROM range(100) t(i)
 
@@ -102,7 +138,7 @@ SELECT count(*), sum(id) FROM lake_b.t
 # A lake that names a provider nobody registered is refused, naming what IS
 # registered - never resolved to some other provider.
 statement error
-ATTACH 'ducklake:__TEST_DIR__/two_providers_c.db' AS lake_c (DATA_PATH '__TEST_DIR__/two_providers_c_files', ENCRYPTED, ENCRYPTION_PROVIDER 'no_such_provider', ENCRYPTION_LAKE_ID 'lake-c')
+ATTACH 'ducklake:__TEST_DIR__/two_providers_g.db' AS lake_g (DATA_PATH '__TEST_DIR__/two_providers_g_files', ENCRYPTED, ENCRYPTION_PROVIDER 'no_such_provider', ENCRYPTION_LAKE_ID 'lake-g')
 ----
 no DuckLake encryption provider named 'no_such_provider'
 
