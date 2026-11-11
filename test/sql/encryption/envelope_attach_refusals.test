@@ -29,3 +29,25 @@ statement error
 ATTACH 'ducklake:{TEST_DIR}/envelope_inline2.db' AS inline_refusal2 (DATA_PATH '{TEST_DIR}/envelope_inline2_files', ENCRYPTED, ENCRYPTION_SOCKET '/tmp/fake.sock', ENCRYPTION_LAKE_ID 'some-lake', DATA_INLINING_ROW_LIMIT 10)
 ----
 envelope does not protect (it wraps the per-file Parquet keys only)
+
+# Issue #120 - per-catalog provider selection. Provider options with no
+# envelope turned on would be silently dropped: there is no provider to hand
+# them to. Refused, like encryption_cache_ttl_seconds on its own.
+statement error
+ATTACH 'ducklake:{TEST_DIR}/envelope_options_only.db' AS options_only (DATA_PATH '{TEST_DIR}/envelope_options_only_files', ENCRYPTION_PROVIDER_OPTIONS MAP {'tag': 'x'})
+----
+encryption_provider_options was set without encryption_socket or encryption_provider
+
+# An empty provider name is the shape an unexpanded `${VAR}` takes in a
+# templated ATTACH. It must not silently fall back to the default provider.
+statement error
+ATTACH 'ducklake:{TEST_DIR}/envelope_empty_provider.db' AS empty_provider (DATA_PATH '{TEST_DIR}/envelope_empty_provider_files', ENCRYPTED, ENCRYPTION_PROVIDER '', ENCRYPTION_LAKE_ID 'some-lake')
+----
+encryption_provider was set to an empty string
+
+# A named provider still needs a lake id - without it keys are interchangeable
+# between lakes, whichever provider wraps them.
+statement error
+ATTACH 'ducklake:{TEST_DIR}/envelope_provider_no_lake.db' AS provider_no_lake (DATA_PATH '{TEST_DIR}/envelope_provider_no_lake_files', ENCRYPTED, ENCRYPTION_PROVIDER 'anything')
+----
+encryption_provider requires a non-empty encryption_lake_id

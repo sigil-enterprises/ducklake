@@ -1,0 +1,114 @@
+# name: test/sql/encryption/envelope_two_providers.test
+# description: One process ATTACHes two enveloped lakes rooted in DIFFERENT key services, and each lake uses its own (issue #120)
+# group: [encryption]
+
+#
+# THE DEFECT (issue #120). The encryption provider used to be a single
+# process-wide slot: RegisterFactory installed ONE factory and refused a second.
+# The provider was therefore a property of the PROCESS, not of the catalog, so a
+# process could not ATTACH two lakes rooted in different key services - a second
+# provider could not even be registered, and a second lake had no way to say
+# which provider it wanted, so it silently inherited the first one's.
+#
+# THE TWO PROVIDERS. The test-only build (test/kms_provider/) registers:
+#   - its socket provider under the DEFAULT name, through the legacy
+#     RegisterFactory - the path every existing provider (crypta) takes, so a
+#     lake ATTACHed with no ENCRYPTION_PROVIDER must keep resolving to it;
+#   - `test_kms_alt`, a second provider with NO socket at all, whose wrapped
+#     blobs carry the header `DLK1ALTPROVIDER:` (base64 prefix
+#     `RExLMUFMVFBST1ZJREVS`) and whose SelfTest reports the `tag` it was handed
+#     through ENCRYPTION_PROVIDER_OPTIONS - the opaque per-catalog property map.
+#
+# WHAT "EACH USES ITS OWN" IS ASSERTED ON, three independent ways:
+#   1. ducklake_self_test(<lake>) reports a DIFFERENT root per lake;
+#   2. every encryption_key in lake B carries the alt provider's header, and
+#      none in lake A does - lake A's are the fake key service's `RExL` blobs;
+#   3. data written through each lake reads back through the same lake, which
+#      needs an unwrap by the provider that wrapped it.
+# A lake B that inherited lake A's provider fails all three.
+#
+
+require ducklake
+
+require parquet
+
+require httpfs
+
+# ^ NOT decoration: writing an ENCRYPTED parquet file needs the mbedtls write
+# path httpfs carries. A missing httpfs SKIPS this file, and a skip exits zero,
+# which is why the runner refuses any output without the word "assertions".
+
+require-env DUCKLAKE_FAKE_KMS_SOCKET
+
+# Lake A: no ENCRYPTION_PROVIDER, exactly as every ATTACH written before #120.
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/two_providers_a.db' AS lake_a (DATA_PATH '__TEST_DIR__/two_providers_a_files', ENCRYPTED, METADATA_CATALOG 'lake_a_meta', ENCRYPTION_SOCKET '${DUCKLAKE_FAKE_KMS_SOCKET}', ENCRYPTION_LAKE_ID 'lake-a')
+
+# Lake B, same process, a different key service selected per catalog.
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/two_providers_b.db' AS lake_b (DATA_PATH '__TEST_DIR__/two_providers_b_files', ENCRYPTED, METADATA_CATALOG 'lake_b_meta', ENCRYPTION_PROVIDER 'test_kms_alt', ENCRYPTION_PROVIDER_OPTIONS MAP {'tag': 'beta'}, ENCRYPTION_LAKE_ID 'lake-b')
+
+# 1. Each catalog reports its own key service.
+query TT
+SELECT provider_kind, load_ok FROM ducklake_self_test('lake_a')
+----
+fake-kms-for-sql-fixtures	true
+
+query TT
+SELECT provider_kind, load_ok FROM ducklake_self_test('lake_b')
+----
+test-kms-alt:beta	true
+
+statement ok
+CREATE TABLE lake_a.t AS SELECT i AS id FROM range(100) t(i)
+
+statement ok
+CREATE TABLE lake_b.t AS SELECT i AS id FROM range(1000, 1050) t(i)
+
+# 2. The stored keys were wrapped by the right provider. Each pair asserts a
+# non-zero file count first, so an empty file list cannot pass the shape checks.
+query I
+SELECT count(*) > 0 FROM lake_a_meta.ducklake_data_file
+----
+true
+
+query I
+SELECT count(*) FROM lake_a_meta.ducklake_data_file WHERE encryption_key IS NULL OR NOT starts_with(encryption_key, 'RExL') OR starts_with(encryption_key, 'RExLMUFMVFBST1ZJREVS')
+----
+0
+
+query I
+SELECT count(*) > 0 FROM lake_b_meta.ducklake_data_file
+----
+true
+
+query I
+SELECT count(*) FROM lake_b_meta.ducklake_data_file WHERE encryption_key IS NULL OR NOT starts_with(encryption_key, 'RExLMUFMVFBST1ZJREVS')
+----
+0
+
+# 3. Each lake reads back through its own provider. sum() over a column opens
+# the file, so the key has to be unwrapped - count(*) alone would not.
+query II
+SELECT count(*), sum(id) FROM lake_a.t
+----
+100	4950
+
+query II
+SELECT count(*), sum(id) FROM lake_b.t
+----
+50	51225
+
+# A lake that names a provider nobody registered is refused, naming what IS
+# registered - never resolved to some other provider.
+statement error
+ATTACH 'ducklake:__TEST_DIR__/two_providers_c.db' AS lake_c (DATA_PATH '__TEST_DIR__/two_providers_c_files', ENCRYPTED, ENCRYPTION_PROVIDER 'no_such_provider', ENCRYPTION_LAKE_ID 'lake-c')
+----
+no DuckLake encryption provider named 'no_such_provider'
+
+# A provider registered through the legacy single-factory API has no way to
+# receive provider options, so handing it some is refused, not dropped.
+statement error
+ATTACH 'ducklake:__TEST_DIR__/two_providers_d.db' AS lake_d (DATA_PATH '__TEST_DIR__/two_providers_d_files', ENCRYPTED, ENCRYPTION_SOCKET '${DUCKLAKE_FAKE_KMS_SOCKET}', ENCRYPTION_PROVIDER_OPTIONS MAP {'tag': 'x'}, ENCRYPTION_LAKE_ID 'lake-d')
+----
+takes no ENCRYPTION_PROVIDER_OPTIONS
