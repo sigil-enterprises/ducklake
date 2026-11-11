@@ -66,10 +66,13 @@ ATTACH 'ducklake:{TEST_DIR}/envelope_provider_inline.db' AS provider_inline (DAT
 ----
 encryption_socket / encryption_provider was set together with data_inlining_row_limit
 
-# A NULL options map is refused as input, not dereferenced. A typed NULL MAP
-# passes the "is it a MAP" check, and reading its entries used to raise an
-# InternalException - which invalidates the whole database, not just this ATTACH.
+# A NULL options map is refused AS INPUT, never dereferenced: reading the
+# entries of a NULL MAP raises an InternalException. Two layers can refuse it.
+# Measured on DuckDB v1.5.5, the ATTACH binder rejects a NULL value for every
+# option before DuckLake sees it; DuckLake's own check is the one that holds if
+# a path ever hands it one. Either refusal passes - any other outcome, an
+# InternalException included, reds this.
 statement error
 ATTACH 'ducklake:{TEST_DIR}/envelope_null_options.db' AS null_options (DATA_PATH '{TEST_DIR}/envelope_null_options_files', ENCRYPTED, ENCRYPTION_PROVIDER 'anything', ENCRYPTION_PROVIDER_OPTIONS CAST(NULL AS MAP(VARCHAR, VARCHAR)), ENCRYPTION_LAKE_ID 'some-lake')
 ----
-encryption_provider_options may not be NULL
+<REGEX>:.*(NULL is not supported as a valid option for ATTACH option "encryption_provider_options"|encryption_provider_options may not be NULL).*
