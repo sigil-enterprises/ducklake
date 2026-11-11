@@ -136,9 +136,11 @@ void DuckLakeExpireSnapshotsExecute(ClientContext &context, TableFunctionInput &
 DuckLakeExpireSnapshotsFunction::DuckLakeExpireSnapshotsFunction()
     : TableFunction(Identifier("ducklake_expire_snapshots"), {LogicalType::VARCHAR}, DuckLakeExpireSnapshotsExecute,
                     DuckLakeExpireSnapshotsBind, DuckLakeExpireSnapshotsInit) {
-	named_parameters["older_than"] = LogicalType::TIMESTAMP_TZ;
-	named_parameters["versions"] = LogicalType::LIST(LogicalType::UBIGINT);
-	named_parameters["dry_run"] = LogicalType::BOOLEAN;
+	GetSignature().WithTypedKwargs("options", [&](TypedKwargs &options) {
+			options.Add("older_than", LogicalType::TIMESTAMP_TZ);
+			options.Add("versions", LogicalType::LIST(LogicalType::UBIGINT));
+			options.Add("dry_run", LogicalType::BOOLEAN);
+	});
 }
 
 } // namespace duckdb

@@ -43,7 +43,7 @@ DuckLakeFieldId::DuckLakeFieldId(DuckLakeColumnData column_data_p, string name_p
 static unique_ptr<ParsedExpression> ExtractDefaultExpression(optional_ptr<const ParsedExpression> default_expr,
                                                              const LogicalType &type) {
 	if (!default_expr) {
-		return make_uniq<ConstantExpression>(Value(type));
+		return ConstantExpression::FromValue(Value(type));
 	}
 	if (default_expr->HasSubquery()) {
 		throw NotImplementedException("Expressions with subqueries are not yet supported as default expressions");
@@ -67,7 +67,7 @@ static Value ExtractInitialValue(optional_ptr<const ParsedExpression> initial_ex
 		                              "then explicitly set the default for new values using \"ALTER ... SET DEFAULT\"");
 	}
 	auto &const_default = initial_expr->Cast<ConstantExpression>();
-	return const_default.GetValue().DefaultCastAs(type);
+	return const_default.GetLiteral().ToValue().DefaultCastAs(type);
 }
 
 unique_ptr<DuckLakeFieldId> DuckLakeFieldId::FieldIdFromType(const string &name, const LogicalType &type,

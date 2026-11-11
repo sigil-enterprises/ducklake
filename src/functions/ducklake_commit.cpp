@@ -69,9 +69,11 @@ static void DuckLakeCommitExecute(ClientContext &context, TableFunctionInput &da
 DuckLakeCommitFunction::DuckLakeCommitFunction()
     : TableFunction(Identifier("ducklake_commit"), {LogicalType::VARCHAR, LogicalType::BIGINT}, DuckLakeCommitExecute,
                     DuckLakeCommitBind, DuckLakeCommitInit) {
-	named_parameters["max_retry_count"] = LogicalType::BIGINT;
-	named_parameters["retry_wait_ms"] = LogicalType::BIGINT;
-	named_parameters["retry_backoff"] = LogicalType::DOUBLE;
+	GetSignature().WithTypedKwargs("options", [&](TypedKwargs &options) {
+			options.Add("max_retry_count", LogicalType::BIGINT);
+			options.Add("retry_wait_ms", LogicalType::BIGINT);
+			options.Add("retry_backoff", LogicalType::DOUBLE);
+	});
 }
 
 } // namespace duckdb

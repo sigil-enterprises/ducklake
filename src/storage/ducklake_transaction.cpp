@@ -1592,7 +1592,7 @@ string DuckLakeTransaction::GetDefaultSchemaName() {
 	auto &metadata_context = *connection->context;
 	auto &db_manager = DatabaseManager::Get(metadata_context);
 	auto metadb = db_manager.GetDatabase(metadata_context, Identifier(ducklake_catalog.MetadataDatabaseName()));
-	return metadb->GetCatalog().GetDefaultSchema().GetIdentifierName();
+	return metadb->GetCatalog().GetDefaultSchema().value().GetIdentifierName();
 }
 
 DuckLakeSnapshot DuckLakeTransaction::GetSnapshot() {
@@ -1719,17 +1719,17 @@ void DuckLakeTransaction::RedactStatsOnEnvelopedLake(DuckLakeDataFile &file) con
 // pruning can wrongly skip. Refusing the write is the only closed option, and it is loud on purpose: an insert into a
 // pre-existing partitioned table on a newly-enveloped lake fails outright rather than silently going cleartext or
 // silently going wrong.
-void DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(TableIndex table_id,
+void DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(DuckLakeTableIndex table_id,
                                                                 const DuckLakeDataFile &file) const {
 	RefusePartitionValuesOnEnvelopedLake(ducklake_catalog, table_id, file);
 }
 
-void DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(DuckLakeCatalog &catalog, TableIndex table_id,
+void DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(DuckLakeCatalog &catalog, DuckLakeTableIndex table_id,
                                                                 const DuckLakeDataFile &file) {
 	RefusePartitionValuesOnEnvelopedLake(catalog.EncryptionProvider() != nullptr, table_id, file);
 }
 
-void DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(bool is_enveloped, TableIndex table_id,
+void DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(bool is_enveloped, DuckLakeTableIndex table_id,
                                                                 const DuckLakeDataFile &file) {
 	if (!is_enveloped) {
 		return;

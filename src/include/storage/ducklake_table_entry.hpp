@@ -105,6 +105,7 @@ public:
 	vector<DuckLakeColumnInfo> GetTableColumns() const;
 
 public:
+	const ColumnList &GetColumns() const override;
 	unique_ptr<BaseStatistics> GetStatistics(ClientContext &context, column_t column_id) override;
 
 	TableFunction GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data) override;
@@ -175,6 +176,9 @@ public:
 	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, unique_ptr<DuckLakePartition> partition_data);
 	// ! Create a DuckLakeTableEntry from a SET SORT KEY
 	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, unique_ptr<DuckLakeSort> sort_data);
+
+protected:
+	ColumnList columns;
 
 private:
 	DuckLakeTableIndex table_id;

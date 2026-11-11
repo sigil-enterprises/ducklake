@@ -478,8 +478,8 @@ void GetNewMacroInfo(DuckLakeCommitState &commit_state, reference<CatalogEntry> 
 			auto default_it = impl->default_parameters.find(Identifier(parameter.parameter_name));
 			if (default_it != impl->default_parameters.end()) {
 				auto &const_expr = default_it->second->Cast<ConstantExpression>();
-				parameter.default_value = const_expr.GetValue().ToString();
-				parameter.default_value_type = DuckLakeTypes::ToString(const_expr.GetValue().type());
+				parameter.default_value = const_expr.GetLiteral().ToValue().ToString();
+				parameter.default_value_type = DuckLakeTypes::ToString(const_expr.GetLiteral().ToValue().type());
 			} else {
 				parameter.default_value_type = "unknown";
 			}

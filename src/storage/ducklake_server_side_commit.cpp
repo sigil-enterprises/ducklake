@@ -8,7 +8,7 @@
 #include "duckdb/main/database.hpp"
 #include "duckdb/main/database_manager.hpp"
 #include "duckdb/main/attached_database.hpp"
-#include "duckdb/main/materialized_query_result.hpp"
+#include "duckdb/main/query_result.hpp"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/catalog/catalog_entry/duck_table_entry.hpp"
 #include "duckdb/common/types/column/column_data_collection.hpp"
@@ -806,14 +806,14 @@ DuckLakeCommitContext DuckLakeServerSideCommit::BuildContext(idx_t &committed_sn
 	ctx.skip_drop_empty_inlined = true;
 	ctx.conflict_query_executor = [this](string q) -> unique_ptr<QueryResult> {
 		auto sql = SubstitutePlaceholders(std::move(q), transaction_snapshot);
-		return unique_ptr_cast<MaterializedQueryResult, QueryResult>(fresh_conn.Query(sql));
+		return fresh_conn.Query(sql);
 	};
 	ctx.get_snapshot = [this]() {
 		return transaction_snapshot;
 	};
 	ctx.execute_commit_batch = [this](DuckLakeSnapshot snapshot, string &query) -> unique_ptr<QueryResult> {
 		query = SubstitutePlaceholders(query, snapshot);
-		return unique_ptr_cast<MaterializedQueryResult, QueryResult>(fresh_conn.Query(query));
+		return fresh_conn.Query(query);
 	};
 	ctx.commit_connection = [this]() {
 		fresh_conn.Commit();
@@ -830,11 +830,11 @@ DuckLakeCommitContext DuckLakeServerSideCommit::BuildContext(idx_t &committed_sn
 		// Snapshot-scoped placeholders are absent on this path; empty snapshot is a no-op.
 		DuckLakeSnapshot empty {};
 		auto sql = SubstitutePlaceholders(std::move(q), empty);
-		return unique_ptr_cast<MaterializedQueryResult, QueryResult>(fresh_conn.Query(sql));
+		return fresh_conn.Query(sql);
 	};
 	ctx.query_metadata_with_snapshot = [this](DuckLakeSnapshot snapshot, string q) -> unique_ptr<QueryResult> {
 		auto sql = SubstitutePlaceholders(std::move(q), snapshot);
-		return unique_ptr_cast<MaterializedQueryResult, QueryResult>(fresh_conn.Query(sql));
+		return fresh_conn.Query(sql);
 	};
 	ctx.write_inlined_data = [this](DuckLakeSnapshot &, const vector<DuckLakeInlinedDataInfo> &new_data,
 	                                const vector<DuckLakeTableInfo> &, const vector<DuckLakeTableInfo> &) -> string {
@@ -916,7 +916,7 @@ string DuckLakeServerSideCommit::SubstitutePlaceholders(string sql, const DuckLa
 	return sql;
 }
 
-unique_ptr<MaterializedQueryResult> DuckLakeServerSideCommit::RunQuery(const string &query, const char *what) {
+unique_ptr<QueryResult> DuckLakeServerSideCommit::RunQuery(const string &query, const char *what) {
 	auto result = fresh_conn.Query(query);
 	if (result->HasError()) {
 		result->GetErrorObject().Throw(StringUtil::Format("Server-side ducklake_commit (%s) failed: ", what));
@@ -924,12 +924,14 @@ unique_ptr<MaterializedQueryResult> DuckLakeServerSideCommit::RunQuery(const str
 	return result;
 }
 
-unique_ptr<MaterializedQueryResult> DuckLakeServerSideCommit::ScanStagedTable(DuckLakeStagedTableType kind) {
+unique_ptr<QueryResult> DuckLakeServerSideCommit::ScanStagedTable(DuckLakeStagedTableType kind) {
 	string table_name = DuckLakeStagedTable::BaseName(kind);
 	auto &temp_catalog = Catalog::GetCatalog(context, TEMP_CATALOG);
-	auto &table_entry = temp_catalog
-	                        .GetEntry<TableCatalogEntry>(context, Identifier(DEFAULT_SCHEMA), Identifier(table_name))
-	                        .Cast<DuckTableEntry>();
+	auto &table_entry =
+	    temp_catalog
+	        .GetEntry<TableCatalogEntry>(
+	            context, QualifiedName(temp_catalog.GetName(), Identifier(DEFAULT_SCHEMA), Identifier(table_name)))
+	        .Cast<DuckTableEntry>();
 	auto &storage = table_entry.GetStorage();
 
 	auto types = storage.GetTypes();
@@ -967,8 +969,8 @@ unique_ptr<MaterializedQueryResult> DuckLakeServerSideCommit::ScanStagedTable(Du
 	}
 	StatementProperties properties;
 	properties.return_type = StatementReturnType::QUERY_RESULT;
-	return make_uniq<MaterializedQueryResult>(StatementType::SELECT_STATEMENT, properties, std::move(names),
-	                                          std::move(collection), context.GetClientProperties());
+	return make_uniq<QueryResult>(StatementType::SELECT_STATEMENT, properties, std::move(names), std::move(collection),
+	                              context.GetClientProperties());
 }
 
 } // namespace duckdb

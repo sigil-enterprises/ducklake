@@ -119,13 +119,13 @@ static unique_ptr<FunctionData> DuckLakeSetOptionBind(ClientContext &context, Ta
 		}
 		value = to_string(row_group_size);
 	} else if (option == "parquet_row_group_size_bytes") {
-		auto row_group_size_bytes = DBConfig::ParseMemoryLimit(val.ToString());
+		auto row_group_size_bytes = DBConfig::ParseMemoryLimitOrMaximum(val.ToString());
 		if (row_group_size_bytes == 0) {
 			throw NotImplementedException("Row group size bytes cannot be 0");
 		}
 		value = to_string(row_group_size_bytes);
 	} else if (option == "target_file_size") {
-		auto target_file_size_bytes = DBConfig::ParseMemoryLimit(val.ToString());
+		auto target_file_size_bytes = DBConfig::ParseMemoryLimitOrMaximum(val.ToString());
 		value = to_string(target_file_size_bytes);
 	} else if (option == "data_inlining_row_limit") {
 		auto data_inlining_row_limit = val.DefaultCastAs(LogicalType::UBIGINT).GetValue<idx_t>();
@@ -243,8 +243,10 @@ void DuckLakeSetOptionExecute(ClientContext &context, TableFunctionInput &data_p
 DuckLakeSetOptionFunction::DuckLakeSetOptionFunction()
     : TableFunction(Identifier("ducklake_set_option"), {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::ANY},
                     DuckLakeSetOptionExecute, DuckLakeSetOptionBind, DuckLakeSetOptionInit) {
-	named_parameters["table_name"] = LogicalType::VARCHAR;
-	named_parameters["schema"] = LogicalType::VARCHAR;
+	GetSignature().WithTypedKwargs("options", [&](TypedKwargs &options) {
+			options.Add("table_name", LogicalType::VARCHAR);
+			options.Add("schema", LogicalType::VARCHAR);
+	});
 }
 
 } // namespace duckdb

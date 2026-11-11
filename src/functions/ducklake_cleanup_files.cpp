@@ -163,17 +163,21 @@ void DuckLakeCleanupExecute(ClientContext &context, TableFunctionInput &data_p, 
 DuckLakeCleanupOldFilesFunction::DuckLakeCleanupOldFilesFunction()
     : TableFunction(Identifier("ducklake_cleanup_old_files"), {LogicalType::VARCHAR}, DuckLakeCleanupExecute,
                     DuckLakeCleanupOldFilesBind, DuckLakeCleanupInit) {
-	named_parameters["older_than"] = LogicalType::TIMESTAMP_TZ;
-	named_parameters["cleanup_all"] = LogicalType::BOOLEAN;
-	named_parameters["dry_run"] = LogicalType::BOOLEAN;
+	GetSignature().WithTypedKwargs("options", [&](TypedKwargs &options) {
+			options.Add("older_than", LogicalType::TIMESTAMP_TZ);
+			options.Add("cleanup_all", LogicalType::BOOLEAN);
+			options.Add("dry_run", LogicalType::BOOLEAN);
+	});
 }
 
 DuckLakeCleanupOrphanedFilesFunction::DuckLakeCleanupOrphanedFilesFunction()
     : TableFunction(Identifier("ducklake_delete_orphaned_files"), {LogicalType::VARCHAR}, DuckLakeCleanupExecute,
                     DuckLakeCleanupOrphanedFilesBind, DuckLakeCleanupInit) {
-	named_parameters["older_than"] = LogicalType::TIMESTAMP_TZ;
-	named_parameters["cleanup_all"] = LogicalType::BOOLEAN;
-	named_parameters["dry_run"] = LogicalType::BOOLEAN;
+	GetSignature().WithTypedKwargs("options", [&](TypedKwargs &options) {
+			options.Add("older_than", LogicalType::TIMESTAMP_TZ);
+			options.Add("cleanup_all", LogicalType::BOOLEAN);
+			options.Add("dry_run", LogicalType::BOOLEAN);
+	});
 }
 
 } // namespace duckdb

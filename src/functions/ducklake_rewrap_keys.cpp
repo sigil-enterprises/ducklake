@@ -400,8 +400,10 @@ static void DuckLakeRewrapKeysExecute(ClientContext &context, TableFunctionInput
 DuckLakeRewrapKeysFunction::DuckLakeRewrapKeysFunction()
     : TableFunction(Identifier("ducklake_rewrap_keys"), {LogicalType::VARCHAR}, DuckLakeRewrapKeysExecute, DuckLakeRewrapKeysBind,
                     DuckLakeRewrapKeysInit) {
-	named_parameters["dry_run"] = LogicalType::BOOLEAN;
-	named_parameters["batch_size"] = LogicalType::BIGINT;
+	GetSignature().WithTypedKwargs("options", [&](TypedKwargs &options) {
+			options.Add("dry_run", LogicalType::BOOLEAN);
+			options.Add("batch_size", LogicalType::BIGINT);
+	});
 }
 
 } // namespace duckdb

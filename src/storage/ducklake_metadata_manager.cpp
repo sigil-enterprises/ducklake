@@ -1786,7 +1786,7 @@ vector<DuckLakeFileListEntry> DuckLakeMetadataManager::GetFilesForTable(DuckLake
 			if (dynamic) {
 				ExpressionType comparison_type;
 				{
-					lock_guard<mutex> l(dynamic->lock);
+					annotated_shared_lock<annotated_shared_mutex> l(dynamic->lock);
 					comparison_type = dynamic->comparison_type;
 				}
 				dynamic_filter_columns.push_back(
@@ -2603,7 +2603,7 @@ static void ColumnToSQLRecursive(const DuckLakeColumnInfo &column, DuckLakeTable
 			if (value.empty()) {
 				default_val = "''";
 			} else {
-				auto sql_expr = Parser::ParseExpressionList(column.default_value.GetValue<string>());
+				auto sql_expr = Parser::GetBuiltinParser().ParseExpressionList(column.default_value.GetValue<string>());
 				if (sql_expr.size() != 1) {
 					throw InternalException("Expected a single expression");
 				}

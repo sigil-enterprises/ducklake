@@ -57,7 +57,7 @@ static unique_ptr<FunctionData> DuckLakeTableChangesBind(ClientContext &context,
 	auto &transaction = DuckLakeTransaction::Get(context, catalog);
 
 	unique_ptr<FunctionData> bind_data;
-	input.table_function = table.GetScanFunction(context, bind_data, lookup);
+	input.table_function = BoundTableFunction(table.GetScanFunction(context, bind_data, lookup));
 
 	auto &function_info = input.table_function.function_info->Cast<DuckLakeFunctionInfo>();
 	names.clear();

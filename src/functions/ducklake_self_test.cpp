@@ -145,7 +145,7 @@ static void DuckLakeSelfTestExecute(ClientContext &context, TableFunctionInput &
 
 DuckLakeSelfTestFunction::DuckLakeSelfTestFunction()
     : TableFunction(Identifier("ducklake_self_test"), {}, DuckLakeSelfTestExecute, DuckLakeSelfTestBind, DuckLakeSelfTestInit) {
-	varargs = LogicalType::VARCHAR;
+	GetSignature().AddArgs("args", LogicalType::VARCHAR);
 }
 
 } // namespace duckdb

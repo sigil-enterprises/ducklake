@@ -16,12 +16,12 @@ ParquetFileScanner::ParquetFileScanner(ClientContext &context, const DuckLakeFil
 	auto &instance = DatabaseInstance::GetDatabase(context);
 	ExtensionLoader loader(instance, "ducklake");
 	auto &parquet_scan_entry = loader.GetTableFunction("parquet_scan");
-	parquet_scan = parquet_scan_entry.functions.functions[0];
+	parquet_scan = *parquet_scan_entry.functions.functions[0];
 
 	// Prepare the inputs for the bind
 	vector<Value> children;
 	children.push_back(Value(file.path));
-	named_parameter_map_t named_params;
+	named_argument_map_t named_params;
 	vector<LogicalType> input_types;
 	vector<Identifier> input_names;
 
@@ -36,17 +36,19 @@ ParquetFileScanner::ParquetFileScanner(ClientContext &context, const DuckLakeFil
 
 	TableFunctionRef empty;
 	TableFunction dummy_table_function;
-	dummy_table_function.name = "ParquetFileScanner";
+	dummy_table_function.SetName("ParquetFileScanner");
 
+	// the bind sees the function as a bound call would
+	BoundTableFunction bound_table_function(dummy_table_function);
 	if (multi_file_reader_creator_p) {
-		dummy_table_function.get_multi_file_reader = multi_file_reader_creator_p;
+		bound_table_function.get_multi_file_reader = multi_file_reader_creator_p;
 		if (function_info_p) {
-			dummy_table_function.function_info = std::move(function_info_p);
+			bound_table_function.function_info = std::move(function_info_p);
 		}
 	}
 
 	TableFunctionBindInput bind_input(children, named_params, input_types, input_names, nullptr, nullptr,
-	                                  dummy_table_function, empty);
+	                                  bound_table_function, empty);
 
 	bind_data = parquet_scan.bind(context, bind_input, return_types, return_names);
 }

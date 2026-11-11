@@ -578,10 +578,8 @@ PhysicalOperator &DuckLakeCatalog::PlanMergeInto(ClientContext &context, Physica
 		actions.emplace(entry.first, std::move(planned_actions));
 	}
 
-	auto &result = planner.Make<PhysicalMergeInto>(op.types, std::move(actions), op.row_id_start, op.source_marker,
-	                                               true, op.return_chunk);
-	result.children.push_back(plan);
-	return result;
+	return planner.Make<PhysicalMergeInto>(op.types, plan, std::move(actions), op.row_id_start, op.source_marker, true,
+	                                       op.return_chunk);
 }
 
 } // namespace duckdb

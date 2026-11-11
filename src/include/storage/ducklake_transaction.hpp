@@ -236,7 +236,7 @@ public:
 	//! every other lake. Unlike RedactStatsOnEnvelopedLake this throws rather
 	//! than silently drops - there is no plan a partitioned scan can fall back
 	//! to once its partition_value rows are gone.
-	void RefusePartitionValuesOnEnvelopedLake(TableIndex table_id, const DuckLakeDataFile &file) const;
+	void RefusePartitionValuesOnEnvelopedLake(DuckLakeTableIndex table_id, const DuckLakeDataFile &file) const;
 
 	//! Same guard, callable with an explicit DuckLakeCatalog instead of the
 	//! transaction's own - for a producer that never holds a DuckLakeTransaction
@@ -245,7 +245,7 @@ public:
 	//! them straight against the metadata catalog, so there is no
 	//! DuckLakeTransaction to call the instance overload on. The instance
 	//! overload above delegates to this one.
-	static void RefusePartitionValuesOnEnvelopedLake(DuckLakeCatalog &catalog, TableIndex table_id,
+	static void RefusePartitionValuesOnEnvelopedLake(DuckLakeCatalog &catalog, DuckLakeTableIndex table_id,
 	                                                 const DuckLakeDataFile &file);
 
 	//! Same guard again, taking the already-resolved encryption verdict
@@ -256,7 +256,7 @@ public:
 	//! `SELECT value FROM {schema}.ducklake_metadata WHERE key = 'encrypted'`
 	//! against the metadata schema instead. The DuckLakeCatalog overload above
 	//! delegates to this one.
-	static void RefusePartitionValuesOnEnvelopedLake(bool is_enveloped, TableIndex table_id,
+	static void RefusePartitionValuesOnEnvelopedLake(bool is_enveloped, DuckLakeTableIndex table_id,
 	                                                 const DuckLakeDataFile &file);
 
 	MappingIndex AddNameMap(unique_ptr<DuckLakeNameMap> name_map);

@@ -11,6 +11,7 @@
 #include "duckdb/common/numeric_utils.hpp"
 #include "duckdb/common/operator/cast_operators.hpp"
 #include "duckdb/common/types/uuid.hpp"
+#include "duckdb/parser/expression/columnref_expression.hpp"
 #include "duckdb/function/macro_function.hpp"
 #include "duckdb/function/scalar_macro_function.hpp"
 #include "duckdb/function/table_macro_function.hpp"
@@ -506,12 +507,12 @@ static unique_ptr<DuckLakeFieldId> TransformColumnType(DuckLakeColumnInfo &col) 
 		auto col_type = DuckLakeTypes::FromString(col.type);
 		col_data.initial_default = col.initial_default.DefaultCastAs(col_type);
 		if (col.default_value.IsNull()) {
-			col_data.default_value = make_uniq<ConstantExpression>(Value());
+			col_data.default_value = ConstantExpression::FromValue(Value());
 		} else {
 			if (col.default_value_type == "literal") {
-				col_data.default_value = make_uniq<ConstantExpression>(col.default_value);
+				col_data.default_value = ConstantExpression::FromValue(col.default_value);
 			} else if (col.default_value_type == "expression") {
-				auto sql_expr = Parser::ParseExpressionList(col.default_value.GetValue<string>());
+				auto sql_expr = Parser::GetBuiltinParser().ParseExpressionList(col.default_value.GetValue<string>());
 				if (sql_expr.size() != 1) {
 					throw InternalException("Expected a single expression");
 				}
@@ -580,13 +581,13 @@ unique_ptr<CreateMacroInfo> CreateMacroInfoFromDucklake(ClientContext &context, 
 	for (auto &impl : macro.implementations) {
 		unique_ptr<MacroFunction> macro_function;
 		if (impl.type == "scalar") {
-			auto sql_expr = Parser::ParseExpressionList(impl.sql);
+			auto sql_expr = Parser::GetBuiltinParser().ParseExpressionList(impl.sql);
 			if (sql_expr.size() != 1) {
 				throw InternalException("Expected a single expression");
 			}
 			macro_function = make_uniq<ScalarMacroFunction>(std::move(sql_expr[0]));
 		} else if (impl.type == "table") {
-			Parser parser;
+			auto parser = Parser::GetBuiltinParser();
 			parser.ParseQuery(impl.sql);
 			if (parser.statements.size() != 1 || parser.statements[0]->type != StatementType::SELECT_STATEMENT) {
 				throw InternalException("Expected a single select statement");
@@ -598,7 +599,7 @@ unique_ptr<CreateMacroInfo> CreateMacroInfoFromDucklake(ClientContext &context, 
 		}
 		vector<unique_ptr<ParsedExpression>> expr_list;
 		for (auto &param : impl.parameters) {
-			expr_list = Parser::ParseExpressionList(param.default_value.ToSQLString());
+			expr_list = Parser::GetBuiltinParser().ParseExpressionList(param.default_value.ToSQLString());
 			if (expr_list.size() != 1) {
 				throw InternalException("Expected a single expression");
 			}
@@ -606,8 +607,8 @@ unique_ptr<CreateMacroInfo> CreateMacroInfoFromDucklake(ClientContext &context, 
 			auto &expression = expr_list[0]->Cast<ConstantExpression>();
 			auto expr_type = DuckLakeTypes::FromString(param.default_value_type);
 			if (expr_type.id() != LogicalTypeId::UNKNOWN) {
-				auto cast_value = expression.GetValue().CastAs(context, expr_type);
-				auto cast_expr = make_uniq<ConstantExpression>(std::move(cast_value));
+				auto cast_value = expression.GetLiteral().ToValue().CastAs(context, expr_type);
+				auto cast_expr = ConstantExpression::FromValue(std::move(cast_value));
 				macro_function->default_parameters.insert(make_pair(Identifier(param.parameter_name), std::move(cast_expr)));
 			}
 			macro_function->types.push_back(DuckLakeTypes::FromString(param.parameter_type));
@@ -1169,7 +1170,7 @@ idx_t DuckLakeCatalog::GetTargetFileSize(ClientContext &context, SchemaIndex sch
 	Value setting_val;
 	if (context.TryGetCurrentSetting("ducklake_target_file_size", setting_val) && !setting_val.IsNull() &&
 	    !setting_val.ToString().empty()) {
-		return DBConfig::ParseMemoryLimit(setting_val.ToString());
+		return DBConfig::ParseMemoryLimitOrMaximum(setting_val.ToString());
 	}
 	return GetConfigOption<idx_t>("target_file_size", schema_id, table_id, DEFAULT_TARGET_FILE_SIZE);
 }

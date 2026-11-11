@@ -40,7 +40,7 @@ vector<OrderByNode> DuckLakeCompactor::ParseSortOrders(const DuckLakeSort &sort_
 		if (field.dialect != "duckdb") {
 			continue;
 		}
-		auto parsed_expression = Parser::ParseExpressionList(field.expression);
+		auto parsed_expression = Parser::GetBuiltinParser().ParseExpressionList(field.expression);
 		pre_bound_orders.emplace_back(field.sort_direction, field.null_order, std::move(parsed_expression[0]));
 	}
 	return pre_bound_orders;
@@ -583,7 +583,7 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	auto copy_options = DuckLakeInsert::GetCopyOptions(context, copy_input);
 
 	auto virtual_columns = table.GetVirtualColumns();
-	auto ducklake_scan = make_uniq<LogicalGet>(table_idx, std::move(scan_function), std::move(bind_data),
+	auto ducklake_scan = make_uniq<LogicalGet>(table_idx, BoundTableFunction(scan_function), std::move(bind_data),
 	                                          copy_options.expected_types,
 	                                          StringsToIdentifiers(copy_options.names), std::move(virtual_columns));
 
@@ -862,12 +862,14 @@ TableFunctionSet DuckLakeMergeAdjacentFilesFunction::GetFunctions() {
 	for (auto &type : at_types) {
 		TableFunction function("ducklake_merge_adjacent_files", type, nullptr, nullptr, nullptr);
 		function.bind_operator = MergeAdjacentFilesBind;
-		function.named_parameters["min_file_size"] = LogicalType::UBIGINT;
-		function.named_parameters["max_file_size"] = LogicalType::UBIGINT;
-		function.named_parameters["max_compacted_files"] = LogicalType::UBIGINT;
-		if (type.size() == 2) {
-			function.named_parameters["schema"] = LogicalType::VARCHAR;
-		}
+		function.GetSignature().WithTypedKwargs("options", [&](TypedKwargs &options) {
+			options.Add("min_file_size", LogicalType::UBIGINT);
+			options.Add("max_file_size", LogicalType::UBIGINT);
+			options.Add("max_compacted_files", LogicalType::UBIGINT);
+			if (type.size() == 2) {
+				options.Add("schema", LogicalType::VARCHAR);
+			}
+		});
 		set.AddFunction(function);
 	}
 	return set;
@@ -888,10 +890,12 @@ TableFunctionSet DuckLakeRewriteDataFilesFunction::GetFunctions() {
 	for (auto &type : at_types) {
 		TableFunction function("ducklake_rewrite_data_files", type, nullptr, nullptr, nullptr);
 		function.bind_operator = RewriteFilesBind;
-		function.named_parameters["delete_threshold"] = LogicalType::DOUBLE;
-		if (type.size() == 2) {
-			function.named_parameters["schema"] = LogicalType::VARCHAR;
-		}
+		function.GetSignature().WithTypedKwargs("options", [&](TypedKwargs &options) {
+			options.Add("delete_threshold", LogicalType::DOUBLE);
+			if (type.size() == 2) {
+				options.Add("schema", LogicalType::VARCHAR);
+			}
+		});
 		set.AddFunction(function);
 	}
 	return set;

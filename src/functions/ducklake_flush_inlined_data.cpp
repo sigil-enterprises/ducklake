@@ -317,7 +317,7 @@ unique_ptr<LogicalOperator> DuckLakeDataFlusher::GenerateFlushCommand() {
 	auto copy_options = DuckLakeInsert::GetCopyOptions(context, copy_input);
 
 	auto virtual_columns = table.GetVirtualColumns();
-	auto ducklake_scan = make_uniq<LogicalGet>(table_idx, std::move(scan_function), std::move(bind_data),
+	auto ducklake_scan = make_uniq<LogicalGet>(table_idx, BoundTableFunction(scan_function), std::move(bind_data),
 	                                          copy_options.expected_types,
 	                                          StringsToIdentifiers(copy_options.names), std::move(virtual_columns));
 	auto &column_ids = ducklake_scan->GetMutableColumnIds();
@@ -769,8 +769,10 @@ static unique_ptr<LogicalOperator> FlushInlinedDataBind(ClientContext &context, 
 
 DuckLakeFlushInlinedDataFunction::DuckLakeFlushInlinedDataFunction()
     : TableFunction(Identifier("ducklake_flush_inlined_data"), {LogicalType::VARCHAR}, nullptr, nullptr, nullptr) {
-	named_parameters["schema_name"] = LogicalType::VARCHAR;
-	named_parameters["table_name"] = LogicalType::VARCHAR;
+	GetSignature().WithTypedKwargs("options", [&](TypedKwargs &options) {
+			options.Add("schema_name", LogicalType::VARCHAR);
+			options.Add("table_name", LogicalType::VARCHAR);
+	});
 	bind_operator = FlushInlinedDataBind;
 }
 
