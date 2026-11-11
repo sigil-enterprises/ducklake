@@ -76,6 +76,9 @@ unique_ptr<GlobalSinkState> DuckLakeInsert::GetGlobalSinkState(ClientContext &co
 //===--------------------------------------------------------------------===//
 DuckLakeColumnStats DuckLakeInsert::ParseColumnStats(const LogicalType &type, const vector<Value> &col_stats) {
 	DuckLakeColumnStats column_stats(type);
+	// the writer reports whether each bound is exact or a truncated bound; DuckLake stores only exact values
+	bool min_inexact = false;
+	bool max_inexact = false;
 	for (idx_t stats_idx = 0; stats_idx < col_stats.size(); stats_idx++) {
 		auto &stats_children = StructValue::GetChildren(col_stats[stats_idx]);
 		auto &stats_name = StringValue::Get(stats_children[0]);
@@ -97,6 +100,10 @@ DuckLakeColumnStats DuckLakeInsert::ParseColumnStats(const LogicalType &type, co
 			column_stats.num_values = StringUtil::ToUnsigned(StringValue::Get(stats_children[1]));
 		} else if (stats_name == "column_size_bytes") {
 			column_stats.column_size_bytes = StringUtil::ToUnsigned(StringValue::Get(stats_children[1]));
+		} else if (stats_name == "min_is_exact") {
+			min_inexact = StringValue::Get(stats_children[1]) != "true";
+		} else if (stats_name == "max_is_exact") {
+			max_inexact = StringValue::Get(stats_children[1]) != "true";
 		} else if (stats_name == "has_nan") {
 			column_stats.has_contains_nan = true;
 			column_stats.contains_nan = StringValue::Get(stats_children[1]) == "true";
@@ -106,6 +113,12 @@ DuckLakeColumnStats DuckLakeInsert::ParseColumnStats(const LogicalType &type, co
 		} else {
 			throw NotImplementedException("Unsupported stats type \"%s\" in DuckLakeInsert::Sink()", stats_name);
 		}
+	}
+	if (min_inexact) {
+		column_stats.has_min = false;
+	}
+	if (max_inexact) {
+		column_stats.has_max = false;
 	}
 	return column_stats;
 }
