@@ -536,13 +536,21 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckL
 	if (catalog.TryGetConfigOption("parquet_compression_level", parquet_compression_level, schema_id, table_id)) {
 		info->options["compression_level"].emplace_back(parquet_compression_level);
 	}
+	// the batch copy computes with its sizes as BIGINT, and no row group reaches a larger size
+	static constexpr idx_t MAXIMUM_BATCH_SIZE = NumericLimits<int64_t>::Maximum();
+	idx_t batch_size = DEFAULT_ROW_GROUP_SIZE;
 	string row_group_size;
 	if (catalog.TryGetConfigOption("parquet_row_group_size", row_group_size, schema_id, table_id)) {
-		info->options["row_group_size"].emplace_back(row_group_size);
+		batch_size = MinValue<idx_t>(StringUtil::ToUnsigned(row_group_size), MAXIMUM_BATCH_SIZE);
 	}
+	optional_idx batch_size_bytes;
 	string row_group_size_bytes;
 	if (catalog.TryGetConfigOption("parquet_row_group_size_bytes", row_group_size_bytes, schema_id, table_id)) {
-		info->options["row_group_size_bytes"].emplace_back(row_group_size_bytes + " bytes");
+		auto parsed = DBConfig::ParseMemoryLimit(row_group_size_bytes + " bytes");
+		if (parsed.IsValid()) {
+			parsed = MinValue<idx_t>(parsed.GetIndex(), MAXIMUM_BATCH_SIZE);
+		}
+		batch_size_bytes = parsed;
 	}
 	string per_thread_output_str;
 	bool per_thread_output = false;
@@ -612,6 +620,8 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckL
 	result.file_extension = "parquet";
 	result.overwrite_mode = CopyOverwriteMode::COPY_OVERWRITE_OR_IGNORE;
 	result.per_thread_output = per_thread_output;
+	result.batch_size = batch_size;
+	result.batch_size_bytes = batch_size_bytes;
 	result.write_partition_columns = true;
 	result.return_type = CopyFunctionReturnType::WRITTEN_FILE_STATISTICS;
 	result.names = names_to_write;
@@ -718,6 +728,8 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, Phys
 	physical_copy.overwrite_mode = copy_options.overwrite_mode;
 	physical_copy.per_thread_output = copy_options.per_thread_output;
 	physical_copy.file_size_bytes = copy_options.file_size_bytes;
+	physical_copy.batch_size = copy_options.batch_size;
+	physical_copy.batch_size_bytes = copy_options.batch_size_bytes;
 	physical_copy.return_type = copy_options.return_type;
 
 	physical_copy.partition_output = copy_options.partition_output;

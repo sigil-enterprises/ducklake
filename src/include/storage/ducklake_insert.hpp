@@ -126,6 +126,9 @@ struct DuckLakeCopyOptions {
 	CopyOverwriteMode overwrite_mode;
 	bool per_thread_output;
 	optional_idx file_size_bytes;
+	//! Row group size in rows / bytes (v2.0 batch copy owns these, not the parquet writer options)
+	optional_idx batch_size;
+	optional_idx batch_size_bytes;
 	bool rotate;
 	CopyFunctionReturnType return_type;
 	bool hive_file_pattern;
