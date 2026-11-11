@@ -47,7 +47,7 @@ defaults:
 jobs:
   inventory:
     name: Every advertised workflow has a file
-    runs-on: ubuntu-latest
+    runs-on: ${{ startsWith(vars.CI_RUNS_ON, '[') && fromJSON(vars.CI_RUNS_ON) || vars.CI_RUNS_ON || 'gama-arc' }}
     steps:
       # Full history and all refs: the question is about every branch, not this
       # one, and a shallow single-branch clone could not answer it.

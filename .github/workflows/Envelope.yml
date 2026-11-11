@@ -43,7 +43,7 @@ defaults:
 jobs:
   guards:
     name: Envelope guards (no build)
-    runs-on: ubuntu-latest
+    runs-on: ${{ startsWith(vars.CI_RUNS_ON, '[') && fromJSON(vars.CI_RUNS_ON) || vars.CI_RUNS_ON || 'gama-arc' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -60,7 +60,7 @@ jobs:
 
   envelope-e2e:
     name: KMS envelope end to end (test provider + fake key service)
-    runs-on: ubuntu-latest
+    runs-on: ${{ startsWith(vars.CI_RUNS_ON, '[') && fromJSON(vars.CI_RUNS_ON) || vars.CI_RUNS_ON || 'gama-arc' }}
     env:
       VCPKG_TARGET_TRIPLET: x64-linux
       GEN: Ninja

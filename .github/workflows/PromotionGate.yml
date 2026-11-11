@@ -56,7 +56,7 @@ jobs:
   # exactly one condition each and require the refusal to name THAT condition.
   gate-selftest:
     name: Positive controls for the promotion gate
-    runs-on: ubuntu-22.04
+    runs-on: ${{ startsWith(vars.CI_RUNS_ON, '[') && fromJSON(vars.CI_RUNS_ON) || vars.CI_RUNS_ON || 'gama-arc' }}
     steps:
       - uses: actions/checkout@v4
       - name: PROVE every promotion check fires on its own bad fixture
@@ -88,7 +88,7 @@ jobs:
     if: >-
       (github.event_name == 'release' && github.event.release.prerelease == false) ||
       github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-22.04
+    runs-on: ${{ startsWith(vars.CI_RUNS_ON, '[') && fromJSON(vars.CI_RUNS_ON) || vars.CI_RUNS_ON || 'gama-arc' }}
     steps:
       # `ref:` is the DEFAULT BRANCH, and that is the whole point, not a detail.
       # On a `release` event `github.ref` is refs/tags/<tag>, so a bare checkout
@@ -150,7 +150,7 @@ jobs:
   release-wiring:
     name: Every final release was cut from a gate-carrying tree
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-22.04
+    runs-on: ${{ startsWith(vars.CI_RUNS_ON, '[') && fromJSON(vars.CI_RUNS_ON) || vars.CI_RUNS_ON || 'gama-arc' }}
     steps:
       # Tags are needed as OBJECTS here - the audit reads
       # `refs/tags/<tag>:.github/workflows/Release.yml` out of each one.

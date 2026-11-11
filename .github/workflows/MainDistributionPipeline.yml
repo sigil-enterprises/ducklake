@@ -1,11 +1,19 @@
 #
 # This workflow calls the main distribution pipeline from DuckDB to build, test and (optionally) release the extension
 #
+# GATED OFF (forge#126 $0 Actions charter). The reusable workflow
+# duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
+# takes NO runner input: its generate_matrix job is hardcoded `ubuntu-latest`
+# and its linux/macos/windows legs take `matrix.runner` from upstream's
+# config/distribution_matrix.json (GitHub-hosted ubuntu, macos and windows
+# labels, including arm64 and Windows). The gama-arc pool is amd64 Linux only,
+# so this cannot be routed without forking upstream. Triggers (push,
+# pull_request) are removed and the build job is `if: false`, so nothing here
+# can reach a hosted runner. Distribution for this fork is Release.yml's
+# linux_amd64 asset (see the note on the deleted deploy job below). Re-enable
+# only by forking extension-ci-tools with a runner input.
 name: Main Extension Distribution Pipeline
 on:
-  push:
-    branches: [main, 'release/**']
-  pull_request:
   workflow_dispatch:
 
 concurrency:
@@ -15,7 +23,7 @@ concurrency:
 jobs:
   get-duckdb-version:
     name: Get DuckDB version
-    runs-on: ubuntu-latest
+    runs-on: ${{ startsWith(vars.CI_RUNS_ON, '[') && fromJSON(vars.CI_RUNS_ON) || vars.CI_RUNS_ON || 'gama-arc' }}
     outputs:
       duckdb_version: ${{ steps.version.outputs.version }}
     steps:
@@ -31,6 +39,7 @@ jobs:
   duckdb-next-build:
     name: Build extension binaries
     needs: get-duckdb-version
+    if: ${{ false }} # GATED OFF, see header (forge#126)
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
     with:
       duckdb_version: ${{ needs.get-duckdb-version.outputs.duckdb_version }}
