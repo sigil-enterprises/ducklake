@@ -1,0 +1,77 @@
+# name: test/sql/alter/struct_evolution_list_filter_71_multi.test
+# description: #71 - expression filters on renamed struct fields in lists over inlined data: leading columns, two filtered columns, duplicate projections, > and IS NULL
+# group: [alter]
+
+require ducklake
+
+require parquet
+
+statement ok
+ATTACH 'ducklake:__TEST_DIR__/ducklake_struct_evo_71m.db' AS ducklake (DATA_PATH '__TEST_DIR__/ducklake_struct_evo_71m_files')
+
+statement ok
+CREATE TABLE ducklake.test(a INT, col1 STRUCT(i INT)[], col2 STRUCT(j INT)[]);
+
+statement ok
+INSERT INTO ducklake.test VALUES (1, [{'i': 1000}], [{'j': 7}]), (2, [{'i': 5}, {'i': 1000}], [{'j': 8}]), (3, NULL, [{'j': 9}]), (4, [{'i': 2000}], NULL);
+
+statement ok
+ALTER TABLE ducklake.test RENAME col1.element.i TO v1;
+
+statement ok
+ALTER TABLE ducklake.test RENAME col2.element.j TO w1;
+
+# equality, leading plain column projected
+query I
+SELECT a FROM ducklake.test WHERE col1[1].v1 = 1000 ORDER BY a;
+----
+1
+
+# greater-than, projected field and plain column
+query II
+SELECT a, col1[1].v1 FROM ducklake.test WHERE col1[1].v1 > 1000 ORDER BY a;
+----
+4	2000
+
+# IS NULL
+query I
+SELECT a FROM ducklake.test WHERE col1[1].v1 IS NULL ORDER BY a;
+----
+3
+
+# IS NOT NULL
+query I
+SELECT count(*) FROM ducklake.test WHERE col1[1].v1 IS NOT NULL;
+----
+3
+
+# second column filtered alone
+query I
+SELECT a FROM ducklake.test WHERE col2[1].w1 > 7 ORDER BY a;
+----
+2
+3
+
+# two filtered columns at once (two expression_map entries)
+query I
+SELECT a FROM ducklake.test WHERE col1[1].v1 = 1000 AND col2[1].w1 = 7 ORDER BY a;
+----
+1
+
+# duplicate projection: plain col1 next to the filtered field of col1
+query II
+SELECT col1, col1[1].v1 FROM ducklake.test WHERE col1[1].v1 = 1000 ORDER BY a;
+----
+[{'v1': 1000}]	1000
+
+# plain projection of the filtered column, different field access in the select list
+query I
+SELECT col1[2].v1 FROM ducklake.test WHERE col1[1].v1 = 5;
+----
+1000
+
+# plain column projected twice, filter on another column
+query II
+SELECT col1, col2 FROM ducklake.test WHERE col2[1].w1 = 9;
+----
+NULL	[{'w1': 9}]
