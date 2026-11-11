@@ -699,10 +699,10 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(ClientContext &context, 
                                                         SetNotNullInfo &info) {
 	auto create_info = GetInfo();
 	auto &table_info = create_info->Cast<CreateTableInfo>();
-	if (!table_info.columns.ColumnExists(info.GetColumnName())) {
-		throw CatalogException("Failed to alter column - column %s does not exist", info.GetColumnName());
+	if (!table_info.columns.ColumnExists(info.column_path[0])) {
+		throw CatalogException("Failed to alter column - column %s does not exist", info.column_path[0]);
 	}
-	auto &col = table_info.columns.GetColumn(info.GetColumnName());
+	auto &col = table_info.columns.GetColumn(info.column_path[0]);
 	auto &field_id = GetFieldId(col.Physical());
 
 	// check if there is an existing constraint
@@ -748,10 +748,10 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(ClientContext &context, 
 unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, DropNotNullInfo &info) {
 	auto create_info = GetInfo();
 	auto &table_info = create_info->Cast<CreateTableInfo>();
-	if (!table_info.columns.ColumnExists(info.GetColumnName())) {
-		throw CatalogException("Failed to alter column - column %s does not exist", info.GetColumnName());
+	if (!table_info.columns.ColumnExists(info.column_path[0])) {
+		throw CatalogException("Failed to alter column - column %s does not exist", info.column_path[0]);
 	}
-	auto &col = table_info.columns.GetColumn(info.GetColumnName());
+	auto &col = table_info.columns.GetColumn(info.column_path[0]);
 	auto &field_id = GetFieldId(col.Physical());
 
 	// find the existing index
@@ -1342,10 +1342,10 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, SetDefaultInfo &info) {
 	auto create_info = GetInfo();
 	auto &table_info = create_info->Cast<CreateTableInfo>();
-	if (!ColumnExists(info.GetColumnName())) {
-		throw BinderException("Table \"%s\" does not have a column with name \"%s\"", name, info.GetColumnName());
+	if (!ColumnExists(info.column_path[0])) {
+		throw BinderException("Table \"%s\" does not have a column with name \"%s\"", name, info.column_path[0]);
 	}
-	auto &col = table_info.columns.GetColumnMutable(info.GetColumnName());
+	auto &col = table_info.columns.GetColumnMutable(info.column_path[0]);
 	auto &field_id = GetFieldId(col.Physical());
 	col.SetDefaultValue(std::move(info.expression));
 	bool new_column = !transaction.GetMetadataManager().IsColumnCreatedWithTable(

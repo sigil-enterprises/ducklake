@@ -104,6 +104,9 @@ DuckLakeColumnStats DuckLakeInsert::ParseColumnStats(const LogicalType &type, co
 			min_inexact = StringValue::Get(stats_children[1]) != "true";
 		} else if (stats_name == "max_is_exact") {
 			max_inexact = StringValue::Get(stats_children[1]) != "true";
+		} else if (stats_name == "nan_count") {
+			column_stats.has_contains_nan = true;
+			column_stats.contains_nan = StringUtil::ToUnsigned(StringValue::Get(stats_children[1])) > 0;
 		} else if (stats_name == "has_nan") {
 			column_stats.has_contains_nan = true;
 			column_stats.contains_nan = StringValue::Get(stats_children[1]) == "true";
@@ -121,6 +124,16 @@ DuckLakeColumnStats DuckLakeInsert::ParseColumnStats(const LogicalType &type, co
 		column_stats.has_max = false;
 	}
 	return column_stats;
+}
+
+static bool IsLeafColumnStats(const vector<Value> &col_stats) {
+	// only leaf columns report a size
+	for (auto &stat : col_stats) {
+		if (StringValue::Get(StructValue::GetChildren(stat)[0]) == "column_size_bytes") {
+			return true;
+		}
+	}
+	return false;
 }
 
 void DuckLakeInsert::AddWrittenFiles(DuckLakeInsertGlobalState &global_state, DataChunk &chunk,
@@ -145,6 +158,9 @@ void DuckLakeInsert::AddWrittenFiles(DuckLakeInsertGlobalState &global_state, Da
 			auto &struct_children = StructValue::GetChildren(map_children[col_idx]);
 			auto &col_name = StringValue::Get(struct_children[0]);
 			auto &col_stats = MapValue::GetChildren(struct_children[1]);
+			if (!IsLeafColumnStats(col_stats)) {
+				continue;
+			}
 			auto column_names = DuckLakeUtil::ParseQuotedList(col_name, '.');
 			// FIXME: this should be checked differently
 			if (column_names[0] == "_ducklake_internal_snapshot_id") {
@@ -192,6 +208,11 @@ void DuckLakeInsert::AddWrittenFiles(DuckLakeInsertGlobalState &global_state, Da
 				throw InvalidInputException("Top-level variant cannot have stats");
 			}
 			auto column_stats = ParseColumnStats(field_id.Type(), col_stats);
+			if (data_file.row_count > 0 && column_stats.has_num_values && column_stats.num_values == 0) {
+				// the writer only counts the values of columns it collects statistics for
+				column_stats.has_num_values = false;
+				column_stats.has_null_count = false;
+			}
 			if (column_stats.null_count > 0 && column_names.size() == 1) {
 				// we wrote NULL values to a base column - verify NOT NULL constraint
 				if (global_state.not_null_fields.count(column_names[0])) {
