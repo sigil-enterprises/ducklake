@@ -1,0 +1,32 @@
+name: User-space build tools
+description: >
+  cmake 3.x, ninja and ccache installed under RUNNER_TEMP and put on PATH,
+  with no sudo and no apt. The gama-arc runner image (gh-runner-sigil
+  2.337.0-gama6) ships build-essential, python3-venv, docker + the compose
+  plugin, and NOT cmake, ninja or ccache; its uid cannot sudo
+  (allowPrivilegeEscalation=false) and cannot write /usr/local/bin (forge#126).
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        bin="$RUNNER_TEMP/user-tools/bin"
+        mkdir -p "$bin"
+        # cmake 3.x (the job formerly pinned 'cmake=3.*') and ninja from PyPI wheels.
+        python3 -m venv "$RUNNER_TEMP/user-tools/venv"
+        "$RUNNER_TEMP/user-tools/venv/bin/pip" install --quiet 'cmake==3.31.6' 'ninja==1.11.1.4'
+        ln -sf "$RUNNER_TEMP/user-tools/venv/bin/cmake" "$bin/cmake"
+        ln -sf "$RUNNER_TEMP/user-tools/venv/bin/ninja" "$bin/ninja"
+        # ccache: upstream static release, sha256-pinned. hendrikmuhs/ccache-action
+        # would otherwise try sudo apt-get, then write /usr/local/bin; both fail here.
+        v=4.10.2
+        sha=80cab87bd510eca796467aee8e663c398239e0df1c4800a0b5dff11dca0b4f18
+        curl -fsSL -o "$RUNNER_TEMP/user-tools/ccache.txz" \
+          "https://github.com/ccache/ccache/releases/download/v${v}/ccache-${v}-linux-x86_64.tar.xz"
+        echo "${sha}  $RUNNER_TEMP/user-tools/ccache.txz" | sha256sum -c -
+        tar -xJf "$RUNNER_TEMP/user-tools/ccache.txz" -O "ccache-${v}-linux-x86_64/ccache" > "$bin/ccache"
+        chmod 0755 "$bin/ccache"
+        echo "$bin" >> "$GITHUB_PATH"
+        PATH="$bin:$PATH"
+        cmake --version | head -1; ninja --version; ccache --version | head -1

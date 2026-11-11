@@ -67,15 +67,14 @@ jobs:
       VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
 
     steps:
-      - name: Install required ubuntu packages
-        run: |
-          sudo apt-get update -y -qq
-          sudo apt-get install -y -qq build-essential cmake ninja-build ccache python3
-
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: 'true'
+
+      # No sudo/apt on gama-arc: the image has build-essential, python3, git;
+      # cmake/ninja/ccache go into user space (forge#126).
+      - uses: ./.github/actions/user-space-build-tools
 
       - name: Checkout DuckDB to version
         run: |
