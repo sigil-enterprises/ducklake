@@ -22,6 +22,9 @@ struct ProviderRegistry {
 	std::map<string, DuckLakeEncryptionProvider::ProviderFactory> providers;
 };
 
+//! Set only for the duration of RegisterOwnProviders, on the thread running it.
+thread_local bool tolerate_taken_names = false;
+
 ProviderRegistry &Registry() {
 	static auto *registry = new ProviderRegistry();
 	return *registry;
@@ -115,12 +118,28 @@ void DuckLakeEncryptionProvider::RegisterProvider(const string &name, ProviderFa
 	auto &registry = Registry();
 	std::lock_guard<std::mutex> guard(registry.lock);
 	if (registry.providers.find(key) != registry.providers.end()) {
+		if (tolerate_taken_names) {
+			// DuckLake's own LOAD-time registration: the name is already served - by a host that
+			// registered it first, or by an earlier attempt of this same load - so leave it be.
+			return;
+		}
 		throw InvalidInputException("a DuckLake encryption provider named '%s' is already registered - registering a "
 		                            "second one under the same name would make the provider a lake gets depend on "
 		                            "extension load order",
 		                            name);
 	}
 	registry.providers.emplace(std::move(key), std::move(factory));
+}
+
+void DuckLakeEncryptionProvider::RegisterOwnProviders(const std::function<void()> &registration) {
+	struct Restore {
+		bool previous;
+		~Restore() {
+			tolerate_taken_names = previous;
+		}
+	} restore {tolerate_taken_names};
+	tolerate_taken_names = true;
+	registration();
 }
 
 bool DuckLakeEncryptionProvider::HasProvider(const string &name) {

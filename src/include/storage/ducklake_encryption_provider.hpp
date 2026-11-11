@@ -132,6 +132,16 @@ public:
 	//! name already taken - two providers answering to one name would make the one a lake gets depend on
 	//! extension load order, which is exactly what the single slot refused.
 	static void RegisterProvider(const string &name, ProviderFactory factory);
+	//! Runs `registration` - DuckLake registering the providers its build carries, at LOAD - with the
+	//! duplicate-name refusal relaxed on THIS thread: a name that is already taken is left to whoever
+	//! registered it first, and registration carries on as if it had succeeded. Every other refusal
+	//! (an empty name, an empty factory) still throws, and a registration made outside this call -
+	//! a host registering after LOAD - still collides.
+	//!
+	//! Why: a host that registered a name before `LOAD ducklake` must not make the load throw, and a
+	//! load retried after a partial registration must surface the error that stopped it, not a
+	//! collision with a name its own first attempt registered.
+	static void RegisterOwnProviders(const std::function<void()> &registration);
 	static bool HasProvider(const string &name);
 	//! Registered names, sorted, for error messages and diagnostics.
 	static vector<string> RegisteredProviderNames();

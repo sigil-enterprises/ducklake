@@ -62,10 +62,21 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// guard used to be `!HasFactory()`): since issue #120 a provider may
 	// register SEVERAL names, and an embedding host may register its own
 	// alongside ours, so "something is registered" no longer means "we already
-	// ran". This does NOT weaken the refusal it guards: two providers that claim
-	// the SAME name still collide inside the registry and still throw.
+	// ran".
+	//
+	// call_once ALONE IS NOT ENOUGH, for two measured reasons, so the
+	// registration runs under RegisterOwnProviders, which leaves a name that is
+	// already taken to whoever took it instead of throwing:
+	//   - a host that registered one of our names BEFORE `LOAD ducklake` made
+	//     the load itself throw;
+	//   - a throw part-way through leaves the once_flag unset, so the next load
+	//     retried, collided with a name the first attempt HAD registered, and
+	//     reported that collision in place of the error that stopped it.
+	// The duplicate refusal still holds for every registration outside our own
+	// load - a host registering one of these names AFTER the load still throws.
 	static std::once_flag kms_provider_registered;
-	std::call_once(kms_provider_registered, DuckLakeRegisterKmsProvider);
+	std::call_once(kms_provider_registered,
+	               [] { DuckLakeEncryptionProvider::RegisterOwnProviders(DuckLakeRegisterKmsProvider); });
 #endif
 
 	auto &instance = loader.GetDatabaseInstance();

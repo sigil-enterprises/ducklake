@@ -47,6 +47,13 @@ static void HandleDuckLakeOption(DuckLakeOptions &options, const string &option,
 		options.encryption_provider = value.ToString();
 		options.encryption_provider_supplied = true;
 	} else if (lcase == "encryption_provider_options") {
+		// Before the type check, which a typed NULL MAP would pass. On DuckDB v1.5.5 a SQL ATTACH never
+		// gets here with NULL - the ATTACH binder refuses a NULL option first - so this guards callers
+		// that build the option map without that binder, and any binder that stops refusing it.
+		if (value.IsNull()) {
+			throw InvalidInputException("encryption_provider_options may not be NULL - pass a MAP of provider "
+			                            "option names to values, e.g. MAP {'key': 'value'}, or omit the option");
+		}
 		if (value.type().id() != LogicalTypeId::MAP) {
 			throw InvalidInputException("encryption_provider_options must be a MAP of provider option names to "
 			                            "values, e.g. MAP {'key': 'value'} - got %s",
