@@ -1,4 +1,7 @@
 #include "common/ducklake_util.hpp"
+#include "duckdb/parser/expression/cast_expression.hpp"
+#include "duckdb/parser/expression/constant_expression.hpp"
+#include "duckdb/common/type_visitor.hpp"
 #include "duckdb/parser/column_list.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/types/blob.hpp"
@@ -477,4 +480,52 @@ string DuckLakeUtil::WrappedEncryptionKeyLiteral(const string &wrapped_base64, b
 	}
 	return SQLLiteralToString(value);
 }
+//! Whether a cast to or from the type reads an instant in the time zone of the session, also in a nested type
+static bool DependsOnTimeZone(const LogicalType &type) {
+	return TypeVisitor::Contains(type, [](const LogicalType &child) {
+		switch (child.id()) {
+		case LogicalTypeId::TIMESTAMP_TZ:
+		case LogicalTypeId::TIMESTAMP_TZ_NS:
+		case LogicalTypeId::TIME_TZ:
+			return true;
+		default:
+			return false;
+		}
+	});
+}
+
+bool DuckLakeUtil::TryGetLiteralValue(const ParsedExpression &expr, Value &result,
+                                      optional_ptr<ClientContext> context) {
+	if (expr.GetExpressionType() == ExpressionType::VALUE_CONSTANT) {
+		result = expr.Cast<ConstantExpression>().GetLiteral().ToValue();
+		return true;
+	}
+	if (expr.GetExpressionType() != ExpressionType::OPERATOR_CAST) {
+		return false;
+	}
+	auto &cast = expr.Cast<CastExpression>();
+	if (cast.IsTryCast() || cast.Child().GetExpressionType() != ExpressionType::VALUE_CONSTANT) {
+		return false;
+	}
+	auto target_type = UnboundType::TryDefaultBind(cast.TargetType());
+	if (target_type.id() == LogicalTypeId::INVALID || target_type.id() == LogicalTypeId::UNBOUND) {
+		return false;
+	}
+	auto literal = cast.Child().Cast<ConstantExpression>().GetLiteral().ToValue();
+	optional<Value> value;
+	if (context) {
+		value = literal.TryCastAs(*context, target_type);
+	} else if (DependsOnTimeZone(target_type) || DependsOnTimeZone(literal.type())) {
+		// the session decides what the cast gives, so it stays an expression
+		return false;
+	} else {
+		value = literal.DefaultTryCastAs(target_type);
+	}
+	if (!value) {
+		return false;
+	}
+	result = std::move(*value);
+	return true;
+}
+
 } // namespace duckdb
