@@ -1,0 +1,63 @@
+# name: test/sql/general/metadata_probe_no_reset.test
+# description: an expected-error existence probe on the metadata connection must not ROLLBACK the metadata transaction
+# group: [general]
+
+require ducklake
+
+require parquet
+
+test-env DUCKLAKE_CONNECTION {TEST_DIR}/{UUID}.db
+
+test-env DATA_PATH {TEST_DIR}
+
+statement ok
+CALL enable_logging('DuckLakeMetadata')
+
+statement ok
+ATTACH 'ducklake:{DUCKLAKE_CONNECTION}' AS ducklake (DATA_PATH '{DATA_PATH}/metadata_probe_no_reset_files', DATA_INLINING_ROW_LIMIT 5)
+
+statement ok
+CREATE TABLE ducklake.t1 AS SELECT range a FROM range(10)
+
+statement ok
+CREATE TABLE ducklake.t2 AS SELECT range a FROM range(10)
+
+# scanning file-backed tables probes for a per-table inlined deletion table that does not exist
+query I
+SELECT count(*) FROM ducklake.t1
+----
+10
+
+query I
+SELECT count(*) FROM ducklake.t2
+----
+10
+
+# in one transaction: delete from t1 (metadata written at commit), probe t2 in the same transaction
+statement ok
+BEGIN
+
+statement ok
+DELETE FROM ducklake.t1 WHERE a = 1
+
+query I
+SELECT count(*) FROM ducklake.t2
+----
+10
+
+statement ok
+DELETE FROM ducklake.t1 WHERE a = 2
+
+statement ok
+COMMIT
+
+query I
+SELECT count(*) FROM ducklake.t1
+----
+8
+
+# the metadata connection must never have been reset by a failed probe
+query I
+SELECT COUNT(*) FROM duckdb_logs_parsed('DuckLakeMetadata') WHERE catalog = 'ducklake' AND query ILIKE '%ROLLBACK%'
+----
+0

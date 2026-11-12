@@ -2534,17 +2534,7 @@ unique_ptr<QueryResult> DuckLakeMetadataManager::Query(DuckLakeSnapshot snapshot
 
 unique_ptr<QueryResult> DuckLakeMetadataManager::Query(string &query) {
 	SubstituteCatalogPlaceholders(query);
-	auto result = transaction.ExecuteRaw(query);
-	if (result->HasError()) {
-		// An error inside the transaction's connection leaves it aborted until an explicit
-		// ROLLBACK - reset it so a caller that deliberately probes for an expected error (e.g.
-		// MetadataExists(), or an existence check for an optional table) can keep issuing
-		// queries on this connection afterwards. Safe because ATTACH runs on its own connection
-		// (see AttachMetadata) and is never rolled back by this.
-		string reset = "ROLLBACK; BEGIN TRANSACTION;";
-		transaction.ExecuteRaw(reset);
-	}
-	return result;
+	return transaction.ExecuteRaw(query);
 }
 
 string DuckLakeMetadataManager::DropMacros(const set<MacroIndex> &ids) {
@@ -3156,6 +3146,13 @@ DuckLakeMetadataManager::ReadInlinedFileDeletionsForRange(DuckLakeTableIndex tab
 	return result;
 }
 
+bool DuckLakeMetadataManager::InlinedDeletionTableExists(const string &table_name) {
+	auto &catalog = transaction.GetCatalog();
+	return transaction.GetConnection().TableInfo(Identifier(catalog.MetadataDatabaseName()),
+	                                             Identifier(catalog.MetadataSchemaName()),
+	                                             Identifier(table_name)) != nullptr;
+}
+
 string DuckLakeMetadataManager::GetInlinedDeletionTableName(DuckLakeTableIndex table_id, DuckLakeSnapshot snapshot,
                                                             bool create_if_not_exists) {
 	// The table name is always deterministic
@@ -3190,13 +3187,10 @@ string DuckLakeMetadataManager::GetInlinedDeletionTableName(DuckLakeTableIndex t
 		return table_name;
 	}
 
-	// Read path: table visibility implies it was committed, safe to cache at catalog level
-	auto query = StringUtil::Format("SELECT NULL FROM {METADATA_CATALOG}.%s LIMIT 1", table_name);
-	auto result = transaction.Query(snapshot, query);
-	// TODO: Using the error state to check for existence here is fragile.
-	// Even if the table exists, a transient error in the catalog query would lead us to assume it does not exist.
-	// Maybe persist the existence of the deletion inlining table on the table metadata instead?
-	if (!result->HasError()) {
+	// Read path: table visibility implies it was committed, safe to cache at catalog level.
+	// Existence is looked up through the catalog (no failing query), so a missing table never errors
+	// the metadata connection's transaction.
+	if (InlinedDeletionTableExists(table_name)) {
 		delete_inlined_table_cache.insert(table_id.index);
 		catalog.CacheInlinedDeletionTableResult(table_id, snapshot, true);
 		return table_name;
