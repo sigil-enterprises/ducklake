@@ -541,7 +541,12 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckL
 	idx_t batch_size = DEFAULT_ROW_GROUP_SIZE;
 	string row_group_size;
 	if (catalog.TryGetConfigOption("parquet_row_group_size", row_group_size, schema_id, table_id)) {
-		batch_size = MinValue<idx_t>(StringUtil::ToUnsigned(row_group_size), MAXIMUM_BATCH_SIZE);
+		try {
+			batch_size = MinValue<idx_t>(StringUtil::ToUnsigned(row_group_size), MAXIMUM_BATCH_SIZE);
+		} catch (std::exception &ex) {
+			throw InvalidInputException("Invalid value \"%s\" for option parquet_row_group_size: %s", row_group_size,
+			                            ex.what());
+		}
 	}
 	optional_idx batch_size_bytes;
 	string row_group_size_bytes;
@@ -606,6 +611,8 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckL
 		result.filename_pattern.SetFilenamePattern("ducklake-{uuidv7}");
 		result.partition_output = true;
 		result.write_empty_file = true;
+		// no file_size_bytes floor here: partitioned writes never rotate files (rotate = false), so there is
+		// no target file size to clamp. The 4096 floor below only guards the rotating, unpartitioned branch.
 		result.rotate = false;
 	} else {
 		result.filename_pattern.SetFilenamePattern("ducklake-{uuidv7}");
