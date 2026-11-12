@@ -324,15 +324,19 @@ void DuckLakeCompactor::GenerateCompactions(DuckLakeTableEntry &table,
 			idx_t current_file_size = 0;
 			idx_t compaction_idx;
 			for (compaction_idx = start_idx; compaction_idx < candidate_list.size(); compaction_idx++) {
-				if (current_file_size >= target_file_size) {
-					// we hit the target size already - stop
-					break;
-				}
 				auto candidate_idx = candidate_list[compaction_idx];
 				auto &candidate = files[candidate_idx];
 				idx_t file_size = candidate.file.data.file_size_bytes;
 				if (file_size >= target_file_size) {
 					// don't consider merging if the file is larger than the target size
+					break;
+				}
+				const int64_t current_size_diff =
+				    NumericCast<int64_t>(current_file_size) - NumericCast<int64_t>(target_file_size);
+				const int64_t merged_size_diff =
+				    NumericCast<int64_t>(current_file_size + file_size) - NumericCast<int64_t>(target_file_size);
+				if (current_file_size > 0 && std::abs(merged_size_diff) >= std::abs(current_size_diff)) {
+					// adding this file would move away from target_file_size - stop
 					break;
 				}
 				// this file can be compacted along with the neighbors
@@ -554,7 +558,7 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	switch (type) {
 	case CompactionType::MERGE_ADJACENT_TABLES: {
 		// if files are adjacent, we don't need to write the row-id to the file
-		write_row_id = !files_are_adjacent;
+		write_row_id = true;
 		write_snapshot_id = true;
 		break;
 	}
@@ -651,13 +655,18 @@ DuckLakeCompactor::GenerateCompactionCommand(vector<DuckLakeCompactionFileEntry>
 	copy->partition_columns = std::move(copy_options.partition_columns);
 	copy->names = StringsToIdentifiers(copy_options.names);
 	copy->expected_types = std::move(copy_options.expected_types);
-	copy->preserve_order = PreserveOrderType::PRESERVE_ORDER;
+	copy->batch_size = copy_options.batch_size;
+	copy->batch_size_bytes = copy_options.batch_size_bytes;
+	// Upstream v2.0-cyanoptera keeps rotation and DONT_PRESERVE_ORDER for the non-adjacent case. The fork does not:
+	// compaction_partitioned_non_adjacent.test then fails with "Files have different hive partition path"
+	// (/tmp/core69-evidence/r2-M3-rotate-experiment-RED.log), so every compaction writes one ordered file.
 	copy->file_size_bytes = optional_idx();
 	copy->rotate = false;
+	copy->preserve_order = PreserveOrderType::PRESERVE_ORDER;
 	copy->children.push_back(std::move(root));
 
 	optional_idx target_row_id_start;
-	if (!write_row_id) {
+	if (type == CompactionType::MERGE_ADJACENT_TABLES && files_are_adjacent) {
 		target_row_id_start = source_files[0].file.row_id_start;
 	}
 

@@ -1,0 +1,53 @@
+# name: test/sql/compaction/compaction_row_group_size.test
+# description: compaction honours parquet_row_group_size when writing the compacted file
+# group: [compaction]
+
+require ducklake
+
+require parquet
+
+test-env DUCKLAKE_CONNECTION {TEST_DIR}/{UUID}.db
+
+test-env DATA_PATH {TEST_DIR}
+
+statement ok
+ATTACH 'ducklake:{DUCKLAKE_CONNECTION}' AS ducklake (DATA_PATH '{DATA_PATH}/compaction_row_group_size_files', DATA_INLINING_ROW_LIMIT 0)
+
+statement ok
+CALL ducklake.set_option('parquet_row_group_size', '5000')
+
+statement ok
+CREATE TABLE ducklake.t(a INTEGER)
+
+statement ok
+INSERT INTO ducklake.t SELECT range FROM range(0, 7000)
+
+statement ok
+INSERT INTO ducklake.t SELECT range FROM range(7000, 14000)
+
+statement ok
+INSERT INTO ducklake.t SELECT range FROM range(14000, 21000)
+
+statement ok
+INSERT INTO ducklake.t SELECT range FROM range(21000, 28000)
+
+statement ok
+CALL ducklake_merge_adjacent_files('ducklake')
+
+# the four inserts are compacted into a single file
+query I
+SELECT count(*) FROM ducklake_list_files('ducklake', 't')
+----
+1
+
+query I
+SELECT count(*) FROM ducklake.t
+----
+28000
+
+# compaction re-batches rows across the 4 source files (upstream v2.0-cyanoptera: 6144,7000,7000,7000,856)
+# instead of one short row group per source file (8 row groups when batch_size is not propagated)
+query I
+SELECT count(DISTINCT row_group_id) FROM parquet_metadata('{DATA_PATH}/compaction_row_group_size_files/**') WHERE file_name IN (SELECT data_file FROM ducklake_list_files('ducklake', 't'))
+----
+5
