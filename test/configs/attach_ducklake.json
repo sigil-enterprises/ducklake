@@ -100,6 +100,12 @@
       ]
     },
     {
+      "reason": "Asserts every DuckLakeMetadata log row has catalog 'ducklake'; under this config the catalog is named dl and 5 rows differ (5 <> 0 at :52). Fails identically on upstream v2.0-cyanoptera 6486d768 with DUCKLAKE_CI=1: /tmp/core69-evidence/r3-N1-upstream-attach.log",
+      "paths": [
+        "test/sql/general/ducklake_metadata_logging.test"
+      ]
+    },
+    {
       "reason": "Serialization unsupported",
       "paths": [
         "test/sql/json/test_json_serialize_plan.test",
