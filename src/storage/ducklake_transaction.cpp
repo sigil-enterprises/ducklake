@@ -830,6 +830,10 @@ Connection &DuckLakeTransaction::GetConnection() {
 		auto &client_config = ClientConfig::GetConfig(*connection->context);
 		client_config.user_settings.SetUserSetting(CatalogErrorMaxSchemasSetting::SettingIndex, Value::UBIGINT(0));
 		connection->BeginTransaction();
+		// expected-error probes (e.g. MetadataExists) must not poison the metadata transaction. Scoped to this
+		// connection's transaction, as upstream does, instead of the global default policy.
+		connection->context->transaction.SetInvalidationPolicy(
+		    TransactionInvalidationPolicy::SYNTACTIC_ERRORS_DO_NOT_INVALIDATE);
 	}
 	return *connection;
 }
@@ -1592,7 +1596,11 @@ string DuckLakeTransaction::GetDefaultSchemaName() {
 	auto &metadata_context = *connection->context;
 	auto &db_manager = DatabaseManager::Get(metadata_context);
 	auto metadb = db_manager.GetDatabase(metadata_context, Identifier(ducklake_catalog.MetadataDatabaseName()));
-	return metadb->GetCatalog().GetDefaultSchema().value().GetIdentifierName();
+	auto default_schema = metadb->GetCatalog().GetDefaultSchema();
+	if (!default_schema.has_value()) {
+		return "main";
+	}
+	return default_schema.value().GetIdentifierName();
 }
 
 DuckLakeSnapshot DuckLakeTransaction::GetSnapshot() {
