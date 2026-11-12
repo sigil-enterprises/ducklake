@@ -697,6 +697,9 @@ optional_idx FindNotNullConstraint(CreateTableInfo &table_info, LogicalIndex ind
 
 unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(ClientContext &context, DuckLakeTransaction &transaction,
                                                         SetNotNullInfo &info) {
+	if (info.column_path.size() > 1) {
+		throw NotImplementedException("Setting a NOT NULL constraint on a nested field is not yet supported");
+	}
 	auto create_info = GetInfo();
 	auto &table_info = create_info->Cast<CreateTableInfo>();
 	if (!table_info.columns.ColumnExists(info.column_path[0])) {
@@ -746,6 +749,9 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(ClientContext &context, 
 }
 
 unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, DropNotNullInfo &info) {
+	if (info.column_path.size() > 1) {
+		throw NotImplementedException("Dropping a NOT NULL constraint on a nested field is not yet supported");
+	}
 	auto create_info = GetInfo();
 	auto &table_info = create_info->Cast<CreateTableInfo>();
 	if (!table_info.columns.ColumnExists(info.column_path[0])) {
@@ -1103,6 +1109,9 @@ unique_ptr<DuckLakeFieldId> DuckLakeTableEntry::TypePromotion(const DuckLakeFiel
 }
 
 unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, ChangeColumnTypeInfo &info) {
+	if (info.column_path.size() > 1) {
+		throw NotImplementedException("Changing the type of a nested field is not yet supported");
+	}
 	auto create_info = GetInfo();
 	auto &table_info = create_info->Cast<CreateTableInfo>();
 	if (!ColumnExists(info.GetColumnName())) {
@@ -1340,6 +1349,9 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 }
 
 unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &transaction, SetDefaultInfo &info) {
+	if (info.column_path.size() > 1) {
+		throw NotImplementedException("Setting a default value on a nested field is not yet supported");
+	}
 	auto create_info = GetInfo();
 	auto &table_info = create_info->Cast<CreateTableInfo>();
 	if (!ColumnExists(info.column_path[0])) {
