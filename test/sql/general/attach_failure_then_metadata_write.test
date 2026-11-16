@@ -1,0 +1,46 @@
+# name: test/sql/general/attach_failure_then_metadata_write.test
+# description: AttachMetadata runs on the metadata transaction's connection (as upstream); a failed ATTACH must leave no state that breaks a later attach or an uncommitted metadata write
+# group: [general]
+
+require ducklake
+
+require parquet
+
+test-env DUCKLAKE_CONNECTION {TEST_DIR}/{UUID}.db
+
+test-env DATA_PATH {TEST_DIR}
+
+# attach failure: unknown option
+statement error
+ATTACH 'ducklake:{DUCKLAKE_CONNECTION}' AS ducklake (DATA_PATH '{DATA_PATH}/attach_fail_files', NO_SUCH_OPTION 1)
+----
+
+# the same catalog attaches cleanly afterwards
+statement ok
+ATTACH 'ducklake:{DUCKLAKE_CONNECTION}' AS ducklake (DATA_PATH '{DATA_PATH}/attach_fail_files')
+
+# an uncommitted metadata write, then a later write in the same transaction, then commit
+statement ok
+BEGIN
+
+statement ok
+CREATE TABLE ducklake.t1(i INTEGER)
+
+statement ok
+INSERT INTO ducklake.t1 VALUES (1), (2)
+
+statement ok
+CREATE TABLE ducklake.t2(i INTEGER)
+
+statement ok
+COMMIT
+
+query I
+SELECT sum(i) FROM ducklake.t1
+----
+3
+
+query I
+SELECT count(*) FROM ducklake.t2
+----
+0

@@ -34,13 +34,13 @@ struct ColumnChangeInfo {
 
 class DuckLakeTableEntry : public TableCatalogEntry {
 public:
-	DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info, TableIndex table_id,
+	DuckLakeTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info, DuckLakeTableIndex table_id,
 	                   string table_uuid, string data_path, shared_ptr<DuckLakeFieldData> field_data,
 	                   optional_idx next_column_id, vector<DuckLakeInlinedTableInfo> inlined_data_tables,
 	                   LocalChange local_change);
 
 public:
-	TableIndex GetTableId() const {
+	DuckLakeTableIndex GetTableId() const {
 		return table_id;
 	}
 	const string &GetTableUUID() const {
@@ -105,6 +105,7 @@ public:
 	vector<DuckLakeColumnInfo> GetTableColumns() const;
 
 public:
+	const ColumnList &GetColumns() const override;
 	unique_ptr<BaseStatistics> GetStatistics(ClientContext &context, column_t column_id) override;
 
 	TableFunction GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data) override;
@@ -176,8 +177,11 @@ public:
 	// ! Create a DuckLakeTableEntry from a SET SORT KEY
 	DuckLakeTableEntry(DuckLakeTableEntry &parent, CreateTableInfo &info, unique_ptr<DuckLakeSort> sort_data);
 
+protected:
+	ColumnList columns;
+
 private:
-	TableIndex table_id;
+	DuckLakeTableIndex table_id;
 	string table_uuid;
 	string data_path;
 	shared_ptr<DuckLakeFieldData> field_data;

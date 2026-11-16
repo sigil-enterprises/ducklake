@@ -101,7 +101,7 @@ struct DuckLakeTableStats {
 };
 
 struct DuckLakeStats {
-	map<TableIndex, unique_ptr<DuckLakeTableStats>> table_stats;
+	map<DuckLakeTableIndex, unique_ptr<DuckLakeTableStats>> table_stats;
 };
 
 } // namespace duckdb

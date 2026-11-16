@@ -20,7 +20,7 @@ class ColumnList;
 class DuckLakeMetadataManager;
 class FileSystem;
 class TableFilter;
-class DynamicFilter;
+struct DynamicFilterData;
 
 struct ParsedCatalogEntry {
 	string schema;
@@ -29,6 +29,9 @@ struct ParsedCatalogEntry {
 
 class DuckLakeUtil {
 public:
+	//! The value of a literal or of a cast over one, a cast of a time zone type needs the context
+	static bool TryGetLiteralValue(const ParsedExpression &expr, Value &result,
+	                               optional_ptr<ClientContext> context = nullptr);
 	static string ParseQuotedValue(const string &input, idx_t &pos);
 	static string ToQuotedList(const vector<string> &input, char list_separator = ',');
 	static vector<string> ParseQuotedList(const string &input, char list_separator = ',');
@@ -50,7 +53,7 @@ public:
 	static ParsedCatalogEntry ParseCatalogEntry(const string &input);
 	static string JoinPath(FileSystem &fs, const string &a, const string &b);
 
-	static DynamicFilter *GetOptionalDynamicFilter(const TableFilter &filter);
+	static shared_ptr<DynamicFilterData> GetOptionalDynamicFilter(const TableFilter &filter);
 
 	//! Create the data path directory if it does not yet exist
 	static void EnsureDirectoryExists(FileSystem &fs, const string &data_path);

@@ -177,7 +177,7 @@ string DuckLakeStagedTable::TruncateAllSql() {
 }
 
 void DuckLakeStagedCommit::EmitDataFileRow(string &sql, const DuckLakeDataFile &file, idx_t local_file_id,
-                                           TableIndex table_id, idx_t file_order,
+                                           DuckLakeTableIndex table_id, idx_t file_order,
                                            const string &compaction_id_literal) const {
 	sql += StringUtil::Format(
 	    "INSERT INTO %s VALUES "
@@ -202,7 +202,7 @@ void DuckLakeStagedCommit::EmitDataFileRow(string &sql, const DuckLakeDataFile &
 	}
 }
 
-void DuckLakeStagedCommit::EmitDeleteFileRow(string &sql, const DuckLakeDeleteFile &file, TableIndex table_id,
+void DuckLakeStagedCommit::EmitDeleteFileRow(string &sql, const DuckLakeDeleteFile &file, DuckLakeTableIndex table_id,
                                              const string &data_file_path) const {
 	string overwrite_id = file.overwritten_delete_file.delete_file_id.IsValid()
 	                          ? std::to_string(file.overwritten_delete_file.delete_file_id.index)
@@ -222,7 +222,7 @@ void DuckLakeStagedCommit::EmitDeleteFileRow(string &sql, const DuckLakeDeleteFi
 	    file.overwrites_existing_delete ? "true" : "false", overwrite_id, overwrite_path);
 }
 
-void DuckLakeStagedCommit::EmitAttachedDeleteRow(string &sql, const DuckLakeDeleteFile &del, TableIndex table_id,
+void DuckLakeStagedCommit::EmitAttachedDeleteRow(string &sql, const DuckLakeDeleteFile &del, DuckLakeTableIndex table_id,
                                                  idx_t local_file_id) const {
 	sql += StringUtil::Format(
 	    "INSERT INTO %s VALUES "
@@ -258,7 +258,7 @@ string DuckLakeStagedCommit::EmitColumnStatsValues(const DuckLakeColumnStats &s)
 	                          DuckLakeUtil::BoolLiteral(s.any_valid), extra_stats);
 }
 
-void DuckLakeStagedCommit::EmitInlinedColumnStatsRow(string &sql, TableIndex table_id, FieldIndex column_id,
+void DuckLakeStagedCommit::EmitInlinedColumnStatsRow(string &sql, DuckLakeTableIndex table_id, FieldIndex column_id,
                                                      const DuckLakeColumnStats &s) const {
 	sql += StringUtil::Format("INSERT INTO %s VALUES (%llu, %llu, %s);",
 	                          DuckLakeStagedTable::BaseName(DuckLakeStagedTableType::INLINED_COLUMN_STATS),
