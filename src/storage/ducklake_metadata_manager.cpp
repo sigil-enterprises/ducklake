@@ -163,11 +163,7 @@ string DuckLakeMetadataManager::ListAggregation(const vector<pair<string, string
 unique_ptr<QueryResult> DuckLakeMetadataManager::AttachMetadata(const string &attach_query) {
 	auto query = attach_query;
 	SubstituteCatalogPlaceholders(query);
-	// ATTACH registers into the shared DatabaseInstance, not the connection - run it on its own
-	// connection so a later error on the main transaction's connection can ROLLBACK that
-	// connection's own work without undoing this attach.
-	Connection fresh_conn(transaction.GetCatalog().GetDatabase());
-	return fresh_conn.Query(query);
+	return transaction.ExecuteRaw(query);
 }
 
 string DuckLakeMetadataManager::MetadataExistsQuery() const {
