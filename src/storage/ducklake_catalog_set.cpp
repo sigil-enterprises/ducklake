@@ -16,7 +16,7 @@ DuckLakeCatalogSet::DuckLakeCatalogSet(ducklake_entries_map_t catalog_entries_p)
 }
 
 void DuckLakeCatalogSet::CreateEntry(unique_ptr<CatalogEntry> catalog_entry) {
-	auto name = catalog_entry->name;
+	auto name = catalog_entry->name.GetIdentifierName();
 	auto entry = catalog_entries.find(name);
 	if (entry != catalog_entries.end()) {
 		catalog_entry->SetChild(std::move(entry->second));
@@ -48,7 +48,7 @@ optional_ptr<CatalogEntry> DuckLakeCatalogSet::GetEntryById(SchemaIndex index) {
 	return entry->second.get();
 }
 
-optional_ptr<CatalogEntry> DuckLakeCatalogSet::GetEntryById(TableIndex index) {
+optional_ptr<CatalogEntry> DuckLakeCatalogSet::GetEntryById(DuckLakeTableIndex index) {
 	auto entry = table_entry_map.find(index);
 	if (entry == table_entry_map.end()) {
 		return nullptr;
@@ -57,7 +57,7 @@ optional_ptr<CatalogEntry> DuckLakeCatalogSet::GetEntryById(TableIndex index) {
 	return entry->second.get();
 }
 
-void DuckLakeCatalogSet::AddEntry(DuckLakeSchemaEntry &schema, TableIndex id, unique_ptr<CatalogEntry> entry) {
+void DuckLakeCatalogSet::AddEntry(DuckLakeSchemaEntry &schema, DuckLakeTableIndex id, unique_ptr<CatalogEntry> entry) {
 	auto catalog_type = entry->type;
 	table_entry_map.insert(make_pair(id, reference<CatalogEntry>(*entry)));
 	schema.AddEntry(catalog_type, std::move(entry));

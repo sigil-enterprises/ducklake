@@ -4,6 +4,7 @@
 #include "common/ducklake_snapshot.hpp"
 #include "duckdb/common/common.hpp"
 #include "duckdb/main/connection.hpp"
+#include "duckdb/main/query_result.hpp"
 #include "storage/ducklake_metadata_info.hpp"
 #include "storage/ducklake_staged_commit.hpp"
 #include "storage/ducklake_stats.hpp"
@@ -36,7 +37,7 @@ public:
 
 private:
 	struct ColumnKey {
-		TableIndex table_id;
+		DuckLakeTableIndex table_id;
 		FieldIndex column_id;
 		bool operator<(const ColumnKey &other) const {
 			if (table_id != other.table_id) {
@@ -100,15 +101,15 @@ private:
 	//! Build INSERT SQL from staged inlined tuples.
 	string BuildInlinedDataInserts(const vector<DuckLakeInlinedDataInfo> &new_data);
 	//! Resolve and cache the latest inlined-data table name.
-	const string &ResolveInlinedTableName(TableIndex table_id);
+	const string &ResolveInlinedTableName(DuckLakeTableIndex table_id);
 	//! All inlined-data table names registered for a table id (any schema version).
-	vector<string> LookupInlinedTableNames(TableIndex table_id);
+	vector<string> LookupInlinedTableNames(DuckLakeTableIndex table_id);
 	//! Replace {METADATA_CATALOG}, {SNAPSHOT_ID}, etc. in SQL.
 	string SubstitutePlaceholders(string sql, const DuckLakeSnapshot &snapshot) const;
 	//! Execute a query on the fresh connection; throw on error.
-	unique_ptr<MaterializedQueryResult> RunQuery(const string &query, const char *what);
+	unique_ptr<QueryResult> RunQuery(const string &query, const char *what);
 	//! Scan a temporary staging table via the catalog API (no SQL, no lock).
-	unique_ptr<MaterializedQueryResult> ScanStagedTable(DuckLakeStagedTableType kind);
+	unique_ptr<QueryResult> ScanStagedTable(DuckLakeStagedTableType kind);
 
 private:
 	ClientContext &context;
@@ -123,12 +124,12 @@ private:
 	DuckLakeSnapshot transaction_snapshot;
 	TransactionChangeInformation transaction_changes;
 	map<ColumnKey, LogicalType> column_types;
-	map<TableIndex, shared_ptr<DuckLakeTableStats>> existing_table_stats;
+	map<DuckLakeTableIndex, shared_ptr<DuckLakeTableStats>> existing_table_stats;
 
 	//! Per-table SQL literal tuples for inlined-data inserts.
-	map<TableIndex, vector<string>> staged_inlined_tuples;
+	map<DuckLakeTableIndex, vector<string>> staged_inlined_tuples;
 	//! Parallel row_ids for update-inlining; empty if !HasPreservedRowIds.
-	map<TableIndex, vector<int64_t>> staged_inlined_row_ids;
+	map<DuckLakeTableIndex, vector<int64_t>> staged_inlined_row_ids;
 	//! Cache of inlined_table_name lookups across the commit retry loop.
 	map<idx_t, string> inlined_table_name_cache;
 	//! Delete files attached to transaction-local data files.

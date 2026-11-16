@@ -1,4 +1,7 @@
 #include "common/ducklake_util.hpp"
+#include "duckdb/parser/expression/cast_expression.hpp"
+#include "duckdb/parser/expression/constant_expression.hpp"
+#include "duckdb/common/type_visitor.hpp"
 #include "duckdb/parser/column_list.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/types/blob.hpp"
@@ -11,6 +14,8 @@
 #include "storage/ducklake_metadata_manager.hpp"
 #include "duckdb/planner/filter/optional_filter.hpp"
 #include "duckdb/planner/filter/dynamic_filter.hpp"
+#include "duckdb/planner/filter/expression_filter.hpp"
+#include "duckdb/planner/filter/table_filter_functions.hpp"
 
 #include <cmath>
 
@@ -145,6 +150,7 @@ string ToSQLString(DuckLakeMetadataManager &metadata_manager, const Value &value
 	case LogicalTypeId::TIMESTAMP_SEC:
 	case LogicalTypeId::TIMESTAMP_MS:
 	case LogicalTypeId::TIMESTAMP_NS:
+	case LogicalTypeId::TIMESTAMP_TZ_NS:
 	case LogicalTypeId::BLOB:
 	case LogicalTypeId::GEOMETRY:
 		// ANSI CAST(value AS type) instead of the PostgreSQL-flavored
@@ -161,9 +167,9 @@ string ToSQLString(DuckLakeMetadataManager &metadata_manager, const Value &value
 	case LogicalTypeId::ENUM:
 		return EscapeVarcharForSQL(value.ToString());
 	case LogicalTypeId::VARIANT: {
-		Vector tmp(value);
+		Vector tmp(value, count_t(1));
 		RecursiveUnifiedVectorFormat format;
-		Vector::RecursiveToUnifiedFormat(tmp, 1, format);
+		Vector::RecursiveToUnifiedFormat(tmp, format);
 		UnifiedVariantVectorData vector_data(format);
 		auto val = VariantUtils::ConvertVariantToValue(vector_data, 0, 0);
 		if (!use_native_type) {
@@ -186,7 +192,8 @@ string ToSQLString(DuckLakeMetadataManager &metadata_manager, const Value &value
 			if (is_unnamed) {
 				ret += ToSQLString(metadata_manager, child);
 			} else {
-				ret += "'" + StringUtil::Replace(name, "'", "''") + "': " + ToSQLString(metadata_manager, child);
+				ret += "'" + StringUtil::Replace(name.GetIdentifierName(), "'", "''") + "': " +
+				       ToSQLString(metadata_manager, child);
 			}
 			if (i < struct_values.size() - 1) {
 				ret += ", ";
@@ -327,19 +334,8 @@ string DuckLakeUtil::JoinPath(FileSystem &fs, const string &a, const string &b) 
 	}
 }
 
-DynamicFilter *DuckLakeUtil::GetOptionalDynamicFilter(const TableFilter &filter) {
-	if (filter.filter_type != TableFilterType::OPTIONAL_FILTER) {
-		return nullptr;
-	}
-	auto &optional = filter.Cast<OptionalFilter>();
-	if (!optional.child_filter || optional.child_filter->filter_type != TableFilterType::DYNAMIC_FILTER) {
-		return nullptr;
-	}
-	auto &dynamic = optional.child_filter->Cast<DynamicFilter>();
-	if (!dynamic.filter_data || !dynamic.filter_data->filter) {
-		return nullptr;
-	}
-	return &dynamic;
+shared_ptr<DynamicFilterData> DuckLakeUtil::GetOptionalDynamicFilter(const TableFilter &filter) {
+	return ExpressionFilter::GetRootOptionalDynamicFilterData(filter);
 }
 
 bool DuckLakeUtil::IsInlinedSystemColumn(const string &name) {
@@ -350,19 +346,20 @@ bool DuckLakeUtil::IsInlinedSystemColumn(const string &name) {
 
 void DuckLakeUtil::ValidateNoInlinedSystemColumns(const ColumnList &columns, const string &table_name) {
 	for (auto &col : columns.Logical()) {
-		if (IsInlinedSystemColumn(col.Name())) {
+		auto &col_name = col.Name().GetIdentifierName();
+		if (IsInlinedSystemColumn(col_name)) {
 			if (table_name.empty()) {
 				throw BinderException(
 				    "Column name \"%s\" is reserved by DuckLake for internal use when data inlining is enabled. If "
 				    "you must use this column name, disable inlining by calling "
 				    "ducklake_set_option('data_inlining_row_limit', 0).",
-				    col.Name());
+				    col_name);
 			}
 			throw BinderException(
 			    "Cannot enable data inlining for table \"%s\". Column \"%s\" conflicts with a reserved DuckLake "
 			    "internal column name used for inlining. To enable inlining for this table, rename or drop column "
 			    "\"%s\".",
-			    table_name, col.Name(), col.Name());
+			    table_name, col_name, col_name);
 		}
 	}
 }
@@ -483,4 +480,52 @@ string DuckLakeUtil::WrappedEncryptionKeyLiteral(const string &wrapped_base64, b
 	}
 	return SQLLiteralToString(value);
 }
+//! Whether a cast to or from the type reads an instant in the time zone of the session, also in a nested type
+static bool DependsOnTimeZone(const LogicalType &type) {
+	return TypeVisitor::Contains(type, [](const LogicalType &child) {
+		switch (child.id()) {
+		case LogicalTypeId::TIMESTAMP_TZ:
+		case LogicalTypeId::TIMESTAMP_TZ_NS:
+		case LogicalTypeId::TIME_TZ:
+			return true;
+		default:
+			return false;
+		}
+	});
+}
+
+bool DuckLakeUtil::TryGetLiteralValue(const ParsedExpression &expr, Value &result,
+                                      optional_ptr<ClientContext> context) {
+	if (expr.GetExpressionType() == ExpressionType::VALUE_CONSTANT) {
+		result = expr.Cast<ConstantExpression>().GetLiteral().ToValue();
+		return true;
+	}
+	if (expr.GetExpressionType() != ExpressionType::OPERATOR_CAST) {
+		return false;
+	}
+	auto &cast = expr.Cast<CastExpression>();
+	if (cast.IsTryCast() || cast.Child().GetExpressionType() != ExpressionType::VALUE_CONSTANT) {
+		return false;
+	}
+	auto target_type = UnboundType::TryDefaultBind(cast.TargetType());
+	if (target_type.id() == LogicalTypeId::INVALID || target_type.id() == LogicalTypeId::UNBOUND) {
+		return false;
+	}
+	auto literal = cast.Child().Cast<ConstantExpression>().GetLiteral().ToValue();
+	optional<Value> value;
+	if (context) {
+		value = literal.TryCastAs(*context, target_type);
+	} else if (DependsOnTimeZone(target_type) || DependsOnTimeZone(literal.type())) {
+		// the session decides what the cast gives, so it stays an expression
+		return false;
+	} else {
+		value = literal.DefaultTryCastAs(target_type);
+	}
+	if (!value) {
+		return false;
+	}
+	result = std::move(*value);
+	return true;
+}
+
 } // namespace duckdb

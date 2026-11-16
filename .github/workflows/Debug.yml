@@ -13,7 +13,7 @@ defaults:
 jobs:
   ducklake-config-tests:
     name: DuckLake (Debug)
-    runs-on: ubuntu-latest
+    runs-on: ${{ startsWith(vars.CI_RUNS_ON, '[') && fromJSON(vars.CI_RUNS_ON) || vars.CI_RUNS_ON || 'gama-arc' }}
     strategy:
       matrix:
         arch: ['linux_amd64']
@@ -29,17 +29,6 @@ jobs:
       DISABLE_EXTENSIONS_FOR_TEST: ON
 
     steps:
-    - name: "node-cleanup"
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        sudo docker image prune --all --force
-        sudo docker builder prune -a
-
-    - name: Install required ubuntu packages
-      run: |
-        sudo apt-get update -y -qq
-        sudo apt-get install -y -qq build-essential cmake ninja-build ccache python3
-
     - uses: actions/checkout@v3
       with:
         fetch-depth: 0
@@ -54,9 +43,12 @@ jobs:
     # what made #43, and it stays green until a consumer tries to load it.
     - uses: ./.github/actions/refuse-unreleased-duckdb-pin
 
+    - uses: ./.github/actions/user-space-build-tools
+
     - name: Setup Ccache
       uses: hendrikmuhs/ccache-action@main
       with:
+        install: 'no'  # ccache comes from user-space-build-tools; the action would need root (forge#126)
         key: ${{ github.job }}
         save: ${{ github.ref == 'refs/heads/main' }}
 

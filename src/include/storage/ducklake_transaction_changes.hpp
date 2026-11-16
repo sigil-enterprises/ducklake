@@ -26,21 +26,21 @@ struct TransactionChangeInformation {
 	case_insensitive_map_t<reference_set_t<CatalogEntry>> created_scalar_macros;
 	case_insensitive_map_t<reference_set_t<CatalogEntry>> created_table_macros;
 
-	set<TableIndex> altered_tables;
-	set<TableIndex> altered_tables_with_schema_version_changes;
-	set<TableIndex> altered_views;
-	set<TableIndex> dropped_tables;
-	set<TableIndex> dropped_views;
+	set<DuckLakeTableIndex> altered_tables;
+	set<DuckLakeTableIndex> altered_tables_with_schema_version_changes;
+	set<DuckLakeTableIndex> altered_views;
+	set<DuckLakeTableIndex> dropped_tables;
+	set<DuckLakeTableIndex> dropped_views;
 	set<MacroIndex> dropped_scalar_macros;
 	set<MacroIndex> dropped_table_macros;
-	set<TableIndex> tables_inserted_into;
-	set<TableIndex> tables_deleted_from;
-	set<TableIndex> tables_inserted_inlined;
-	set<TableIndex> tables_deleted_inlined;
-	set<TableIndex> tables_flushed_inlined;
-	set<TableIndex> tables_compacted;
-	set<TableIndex> tables_merge_adjacent;
-	set<TableIndex> tables_rewrite_delete;
+	set<DuckLakeTableIndex> tables_inserted_into;
+	set<DuckLakeTableIndex> tables_deleted_from;
+	set<DuckLakeTableIndex> tables_inserted_inlined;
+	set<DuckLakeTableIndex> tables_deleted_inlined;
+	set<DuckLakeTableIndex> tables_flushed_inlined;
+	set<DuckLakeTableIndex> tables_compacted;
+	set<DuckLakeTableIndex> tables_merge_adjacent;
+	set<DuckLakeTableIndex> tables_rewrite_delete;
 };
 
 struct SnapshotChangeInformation {
@@ -49,20 +49,20 @@ struct SnapshotChangeInformation {
 	case_insensitive_map_t<case_insensitive_map_t<string>> created_tables;
 	case_insensitive_map_t<case_insensitive_map_t<string>> created_scalar_macros;
 	case_insensitive_map_t<case_insensitive_map_t<string>> created_table_macros;
-	set<TableIndex> altered_tables;
-	set<TableIndex> altered_views;
-	set<TableIndex> dropped_tables;
-	set<TableIndex> dropped_views;
+	set<DuckLakeTableIndex> altered_tables;
+	set<DuckLakeTableIndex> altered_views;
+	set<DuckLakeTableIndex> dropped_tables;
+	set<DuckLakeTableIndex> dropped_views;
 	set<MacroIndex> dropped_scalar_macros;
 	set<MacroIndex> dropped_table_macros;
-	set<TableIndex> inserted_tables;
-	set<TableIndex> tables_deleted_from;
-	set<TableIndex> tables_compacted;
-	set<TableIndex> tables_merge_adjacent;
-	set<TableIndex> tables_rewrite_delete;
-	set<TableIndex> tables_inserted_inlined;
-	set<TableIndex> tables_deleted_inlined;
-	set<TableIndex> tables_flushed_inlined;
+	set<DuckLakeTableIndex> inserted_tables;
+	set<DuckLakeTableIndex> tables_deleted_from;
+	set<DuckLakeTableIndex> tables_compacted;
+	set<DuckLakeTableIndex> tables_merge_adjacent;
+	set<DuckLakeTableIndex> tables_rewrite_delete;
+	set<DuckLakeTableIndex> tables_inserted_inlined;
+	set<DuckLakeTableIndex> tables_deleted_inlined;
+	set<DuckLakeTableIndex> tables_flushed_inlined;
 	static SnapshotChangeInformation ParseChangesMade(const string &changes_made);
 };
 

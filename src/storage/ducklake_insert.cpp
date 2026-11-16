@@ -76,6 +76,9 @@ unique_ptr<GlobalSinkState> DuckLakeInsert::GetGlobalSinkState(ClientContext &co
 //===--------------------------------------------------------------------===//
 DuckLakeColumnStats DuckLakeInsert::ParseColumnStats(const LogicalType &type, const vector<Value> &col_stats) {
 	DuckLakeColumnStats column_stats(type);
+	// the writer reports whether each bound is exact or a truncated bound; DuckLake stores only exact values
+	bool min_inexact = false;
+	bool max_inexact = false;
 	for (idx_t stats_idx = 0; stats_idx < col_stats.size(); stats_idx++) {
 		auto &stats_children = StructValue::GetChildren(col_stats[stats_idx]);
 		auto &stats_name = StringValue::Get(stats_children[0]);
@@ -97,6 +100,13 @@ DuckLakeColumnStats DuckLakeInsert::ParseColumnStats(const LogicalType &type, co
 			column_stats.num_values = StringUtil::ToUnsigned(StringValue::Get(stats_children[1]));
 		} else if (stats_name == "column_size_bytes") {
 			column_stats.column_size_bytes = StringUtil::ToUnsigned(StringValue::Get(stats_children[1]));
+		} else if (stats_name == "min_is_exact") {
+			min_inexact = StringValue::Get(stats_children[1]) != "true";
+		} else if (stats_name == "max_is_exact") {
+			max_inexact = StringValue::Get(stats_children[1]) != "true";
+		} else if (stats_name == "nan_count") {
+			column_stats.has_contains_nan = true;
+			column_stats.contains_nan = StringUtil::ToUnsigned(StringValue::Get(stats_children[1])) > 0;
 		} else if (stats_name == "has_nan") {
 			column_stats.has_contains_nan = true;
 			column_stats.contains_nan = StringValue::Get(stats_children[1]) == "true";
@@ -107,7 +117,23 @@ DuckLakeColumnStats DuckLakeInsert::ParseColumnStats(const LogicalType &type, co
 			throw NotImplementedException("Unsupported stats type \"%s\" in DuckLakeInsert::Sink()", stats_name);
 		}
 	}
+	if (min_inexact) {
+		column_stats.has_min = false;
+	}
+	if (max_inexact) {
+		column_stats.has_max = false;
+	}
 	return column_stats;
+}
+
+static bool IsLeafColumnStats(const vector<Value> &col_stats) {
+	// only leaf columns report a size
+	for (auto &stat : col_stats) {
+		if (StringValue::Get(StructValue::GetChildren(stat)[0]) == "column_size_bytes") {
+			return true;
+		}
+	}
+	return false;
 }
 
 void DuckLakeInsert::AddWrittenFiles(DuckLakeInsertGlobalState &global_state, DataChunk &chunk,
@@ -132,6 +158,9 @@ void DuckLakeInsert::AddWrittenFiles(DuckLakeInsertGlobalState &global_state, Da
 			auto &struct_children = StructValue::GetChildren(map_children[col_idx]);
 			auto &col_name = StringValue::Get(struct_children[0]);
 			auto &col_stats = MapValue::GetChildren(struct_children[1]);
+			if (!IsLeafColumnStats(col_stats)) {
+				continue;
+			}
 			auto column_names = DuckLakeUtil::ParseQuotedList(col_name, '.');
 			// FIXME: this should be checked differently
 			if (column_names[0] == "_ducklake_internal_snapshot_id") {
@@ -179,6 +208,11 @@ void DuckLakeInsert::AddWrittenFiles(DuckLakeInsertGlobalState &global_state, Da
 				throw InvalidInputException("Top-level variant cannot have stats");
 			}
 			auto column_stats = ParseColumnStats(field_id.Type(), col_stats);
+			if (data_file.row_count > 0 && column_stats.has_num_values && column_stats.num_values == 0) {
+				// the writer only counts the values of columns it collects statistics for
+				column_stats.has_num_values = false;
+				column_stats.has_null_count = false;
+			}
 			if (column_stats.null_count > 0 && column_names.size() == 1) {
 				// we wrote NULL values to a base column - verify NOT NULL constraint
 				if (global_state.not_null_fields.count(column_names[0])) {
@@ -259,7 +293,8 @@ string DuckLakeInsert::GetName() const {
 
 InsertionOrderPreservingMap<string> DuckLakeInsert::ParamsToString() const {
 	InsertionOrderPreservingMap<string> result;
-	result["Table Name"] = table ? table->name : info->Base().table;
+	result["Table Name"] =
+	    table ? table->name.GetIdentifierName() : info->Base().GetQualifiedName().Name().GetIdentifierName();
 	return result;
 }
 
@@ -270,17 +305,17 @@ CopyFunctionCatalogEntry &DuckLakeFunctions::GetCopyFunction(ClientContext &cont
 	// Logic is partially duplicated from Catalog::AutoLoadExtensionByCatalogEntry(db, CatalogType::COPY_FUNCTION_ENTRY,
 	// name), but that do not offer enough control
 	auto &db = *context.db;
-	string extension_name = ExtensionHelper::FindExtensionInEntries(name, EXTENSION_COPY_FUNCTIONS);
+	string extension_name = ExtensionHelper::FindExtensionInEntries(Identifier(name), EXTENSION_COPY_FUNCTIONS);
 	if (!extension_name.empty() && Settings::Get<AutoloadKnownExtensionsSetting>(context) &&
-	    ExtensionHelper::CanAutoloadExtension(extension_name)) {
+	    ExtensionHelper::CanAutoloadExtension(db, extension_name)) {
 		// This will either succeed or throw
 		ExtensionHelper::AutoLoadExtension(db, extension_name);
 	}
 	D_ASSERT(!name.empty());
 	auto &system_catalog = Catalog::GetSystemCatalog(db);
 
-	auto entry =
-	    system_catalog.GetEntry<CopyFunctionCatalogEntry>(context, DEFAULT_SCHEMA, name, OnEntryNotFound::RETURN_NULL);
+	auto entry = system_catalog.GetEntry<CopyFunctionCatalogEntry>(context, Identifier(DEFAULT_SCHEMA), Identifier(name),
+	                                                               OnEntryNotFound::RETURN_NULL);
 	if (!entry) {
 		throw MissingExtensionException(
 		    "Could not load the copy function for \"%s\". Try explicitly loading the \"%s\" extension", name, name);
@@ -381,7 +416,7 @@ static unique_ptr<Expression> CreateColumnReference(DuckLakeCopyInput &copy_inpu
                                                     idx_t column_index) {
 	if (copy_input.get_table_index.IsValid()) {
 		// logical plan generation: generate a bound column ref
-		ColumnBinding column_binding(copy_input.get_table_index.GetIndex(), column_index);
+		ColumnBinding column_binding(TableIndex(copy_input.get_table_index.GetIndex()), ProjectionIndex(column_index));
 		return make_uniq<BoundColumnRefExpression>(type, column_binding);
 	}
 	// physical plan generation: generate a reference directly
@@ -459,7 +494,7 @@ static void GeneratePartitionExpressions(ClientContext &context, DuckLakeCopyInp
 		auto expr = GetPartitionExpression(context, copy_input, field);
 		copy_options.names.push_back(GetPartitionExpressionName(copy_input, field, names));
 		names.insert(copy_options.names.back());
-		copy_options.expected_types.push_back(expr->return_type);
+		copy_options.expected_types.push_back(expr->GetReturnType());
 		copy_options.projection_list.push_back(std::move(expr));
 	}
 }
@@ -501,13 +536,26 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckL
 	if (catalog.TryGetConfigOption("parquet_compression_level", parquet_compression_level, schema_id, table_id)) {
 		info->options["compression_level"].emplace_back(parquet_compression_level);
 	}
+	// the batch copy computes with its sizes as BIGINT, and no row group reaches a larger size
+	static constexpr idx_t MAXIMUM_BATCH_SIZE = NumericLimits<int64_t>::Maximum();
+	idx_t batch_size = DEFAULT_ROW_GROUP_SIZE;
 	string row_group_size;
 	if (catalog.TryGetConfigOption("parquet_row_group_size", row_group_size, schema_id, table_id)) {
-		info->options["row_group_size"].emplace_back(row_group_size);
+		try {
+			batch_size = MinValue<idx_t>(StringUtil::ToUnsigned(row_group_size), MAXIMUM_BATCH_SIZE);
+		} catch (std::exception &ex) {
+			throw InvalidInputException("Invalid value \"%s\" for option parquet_row_group_size: %s", row_group_size,
+			                            ex.what());
+		}
 	}
+	optional_idx batch_size_bytes;
 	string row_group_size_bytes;
 	if (catalog.TryGetConfigOption("parquet_row_group_size_bytes", row_group_size_bytes, schema_id, table_id)) {
-		info->options["row_group_size_bytes"].emplace_back(row_group_size_bytes + " bytes");
+		auto parsed = DBConfig::ParseMemoryLimit(row_group_size_bytes + " bytes");
+		if (parsed.IsValid()) {
+			parsed = MinValue<idx_t>(parsed.GetIndex(), MAXIMUM_BATCH_SIZE);
+		}
+		batch_size_bytes = parsed;
 	}
 	string per_thread_output_str;
 	bool per_thread_output = false;
@@ -548,7 +596,12 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckL
 		}
 	}
 
-	auto function_data = copy_fun.function.copy_to_bind(context, bind_input, names_to_write, casted_types);
+	vector<Identifier> identifier_names_to_write;
+	for (auto &write_name : names_to_write) {
+		identifier_names_to_write.push_back(Identifier(write_name));
+	}
+
+	auto function_data = copy_fun.function.copy_to_bind(context, bind_input, identifier_names_to_write, casted_types);
 
 	DuckLakeCopyOptions result(std::move(info), copy_fun.function);
 	result.bind_data = std::move(function_data);
@@ -558,13 +611,17 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckL
 		result.filename_pattern.SetFilenamePattern("ducklake-{uuidv7}");
 		result.partition_output = true;
 		result.write_empty_file = true;
+		// no file_size_bytes floor here: partitioned writes never rotate files (rotate = false), so there is
+		// no target file size to clamp. The 4096 floor below only guards the rotating, unpartitioned branch.
 		result.rotate = false;
 	} else {
 		result.filename_pattern.SetFilenamePattern("ducklake-{uuidv7}");
 		result.partition_output = false;
 		result.write_empty_file = false;
 		// file_size_bytes is currently only supported for unpartitioned writes
-		result.file_size_bytes = target_file_size;
+		// a file is never rotated below the minimum write size (port of upstream v2.0-cyanoptera ducklake_insert.cpp:609)
+		static constexpr idx_t MINIMUM_WRITE_FILE_SIZE = 4096;
+		result.file_size_bytes = MaxValue<idx_t>(target_file_size, MINIMUM_WRITE_FILE_SIZE);
 		result.rotate = true;
 	}
 	result.file_path = copy_input.data_path;
@@ -572,6 +629,8 @@ DuckLakeCopyOptions DuckLakeInsert::GetCopyOptions(ClientContext &context, DuckL
 	result.file_extension = "parquet";
 	result.overwrite_mode = CopyOverwriteMode::COPY_OVERWRITE_OR_IGNORE;
 	result.per_thread_output = per_thread_output;
+	result.batch_size = batch_size;
+	result.batch_size_bytes = batch_size_bytes;
 	result.write_partition_columns = true;
 	result.return_type = CopyFunctionReturnType::WRITTEN_FILE_STATISTICS;
 	result.names = names_to_write;
@@ -589,7 +648,7 @@ static void GenerateProjection(ClientContext &context, PhysicalPlanGenerator &pl
 	// push the projection
 	vector<LogicalType> types;
 	for (auto &expr : expressions) {
-		types.push_back(expr->return_type);
+		types.push_back(expr->GetReturnType());
 	}
 	auto &proj =
 	    planner.Make<PhysicalProjection>(std::move(types), std::move(expressions), plan->estimated_cardinality);
@@ -678,14 +737,17 @@ PhysicalOperator &DuckLakeInsert::PlanCopyForInsert(ClientContext &context, Phys
 	physical_copy.overwrite_mode = copy_options.overwrite_mode;
 	physical_copy.per_thread_output = copy_options.per_thread_output;
 	physical_copy.file_size_bytes = copy_options.file_size_bytes;
-	physical_copy.rotate = copy_options.rotate;
+	physical_copy.batch_size = copy_options.batch_size;
+	physical_copy.batch_size_bytes = copy_options.batch_size_bytes;
 	physical_copy.return_type = copy_options.return_type;
 
 	physical_copy.partition_output = copy_options.partition_output;
 	physical_copy.write_partition_columns = copy_options.write_partition_columns;
 	physical_copy.write_empty_file = copy_options.write_empty_file;
 	physical_copy.partition_columns = std::move(copy_options.partition_columns);
-	physical_copy.names = std::move(copy_options.names);
+	for (auto &copy_name : copy_options.names) {
+		physical_copy.names.push_back(Identifier(copy_name));
+	}
 	physical_copy.expected_types = std::move(copy_options.expected_types);
 	physical_copy.parallel = true;
 	physical_copy.hive_file_pattern =
@@ -727,8 +789,8 @@ string DuckLakeCatalog::GenerateEncryptionKey(ClientContext &context) const {
 static void ResolveColumnRefs(unique_ptr<Expression> &expr) {
 	if (expr->GetExpressionClass() == ExpressionClass::BOUND_COLUMN_REF) {
 		auto &col_ref = expr->Cast<BoundColumnRefExpression>();
-		expr = make_uniq<BoundReferenceExpression>(col_ref.return_type,
-		                                           NumericCast<storage_t>(col_ref.binding.column_index));
+		expr = make_uniq<BoundReferenceExpression>(
+		    col_ref.GetReturnType(), NumericCast<storage_t>(col_ref.Binding().column_index.GetIndex()));
 		return;
 	}
 	ExpressionIterator::EnumerateChildren(*expr, [](unique_ptr<Expression> &child) { ResolveColumnRefs(child); });
@@ -830,7 +892,7 @@ PhysicalOperator &DuckLakeCatalog::PlanCreateTableAs(ClientContext &context, Phy
 	// FIXME: if table already exists and we are doing CREATE IF NOT EXISTS - skip
 	reference<PhysicalOperator> root = plan;
 	optional_ptr<DuckLakeInlineData> inline_data;
-	idx_t data_inlining_row_limit = DataInliningRowLimit(context, duck_schema.GetSchemaId(), TableIndex());
+	idx_t data_inlining_row_limit = DataInliningRowLimit(context, duck_schema.GetSchemaId(), DuckLakeTableIndex());
 	auto &metadata_manager = duck_transaction.GetMetadataManager();
 	if (data_inlining_row_limit > 0 && metadata_manager.CanInlineColumns(columns)) {
 		root = planner.Make<DuckLakeInlineData>(root.get(), data_inlining_row_limit);
@@ -841,7 +903,7 @@ PhysicalOperator &DuckLakeCatalog::PlanCreateTableAs(ClientContext &context, Phy
 	}
 	auto table_uuid = duck_transaction.GenerateUUID();
 	auto table_data_path =
-	    duck_schema.DataPath() + DuckLakeCatalog::GeneratePathFromName(table_uuid, create_info.table);
+	    duck_schema.DataPath() + DuckLakeCatalog::GeneratePathFromName(table_uuid, create_info.GetQualifiedName().Name().GetIdentifierName());
 
 	DuckLakeCopyInput copy_input(context, duck_schema, columns, table_data_path);
 	auto &physical_copy = DuckLakeInsert::PlanCopyForInsert(context, planner, copy_input, root.get());

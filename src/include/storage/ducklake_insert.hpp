@@ -11,7 +11,10 @@
 #include "duckdb/execution/operator/persistent/physical_copy_to_file.hpp"
 
 #include "duckdb/execution/physical_operator.hpp"
+#include "duckdb/execution/physical_plan_generator.hpp"
 #include "duckdb/common/index_vector.hpp"
+#include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
+#include "duckdb/planner/parsed_data/bound_create_table_info.hpp"
 #include "storage/ducklake_stats.hpp"
 #include "common/ducklake_data_file.hpp"
 #include "storage/ducklake_field_data.hpp"
@@ -123,6 +126,9 @@ struct DuckLakeCopyOptions {
 	CopyOverwriteMode overwrite_mode;
 	bool per_thread_output;
 	optional_idx file_size_bytes;
+	//! Row group size in rows / bytes (v2.0 batch copy owns these, not the parquet writer options)
+	optional_idx batch_size;
+	optional_idx batch_size_bytes;
 	bool rotate;
 	CopyFunctionReturnType return_type;
 	bool hive_file_pattern;
@@ -150,7 +156,7 @@ struct DuckLakeCopyInput {
 	const string data_path;
 	string encryption_key;
 	SchemaIndex schema_id;
-	TableIndex table_id;
+	DuckLakeTableIndex table_id;
 	InsertVirtualColumns virtual_columns = InsertVirtualColumns::NONE;
 	optional_idx get_table_index;
 };

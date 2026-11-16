@@ -34,7 +34,7 @@ struct DuckLakeNameMapEntry {
 
 struct DuckLakeNameMap {
 	MappingIndex id;
-	TableIndex table_id;
+	DuckLakeTableIndex table_id;
 	vector<unique_ptr<DuckLakeNameMapEntry>> column_maps;
 
 	hash_t GetHash() const;

@@ -24,11 +24,17 @@ docker compose up --detach
 
 # Wait until MinIO is ready to accept requests
 echo "Waiting for MinIO to become ready..."
+ready=0
 for i in {1..30}; do
   if curl -s -o /dev/null http://127.0.0.1:9000/minio/health/ready; then
     echo "MinIO is ready"
+    ready=1
     break
   fi
   echo "Still waiting for MinIO..."
   sleep 10
 done
+if [ "$ready" != 1 ]; then
+  echo "MinIO did not become ready after 300s" >&2
+  exit 1
+fi

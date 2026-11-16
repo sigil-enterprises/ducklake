@@ -35,7 +35,7 @@ struct DuckLakeOptions {
 	case_insensitive_map_t<Value> metadata_parameters;
 	option_map_t config_options;
 	map<SchemaIndex, option_map_t> schema_options;
-	map<TableIndex, option_map_t> table_options;
+	map<DuckLakeTableIndex, option_map_t> table_options;
 	idx_t busy_timeout = 5000;
 	//! KMS envelope encryption: Unix socket of the key service. NOT SUPPLIED
 	//! = no envelope, and the encryption_key column holds a plaintext key

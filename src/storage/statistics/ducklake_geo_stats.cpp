@@ -2,6 +2,8 @@
 #include "storage/ducklake_geo_stats.hpp"
 
 #include "duckdb/common/types/value.hpp"
+#include "duckdb/common/json_document.hpp"
+#include "duckdb/common/sql_identifier.hpp"
 #include "duckdb/common/case_insensitive_map.hpp"
 #include "storage/ducklake_metadata_info.hpp"
 #include "duckdb/storage/statistics/geometry_stats.hpp"
@@ -44,30 +46,29 @@ void DuckLakeColumnGeoStats::Merge(const DuckLakeColumnExtraStats &new_stats) {
 }
 
 bool DuckLakeColumnGeoStats::TrySerialize(string &result) const {
-	// Format as JSON
-	auto xmin_val = xmin == NumericLimits<double>::Maximum() ? "null" : std::to_string(xmin);
-	auto xmax_val = xmax == NumericLimits<double>::Minimum() ? "null" : std::to_string(xmax);
-	auto ymin_val = ymin == NumericLimits<double>::Maximum() ? "null" : std::to_string(ymin);
-	auto ymax_val = ymax == NumericLimits<double>::Minimum() ? "null" : std::to_string(ymax);
-	auto zmin_val = zmin == NumericLimits<double>::Maximum() ? "null" : std::to_string(zmin);
-	auto zmax_val = zmax == NumericLimits<double>::Minimum() ? "null" : std::to_string(zmax);
-	auto mmin_val = mmin == NumericLimits<double>::Maximum() ? "null" : std::to_string(mmin);
-	auto mmax_val = mmax == NumericLimits<double>::Minimum() ? "null" : std::to_string(mmax);
-
-	auto bbox = StringUtil::Format(
-	    R"({"xmin": %s, "xmax": %s, "ymin": %s, "ymax": %s, "zmin": %s, "zmax": %s, "mmin": %s, "mmax": %s})", xmin_val,
-	    xmax_val, ymin_val, ymax_val, zmin_val, zmax_val, mmin_val, mmax_val);
-
-	string types = "[";
+	// compact JSON via the core writer; port of upstream v2.0-cyanoptera src/storage/statistics/ducklake_geo_stats.cpp
+	JSONWriter writer;
+	auto bbox = writer.CreateObject();
+	auto add_bound = [&](const char *name, double value, double empty_value) {
+		bbox.Add(name, value == empty_value ? writer.CreateNull() : writer.CreateDouble(value));
+	};
+	add_bound("xmin", xmin, NumericLimits<double>::Maximum());
+	add_bound("xmax", xmax, NumericLimits<double>::Minimum());
+	add_bound("ymin", ymin, NumericLimits<double>::Maximum());
+	add_bound("ymax", ymax, NumericLimits<double>::Minimum());
+	add_bound("zmin", zmin, NumericLimits<double>::Maximum());
+	add_bound("zmax", zmax, NumericLimits<double>::Minimum());
+	add_bound("mmin", mmin, NumericLimits<double>::Maximum());
+	add_bound("mmax", mmax, NumericLimits<double>::Minimum());
+	auto types = writer.CreateArray();
 	for (auto &type : geo_types) {
-		if (types.size() > 1) {
-			types += ", ";
-		}
-		types += StringUtil::Format("\"%s\"", type);
+		types.AppendString(type);
 	}
-	types += "]";
-
-	result = StringUtil::Format(R"('{"bbox": %s, "types": %s}')", bbox, types);
+	auto root = writer.CreateObject();
+	root.Add("bbox", bbox);
+	root.Add("types", types);
+	writer.SetRoot(root);
+	result = SQLString::ToString(writer.ToString(JSONWriteFlags::ALLOW_INF_AND_NAN));
 	return true;
 }
 

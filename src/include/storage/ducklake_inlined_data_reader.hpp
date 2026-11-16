@@ -52,7 +52,7 @@ private:
 	vector<column_t> scan_column_ids;
 	ColumnDataScanState state;
 	DataChunk scan_chunk;
-	//! Expression executors for expression_map entries, keyed by column_t (from column_ids)
+	//! Expression executors for expression_map entries, keyed by projection position (index into column_indexes / virtual_columns)
 	unordered_map<column_t, unique_ptr<ExpressionExecutor>> expression_executors;
 };
 

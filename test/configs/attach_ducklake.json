@@ -46,6 +46,11 @@
     {
       "reason": "Contains explicit use of the memory catalog.",
       "paths": [
+        "test/sql/catalog/nested_schema/create_nested_schema.test",
+        "test/sql/catalog/nested_schema/deeply_nested_entries.test",
+        "test/sql/catalog/nested_schema/drop_nested_schema.test",
+        "test/sql/catalog/nested_schema/nested_table.test",
+        "test/sql/catalog/nested_schema/nested_table_columnref.test",
         "test/sql/show_select/test_describe_all.test",
         "test/sql/catalog/function/attached_macro.test",
         "test/sql/catalog/test_temporary.test",
@@ -80,6 +85,24 @@
         "test/sql/table_function/duckdb_columns.test",
         "test/sql/table_function/sqlite_master_quotes.test",
         "test/sql/storage/read_duckdb/read_duckdb_basic.test"
+      ]
+    },
+    {
+      "reason": "Expects the native database name derived from the loaded filename; the configured DuckLake catalog is named dl.",
+      "paths": [
+        "test/sql/catalog/nested_schema/nested_table_persist.test"
+      ]
+    },
+    {
+      "reason": "Asserts DuckDB's native storage-version restriction on nested schemas, which does not apply to DuckLake metadata.",
+      "paths": [
+        "test/sql/catalog/nested_schema/nested_schema_storage_version.test"
+      ]
+    },
+    {
+      "reason": "Asserts every DuckLakeMetadata log row has catalog 'ducklake'; under this config the catalog is named dl and 5 rows differ (5 <> 0 at :52). Fails identically on upstream v2.0-cyanoptera 6486d768 with DUCKLAKE_CI=1: /tmp/core69-evidence/r3-N1-upstream-attach.log",
+      "paths": [
+        "test/sql/general/ducklake_metadata_logging.test"
       ]
     },
     {

@@ -43,7 +43,8 @@ defaults:
 jobs:
   guards:
     name: Envelope guards (no build)
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ startsWith(vars.CI_RUNS_ON, '[') && fromJSON(vars.CI_RUNS_ON) || vars.CI_RUNS_ON || 'gama-arc' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -60,22 +61,22 @@ jobs:
 
   envelope-e2e:
     name: KMS envelope end to end (test provider + fake key service)
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ startsWith(vars.CI_RUNS_ON, '[') && fromJSON(vars.CI_RUNS_ON) || vars.CI_RUNS_ON || 'gama-arc' }}
     env:
       VCPKG_TARGET_TRIPLET: x64-linux
       GEN: Ninja
       VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
 
     steps:
-      - name: Install required ubuntu packages
-        run: |
-          sudo apt-get update -y -qq
-          sudo apt-get install -y -qq build-essential cmake ninja-build ccache python3
-
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: 'true'
+
+      # No root/package-manager on gama-arc: the image has build-essential, python3, git;
+      # cmake/ninja/ccache go into user space (forge#126).
+      - uses: ./.github/actions/user-space-build-tools
 
       - name: Checkout DuckDB to version
         run: |
@@ -87,6 +88,7 @@ jobs:
       - name: Setup Ccache
         uses: hendrikmuhs/ccache-action@main
         with:
+          install: 'no'  # ccache comes from user-space-build-tools; the action would need root (forge#126)
           key: ${{ github.job }}
           save: ${{ github.ref == 'refs/heads/main' }}
 
