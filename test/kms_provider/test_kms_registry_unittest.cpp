@@ -140,6 +140,18 @@ TEST_CASE("DuckLake encryption provider registry - refusals and case-insensitive
 		REQUIRE_THAT(message, Catch::Contains("named 'default' is already registered"));
 	}
 
+	SECTION("an empty factory is refused at registration, on both registration APIs") {
+		auto message = ThrownMessage([] {
+			DuckLakeEncryptionProvider::RegisterProvider("empty_factory_kms",
+			                                             DuckLakeEncryptionProvider::ProviderFactory());
+		});
+		REQUIRE_THAT(message, Catch::Contains("'empty_factory_kms' was registered with an empty factory"));
+		REQUIRE(!DuckLakeEncryptionProvider::HasProvider("empty_factory_kms"));
+		message =
+		    ThrownMessage([] { DuckLakeEncryptionProvider::RegisterFactory(DuckLakeEncryptionProvider::Factory()); });
+		REQUIRE_THAT(message, Catch::Contains("through the single-factory API with an empty factory"));
+	}
+
 	SECTION("an empty name is refused at registration") {
 		auto message = ThrownMessage([] { DuckLakeEncryptionProvider::RegisterProvider("", StubFactory("nameless")); });
 		REQUIRE_THAT(message, Catch::Contains("must be registered under a non-empty name"));
@@ -204,4 +216,28 @@ TEST_CASE("DuckLake load tolerates a host-registered second provider name", "[.]
 	REQUIRE(DuckLakeEncryptionProvider::HasProvider("default"));
 	REQUIRE(DuckLakeEncryptionProvider::Create(*db.instance, "test_kms_alt", LakeConfig("lake"))->SelfTest() ==
 	        "host-alt");
+}
+
+// FRESH PROCESS ONLY (hidden). The two refusals the legacy single-factory wrapper adds on top of the
+// factory it wraps: no socket, and options handed to a provider that cannot take them.
+TEST_CASE("DuckLake legacy single-factory provider refuses a missing socket and any options",
+          "[.][ducklake_kms_registry_legacy_refusals]") {
+	// No SECTIONs: Catch re-runs the body once per section, and the registry has no reset.
+	REQUIRE(!DuckLakeEncryptionProvider::HasFactory());
+	DuckLakeEncryptionProvider::RegisterFactory(LegacyStubFactory("host-default"));
+	DuckDB db(nullptr);
+	auto &instance = *db.instance;
+
+	auto no_socket = LakeConfig("lake");
+	no_socket.encryption_socket = "";
+	auto message = ThrownMessage([&] { DuckLakeEncryptionProvider::Create(instance, "", no_socket); });
+	REQUIRE_THAT(message, Catch::Contains("requires ENCRYPTION_SOCKET"));
+
+	auto with_options = LakeConfig("lake");
+	with_options.properties["tag"] = "x";
+	message = ThrownMessage([&] { DuckLakeEncryptionProvider::Create(instance, "", with_options); });
+	REQUIRE_THAT(message, Catch::Contains("takes no ENCRYPTION_PROVIDER_OPTIONS"));
+
+	// A socket and no options still creates the provider.
+	REQUIRE(DuckLakeEncryptionProvider::Create(instance, "", LakeConfig("lake"))->SelfTest() == "host-default");
 }

@@ -1718,17 +1718,17 @@ void DuckLakeTransaction::RedactStatsOnEnvelopedLake(DuckLakeDataFile &file) con
 // pre-existing partitioned table on a newly-enveloped lake fails outright rather than silently going cleartext or
 // silently going wrong.
 void DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(TableIndex table_id,
-                                                                const DuckLakeDataFile &file) const {
+                                                               const DuckLakeDataFile &file) const {
 	RefusePartitionValuesOnEnvelopedLake(ducklake_catalog, table_id, file);
 }
 
 void DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(DuckLakeCatalog &catalog, TableIndex table_id,
-                                                                const DuckLakeDataFile &file) {
+                                                               const DuckLakeDataFile &file) {
 	RefusePartitionValuesOnEnvelopedLake(catalog.EncryptionProvider() != nullptr, table_id, file);
 }
 
 void DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(bool is_enveloped, TableIndex table_id,
-                                                                const DuckLakeDataFile &file) {
+                                                               const DuckLakeDataFile &file) {
 	if (!is_enveloped) {
 		return;
 	}
@@ -1736,13 +1736,15 @@ void DuckLakeTransaction::RefusePartitionValuesOnEnvelopedLake(bool is_enveloped
 		return;
 	}
 	throw InvalidInputException(
-	    "encryption_socket is set for this DuckLake, and a write to table id %llu would add rows to "
+	    "an encryption provider (ENCRYPTION_SOCKET or ENCRYPTION_PROVIDER) is set for this DuckLake, and a write to "
+	    "table id %llu would add rows to "
 	    "ducklake_file_partition_value - a partitioned scan reads that value back to resolve which files satisfy a "
 	    "predicate, so it is written as a cleartext SQL literal into the metadata catalog, which the encryption "
 	    "envelope does not protect (it wraps the per-file Parquet keys only). This table was partitioned before "
-	    "encryption_socket was configured, so the ALTER TABLE refusal never saw the request. Run ALTER TABLE ... "
+	    "the encryption provider was configured, so the ALTER TABLE refusal never saw the request. Run ALTER TABLE ... "
 	    "SET PARTITIONED BY () to remove the partition before writing to this table on an enveloped lake, or drop "
-	    "encryption_socket if cleartext partition values in the metadata catalog are acceptable for this lake",
+	    "the encryption provider (ENCRYPTION_SOCKET / ENCRYPTION_PROVIDER) if cleartext partition values in the "
+	    "metadata catalog are acceptable for this lake",
 	    table_id.index);
 }
 

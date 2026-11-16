@@ -117,7 +117,11 @@ public:
 	struct Config {
 		//! The registry name the lake resolved to.
 		string provider_name;
-		//! ENCRYPTION_SOCKET; empty when the ATTACH supplied none, which only a named provider allows.
+		//! ENCRYPTION_SOCKET; empty when the ATTACH supplied none. DuckLake hands it to EVERY provider
+		//! whether or not that provider has any use for one, so a provider that does not use a socket
+		//! MUST refuse a non-empty one (a lake that supplies a socket to a socket-less provider has
+		//! configured something that would otherwise be silently ignored), and a provider that needs
+		//! one MUST refuse an empty one.
 		string encryption_socket;
 		//! ENCRYPTION_LAKE_ID; never empty - the catalog refuses an envelope without one.
 		string encryption_lake_id;

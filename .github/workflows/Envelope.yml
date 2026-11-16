@@ -225,7 +225,7 @@ jobs:
         if: always()
         run: |
           fail=0
-          for tag in '[ducklake_kms_registry]' '[ducklake_kms_registry_no_default]' '[ducklake_kms_registry_host_default]' '[ducklake_kms_registry_host_alt]'; do
+          for tag in '[ducklake_kms_registry]' '[ducklake_kms_registry_no_default]' '[ducklake_kms_registry_host_default]' '[ducklake_kms_registry_host_alt]' '[ducklake_kms_registry_legacy_refusals]'; do
             echo "== ${tag}"
             status=0
             output="$(build/release/test/unittest "${tag}" 2>&1)" || status=$?

@@ -31,5 +31,10 @@ function(ducklake_test_kms_attach_registry_unittest)
     target_sources(unittest PRIVATE "${source}")
   endif()
 endfunction()
+# cmake_language(DEFER) needs CMake >= 3.19 although the project floor (cmake_minimum_required) is
+# 3.5: say so here instead of failing with "unknown sub-command DEFER".
+if(CMAKE_VERSION VERSION_LESS 3.19)
+  message(FATAL_ERROR "the test KMS provider needs CMake >= 3.19 (cmake_language(DEFER)); found ${CMAKE_VERSION}")
+endif()
 cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}" CALL
                ducklake_test_kms_attach_registry_unittest)

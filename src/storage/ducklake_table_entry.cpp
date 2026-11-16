@@ -655,13 +655,15 @@ unique_ptr<CatalogEntry> DuckLakeTableEntry::AlterTable(DuckLakeTransaction &tra
 		auto &duck_catalog = ParentCatalog().Cast<DuckLakeCatalog>();
 		if (duck_catalog.EncryptionProvider()) {
 			throw InvalidInputException(
-			    "encryption_socket was set for this DuckLake, and ALTER TABLE ... SET PARTITIONED BY was requested "
+			    "an encryption provider (ENCRYPTION_SOCKET or ENCRYPTION_PROVIDER) was set for this DuckLake, and "
+			    "ALTER TABLE ... SET PARTITIONED BY was requested "
 			    "for table \"%s\" - partition values are written as cleartext SQL literals into "
 			    "ducklake_file_partition_value in the metadata catalog, and a partitioned scan reads them back to "
 			    "resolve which files satisfy a predicate, so the value cannot be dropped the way column statistics "
 			    "are. The encryption envelope does not protect this table (it wraps the per-file Parquet keys "
-			    "only). Either drop the PARTITIONED BY clause, or drop encryption_socket if cleartext partition "
-			    "values in the metadata catalog are acceptable for this lake",
+			    "only). Either drop the PARTITIONED BY clause, or drop the encryption provider (ENCRYPTION_SOCKET / "
+			    "ENCRYPTION_PROVIDER) if cleartext partition values in the metadata catalog are acceptable for this "
+			    "lake",
 			    table_info.table);
 		}
 	}

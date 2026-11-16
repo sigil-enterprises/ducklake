@@ -80,6 +80,10 @@ bool DuckLakeEncryptionProvider::IsBase64(const string &value) {
 }
 
 void DuckLakeEncryptionProvider::RegisterFactory(Factory factory) {
+	if (!factory) {
+		throw InvalidInputException("a DuckLake encryption provider was registered through the single-factory API "
+		                            "with an empty factory");
+	}
 	// The legacy signature carries no property map, so a lake handing this provider options would see
 	// them silently dropped - refused instead. It also has no way to run without a socket.
 	RegisterProvider(DEFAULT_PROVIDER_NAME,
