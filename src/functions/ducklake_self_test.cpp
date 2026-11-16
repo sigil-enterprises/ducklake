@@ -115,8 +115,7 @@ static void DuckLakeSelfTestExecute(ClientContext &context, TableFunctionInput &
 		// This is what a consumer that does not hold encryption material calls.
 	} else {
 		// Catalog named — full encryption-path health check.
-		auto &factory = DuckLakeEncryptionProvider::GetFactory();
-		if (!factory) {
+		if (!DuckLakeEncryptionProvider::HasFactory()) {
 			row.provider_kind = "factory_not_registered";
 			row.load_ok = false;
 		} else {

@@ -10,6 +10,7 @@
 
 #include "duckdb/common/common.hpp"
 #include "duckdb/common/vector.hpp"
+#include "duckdb/common/unordered_map.hpp"
 
 #include <functional>
 
@@ -84,22 +85,75 @@ public:
 	//! length and padding are the provider's to judge.
 	static bool IsBase64(const string &value);
 
-	//! Creates the provider for one attached lake. A build that integrates a key service registers a
-	//! factory; with none registered the catalog refuses ENCRYPTION_SOCKET at ATTACH.
+	//! THE PROVIDER REGISTRY (issue #120).
+	//!
+	//! Providers are registered per PROCESS under a NAME, and each attached lake SELECTS one with the
+	//! ATTACH option ENCRYPTION_PROVIDER. The registry used to be a single slot, which made the
+	//! provider a property of the process rather than of the catalog: one process could not ATTACH two
+	//! lakes rooted in different key services - a second provider could not be registered, and a
+	//! second lake had no way to ask for anything but the first one's.
+	//!
+	//! A lake that names no provider gets the one registered as DEFAULT_PROVIDER_NAME, or - when
+	//! there is no such entry - the only one registered. With several registered and none of them the
+	//! default, an ATTACH that names none is refused rather than resolved by registration order.
+	static constexpr const char *DEFAULT_PROVIDER_NAME = "default";
+
+	//! Creates the provider for one attached lake through the LEGACY single-factory API.
 	//!
 	//! `db` is the attaching database: a provider takes its crypto primitives from it rather than
 	//! choosing its own, so it follows whatever policy that database is configured with.
 	using Factory = std::function<unique_ptr<DuckLakeEncryptionProvider>(
 	    DatabaseInstance &db, const string &encryption_socket, const string &encryption_lake_id,
 	    idx_t cache_ttl_seconds)>;
-	//! Throws when a factory is already registered: a second one would make the provider a lake gets
-	//! depend on extension load order.
+	//! LEGACY: registers `factory` under DEFAULT_PROVIDER_NAME. Throws when that name is already taken:
+	//! a second one would make the provider a lake gets depend on extension load order. A provider
+	//! registered this way cannot receive ENCRYPTION_PROVIDER_OPTIONS, so supplying them for it is
+	//! refused at ATTACH, and it still requires ENCRYPTION_SOCKET.
 	static void RegisterFactory(Factory factory);
-	//! Whether a factory is already registered. Registration is per-PROCESS while extension loading
-	//! is per-DatabaseInstance, so the loader must be able to ask before it registers - otherwise a
-	//! host that opens a second database in one process trips the refusal above.
+	//! LEGACY: whether ANY provider is registered in this process.
 	static bool HasFactory();
-	static const Factory &GetFactory();
+
+	//! Everything ATTACH hands a provider for one lake.
+	struct Config {
+		//! The registry name the lake resolved to.
+		string provider_name;
+		//! ENCRYPTION_SOCKET; empty when the ATTACH supplied none. DuckLake hands it to EVERY provider
+		//! whether or not that provider has any use for one, so a provider that does not use a socket
+		//! MUST refuse a non-empty one (a lake that supplies a socket to a socket-less provider has
+		//! configured something that would otherwise be silently ignored), and a provider that needs
+		//! one MUST refuse an empty one.
+		string encryption_socket;
+		//! ENCRYPTION_LAKE_ID; never empty - the catalog refuses an envelope without one.
+		string encryption_lake_id;
+		idx_t cache_ttl_seconds = 0;
+		//! ENCRYPTION_PROVIDER_OPTIONS, passed through UNINTERPRETED: what the keys mean is the
+		//! provider's business, so DuckLake fixes no option names for any particular key service.
+		unordered_map<string, string> properties;
+	};
+	using ProviderFactory =
+	    std::function<unique_ptr<DuckLakeEncryptionProvider>(DatabaseInstance &db, const Config &config)>;
+	//! Registers `factory` under `name` (compared case-insensitively). Throws on an empty name and on a
+	//! name already taken - two providers answering to one name would make the one a lake gets depend on
+	//! extension load order, which is exactly what the single slot refused.
+	static void RegisterProvider(const string &name, ProviderFactory factory);
+	//! Runs `registration` - DuckLake registering the providers its build carries, at LOAD - with the
+	//! duplicate-name refusal relaxed on THIS thread: a name that is already taken is left to whoever
+	//! registered it first, and registration carries on as if it had succeeded. Every other refusal
+	//! (an empty name, an empty factory) still throws, and a registration made outside this call -
+	//! a host registering after LOAD - still collides.
+	//!
+	//! Why: a host that registered a name before `LOAD ducklake` must not make the load throw, and a
+	//! load retried after a partial registration must surface the error that stopped it, not a
+	//! collision with a name its own first attempt registered.
+	static void RegisterOwnProviders(const std::function<void()> &registration);
+	static bool HasProvider(const string &name);
+	//! Registered names, sorted, for error messages and diagnostics.
+	static vector<string> RegisteredProviderNames();
+	//! Resolves the provider a lake asked for and creates it. `requested_name` empty means the ATTACH
+	//! named none. Throws, naming what IS registered, when the request resolves to nothing - never
+	//! falls back to some other provider.
+	static unique_ptr<DuckLakeEncryptionProvider> Create(DatabaseInstance &db, const string &requested_name,
+	                                                     Config config);
 };
 
 } // namespace duckdb

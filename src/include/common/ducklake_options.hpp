@@ -60,6 +60,15 @@ struct DuckLakeOptions {
 	//! is also where the range is enforced.
 	int64_t encryption_cache_ttl_seconds = 0;
 	bool encryption_cache_ttl_seconds_supplied = false;
+	//! Issue #120: which registered encryption provider THIS lake uses. Not
+	//! supplied = the default provider. Supplied turns the envelope on by
+	//! itself, so a provider that needs no socket can be selected without one;
+	//! supplied but empty is refused, for the same reason as the socket.
+	string encryption_provider;
+	bool encryption_provider_supplied = false;
+	//! Provider-specific configuration, passed to the provider uninterpreted.
+	unordered_map<string, string> encryption_provider_options;
+	bool encryption_provider_options_supplied = false;
 };
 
 } // namespace duckdb

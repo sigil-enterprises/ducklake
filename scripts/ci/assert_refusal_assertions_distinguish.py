@@ -64,12 +64,12 @@ DECOYS = [
     (
         "no-kms-provider-in-build",
         "src/storage/ducklake_catalog.cpp",
-        "ENCRYPTION_SOCKET was set but this build of DuckLake has no KMS ",
+        "ENCRYPTION_SOCKET / ENCRYPTION_PROVIDER was set but this build of DuckLake ",
     ),
     (
         "resolved-to-unencrypted",
         "src/storage/ducklake_catalog.cpp",
-        "encryption_socket was set, but this DuckLake resolved to UNENCRYPTED - there are no per-file keys to ",
+        "encryption_socket / encryption_provider was set, but this DuckLake resolved to UNENCRYPTED - there are ",
     ),
     (
         "missing-per-file-key",

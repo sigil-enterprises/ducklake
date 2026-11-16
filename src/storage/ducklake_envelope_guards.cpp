@@ -46,7 +46,7 @@ void DuckLakeCatalog::RefuseWrappedKeyWithoutProvider(const string &file_path, c
 	}
 	throw IOException("file %s carries a wrapped encryption key, but this lake "
 	                  "was attached without "
-	                  "ENCRYPTION_SOCKET / ENCRYPTION_LAKE_ID. Re-attach with "
+	                  "ENCRYPTION_SOCKET / ENCRYPTION_PROVIDER and ENCRYPTION_LAKE_ID. Re-attach with "
 	                  "the envelope options",
 	                  file_path);
 }
