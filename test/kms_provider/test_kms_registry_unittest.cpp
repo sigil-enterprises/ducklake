@@ -30,6 +30,7 @@
 // Relative, so it resolves identically from test/kms_provider/ and from the
 // src/crypta-provider/ overlay: both sit two levels below the repository root.
 #include "../../src/include/storage/ducklake_encryption_provider.hpp"
+#include "../../src/include/ducklake_extension.hpp"
 
 #include <algorithm>
 #include <functional>
@@ -97,12 +98,20 @@ DuckLakeEncryptionProvider::Config LakeConfig(const string &lake_id) {
 	return config;
 }
 
+//! DuckDB v2.0 builds DuckLake as "built but not linked": opening a database no
+//! longer loads it, so every case that relies on Load() registering the test
+//! providers (or refusing a host-registered one) loads the static extension itself.
+void LoadDuckLake(DuckDB &db) {
+	db.LoadStaticExtension<DucklakeExtension>();
+}
+
 } // namespace
 
 // Runs in any process: whatever else ran first, opening a database loads
 // DuckLake, which registers the test build's 'default' and 'test_kms_alt'.
 TEST_CASE("DuckLake encryption provider registry - refusals and case-insensitive lookup", "[ducklake_kms_registry]") {
 	DuckDB db(nullptr);
+	LoadDuckLake(db);
 	auto &instance = *db.instance;
 	REQUIRE(DuckLakeEncryptionProvider::HasProvider("default"));
 	REQUIRE(DuckLakeEncryptionProvider::HasProvider("test_kms_alt"));
@@ -188,10 +197,14 @@ TEST_CASE("DuckLake load tolerates a host-registered 'default'", "[.][ducklake_k
 	REQUIRE(!DuckLakeEncryptionProvider::HasFactory());
 	DuckLakeEncryptionProvider::RegisterFactory(LegacyStubFactory("host-default"));
 
-	auto message = ThrownMessage([] { DuckDB db(nullptr); });
+	auto message = ThrownMessage([] {
+		 DuckDB db(nullptr);
+		 LoadDuckLake(db);
+	});
 	REQUIRE(message == "");
 
 	DuckDB db(nullptr);
+	LoadDuckLake(db);
 	REQUIRE(DuckLakeEncryptionProvider::Create(*db.instance, "", LakeConfig("lake"))->SelfTest() == "host-default");
 	// DuckLake's other provider still registered beside the host's.
 	REQUIRE(DuckLakeEncryptionProvider::HasProvider("test_kms_alt"));
@@ -205,14 +218,21 @@ TEST_CASE("DuckLake load tolerates a host-registered second provider name", "[.]
 	REQUIRE(!DuckLakeEncryptionProvider::HasFactory());
 	DuckLakeEncryptionProvider::RegisterProvider("test_kms_alt", StubFactory("host-alt"));
 
-	auto first = ThrownMessage([] { DuckDB db(nullptr); });
-	auto second = ThrownMessage([] { DuckDB db(nullptr); });
+	auto first = ThrownMessage([] {
+		 DuckDB db(nullptr);
+		 LoadDuckLake(db);
+	});
+	auto second = ThrownMessage([] {
+		 DuckDB db(nullptr);
+		 LoadDuckLake(db);
+	});
 	INFO("first load: " << first);
 	INFO("second load: " << second);
 	REQUIRE(first == "");
 	REQUIRE(second == "");
 
 	DuckDB db(nullptr);
+	LoadDuckLake(db);
 	REQUIRE(DuckLakeEncryptionProvider::HasProvider("default"));
 	REQUIRE(DuckLakeEncryptionProvider::Create(*db.instance, "test_kms_alt", LakeConfig("lake"))->SelfTest() ==
 	        "host-alt");
@@ -226,6 +246,7 @@ TEST_CASE("DuckLake legacy single-factory provider refuses a missing socket and 
 	REQUIRE(!DuckLakeEncryptionProvider::HasFactory());
 	DuckLakeEncryptionProvider::RegisterFactory(LegacyStubFactory("host-default"));
 	DuckDB db(nullptr);
+	LoadDuckLake(db);
 	auto &instance = *db.instance;
 
 	auto no_socket = LakeConfig("lake");

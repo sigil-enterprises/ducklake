@@ -1,3 +1,4 @@
+cmake_policy(SET CMP0079 NEW)
 # TEST-ONLY KMS provider. Never present in a release build.
 #
 # It is copied into src/crypta-provider/ by the Envelope workflow and picked up
@@ -29,6 +30,12 @@ function(ducklake_test_kms_attach_registry_unittest)
   if(TARGET unittest)
     get_property(source GLOBAL PROPERTY DUCKLAKE_TEST_KMS_REGISTRY_UNITTEST)
     target_sources(unittest PRIVATE "${source}")
+    # DuckDB v2.0 links `unittest` against the SHARED libduckdb, which does not
+    # carry DuckLake: the registry cases call DuckLakeEncryptionProvider
+    # directly, so the static extension archive must be linked in explicitly.
+    if(TARGET ducklake_extension)
+      target_link_libraries(unittest ducklake_extension)
+    endif()
   endif()
 endfunction()
 # cmake_language(DEFER) needs CMake >= 3.19 although the project floor (cmake_minimum_required) is
