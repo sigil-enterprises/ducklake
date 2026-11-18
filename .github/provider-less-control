@@ -29,25 +29,30 @@
 # the absence of the provider is a property of the artifact rather than of how
 # the fixture was prepared.
 #
-#   $ curl -sSL -o x.gz http://extensions.duckdb.org/v1.5.5/linux_amd64/ducklake.duckdb_extension.gz
+#   $ curl -sSL -o x.gz https://extensions.duckdb.org/v2.0.0/linux_amd64/ducklake.duckdb_extension.gz
 #   $ gunzip x.gz && file x
-#   x: ELF 64-bit LSB shared object, x86-64, BuildID[sha1]=26ac1aba..., not stripped
+#   x: ELF 64-bit LSB shared object, x86-64, BuildID[sha1]=d5ee76aa59c0fe5ddbc9acce4d56733ca6fb2876, not stripped
 #   $ .github/scripts/assert_provider_linked.sh --expect present x
-#       sha256      e51bf9e8d933d0e83780ae096455501b542cf962569a2ce5613532d702c08302
-#       symbols     53872
-#       anchor(DuckLakeCatalog) 182
+#       sha256      4b497cf95d768004d34a97e7098d33f687e994dc523945948c321af25061b39b
+#       symbols     115634
+#       anchor(DuckLakeCatalog) 268
 #       provider    0 (defined + EXTERNAL only)
 #   exit 1
 #
-# Measured 2026-08-24 on the CURRENT cut of the gate (external-linkage filter
-# in force), with llvm-nm on macOS; the same file is re-measured on GNU nm in
-# CI on every run, which is what the pipeline actually depends on.
+# Measured 2026-11-18 on the CURRENT cut of the gate (external-linkage filter
+# in force), with GNU nm 2.40 (debian:bookworm, linux/amd64); the same file is
+# re-measured on GNU nm in CI on every run, which is what the pipeline depends
+# on. The control moved from v1.5.5 to v2.0.0 with .github/duckdb-version:
+# DuckDB refuses an extension built for another release, and the asset-name
+# self-test LOADs this very file in the CLI the pin names. With the v2.0.0 CLI
+# (v2.0.0 d54cbbe3df) the GOOD case loads and the bad-name case is refused for
+# the entrypoint reason (selftest_asset_name.sh exit 0).
 #
-# 53872 symbols and 182 anchor sightings are what make the 0 mean something:
+# 115634 symbols and 268 anchor sightings are what make the 0 mean something:
 # the symbol table is demonstrably real and demonstrably a DuckLake one, so the
 # zero is an absent provider and not a misaimed tool.
-ELF_CONTROL_URL=http://extensions.duckdb.org/v1.5.5/linux_amd64/ducklake.duckdb_extension.gz
-ELF_CONTROL_SHA256=e51bf9e8d933d0e83780ae096455501b542cf962569a2ce5613532d702c08302
+ELF_CONTROL_URL=https://extensions.duckdb.org/v2.0.0/linux_amd64/ducklake.duckdb_extension.gz
+ELF_CONTROL_SHA256=4b497cf95d768004d34a97e7098d33f687e994dc523945948c321af25061b39b
 #
 # ---------------------------------------------------------------------------
 # SECONDARY control - PE32+ mingw DLL, DuckDB's own upstream ducklake build for
@@ -77,15 +82,15 @@ ELF_CONTROL_SHA256=e51bf9e8d933d0e83780ae096455501b542cf962569a2ce5613532d702c08
 # table" - a refusal that says nothing whatever about the provider path this
 # control is aimed at.
 #
-# Measured 2026-09-12 by walking the COFF symbol table of the pinned bytes
-# directly: 202971 symbols, 468 sightings of DuckLakeCatalog, 44744 DEFINED +
-# EXTERNAL symbols, of which 0 match the provider patterns - so the gate must
-# refuse it with "0 provider symbols", and the zero is an absent provider
-# rather than a misaimed tool. Re-measured on GNU nm in CI on every run, which
-# is what the pipeline actually depends on.
+# Measured 2026-11-18 on the v2.0.0 bytes with the mingw GNU nm 2.40
+# (x86_64-w64-mingw32-nm, debian:bookworm): 268833 symbol lines, 557 sightings
+# of DuckLakeCatalog, 0 DEFINED + EXTERNAL symbols matching the provider
+# patterns - so the gate must refuse it with "0 provider symbols", and the zero
+# is an absent provider rather than a misaimed tool. Re-measured on GNU nm in
+# CI on every run, which is what the pipeline actually depends on.
 #
-#   $ curl -sSL -o x.gz http://extensions.duckdb.org/v1.5.5/windows_amd64_mingw/ducklake.duckdb_extension.gz
+#   $ curl -sSL -o x.gz https://extensions.duckdb.org/v2.0.0/windows_amd64_mingw/ducklake.duckdb_extension.gz
 #   $ gunzip x.gz && file x
-#   x: PE32+ executable (DLL) (console) x86-64, for MS Windows
-PE_CONTROL_URL=http://extensions.duckdb.org/v1.5.5/windows_amd64_mingw/ducklake.duckdb_extension.gz
-PE_CONTROL_SHA256=7d457487d9364163a30577aec8999750a770c6fd9082709fa0648ef7e8c3f249
+#   x: PE32+ executable (DLL) (console) x86-64, for MS Windows, 19 sections
+PE_CONTROL_URL=https://extensions.duckdb.org/v2.0.0/windows_amd64_mingw/ducklake.duckdb_extension.gz
+PE_CONTROL_SHA256=ef65662089848a851ab6b8675b86565d25ff5659c87b5fccd93a8db00aadd6d3

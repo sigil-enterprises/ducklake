@@ -110,10 +110,10 @@ jobs:
         run: |
           set -euxo pipefail
           version="$(cat .github/duckdb-version)"
-          curl -fsSL -o /tmp/cli.zip \
-            "https://github.com/duckdb/duckdb/releases/download/${version}/duckdb_cli-linux-amd64.zip"
-          sha256sum /tmp/cli.zip
-          unzip -o /tmp/cli.zip -d /tmp/cli
+          curl -fsSL -o /tmp/cli.tar.gz \
+            "https://github.com/duckdb/duckdb/releases/download/${version}/duckdb-cli-linux-amd64.tar.gz"
+          sha256sum /tmp/cli.tar.gz
+          mkdir -p /tmp/cli && tar -xzf /tmp/cli.tar.gz -C /tmp/cli
           /tmp/cli/duckdb --version
 
       - name: PROVE load, encrypted write, detach, re-attach, and a keyless read failing
