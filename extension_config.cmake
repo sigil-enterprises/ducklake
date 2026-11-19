@@ -11,13 +11,15 @@ if(NOT DEFINED ENV{DISABLE_EXTENSIONS_FOR_TEST})
     duckdb_extension_load(tpch)
 endif()
 
-set(EXTENSION_CONFIG_BASE_DIR "${CMAKE_CURRENT_LIST_DIR}/.github/config/extensions/")
+# Do NOT reuse the name EXTENSION_CONFIG_BASE_DIR: duckdb v2 resolves out-of-tree core extensions
+# (httpfs, postgres_scanner, ...) through it, so overriding it hides duckdb's own configs.
+set(DUCKLAKE_EXTENSION_CONFIG_DIR "${CMAKE_CURRENT_LIST_DIR}/.github/config/extensions")
 if($ENV{ENABLE_SQLITE_SCANNER})
-    include("${EXTENSION_CONFIG_BASE_DIR}/sqlite_scanner.cmake")
+    include("${DUCKLAKE_EXTENSION_CONFIG_DIR}/sqlite_scanner.cmake")
 endif()
 
 if($ENV{ENABLE_POSTGRES_SCANNER})
-    include("${EXTENSION_CONFIG_BASE_DIR}/postgres_scanner.cmake")
+    include("${DUCKLAKE_EXTENSION_CONFIG_DIR}/postgres_scanner.cmake")
 endif()
 
 if($ENV{ENABLE_QUACK})
