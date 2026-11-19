@@ -1,4 +1,4 @@
-# postgres_scanner depends on libpq/OpenSSL, so it is built but never statically linked.
+# postgres_scanner depends on libpq/OpenSSL, so it is built but not linked by default.
 # DuckDB v2 removed DONT_LINK: extensions are linked only when listed with
 # duckdb_extension_statically_link() or STATICALLY_LINK_EXTENSIONS, so omission is enough.
 if (NOT MINGW AND NOT ${WASM_ENABLED})

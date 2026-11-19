@@ -4,22 +4,21 @@
 duckdb_extension_load(ducklake
         SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}
 )
+duckdb_extension_statically_link(ducklake)
 
 if(NOT DEFINED ENV{DISABLE_EXTENSIONS_FOR_TEST})
     duckdb_extension_load(icu)
     duckdb_extension_load(json)
     duckdb_extension_load(tpch)
+    duckdb_extension_statically_link(icu json tpch)
 endif()
 
-# Do NOT reuse the name EXTENSION_CONFIG_BASE_DIR: duckdb v2 resolves out-of-tree core extensions
-# (httpfs, postgres_scanner, ...) through it, so overriding it hides duckdb's own configs.
-set(DUCKLAKE_EXTENSION_CONFIG_DIR "${CMAKE_CURRENT_LIST_DIR}/.github/config/extensions")
 if($ENV{ENABLE_SQLITE_SCANNER})
-    include("${DUCKLAKE_EXTENSION_CONFIG_DIR}/sqlite_scanner.cmake")
+    include("${CMAKE_CURRENT_LIST_DIR}/.github/config/extensions/sqlite_scanner.cmake")
 endif()
 
 if($ENV{ENABLE_POSTGRES_SCANNER})
-    include("${DUCKLAKE_EXTENSION_CONFIG_DIR}/postgres_scanner.cmake")
+    include("${CMAKE_CURRENT_LIST_DIR}/.github/config/extensions/postgres_scanner.cmake")
 endif()
 
 if($ENV{ENABLE_QUACK})
@@ -30,7 +29,8 @@ if($ENV{ENABLE_QUACK})
     duckdb_extension_load(quack
             LOAD_TESTS
             GIT_URL https://github.com/duckdb/duckdb-quack.git
-            GIT_TAG be9c9bb5bd703f5e6d7e08a47de89eeb4aa51a1b
+            GIT_TAG f96420ed46aee9c42064bdb99ddfd1230d6c0086
             SUBMODULES "extension-ci-tools"
     )
+    duckdb_extension_statically_link(quack)
 endif()
